@@ -15,11 +15,20 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public static class JarSystemHosting
 {
-    /// <summary>注册核心与组合根；日志出口用宿主的 <c>ILogger</c> 承载。</summary>
+    /// <summary>注册核心、组合根、WebSocket 出口与两个后台循环；日志出口用宿主的 <c>ILogger</c> 承载。</summary>
     public static IServiceCollection AddJarSystem(this IServiceCollection services)
     {
         services.AddSingleton<ISystemLog>(sp => new LoggerSystemLog(sp.GetRequiredService<ILogger<JarSystemService>>()));
         services.AddSingleton<JarSystemService>();
+
+        // 推送出口与命令分派（P5：由容器持有，后台循环才能拿到同一个 sink 广播）
+        services.AddSingleton<WebSocketHub>();
+        services.AddSingleton<IWebSocketSink>(sp => sp.GetRequiredService<WebSocketHub>());
+        services.AddSingleton<CommandDispatcher>();
+
+        // P5：两个周期性任务改为托管服务（PeriodicTimer，不重入，随宿主优雅停止）
+        services.AddHostedService<TickBackgroundService>();
+        services.AddHostedService<AutoCheckBackgroundService>();
         return services;
     }
 }

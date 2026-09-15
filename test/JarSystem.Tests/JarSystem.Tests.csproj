@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 说明与用法见同目录 README.md（XML 注释里不能出现连续两个减号） -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- xUnit v3 的测试项目**本身就是可执行程序**：缺这行会报
+         "xUnit.net v3 test projects must be executable" -->
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\JarSystem.Core\JarSystem.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FsCheck.Xunit.v3" Version="3.4.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.1" />
+    <!--
+      快照/审批测试**不再依赖 Verify**：Verify 33.x 起是赞助门槛软件
+      （SponsorCheck SC021 会让构建直接失败，除非声明赞助或豁免；"忽略许可证"那条我们不选）。
+      改为自实现审批基线（见 PropertyAndSnapshotTests.DefaultWorldOptionsIsStable + Approvals/ 目录）：
+      零依赖、行为等价（不一致时写出 *.received.json 并失败，人工比对后提升为 *.approved.json）。
+    -->
+  </ItemGroup>
+
+</Project>

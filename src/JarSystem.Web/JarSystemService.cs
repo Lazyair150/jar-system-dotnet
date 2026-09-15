@@ -23,9 +23,9 @@ public class JarSystemService
     }
 
     public bool IsRunning { get; set; }
-    public Timer? TickTimer { get; set; }
-    public Timer? AutoCheckTimer { get; set; }
     public System.Threading.SemaphoreSlim Gate { get; } = new(1, 1);
+    // P5：原先这里持有两个 System.Threading.Timer（TickTimer / AutoCheckTimer），现已移除 ——
+    // 改为 TickBackgroundService / AutoCheckBackgroundService（PeriodicTimer）驱动：不重入、随宿主优雅停止。
 
     /// <summary>读取并校验世界配置；没有配置文件时返回 null（用内置默认世界）。校验失败即抛异常。</summary>
     private static JarSystem.Core.Config.WorldOptions? LoadWorldOrNull()
@@ -48,8 +48,11 @@ public class JarSystemService
 
     /// <summary>
     /// 配置查找顺序（逐条尝试，取第一个存在的）：
-    /// ① 当前工作目录 ② 应用目录（AppContext.BaseDirectory） ③ 从应用目录向上最多 4 层
-    /// —— ③ 是为了兼容 `dotnet run`（工作目录可能是 bin/Debug/net10.0）与"仓库根启动"两种方式。
+    /// ① 当前工作目录 ② 应用目录（AppContext.BaseDirectory） ③ 从应用目录向上逐级。
+    ///
+    /// ③ 的层数必须够：`src\JarSystem.Web\bin\Debug\net10.0\` 到**仓库根**要向上 **6 层**
+    /// （net10.0 → Debug → bin → JarSystem.Web → src → 仓库根），
+    /// 早先只找 4 层 ⇒ 只有"从仓库根启动"时命中第 ① 条，其它启动方式会**静默找不到配置**。
     /// </summary>
     private static string? ResolveConfigPath()
     {
@@ -59,7 +62,7 @@ public class JarSystemService
             Path.Combine(AppContext.BaseDirectory, CONFIG_RELATIVE_PATH)
         };
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        for (int i = 0; i < 4 && dir != null; i++)
+        for (int i = 0; i < 8 && dir != null; i++)
         {
             candidates.Add(Path.Combine(dir.FullName, CONFIG_RELATIVE_PATH));
             dir = dir.Parent;

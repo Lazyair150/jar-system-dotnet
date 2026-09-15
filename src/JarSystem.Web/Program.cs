@@ -35,8 +35,9 @@ app.UseWebSockets();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-var hub = new WebSocketHub();
-var dispatcher = new CommandDispatcher(hub);
+// P5：推送出口与命令分派由容器持有（后台循环需要同一个 sink 广播，不能各自 new 一份）
+var hub = app.Services.GetRequiredService<WebSocketHub>();
+var dispatcher = app.Services.GetRequiredService<CommandDispatcher>();
 
 app.Use(async (ctx, next) =>
 {

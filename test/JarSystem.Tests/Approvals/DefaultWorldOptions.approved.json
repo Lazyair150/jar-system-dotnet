@@ -1,0 +1,139 @@
+{
+  "shapes": [
+    "\u5706\u7F50",
+    "\u65B9\u7F50",
+    "\u4E09\u89D2\u7F50",
+    "\u9AD8\u7F50",
+    "\u957F\u7F50",
+    "\u6241\u7F50",
+    "\u9F13\u7F50",
+    "\u5C16\u7F50"
+  ],
+  "liquids": [
+    "\u9152",
+    "\u871C"
+  ],
+  "defaultMaxJars": 20,
+  "defaultMaxLiquids": 30,
+  "flow": {
+    "jarCount": 3,
+    "liquidAmount": 2,
+    "liquidRate": {
+      "\u9152": 1,
+      "\u871C": 1
+    }
+  },
+  "initialStock": {
+    "\u9152": 20,
+    "\u871C": 20
+  },
+  "producers": [
+    {
+      "name": "\u9676\u5DE5\u7532",
+      "rates": {
+        "\u5706\u7F50": 0.4,
+        "\u65B9\u7F50": 0.3
+      }
+    },
+    {
+      "name": "\u9676\u5DE5\u4E59",
+      "rates": {
+        "\u9AD8\u7F50": 0.5,
+        "\u957F\u7F50": 0.2
+      }
+    },
+    {
+      "name": "\u673A\u5668A",
+      "rates": {
+        "\u4E09\u89D2\u7F50": 0.6,
+        "\u6241\u7F50": 0.3
+      }
+    },
+    {
+      "name": "\u673A\u5668B",
+      "rates": {
+        "\u9F13\u7F50": 0.4,
+        "\u5C16\u7F50": 0.3
+      }
+    }
+  ],
+  "workshops": [
+    {
+      "name": "\u7384\u6B66\u53F0",
+      "baseMarks": [
+        "\u5706\u7F50",
+        "\u65B9\u7F50"
+      ],
+      "additionalMarks": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "ban": [
+        "\u9152"
+      ],
+      "maxJars": null,
+      "maxLiquids": null
+    },
+    {
+      "name": "\u6731\u96C0\u53F0",
+      "baseMarks": [
+        "\u9AD8\u7F50"
+      ],
+      "additionalMarks": [
+        "\u957F\u7F50"
+      ],
+      "ban": [
+        "\u9152"
+      ],
+      "maxJars": null,
+      "maxLiquids": null
+    },
+    {
+      "name": "\u9752\u9F99\u53F0",
+      "baseMarks": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "additionalMarks": [
+        "\u5706\u7F50"
+      ],
+      "ban": [
+        "\u871C"
+      ],
+      "maxJars": null,
+      "maxLiquids": null
+    },
+    {
+      "name": "\u767D\u864E\u53F0",
+      "baseMarks": [
+        "\u957F\u7F50",
+        "\u6241\u7F50"
+      ],
+      "additionalMarks": [
+        "\u9F13\u7F50"
+      ],
+      "ban": [],
+      "maxJars": null,
+      "maxLiquids": null
+    }
+  ],
+  "namePools": {
+    "prefix": [
+      "\u91D1",
+      "\u6728",
+      "\u6C34",
+      "\u706B",
+      "\u571F",
+      "\u5929",
+      "\u5730",
+      "\u7384",
+      "\u9EC4"
+    ],
+    "suffix": [
+      "\u5DE5\u574A",
+      "\u4F5C\u574A",
+      "\u7A91",
+      "\u7089",
+      "\u53F0",
+      "\u9601"
+    ]
+  }
+}

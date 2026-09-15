@@ -818,9 +818,16 @@ void DumpContract(string? configPath = null)
     sys.CreateOrder(new() { new Requirement { Shape = "圆罐" } }, "A");
     sys.CreateOrder(new() { new Requirement { Shape = "方罐", Liquid = "蜜" }, new Requirement { Shape = "高罐" } }, "B");
     sys.CreateOrder(new() { new Requirement { Shape = "圆罐", Liquid = "酒" } }, "A");
+
+    // 顺序很关键（曾长期是错的）：**先推进再分析**。
+    // 此前 Tick 在 CheckFeasibility 之后 ⇒ 主台还没有任何资源 ⇒ 三条订单全部不可行
+    // ⇒ solverPath / masterPath 恒为 null ⇒ **路径步骤的 14 个键一直没被快照覆盖**。
+    // 现在先 Tick(3) 让主台拿到罐子与液体，订单 0（空罐·圆罐）即可行、路径非空，
+    // 快照因此覆盖 step/requirement/operation/type/jarIndex/jarId/jarShape/jarLiquid/
+    // targetShape/targetLiquid/costLiquid/reshapeMode/consumed/jarsAfter。
+    sys.Tick(3);
     sys.CheckFeasibility(0);
     sys.CheckFeasibility(1);
-    sys.Tick(3);
     sys.ExecuteOrder(0);
     sys.SetSlave(2);
 

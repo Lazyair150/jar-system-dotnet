@@ -177,46 +177,19 @@ public sealed class CommandDispatcher
                 break;
 
             case "startTick":
-                if (!svc.IsRunning)
-                {
-                    svc.IsRunning = true;
-                    svc.TickTimer = new Timer(async _ =>
-                    {
-                        try
-                        {
-                            string json;
-                            await svc.Gate.WaitAsync();
-                            try { sys.Tick(); json = JsonArgs.J(new { type = "state", data = sys.GetState() }); }
-                            finally { svc.Gate.Release(); }
-                            await _sink.BroadcastAsync(json);
-                        }
-                        catch (Exception ex) { Console.Error.WriteLine("[timer] " + ex.Message); }
-                    }, null, 0, 2000);
-                }
+                // P5：推进循环改由 TickBackgroundService（PeriodicTimer）驱动，这里只翻开关
+                svc.IsRunning = true;
                 break;
 
             case "stopTick":
-                svc.IsRunning = false; svc.TickTimer?.Dispose(); svc.TickTimer = null;
+                svc.IsRunning = false;
                 break;
 
             case "setAutoCheck":
             {
                 sys.SetAutoCheck(JsonArgs.JB(dataEl, "enabled"));
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "autoCheckChanged", data = new { enabled = sys.AutoCheckEnabled } }));
-                if (sys.AutoCheckEnabled && svc.AutoCheckTimer == null)
-                    svc.AutoCheckTimer = new Timer(async _ =>
-                    {
-                        try
-                        {
-                            string json;
-                            await svc.Gate.WaitAsync();
-                            try { json = JsonArgs.J(new { type = "autoCheckResults", data = sys.CheckAllFeasibility() }); }
-                            finally { svc.Gate.Release(); }
-                            await _sink.BroadcastAsync(json);
-                        }
-                        catch (Exception ex) { Console.Error.WriteLine("[timer] " + ex.Message); }
-                    }, null, 5000, 5000);
-                else if (!sys.AutoCheckEnabled) { svc.AutoCheckTimer?.Dispose(); svc.AutoCheckTimer = null; }
+                // P5：自动检测循环改由 AutoCheckBackgroundService（PeriodicTimer）驱动，这里只设开关
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }

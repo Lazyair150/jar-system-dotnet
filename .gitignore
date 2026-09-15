@@ -29,6 +29,9 @@
 _test_diag.csx
 *.received.*
 
+# ---- 审批测试：基线提交、过程产物忽略 ----
+test/JarSystem.Tests/Approvals/*.received.json
+
 # ---- Godot 练习工程（与陶罐系统无关，约 1300 个文件）----
 # 若你希望把它纳入版本管理，删掉下面这行即可
 文档归档/05_Godot练习工程/
