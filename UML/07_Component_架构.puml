@@ -1,0 +1,66 @@
+@startuml
+
+package "Config" {
+  [ShapeRules] as ShapeRules
+  [Constants] as Consts
+}
+
+package "Web" {
+  [Program.cs] as WS
+  [index.html + app.js] as UI
+  [canvas.js] as Canvas
+}
+
+package "Application" {
+  [JarSystem.cs] as Facade
+}
+
+package "Order Processing" {
+  [FeasibilityChecker] as Checker
+  [OrderExecutor] as Executor
+  [OrderEvent] as OrdEvt
+  [WorkshopSwitchEvent] as SwitchEvt
+  [JarSelectionStrategy] as Strategy
+}
+
+package "Domain" {
+  [Workshop] as WSdomain
+  [Jar] as Jar
+  [Order] as Order
+}
+
+package "Solver" {
+  [StateSpaceSolver] as SSolver
+}
+
+package "Production" {
+  [ProducerModule] as Producer
+}
+
+package "Commands" {
+  [PourInCommand]
+  [ReshapeEmptyCommand]
+  [PourOutCommand]
+  [TransferCommand]
+}
+
+UI --> WS : WebSocket
+UI --> Canvas : render
+WS --> Facade : HTTP
+
+Facade --> Checker
+Facade --> Executor
+Facade --> OrdEvt
+Facade --> SwitchEvt
+Facade --> Producer
+Facade --> WSdomain
+Facade --> Order
+
+Checker --> SSolver
+Executor --> WSdomain
+Executor --> Strategy
+
+WSdomain --> Jar
+WSdomain --> ShapeRules : 委托
+SSolver ..> ShapeRules : 委托
+@enduml

@@ -1,0 +1,28 @@
+@startuml
+[*] --> Pending : createOrder()
+
+state "待执行 (PENDING)" as Pending
+state "执行中 (EXECUTING)" as Executing
+state "成功 (SUCCESS)" as Success
+state "失败 (FAILED)" as Failed
+
+Pending --> Pending : autoCheck
+Pending --> Executing : executeOrder()
+
+Executing --> Success : Deliver() passed
+Executing --> Failed : Fail()
+
+Success --> [*] : jars delivered
+Failed --> [*] : RollbackSlaveToMaster()
+
+note right of Pending
+  Manual execution available
+  Auto-check for feasibility
+end note
+
+note right of Executing
+  Type A: master only (无需从台)
+  Type B: master -> transfer -> slave -> deliver
+  转移失败(从台容量不足) -> Failed
+end note
+@enduml

@@ -1,0 +1,187 @@
+﻿# 陶罐系统（Jar System）.NET 移植 — 修复日志二
+
+## 概述
+
+本日志记录从 2026-07-29 起对 `jar-system-dotnet` 项目的系统性问题修复。共处理 9 个用户提交的问题报告 + 随机化测试发现的 1 个结构性 bug。涉及 5 个核心文件。
+
+---
+
+## 问题一 — UI 不更新 & 执行逻辑缺失
+
+**现象**：修改效果不反映在 UI 中，可行性分析和执行模块给出错误结果，执行不消耗任何资源。
+
+**根因**：前端 `app.js` 的 `showPathModal` 用 `alert()` + `JSON.stringify` 显示路径，嵌套对象显示为 `[Object]`；`IndependentExecutor.ExecuteTypeB` 完全忽略传入的 `solverPath` 参数。
+
+**修复**（3 个文件）：
+- `FeasibilityChecker.cs:MakeSummary` — 重构路径数据结构。`operation` 字段从嵌套 Dictionary 改为扁平的人类可读字符串（如 `"将 #0 改形为 圆罐 (消耗蜜)"`），类型、索引等作为顶级字段。
+- `IndependentExecutor.cs:ExecuteTypeB` — B 类订单在转移后增加求解器路径执行逻辑。优先使用 `ExecuteViaSolverPath`，失败时降级到 `ExecOnWs`。
+- `IndependentExecutor.cs:ExecuteViaSolverPath` — 支持双格式兼容（旧嵌套格式和新扁平格式），根据订单类型选择执行工作台（A→主台，B→从台）。
+- `app.js:showPathModal` — 从 `alert()` 改为模态框+表格展示。
+- `app.js:logOp` — 新增操作日志格式化函数，消除日志中的 `undefined` 前缀。
+
+---
+
+## 问题二 & 问题三 & 问题四 — B 类订单可行性路径错误
+
+**现象**：B 类订单可行性分析显示"可行"，但实际执行失败或执行结果与路径不一致。路径结果描述与实际工作量不匹配。
+
+**根因**：(1) `FeasibilityChecker.CheckTypeB` 使用 `combined_under_merged` 方法，将主从两台的标记全集传给求解器，忽略了 B 类订单的阶段边界；(2) 求解器路径通过 `MakeSummary` 序列化后前端无法解析；(3) `TwoPhaseSimulation` 的液体残留计算有 bug。
+
+**修复**（`FeasibilityChecker.cs`）：
+- `CheckTypeB` — 移除 `combined_under_merged` 作为独立可行判断。检查链改为：`slave_only` → `combined_under_slave` → `TwoPhaseSimulation`。
+- `TwoPhaseSimulation` — 液体计算修复：从主台初始液体出发，减去路径中每个操作消耗的液体（`operation.Cl`），再加从台液体。
+
+---
+
+## 问题五 — MATCH 操作不标记罐子导致二次利用
+
+**现象**：可行性路径中同一个罐子被 MATCH 两次用于不同的需求（如 #1 方罐/蜜 先被 MATCH 给需求1，又被 POUR_OUT 倒出液体给需求2）。
+
+**根因**：`StateSpaceSolver._apply` 中 `MATCH` 操作不调用 `st.Mj(i)`，注释写"不标记，仅用于路径追踪"。POUR_OUT 生成时只检查 `!j.IsMarked`，不关心罐子是否已被其他需求预订。
+
+**修复**：`StateSpaceSolver.cs` — `case "MATCH": st.Mj(i); break;`（MATCH 也标记罐子，防止被后续步骤二次利用）。
+
+---
+
+## 问题六 — B 类订单可行性忽略阶段边界
+
+**现象**：主台（圆,方,附三,禁酒）+ 从台（三角,无禁）→ B 类订单 [方空, 圆蜜, 三角蜜]。可行性分析说可行，但执行失败。
+
+**根因**：求解器在 `combined_under_merged` 下找到了一个合并路径，但其中 POUR_IN 三角罐的操作只能在从台做（三角罐不是主台基础标记）。`TwoPhaseSimulation` 阶段1求解全部需求时在第一个阻塞处停止，遗漏后续可满足的需求。
+
+**修复**（`FeasibilityChecker.cs`）：
+- `CheckTypeB` — 确认 `combined_under_merged` 已移除（见问题二修复）。
+- `TwoPhaseSimulation` — 阶段1后对每个未满足的需求单独求解一次。收集所有主台可以做的操作，形成最大化主台贡献。
+
+---
+
+## 问题七 — 可行性判断过于悲观
+
+**现象**：与问题六相同场景，修复后可行性分析说"不可行"，但订单实际可完成。
+
+**根因**：阶段1求解器按需求顺序深度优先遍历，在受阻需求处停止，不尝试后续需求。排序将满罐需求排前面，但三角蜜需要从台能力，主台求解受阻于三角蜜，从未尝试后方罐（高罐→方罐可在主台完成）。
+
+**修复**（`FeasibilityChecker.cs:TwoPhaseSimulation`）：
+- 阶段1 partial path 获取后，对每个未出现在路径中的需求，单独调用一次求解器（`Solve([该需求], ...)`）。
+- 如果单个需求在主台规则下可解，将操作加入路径，更新罐子和液体状态。
+- 这样阶段1最终能得到 `[POUR_IN 圆罐, RESHAPE 高罐→方罐]`，阶段2可完成全部需求。
+
+---
+
+## 问题八 — MATCH 标记修复被覆盖 & 可行性计数错误
+
+**现象**：MATCH 标记修复（问题五）在后续文件替换中被覆盖回 `break;`。路径弹窗显示正确但订单卡片显示"直接2个，操作0个"。
+
+**根因**：(1) 文件替换操作意外覆盖了 `StateSpaceSolver.cs` 的 MATCH 修复；(2) `TwoPhaseSimulation.BuildResult` 使用阶段2求解器的计数（全是 MATCH），而非阶段1的实际操作计数。
+
+**修复**：
+- `StateSpaceSolver.cs` — 重新应用 `case "MATCH": st.Mj(i); break;`。
+- `FeasibilityChecker.cs:TwoPhaseSimulation` — 阶段2成功返回前，用阶段1 `savedPath` 覆盖 `DirectCount` 和 `OperationCount`。
+
+---
+
+## 问题九 — 就简原则、FIFO、禁令确认
+
+**现象**：执行器在处理无法满足的需求时盲目倒出满罐的液体，即使工作台有足够的游离液体可用。倒出操作也未在日志中体现。
+
+**根因**：`TryEmpty` 底部的通用倒出回退没有检查游离液体是否足够。`Find()` 按列表顺序选择罐子而非按 Id。
+
+**修复**（`IndependentExecutor.cs`）：
+- **就简原则**：通用倒出回退增加 `HasFreeLiquid(w)` 守卫。只有当工作台没有任何可用游离液体时，才允许从满罐倒出。
+- **FIFO**：新增 `FindJar(List<Jar>, predicate)` 静态方法，按 `j.Id` 升序选择。替换 `TryEmpty` 和 `TryFull` 中所有 `w.Jars.Find(...)` 调用。
+- **禁令确认**：验证了转移时 `!slave.IsBanned(l)` 检查、倒出时 `isBanned(liquid)` 检查均有效。
+
+---
+
+## 随机化测试发现 — POUR_OUT 跳过满罐需求
+
+**发现方式**：运行 2000 次随机场景测试（随机工作台、资源、订单），发现 59 个 `feasible=true` 但 `exec failed` 的案例。
+
+**根因**：`StateSpaceSolver.Bt` 中 POUR_OUT 的索引推进逻辑只检查形状匹配：
+```
+ni = jBefore.Shape == reqs[idx].Shape ? idx + 1 : idx;
+```
+当满罐需求（如 `尖罐+蜜`）遇到 POUR_OUT（倒出 `尖罐/酒→尖罐空`）时，形状匹配但液体错误，索引被错误推进，导致需求被"跳过"。
+
+**修复**（`StateSpaceSolver.cs`）：增加需求类型判断——POUR_OUT 只在**空罐需求且形状匹配**时才推进索引：
+```csharp
+bool shapeMatch = jBefore.Shape == reqs[idx].Shape;
+bool isEmptyReq = reqs[idx].Liquid == null;
+ni = (shapeMatch && isEmptyReq) ? idx + 1 : idx;
+```
+POUR_OUT 对满罐需求只能作为辅助操作（提供液体给后续 RESHAPE/POUR_IN），不应推进需求索引。
+
+**效果**：bug 数从 59/2000 (3.0%) 降至 18/2000 (0.9%)。
+
+---
+
+## 修改文件汇总
+
+| 文件 | 修改内容 |
+|------|---------|
+| `src/JarSystem.Core/Solver/StateSpaceSolver.cs` | MATCH 标记罐子；POUR_OUT 只对空罐需求推进索引 |
+| `src/JarSystem.Core/Orders/FeasibilityChecker.cs` | MakeSummary 人类可读输出；CheckTypeB 移除 combined_under_merged；TwoPhaseSimulation 液体计算修复 + 个体需求求解 + 计数修正 |
+| `src/JarSystem.Core/Executor/IndependentExecutor.cs` | ExecuteTypeB 使用 SolverPath；ExecuteViaSolverPath 双格式支持；就简原则 + FIFO + 禁令日志；需求排序保持满罐优先 |
+| `src/JarSystem.Web/wwwroot/js/app.js` | showPathModal 模态框+表格；logOp 操作日志格式化 |
+| `test/JarSystem.Test/Program.cs` | 2000 场景随机化测试框架 |
+
+
+---
+
+## 问题十一 — 工作台切换事件（WorkshopSwitchEvent）
+
+**日期**：2026-07-30
+
+**现象**：原先切换主台时资源回流到中央仓库，无法体现"产线重组"的语义。
+
+**需求**：设计一个类似订单执行的事件，在切换主台时智能传递资源。
+
+### 设计
+
+新增 `WorkshopSwitchEvent` 模块（`Orders/WorkshopSwitchEvent.cs`），事件生命周期：
+
+**Case 1（禁令相同）**：旧主台将游离液体倒入基础形状空罐中，不足时从非基础形状满罐倒出获取更多液体。目的：新主台接收已经装好的满罐，作为"额外液体容量"。
+
+**Case 2（禁令不同）**：旧主台临时获得新主台基础形状作为附加标记，用游离液体将罐子改形为新主台形状。满罐可用自身液体改形（ReshapeFull）。残留液体丢弃（新台无法使用）。
+
+**转移阶段**：清除 isMarked → 罐子/液体移入新台（容量满/禁液则丢弃）→ 日志记录全程操作。
+
+### 集成
+
+- `JarSystem.SetMaster` — 切换时调用 `WorkshopSwitchEvent`，替换了之前的直接转移
+- `Program.cs` — 切换完成后发送 `workshopSwitched` WebSocket 消息
+- `app.js` — 处理 `workshopSwitched` 事件：旧台卡片缩放淡出 + 新台卡片发光 + 粒子动画 + Canvas 转移动画 + 操作日志
+
+### 策略化罐子选择
+
+`IndependentExecutor` 新增 `JarSelectionStrategy` 枚举和 `SelectionStrategy` 属性，支持 FIFO/LIFO/RareShapeFirst/Random 四种策略。`FindJar` 改为实例方法，根据策略选择罐子。默认 FIFO，行为与修改前完全一致。
+
+### 涉及文件
+
+| 文件 | 改动 |
+|------|------|
+| `Orders/WorkshopSwitchEvent.cs` | **新建** — 切换事件核心逻辑 |
+| `JarSystem.cs` | SetMaster 集成 WorkshopSwitchEvent |
+| `Executor/IndependentExecutor.cs` | JarSelectionStrategy 枚举 + FindJar 策略化 |
+| `Program.cs` | workshopSwitched WebSocket 消息 |
+| `app.js` | 切换事件处理 + 动画 + 模板字符串修复 |
+
+---
+
+## 问题十一 — 工作台切换事件（WorkshopSwitchEvent）
+
+**日期**：2026-07-30
+
+**设计**：新增 WorkshopSwitchEvent 模块（Orders/WorkshopSwitchEvent.cs），类似订单事件的生命周期管理。
+
+**Case 1（禁令相同）**：旧主台将游离液体倒入基础形状空罐中，不足时从非基础形状满罐倒出获取更多液体。目的：新主台接收已装满的罐子作为额外液体容量。
+
+**Case 2（禁令不同）**：旧主台临时获得新主台基础形状作为附加标记，用游离液体将罐子改形为新主台形状。满罐可用自身液体改形（ReshapeFull，while 循环处理所有满罐）。残留液体丢弃（新台无法使用）。
+
+**转移阶段**：清除 isMarked -> 罐子/液体移入新台（容量满/禁液则丢弃）-> 全程记录操作日志。
+
+**集成**：JarSystem.SetMaster 调用 WorkshopSwitchEvent；Program.cs 发送 workshopSwitched 消息；app.js 卡片缩放+发光+粒子动画+Canvas转移+操作日志。
+
+**策略化**：IndependentExecutor 新增 JarSelectionStrategy 枚举，FindJar 改为实例方法，默认 FIFO。
+
+**涉及文件**：Orders/WorkshopSwitchEvent.cs（新建）、JarSystem.cs、IndependentExecutor.cs、Program.cs、app.js

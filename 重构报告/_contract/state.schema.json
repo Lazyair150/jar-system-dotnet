@@ -1,0 +1,30 @@
+{
+  "generatedBy": "JsonSchemaExporter (System.Text.Json, .NET 10) - dotnet run -- --dump-schema",
+  "note": "\u6BCF\u4E2A\u7C7B\u578B\u72EC\u7ACB\u5BFC\u51FA\uFF1B\u51FA\u73B0 $error \u8868\u793A\u8BE5\u7C7B\u578B\u542B\u65E0\u6CD5\u63CF\u8FF0\u7684\u7ED3\u6784\uFF08\u5F31\u7C7B\u578B\u9003\u9038\uFF09",
+  "types": {
+    "StateDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    },
+    "WorkshopStateDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    },
+    "JarStateDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    },
+    "OrderStateDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    },
+    "FeasibilityStateDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    },
+    "WarehouseStateDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    },
+    "GlobalStateDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    },
+    "SolverStepDto": {
+      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+    }
+  }
+}

@@ -1,0 +1,45 @@
+@startuml
+start
+
+:CheckTypeB(order, masterSnap, slaveSnap);
+
+:reqs = 需求按满罐优先排序;
+:slaveInfo = BuildWorkshopInfo(slave);
+:masterInfo = BuildWorkshopInfo(master);
+
+:Solver.Solve(reqs, slaveInfo, slaveJars, slaveLiq);
+
+if (slave_only feasible?) then (yes)
+  :return "slave_only";
+  stop
+endif
+
+partition 划分搜索 (2^N) {
+  :mask = 0;
+  while (mask < 2^N?) is (是)
+    :mReqs = 划分给主台的需求子集;
+    :sReqs = 其余需求 (从台);
+    :Solver.Solve(mReqs, masterInfo, masterJars, masterLiq);
+
+    if (主台子集可行?) then (否)
+    else (是)
+      :masterFinal = 路径终态罐子;
+      :masterFinalLiq = AfterLiquids;
+      :combined = masterFinal + slaveJars;
+      :combinedLiq = MergeLiquids(masterFinalLiq, slaveLiq);
+      :Solver.Solve(sReqs, slaveInfo, combined, combinedLiq);
+
+      if (从台子集可行?) then (是)
+        :return "partition" + MasterPath/SolverPath;
+        stop
+      else (否)
+      endif
+    endif
+
+    :mask++;
+  endwhile (否)
+}
+
+:return 不可行 (lastBlockage);
+stop
+@enduml

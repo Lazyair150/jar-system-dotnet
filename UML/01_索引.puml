@@ -1,0 +1,16 @@
+@startuml
+title Jar System UML 索引
+
+note as N1
+  独立 UML 文件列表 (每个文件可单独在 plantuml.com 渲染):
+  =============================================
+  02_ClassDiagram       类图: 全部核心类、属性、方法、关系
+  03_Sequence_orders    时序图: B类订单完整执行流程(可行性->主台->转移->从台->交付)
+  04_Sequence_switch    时序图: WorkshopSwitchEvent(快照回滚 + 资源转移)
+  05_State_orderLife    状态图: 待执行->执行中->成功/失败
+  06_State_jarOps       状态图: 空罐/满罐 x isMarked 六态
+  07_Component_layers   组件图: 系统分层架构
+  08_Activity_feasibility 活动图: CheckTypeB 精确划分搜索流程
+end note
+
+@enduml

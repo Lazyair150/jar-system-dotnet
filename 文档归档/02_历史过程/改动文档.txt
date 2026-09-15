@@ -1,0 +1,398 @@
+# 陶罐系统 — 改动文档
+
+> 本文件按「一一解决方案.txt」的推荐实施顺序，逐阶段记录每次代码改动、验证结果与遗留问题。
+> 规则：每个阶段完成后追加一节；只记录事实（改了什么、怎么验证、结果如何）。
+
+---
+
+## 阶段 0 — 准备
+
+- 日期：2026-08-01
+- 基线：当前随机化测试（旧版，NOTEs 不计 bug）= 11 bugs / 2000。
+- 说明：阶段 1–3 无设计歧义，直接实施；阶段 4 前需要用户确认「主从同台」的处理方式。
+
+---
+
+## 阶段 1 — 路径可执行性（问题 1、2、3）
+
+- 日期：2026-08-01
+- 内容：
+  1. `SolverOperation` 新增 `FullReshape` 标志：求解器生成「满罐改形」时置位，`MakeSummary` 输出 `reshapeMode: full/empty`。
+  2. `SolverStep` 新增 `AfterLiquids`：求解器每一步直接记录操作后的液体状态，可行性分析不再手工推算液体账目。
+  3. `JarState` 新增 `Id`；`MakeSummary` 输出 `jarId / jarShape / jarLiquid`，路径步骤携带罐子身份与预期状态。
+  4. 执行器新增 `ApplySolverStep`：按 jarId（首选）或 jarIndex 定位罐子；执行前校验真实罐子与步骤预期状态一致；RESHAPE 按 `reshapeMode` 区分空罐/满罐改形。A 类路径与 B 类主台路径统一走该逻辑。
+  5. B 类执行：`slave_only / combined_under_slave / two_phase_simulation / partition` 等求解器方案下，主台不再先跑贪心操作，避免改变路径依赖的初始状态；无可行性结果时才走旧贪心回退。
+- 涉及文件：`Order.cs`、`StateSpaceSolver.cs`、`FeasibilityChecker.cs`、`IndependentExecutor.cs`。
+- 验证：旧测试套件 11 bugs / 2000 → **0 bugs / 2000**（此阶段尚未改测试，NOTE 不计）。
+
+---
+
+## 阶段 2 — 精确可行性（问题 4）
+
+- 日期：2026-08-01
+- 内容：
+  1. `CheckTypeB` 重写为「按需求子集划分的精确搜索」：需求按出现顺序编号（满罐优先排序），枚举 2^N 个主台/从台划分。
+  2. 每个划分：主台子集在主台规则下精确求解 → 取真实终态（`AfterLiquids`）与从台合并 → 从台子集在从台规则下精确求解；任一划分可行即订单可行。
+  3. 可行时保存两阶段路径：`MasterPath`（主台阶段步骤）+ `SolverPath`（从台阶段步骤），执行器按 Id 忠实执行，不再依赖启发式降级。
+  4. 删除旧的启发式 `TwoPhaseSimulation`（含逐需求补全循环、`alreadyDone` 重复需求跳过逻辑）与死代码 `BuildMergedWorkshopInfo`；`combined_under_slave` 被「全部需求划分给从台」的子集自然覆盖，`CheckMethod` 现为 `slave_only / partition`。
+- 涉及文件：`FeasibilityChecker.cs`。
+- 验证：0 bugs / 2000（旧测试口径），性能无回退（约 3 秒）。
+
+---
+
+## 阶段 3 — 测试基建（问题 5）+ 前置修复（问题 11 提前）
+
+- 日期：2026-08-01
+- 内容：
+  1. 随机测试改为**双向计数**：「可行但执行失败」与「不可行却执行成功」都计 bug（原 NOTE 不计）。
+  2. 随机生成器给**从台也分配罐子与液体**（此前从台永远为空），覆盖 slave_only / 转移 / 回滚路径。
+  3. 新增守恒断言：罐子总数 = 初始 −（成功时交付的需求数）；液体库存不允许为负。
+  4. 新增 3 个确定性回归：
+     - S1 满罐改形路径可执行（问题 1）；
+     - S2 从台自有资源 + 转移后按 Id 定位（问题 2）；
+     - S3 倒出回补液体账目 + 路径执行（问题 3）。
+  5. **前置修复（问题 11 提前实施）**：给从台加资源后，B 类回滚必然触发「罐子 ID 每工作台自增导致跨台撞号」——它是回滚错乱的根因，也是本阶段新测试成立的前提。改法：`Jar` 提供全局静态 ID 源，`Workshop.AddJar` 统一取号；删除 `Workshop._nextJarId / GenJarId` 与快照 `NextJarId`；`GetState` 的罐子序列化增加 `id`。原计划阶段 5 的对应条目现标记为已完成。
+- 涉及文件：`test/JarSystem.Test/Program.cs`、`Jar.cs`、`Workshop.cs`、`JarSystem.cs`。
+- 验证：**0 bugs / 2000 随机 + 3 确定性全部 PASS**；`dotnet build` 全解决方案 0 警告 0 错误。
+
+---
+
+## 阶段 4 — 切换事件（问题 6、7、8、9、10）
+
+- 日期：2026-08-01
+- 前置确认：用户选择「问题 9 = 允许把当前从台设为主，自动解除从台角色」。
+- 内容：
+  1. 问题 6：`SetMaster` 触发条件从「旧主台有罐子」改为「有罐子或液体」，仅液体时也执行切换事件并转移；`SetMaster` 返回结果对象（success/switched/caseType/operations），`Program.cs` 依据返回值发送 `workshopSwitched`，不再从 eventHistory 反推。
+  2. 问题 7：Case 1 重写为「以基础形状空罐为驱动」的单循环：优先用游离液体；无游离液体时从任意非基础形状满罐（未禁液体、存储有空间）倒出再倒入，游离液体为 0 也能利用满罐。
+  3. 问题 8：Case 2 删除无条件清空游离液体，改为由 `TransferAll` 按新主台禁令/容量转移或丢弃并记日志。
+  4. 问题 9：把当前从台设为主 → 切换正常执行，随后 `CurrentSlave = null`（自动解除）；`SetSlave` 拒绝把当前主台设为从台；前端隐藏从台卡片的「设为主」按钮；服务端回发 `error` 消息。
+  5. 问题 10：`WorkshopSwitchEvent.Execute()` 改为返回 `(bool, string?)`，开头对两个工作台做快照，异常时 `RestoreFromSnapshot` 回滚；`SetMaster` 仅在成功后才更新 `CurrentMaster`。
+- 涉及文件：`WorkshopSwitchEvent.cs`、`JarSystem.cs`、`Program.cs`、`app.js`。
+- 验证：新增 S4–S7 确定性用例（仅液体切换、主从自动解除、Case1 零游离液体、Case2 保留可用液体）全部 PASS；随机 0/2000。
+
+---
+
+## 阶段 5 — 状态与 ID（问题 12、13、14、15；问题 11 已在阶段 3 完成）
+
+- 日期：2026-08-01
+- 内容：
+  1. 问题 12：WebSocket 订单命令改传 `orderId`（`executeOrder / deleteOrder / checkFeasibility`），服务端按 Id 解析（兼容旧 `orderIndex`）；`checkAllFeasibility`/`autoCheckResults` 返回项带 `orderId`；`feasibilityResult` 消息带 `orderId`；前端 `selectedOrderIndex` 改为 `selectedOrderId`，删单后不再错位。
+  2. 问题 13：`CheckFeasibility` / `ExecuteOrder` 只要求主台；从台仅 B 类必需；前端 `canExec` 按订单类型判断（A 类只需主台）。
+  3. 问题 14：B 类批量转移失败即终止并返回明确原因「从台容量不足，无法接收全部资源」，不再进入第三阶段；`ExecuteViaSolverPath` 对 B 类增加「当前必须在从台阶段」断言。
+  4. 问题 15：转移液体容量感知（实际接收量才记账，拒收部分留在主台并记日志）；回滚时主台拒收的液体/罐子**回流中央仓库**（OrderEvent 增加 Warehouse 引用），不再出现「日志写 return_to_warehouse 实际消失」。
+  5. **根因修复（S9 测试暴露）**：`TransferCommand.Execute` 在从台容量不足时，罐子已从主台移除却没放回（悬空丢失）。修复：`TransferIn` 失败即 `From.TransferIn(Jar)` 归还。
+- 涉及文件：`JarSystem.cs`、`OrderEvent.cs`、`IndependentExecutor.cs`、`JarCommands.cs`、`Program.cs`、`app.js`。
+- 验证：新增 S8–S10 用例（A 类无从台、容量不足明确失败、删单后 Id 稳定）全部 PASS；随机 0/2000；全解决方案 0 警告 0 错误。
+
+---
+
+## 阶段 6 — 规则统一（问题 16、17、18）
+
+- 日期：2026-08-01
+- 内容：
+  1. 问题 16：新增 `ShapeRules.GetPossibleTransforms` 作为唯一规则源；`Workshop`、`WorkshopInfo`、`RuleEngine` 全部委托调用；删除 `RuleEngine.GetTransformCost` 的写死「酒」实现。
+  2. 问题 17：`Workshop` 构造时规范化禁令（去掉「禁」前缀，去重）；默认数据统一为裸液体名（青龙台 `禁蜜` → `蜜`）；`GetState` 的 ban 数组只含裸液体名。
+  3. 问题 18：`ValidateOrder` 文案与 UI 提示改为「列表展示约定空罐在前；执行顺序为满罐优先」；同步更新 `规则.txt` 与 `问题/系统设计与构造.md`。
+- 涉及文件：`Rules.cs`、`Workshop.cs`、`StateSpaceSolver.cs`、`RuleEngine.cs`、`JarSystem.cs`、`Order.cs`、`app.js`、`规则.txt`、`问题/系统设计与构造.md`。
+- 验证：新增 S11（三处转换规则一致）、S12（禁令规范化）全部 PASS；随机 0/2000。
+
+---
+
+## 阶段 7 — 前后端断链（A、B、C）
+
+- 日期：2026-08-01
+- 内容：
+  - A：`Program.cs` 增加 `updateWorkshopCapacity` 命令处理（`maxJars/maxLiquids` 可空解析），容量编辑恢复生效；顺带发现 `GetState` 未序列化 `maxJars/maxLiquids`，已补上（前端容量显示不再恒为默认值）。
+  - B：`orderExecuted` 消息增加 `transferOccurred`（阶段 5 完成），B 类转移动画可触发。
+  - C：`app.js` 卡片 class 改为 `master/slave`，与 CSS 选择器对齐，主从高亮生效。
+- 涉及文件：`Program.cs`、`JarSystem.cs`、`app.js`。
+- 验证：WebSocket 冒烟测试通过（createOrder/checkFeasibility/executeOrder/updateWorkshopCapacity/deleteOrder 全链路，容量 20/30 → 25/35 生效）；`/api/state` 返回规范化禁令与丢弃计数。
+
+---
+
+## 阶段 8 — 平衡与工程（问题 19、20、21、22）
+
+- 日期：2026-08-01
+- 内容：
+  1. 问题 19：文档化「满罐需求限制」（一罐一操作 ⇒ 满罐只能现成满罐或同形空罐+倒入；改形只服务空罐需求），写入 `规则.txt` 第 7 节与 `问题/系统设计与构造.md` 3.3；放宽属设计决策，未实施。
+  2. 问题 20：中央仓库加入上限（罐 200 / 每种液体 200），溢出丢弃并暴露 `discardedJars/discardedLiquids` 计数；`FlowToMaster` 罐子选择改为「主台基础形状优先」，减少无关形状滞留。
+  3. 问题 21：策略对比实验代码不在仓库（仅有记录文档），无法直接改；已在 `问题十测试记录.txt` 追加统计显著性修正说明（单次运行差距 0.1–0.3pp 不足以支撑「FIFO 最优」），建议重跑多种子 + 配对检验。
+  4. 问题 22：`JarSystemService` 增加 `SemaphoreSlim` 串行闸门，`HandleCmd` 与两个定时器回调统一加锁，消除多连接/定时器并发竞态（该 Web 壳仍按单用户开发演示定位）。
+- 涉及文件：`Constants.cs`、`ProducerModule.cs`、`JarSystem.cs`、`Program.cs`、`规则.txt`、`问题/系统设计与构造.md`、`问题/问题十测试记录.txt`。
+- 验证：全解决方案 0 警告 0 错误；随机 0/2000 + 12 确定性全部 PASS；Web 冒烟通过。
+
+---
+
+## 收尾状态
+
+- 随机化测试：**0 bugs / 2000（双向一致，含从台资源场景）+ 12 个确定性回归全部 PASS**。
+- 构建：全解决方案 0 警告 0 错误。
+- 待办（非阻塞）：详见第二轮收尾状态（Godot 指南、UML、问题 19/21 已处理）。
+
+---
+
+## 跟进轮次（2026-08-01 第二轮）— 19 定案 / 21 重跑 / 文档同步
+
+### 1. 问题 19 定案：不放宽
+
+- 决定：保留「满罐需求限制」作为既定 puzzle 约束，不放宽。
+- 落点：`规则.txt` 第 7 节与 `问题/系统设计与构造.md` 3.3 均标注「设计定案（2026-08-01）：不放宽」。
+
+### 2. 问题 21 重跑：策略实验多种子统计验证
+
+- 新建独立实验工程 `test/StrategyExperiment`（已加入 `JarSystem.slnx`），复现 711 抽象结构模式。
+- 与原记录的方法差异（已写入报告）：
+  1. 每模式 3 个独立种子（1001/2002/3003）× 30 单/种子 = 90 单/策略/模式（原 1 种子 × 60 单）；
+  2. 指标 = 实际执行成功率（不调用可行性分析，策略只影响执行器选择）；
+  3. 增加配对符号检验（正态近似 p 值）与每模式聚合最优分布。
+- 结果（写入 `问题/问题十测试记录-重跑.txt`，运行约 7.5 秒 / 8532 条运行流 × 30 单）：
+
+  | 策略 | 成功率 | 严格最优运行流 | 每模式最优 |
+  |------|--------|---------------|-----------|
+  | FIFO | 44.96% | 1330 | 520 |
+  | LIFO | 40.26% | 585 | 170 |
+  | RareShapeFirst | 27.13% | 3 | 0 |
+  | Random | 23.30% | 0 | 0 |
+
+  FIFO vs LIFO / RareShapeFirst / Random 配对符号检验 p 值均 < 0.001。
+- 结论修正：在执行器贪心路径口径下 **FIFO 显著最优**；原记录「差异很小（0.1–0.3pp）」的表述被多种子重跑推翻。
+
+### 3. Godot 迁移指南同步
+
+- `Godot迁移指南.txt` 新增「六、当前版本行为同步（2026-08-01）」：可行性分析改为需求子集划分精确搜索、
+  路径按 jarId/reshapeMode 执行、全局罐子 ID、禁令规范化、ShapeRules 单一来源、SetMaster/SetSlave 新返回值与
+  主从同台自动解除、WorkshopSwitchEvent 快照回滚、转移失败终止、仓库上限、满罐限制定案、Web 层 orderId 与
+  串行闸门、测试/实验工程位置。
+- 同步更新 2.3 GetState 结构（jar id、容量、仓库丢弃计数）、3.1 移植难度表、集成检查清单、五 处理说明。
+
+### 4. UML 文档更新与语法校验
+
+- 更新 `UML/` 全部 8 个 puml：
+  - 01 索引（描述同步）；
+  - 02 类图（Constants 仓库上限、ShapeRules、Jar.NextId、Workshop.RestoreFromSnapshot、
+    FeasibilityChecker.PartitionSearch、OrderEvent.Warehouse、ProducerModule 丢弃计数、
+    IndependentExecutor.ApplySolverStep/NormalizeStep、JarSystem SetMaster/SetSlave 返回字典等；
+    删除 TwoPhaseSimulation，新增 WorkshopInfo 与 RuleEngine，并标注 ShapeRules 委托关系）；
+  - 03 B 类订单时序图（可行性 = slave_only + 2^N 划分搜索，执行 = 主台路径 → 转移 → 从台路径按 Id 执行；
+    转移失败即终止）；
+  - 04 工作台切换时序图（快照回滚、Case1 零游离液体利用满罐、Case2 不清空可用液体、主从同台自动解除、
+    成败分支围绕 Execute 返回值）；
+  - 05 订单生命周期（A 类无需从台、B 类转移失败 → Failed）；
+  - 07 组件图（新增 Config/ShapeRules 委托关系）；
+  - 08 活动图重写为「slave_only → 划分搜索(2^N)」；
+  - 06 罐子状态图核对后无需改动。
+- `UML.txt` 索引同步更新。
+- 语法校验：本地无 Java/PlantUML，采用结构校验器（@startuml/@enduml 配对、花括号配对、
+  alt/loop/if/while/note 块嵌套、if↔endif、while↔endwhile），8 个文件 **ALL SYNTAX OK**；
+  另人工审读关键文件（03/04/08）。如需要可在 plantuml.com 在线渲染复核视觉效果。
+
+### 收尾状态（第二轮后）
+
+- 全部 22 + A/B/C 项问题处理完毕；19 已定案不放宽；21 已多种子重跑并更新结论。
+- 构建：全解决方案 0 警告 0 错误；测试：0/2000 + 12 确定性 PASS。
+- 遗留说明：PlantUML 视觉渲染未在本机执行（无 Java），语法经结构校验 + 人工审读。
+
+---
+
+## 第三轮（2026-08-01）— 禁令边界修正 + 容量影响分析
+
+### 1. 修正：禁液令不影响满罐转移（用户确认）
+
+- 原实现错误：`OrderEvent.RollbackSlaveToMaster` 在回滚时若罐子满且主台禁其液体，会 `ClearLiquid` 清空罐内液体。
+- 修正：删除该清空逻辑，装满被禁液体的罐子原样归还（转移/回滚/接收均不受禁令影响）。
+- 语义落点：`规则.txt` 第 4 节与 `问题/系统设计与构造.md` 3.2 补充「禁令边界」说明。
+- 用例：S13（禁酒主台 + 满罐(酒) 转移后订单失败 → 罐子原样回滚）。
+
+### 2. 确认：Case 2 转换后剩余禁液丢弃、不回流中央仓库（用户确认）
+
+- 行为已符合：`TransferAll` 对被新主台禁的液体丢弃并记日志，不写入中央仓库。
+- 用例：S14（Case 2 改形消耗 1 蜜后剩余 2 蜜被新主台禁 → 丢弃，仓库库存不变）。
+
+### 3. 容量上限影响的系统性分析（详见最终答复，未改动）
+
+- 已定位代码问题：液体转移/回滚/仓库流入多为「全量或全不」且部分路径绕过 WAREHOUSE_MAX_* 上限、
+  从台满罐时 B 类订单存在软锁风险、容量相关路径无测试覆盖。
+- 处置：给出分析与应对方案，待用户选定后再实施。
+
+### 验证（第三轮后）
+
+- 测试：**0 bugs / 2000 随机 + 14 确定性全部 PASS**；全解决方案 0 警告 0 错误。
+
+---
+
+## 第四轮（2026-08-01）— 容量纳入可行性资源管理 + 跨阶段罐子保留
+
+### 背景（用户场景）
+
+主：罐 5/7、液 8/8；从：罐 0/3、液 0/5；主从禁液一致。问题：可行性分析是否把
+「容量导致的转移不足」纳入路径筛选（即容量是否属于资源管理的一部分）。
+
+### 验证结论（修前）
+
+1. 路径已区分主台/从台阶段（MasterPath 转移前、SolverPath 转移后），但**只区分需求归属，不区分罐子归属**：
+   从台阶段可再次匹配/消耗主台已制造的交付罐 → 重复需求场景存在「可行性=真、执行失败」的假阳性。
+2. 容量**未纳入转移边界**：求解器只约束阶段内液体存储上限（POUR_OUT 守卫 MaxLiquids），
+   罐子容量、转移边界的罐子/液体容量均未检查 → 用户场景（从台 0/3 收不下主台 5 罐）会被误判可行。
+3. 执行端液体转移是「全量或全不」，与可行性假设的合并状态不一致。
+
+### 修复内容
+
+1. `WorkshopInfo` 增加 `MaxJars`；`BuildWorkshopInfo` 填充。
+2. `CheckTypeB` 增加**容量边界 1**：B 类全量转移要求 `主台罐子数 + 从台罐子数 ≤ 从台 MaxJars`，
+   否则直接不可行（CheckMethod="capacity"，blockage 说明需要多少个罐位）。
+3. `CheckTypeB` 划分循环增加**主台交付罐保留**：主台子集需求在终态中匹配的罐子 Id 记为交付罐，
+   从台求解池排除它们（防止跨阶段重复使用同一罐子）；删除因此不再需要的 `MergeLiquids`。
+4. `CheckTypeB` 增加**容量边界 2**：从台阶段液体池按 `slave.MaxLiquids` 截断
+   （溢出液体留在主台），与执行语义一致。
+5. 执行端液体转移改为**容量感知的部分填充**（`IndependentExecutor.ExecuteTypeB`、
+   `OrderEvent.RollbackSlaveToMaster`、`ProducerModule.FlowToMaster` 三处），
+   与可行性截断一致；回滚部分填充后剩余才回流中央仓库。
+
+### 新增用例
+
+- S15：重复需求跨阶段罐子保留（可行性=可执行，修前为假阳性）；
+- S16：用户容量场景——从台罐位不足 → 可行性 false + 执行失败；
+- S17：从台液体截断与执行一致（日志出现 transfer_liquid_failed）。
+
+### 验证（第四轮后）
+
+- 测试：**0 bugs / 2000 随机 + 17 确定性全部 PASS**；全解决方案 0 警告 0 错误。
+
+---
+
+## 第五轮（2026-08-01）— B 类选择性转移 + 罐子价值优先级细化
+
+### 用户确认的三点
+
+1. B 类订单转移改为**选择性转移**：只转移「交付罐 + 从台阶段计划使用的工具罐」，其余留在主台；
+2. 液体只转移**从台阶段实际需要的量**（2b）；
+3. 切换事件罐子价值优先级细化：**附加标记空罐的价值低于「基础+附加之外的空罐」**
+   （因为后者新主台无法通过任何方式获得）；异液满罐（液体被新台禁）始终最低。
+
+### 实施内容
+
+- 求解器：`JarState.MasterOrigin` 标记主台来源；`SolverState.TransferBudget/TransferUsed` 转移预算
+  （从台阶段最多可使用的主台罐子数，未使用的主台罐子留在主台）；`Solve` 增加预算参数。
+- 可行性：移除第四轮「全量转移容量边界 1」（已被选择性转移取代）；
+  划分循环按「从台罐位 − 从台原有罐子 − 交付罐数」计算预算，不足则划分不可行；
+  从台求解池 = 主台终态（扣除交付罐，标记 MasterOrigin）+ 从台原有罐子；
+  可行时输出 `TransferJarIds`（交付罐 + 从台路径实际使用的主台罐子）与
+  `TransferLiquids`（沿路径净消耗峰值超出从台自身存储的部分）；slave_only 转移清单为空。
+- 执行器：按 `TransferJarIds` 选择性转移（无可行性结果时回退全量），液体按 `TransferLiquids` 只转需要的量。
+- 切换事件：`JarValue` 细化为 0 同液满罐 > 1 同形基础罐 > 2 基础+附加之外空罐 > 3 附加标记空罐 > 4 异液满罐。
+
+### 用例
+
+- S16 改为选择性正例：主 5/7 罐、从 0/3 罐，订单只需 1 罐 → 可行，4 罐留主台；
+- S17 改 2b：液体只转需要的 1 酒，蜜×4 留在主台；
+- S18 增加附加标记层级：保留 0/1/2 价值罐，丢弃 3/4 价值罐；
+- S19 工具罐转移并回流：主台无游离酒但有 满罐(圆罐,酒) + 空方罐，从台基础[方罐]附加[三角罐]，
+  订单 空三角罐 → 两罐都转移，倒出酒支付改形，交付三角罐，空圆罐回流主台。
+
+### 用户场景推演结论（经用户纠正：主台禁酒、从台禁蜜）
+
+- 主台禁酒 → 主台自己**无法倒出**圆罐中的酒（倒出=存储，被禁），所以工具罐必须转移；
+  从台禁蜜、酒可用 → 在从台倒出酒并支付改形（方罐→三角罐）→ 交付三角罐 → 空圆罐回流主台。
+- 该场景在选择性转移规则下**可行**，S19 已用正确禁令验证：
+  「并非所有必要转移的资源都是最终订单需要的」——工具罐转移并在订单结束后回流主台。
+- 之前「从台禁酒则不可行」的推演结论仅针对说反的那一版设定（从台禁酒时倒出/成本均被禁令拦截）。
+
+### 验证（第五轮后）
+
+- 测试：**0 bugs / 2000 随机 + 19 确定性全部 PASS**；全解决方案 0 警告 0 错误；
+  无残留后台进程（此前执行中断未造成影响）。
+
+---
+
+## 第六轮（2026-08-01）— 全面系统审计
+
+### 修复：B 类主台路径出错仍可能返回成功
+
+- 发现：`ExecuteTypeB` 中 MasterPath（求解器主台路径）任一步失败时，错误被累计到 `errs`，
+  但只要最终 `IsSatisfiedBy` 通过仍返回成功——此时主台状态已偏离可行性模拟，转移清单与从台路径不可靠。
+- 修复：主台路径有错误即返回失败「主台路径执行失败，状态与可行性分析不一致」，
+  不再带错误继续/静默成功（贪心路径的信息性错误不受影响）。
+
+### 新增：容量压力测试（3000 场景）
+
+- `GenCap`：主从台罐位 1-4、液位 1-3（每种液体）、从台也分配资源，
+  专打选择性转移预算、转移清单、容量截断与回滚路径；与主随机套件相同的四类断言
+  （双向一致、罐子守恒、液体非负、无崩溃）。
+- 结果：**0 bugs / 3000**。
+
+### 其他核验（审计结论）
+
+- 选择性转移：预算 = 从台罐位 − 从台原有罐子 − 交付罐数；求解器按预算筛选；
+  转移清单 = 交付罐 + 从台路径使用的主台罐子；执行器按 Id 清单转移、未交付罐子回滚回主台 —— 一致。
+- 液体 2b：`TransferLiquids` 按从台路径净消耗峰值计算，执行端只转该量 —— 一致。
+- 切换事件：JarValue 五级价值排序 + 快照回滚 + Case2 剩余禁液丢弃不回仓库 —— 一致。
+- Web 链路：`transferJarIds / transferLiquids` 已序列化进 GetState/feasibilityResult，冒烟通过。
+- 构建：全解决方案 0 警告 0 错误。
+
+### 已知遗留（非阻塞，待用户决定）
+
+1. `UpdateWorkshopCapacity` 溢出与回滚兜底直接塞仓库，绕过 WAREHOUSE_MAX_* 上限（第四轮 A-E 清单 B 项）。
+2. `/api/state` HTTP 端点未走串行闸门（WS 与定时器已加锁）。
+3. 前端路径弹窗只显示 SolverPath，未展示 MasterPath 与转移清单（UX 缺口）。
+4. 死代码：`FeasibilityChecker.LastSolution`（只写不读）、`Order.Paths/SelectedPathId/ExecutionHistory`、
+   `JarSystem.RuleEngine/WorkshopService`；Canvas 生产者条读取不存在的 `generators` 字段。
+5. 求解器无节点预算：需求数 N 大时 2^N 划分 × DFS 可能变慢（游戏内订单建议限长）。
+
+---
+
+## 第七轮（2026-08-01）— 遗留五项收尾
+
+### 1. 仓库单向流动（用户确认）
+
+- 语义：资源只从中央仓库流向工作台；工作台容量溢出与回滚溢出的资源**直接丢弃**（计入丢弃计数），不回收。
+- `UpdateWorkshopCapacity`：罐子/液体溢出不再塞回仓库，改为 `ProducerModule.DiscardJars/DiscardLiquids` 计数。
+- `OrderEvent.RollbackSlaveToMaster`：主台无法接收的回流罐子/液体直接丢弃并记日志；
+  删除 `OrderEvent.Warehouse` 属性与 `JarSystem` 的赋值（不再需要收容所）。
+- 文档同步：`规则.txt` 第 5 节、`系统设计与构造.md` 规则矩阵（容量溢出回流 → 溢出丢弃）、Godot 指南第 8/9 条。
+
+### 2. `/api/state` 加串行闸门
+
+- `MapGet("/api/state")` 改为 async + `svc.Gate.WaitAsync()`，与 WS 命令、定时器共用同一闸门。
+
+### 3. 路径弹窗展示主台段与转移清单
+
+- `GetState` 的可行性结果序列化补充 `masterPath`；
+- `showPathModal` 重写：表格分「主台 → 选择性转移 → 从台」两段展示，
+  顶部增加「选择性转移清单」摘要（转移罐子 Id + 所需液体）。
+
+### 4. 死代码清理
+
+- 删除 `FeasibilityChecker.LastSolution`（只写不读）、`Order.Paths/SelectedPathId/ExecutionHistory`；
+- 删除 `RuleEngine.cs`、`WorkshopService.cs` 及 `JarSystem.RuleEngine/WorkshopService` 属性；
+  S11 测试改为 Workshop vs WorkshopInfo 两处规则一致；UML 02 移除 RuleEngine；Godot 指南同步；
+- `ProducerModule.GetProducerStatus` 补充 `generators`（shape/rate/accumulated），Canvas 生产者条恢复工作；
+- `index.html` 标题去版本号。
+
+### 5. 订单长度限制
+
+- `Constants.MAX_ORDER_REQUIREMENTS = 10`；`Order.ValidateOrder` 超限抛异常；
+  前端 `addRequirement` 最多 10 行并提示；文档注明约束 2^N 划分搜索规模。
+
+### 验证（第七轮后）
+
+- 测试：**0 bugs / 2000 随机 + 0 bugs / 3000 容量压力 + 19 确定性全部 PASS**；
+  全解决方案 0 警告 0 错误；UML 8 文件语法校验 ALL OK。
+
+---
+
+## 第八轮（2026-08-01）— 前端容量编辑被打断修复
+
+### 问题
+
+- 现象：编辑工作台容量时，几秒后输入框自动复原。
+- 根因：服务端 `startTick` 每 2 秒广播 `state`，`updateUI() → renderWorkshops()` 重建全部卡片
+  （`c.innerHTML = ...map(...)`），正在编辑的输入框被静态显示覆盖。
+
+### 修复（app.js）
+
+- 新增 `editingCapacityIndex` 与 `capacityDraft` 两个前端状态：
+  - 进入编辑态时记录草稿值并重绘；
+  - `renderWorkshops` 对正在编辑的卡片渲染输入表单（值来自草稿），其余卡片照常；
+  - 输入框 `oninput` 实时写回草稿（`updateCapacityDraft`），tick 重绘不再丢失输入；
+  - 确认（✔）时读取草稿提交 `updateWorkshopCapacity` 并退出编辑态。
+- 验证：`node --check` 语法通过；后续 state 广播会保留编辑表单与已输入内容。

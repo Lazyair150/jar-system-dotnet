@@ -1,0 +1,18 @@
+• UML/ 目录（8 个独立 puml 文件，均可用 PlantUML 渲染）：
+
+   #   文件                                    类型
+  ━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   1   01_索引.puml                            索引
+   2   02_ClassDiagram.puml                    类图 — 全部核心类、属性、方法、关系
+   3   03_Sequence_B类订单.puml                时序图 — 可行性(划分搜索)→主台→转移→从台→交付
+   4   04_Sequence_工作台切换.puml             时序图 — Case 1/2 → 转移 → 回滚/自动解除从台
+   5   05_State_订单生命周期.puml              状态图 — 待执行→执行中→成功/失败
+   6   06_State_罐子操作.puml                  状态图 — 空罐/满罐 × isMarked 六态
+   7   07_Component_架构.puml                  组件图 — Config/Web/Application/Domain/Solver/...
+   8   08_Activity_B类可行性.puml              活动图 — slave_only → 划分搜索(2^N)
+
+可以在 plantuml.com (https://www.plantuml.com) 在线渲染，或者在 VS Code 安装 PlantUML 插件直接预览。
+
+• 同步说明（2026-08-01）：已按当前实现更新——CheckTypeB 改为需求子集划分精确搜索
+  （不再有 TwoPhaseSimulation / combined_under_slave）；路径步骤按 jarId/reshapeMode 执行；
+  SetMaster/SetSlave 返回结果字典且主从同台自动解除；WorkshopSwitchEvent 带快照回滚。

@@ -1,0 +1,406 @@
+﻿const { LIQUIDS } = require('../utils/constants');
+const {
+    PourInCommand,
+    ReshapeEmptyCommand,
+    ReshapeAndPourCommand,
+    PourOutCommand,
+    TransferCommand
+} = require('../commands/JarCommands');
+
+/**
+ * 独立执行器 - 使用 Command Pattern
+ *
+ * 执行策略：
+ *   - A类订单：主工作台独立完成 → 主台交付（无转移）
+ *   - B类订单：主工作台预处理 → 全量转移到从台 → 从台继续处理 → 从台交付
+ *
+ * 失败处理：
+ *   失败时不执行 Command 级回滚（那是编程错误恢复），
+ *   而是由 OrderEvent.fail() → rollbackSlaveToMaster() 处理资源归还，
+ *   这是设计好的游戏机制（"订单失败结算"）。
+ */
+class IndependentExecutor {
+    constructor() {}
+
+    execute(order, master, slave, event, solverPath) {
+        // 如果已有可行性分析的求解器路径，优先按路径执行
+        if (solverPath && solverPath.length > 0 && order.type === 'A') {
+            const pathResult = this._executeViaSolverPath(order, master, slave, event, solverPath);
+            if (pathResult.success) return pathResult;
+            if (event.executionLog) {
+                event.executionLog.push({ phase: 'fallback', reason: '路径执行失败，降级到默认执行', errors: pathResult.errors });
+            }
+        }
+        if (order.type === 'A') {
+            return this._executeTypeA(order, master, event);
+        } else {
+            return this._executeTypeB(order, master, slave, event, solverPath);
+        }
+    }
+    /**
+     * A类订单：主工作台独立完成，无转移
+     * 所有需求在主台处理，交付时检查主台即可
+     */
+    // 按求解器路径执行
+    _executeViaSolverPath(order, master, slave, event, solverPath) {
+        const operations = [];
+        const errors = [];
+        const workshop = order.type === 'A' ? master : slave;
+
+        for (let si = 0; si < solverPath.length; si++) {
+            const step = solverPath[si];
+            const op = step.operation;
+            if (!op) { errors.push({ step: si, reason: '无效操作' }); continue; }
+            const ji = op.ji;
+            if (ji === undefined || ji === null || ji >= workshop.jars.length) {
+                errors.push({ step: si, reason: '罐子索引越界', jarIndex: ji });
+                continue;
+            }
+            const jar = workshop.jars[ji];
+            if (!jar) { errors.push({ step: si, reason: '找不到罐子', jarIndex: ji }); continue; }
+
+            let result;
+            switch (op.type) {
+                case 'MATCH':
+                    jar.mark();
+                    operations.push({ phase: 'solver_path', action: 'direct_match', jar: jar.getDescription() });
+                    break;
+                case 'RESHAPE':
+                    result = workshop.reshapeEmpty(jar, op.ts, op.cst);
+                    if (result.success) {
+                        operations.push({ phase: 'solver_path', action: 'reshape', jar: jar.getDescription(), targetShape: op.ts });
+                    } else {
+                        errors.push({ step: si, reason: result.reason || 'reshapeEmpty失败' });
+                    }
+                    break;
+                case 'POUR_IN':
+                    result = workshop.pourIn(jar, op.tl);
+                    if (result.success) {
+                        operations.push({ phase: 'solver_path', action: 'pourIn', jar: jar.getDescription(), liquid: op.tl });
+                    } else {
+                        errors.push({ step: si, reason: result.reason || 'pourIn失败' });
+                    }
+                    break;
+                case 'RESHAPE_POUR':
+                    result = workshop.reshapeAndPour(jar, op.ts, op.cst, op.tl);
+                    if (result.success) {
+                        operations.push({ phase: 'solver_path', action: 'reshape_then_pour', jar: jar.getDescription(), targetShape: op.ts, liquid: op.tl });
+                    } else {
+                        errors.push({ step: si, reason: result.reason || 'reshapeAndPour失败' });
+                    }
+                    break;
+                case 'POUR_OUT':
+                    result = workshop.pourOut(jar);
+                    if (result.success) {
+                        operations.push({ phase: 'solver_path', action: 'pourOut', jar: jar.getDescription() });
+                    } else {
+                        errors.push({ step: si, reason: result.reason || 'pourOut失败' });
+                    }
+                    break;
+                default:
+                    errors.push({ step: si, reason: '未知操作类型', type: op.type });
+            }
+        }
+
+        if (errors.length > 0) {
+            return { success: false, operations, errors, reason: '求解器路径执行部分失败' };
+        }
+
+        const satisfied = order.isSatisfiedBy(workshop.jars);
+        if (satisfied) {
+            return { success: true, operations, errors };
+        }
+
+        const unsatisfied = [];
+        for (const req of order.requirements) {
+            const match = workshop.jars.find(function(j) {
+                const sm = j.shape === req.shape;
+                const lm = req.liquid ? j.liquid === req.liquid : j.isEmpty();
+                return sm && lm;
+            });
+            if (!match) unsatisfied.push(req);
+        }
+        return {
+            success: false, operations, errors,
+            reason: '求解器路径执行后仍不满足: ' + unsatisfied.map(function(r) {
+                return r.liquid ? ('满罐(' + r.shape + ',' + r.liquid + ')') : ('空罐(' + r.shape + ')');
+            }).join(', ')
+        };
+    }
+    _executeTypeA(order, master, event) {
+        const operations = [];
+        const errors = [];
+
+        const masterResults = this._executeOnWorkshop(master, order.requirements, 'master', event);
+        operations.push(...masterResults.operations);
+        errors.push(...masterResults.errors);
+
+        const satisfied = order.isSatisfiedBy(master.jars);
+        if (satisfied) {
+            return { success: true, operations, errors };
+        }
+
+        // 失败路径：A类无转移需要回滚，OrderEvent.fail() 处理标记清理
+        // 这是设计好的游戏机制，不是编程错误
+        const unsatisfied = [];
+        for (const req of order.requirements) {
+            const match = master.jars.find(j =>
+                j.shape === req.shape &&
+                (req.liquid ? j.liquid === req.liquid : j.isEmpty())
+            );
+            if (!match) unsatisfied.push(req);
+        }
+        return {
+            success: false,
+            operations,
+            errors,
+            reason: `主工作台资源不足: ${unsatisfied.map(r =>
+                r.liquid ? `满罐(${r.shape},${r.liquid})` : `空罐(${r.shape})`
+            ).join(', ')}`
+        };
+    }
+
+    /**
+     * B类订单：主工作台 → 全量转移到从台 → 从台继续处理 → 从台交付
+     *
+     * 转移后清除 isMarked，使已在主台处理好的罐子
+     * 能被从台重新识别匹配，避免重复消耗资源
+     */
+    _executeTypeB(order, master, slave, event, solverPath) {
+        const operations = [];
+        const errors = [];
+
+        // 阶段1: 主工作台处理（预处理阶段）
+        const masterResults = this._executeOnWorkshop(master, order.requirements, 'master', event);
+        operations.push(...masterResults.operations);
+        errors.push(...masterResults.errors);
+
+        // 阶段2: 全量转移到从台（B类最终在从台交付）
+        const jarsToTransfer = [...master.jars];
+        const transferCmds = jarsToTransfer.map(j => new TransferCommand(j, master, slave));
+        const transferResult = event.executeBatch(transferCmds, master);
+
+        if (transferResult.success) {
+            operations.push({ phase: 'transfer', description: '转移所有资源到从工作台' });
+
+            // 转移剩余液体到从台
+            for (const liquid of LIQUIDS) {
+                if (master.liquidStorage[liquid] > 0 && !slave.isBanned(liquid)) {
+                    const amount = master.liquidStorage[liquid];
+                    master.liquidStorage[liquid] = 0;
+                    slave.addLiquid(liquid, amount);
+                    event.recordLiquidTransfer(liquid, amount);
+                }
+            }
+
+            event.advanceToSlavePhase();
+
+            // 关键：清除从台所有罐子的 isMarked，让从台阶段能重新评估所有可用罐子
+            for (const jar of slave.jars) {
+                jar.isMarked = false;
+            }
+        }
+
+        // 阶段3: 从工作台继续处理（isMarked 已清除，可重新匹配全部需求）
+        // 从台阶段: 优先使用求解器路径
+        let slaveResults;
+        if (solverPath && solverPath.length > 0) {
+            slaveResults = this._executeViaSolverPath(order, master, slave, event, solverPath);
+            if (!slaveResults.success) {
+                slaveResults = this._executeOnWorkshop(slave, order.requirements, 'slave', event);
+            }
+        } else {
+            slaveResults = this._executeOnWorkshop(slave, order.requirements, 'slave', event);
+        }
+        operations.push(...slaveResults.operations);
+        errors.push(...slaveResults.errors);
+
+        // 阶段4: 检查交付（B类从从台交付）
+        const satisfied = order.isSatisfiedBy(slave.jars);
+        if (satisfied) {
+            return { success: true, operations, errors };
+        }
+
+        // 失败路径：由 OrderEvent.fail() → rollbackSlaveToMaster() 处理资源归还
+        // 这是设计好的游戏机制（订单失败结算），不是编程错误回滚
+        const unsatisfied = [];
+        for (const req of order.requirements) {
+            const match = slave.jars.find(j =>
+                j.shape === req.shape &&
+                (req.liquid ? j.liquid === req.liquid : j.isEmpty())
+            );
+            if (!match) unsatisfied.push(req);
+        }
+        return {
+            success: false,
+            operations,
+            errors,
+            reason: `未满足需求: ${unsatisfied.map(r =>
+                r.liquid ? `满罐(${r.shape},${r.liquid})` : `空罐(${r.shape})`
+            ).join(', ')}`
+        };
+    }
+
+    _executeOnWorkshop(workshop, requirements, location, event) {
+        // 满罐需求优先于空罐需求
+        const sorted = [...requirements].sort(function(a, b) {
+          if (a.liquid && !b.liquid) return -1;
+          if (!a.liquid && b.liquid) return 1;
+          return 0;
+        });
+        const operations = [];
+        const errors = [];
+        for (const req of sorted) {
+            if (req.liquid) {
+                const result = this._tryFulfillFull(req, workshop, location, event);
+                if (result.success) operations.push(result.operation);
+                else errors.push({ requirement: req, reason: result.reason });
+            } else {
+                const result = this._tryFulfillEmpty(req, workshop, location, event);
+                if (result.success) operations.push(result.operation);
+                else errors.push({ requirement: req, reason: result.reason });
+            }
+        }
+
+        return { operations, errors };
+    }
+
+    _tryFulfillFull(req, workshop, location, event) {
+        const { shape, liquid } = req;
+
+        // 1. 直接使用已有满罐
+        const existing = workshop.jars.find(j =>
+            j.shape === shape && j.liquid === liquid && !j.isMarked
+        );
+        if (existing) {
+            existing.mark();
+            return { success: true, operation: { location, action: 'use_existing', jar: existing.getDescription() } };
+        }
+
+        // 2. 检查可倒液的空罐
+        const emptyJar = workshop.jars.find(j =>
+            j.shape === shape && j.isEmpty() && !j.isMarked
+        );
+        if (emptyJar) {
+            if (workshop.isBanned(liquid)) {
+                return { success: false, reason: `工作台禁${liquid}` };
+            }
+            if (workshop.liquidStorage[liquid] < 1) {
+                return { success: false, reason: `液体${liquid}不足` };
+            }
+
+            // BUG 11 FIX: 使用 Command
+            const cmd = new PourInCommand(emptyJar, liquid);
+            const result = event.executeCommand(cmd, workshop);
+
+            if (result.success) {
+                return { success: true, operation: { location, action: 'pourIn', jar: emptyJar.getDescription(), liquid } };
+            }
+            return { success: false, reason: result.reason };
+        }
+
+        // 3. 尝试倒出满罐中的液体来补充液体库存
+        if (workshop.liquidStorage[liquid] < 1) {
+            const sourceFull = workshop.jars.find(j =>
+                j.liquid === liquid && !j.isMarked && !workshop.isBanned(liquid)
+            );
+            if (sourceFull && workshop.liquidStorage[liquid] < workshop.maxLiquids) {
+                const outCmd = new PourOutCommand(sourceFull, workshop);
+                const outResult = event.executeCommand(outCmd, workshop);
+                if (outResult.success) {
+                    return this._tryFulfillFull(req, workshop, location, event);
+                }
+            }
+        }
+
+        // 4. RESHAPE_POUR: 原子操作 — 改形并倒液（只标记一次）
+        const sourceJar = workshop.jars.find(j =>
+            j.isEmpty() && !j.isMarked && workshop.canTransform(j.shape, shape)
+        );
+        if (sourceJar) {
+            const costLiquid = LIQUIDS.find(l => !workshop.isBanned(l) && workshop.liquidStorage[l] >= 1);
+            if (costLiquid) {
+                const cmd = new ReshapeAndPourCommand(sourceJar, shape, costLiquid, liquid);
+                const result = event.executeCommand(cmd, workshop);
+                if (result.success) {
+                    return {
+                        success: true,
+                        operation: {
+                            location, action: 'reshape_then_pour',
+                            jar: sourceJar.getDescription(), liquid, costLiquid
+                        }
+                    };
+                }
+            }
+        }
+
+        return { success: false, reason: `无法创造满罐(${shape},${liquid})` };
+    }
+
+    _tryFulfillEmpty(req, workshop, location, event) {
+        const { shape } = req;
+
+        // 1. 直接使用
+        const existing = workshop.jars.find(j =>
+            j.shape === shape && j.isEmpty() && !j.isMarked
+        );
+        if (existing) {
+            existing.mark();
+            return { success: true, operation: { location, action: 'use_existing', jar: existing.getDescription() } };
+        }
+
+        // 2. 尝试倒出液体来补充资源（支撑操作，不消耗需求的罐子）
+        const sourceJarForEmpty = workshop.jars.find(j =>
+            j.isEmpty() && !j.isMarked && workshop.canTransform(j.shape, shape)
+        );
+        if (sourceJarForEmpty) {
+            const costLiquid = LIQUIDS.find(l => !workshop.isBanned(l) && workshop.liquidStorage[l] >= 1);
+            if (costLiquid) {
+                const cmd = new ReshapeEmptyCommand(sourceJarForEmpty, shape, costLiquid);
+                const result = event.executeCommand(cmd, workshop);
+                if (result.success) {
+                    return { success: true, operation: { location, action: 'reshape', jar: sourceJarForEmpty.getDescription(), targetShape: shape } };
+                }
+                return { success: false, reason: result.reason };
+            }
+
+            // 液体不足：尝试倒出满罐中的液体
+            const sourceFull = workshop.jars.find(j =>
+                j.liquid && !j.isMarked && !workshop.isBanned(j.liquid) &&
+                workshop.liquidStorage[j.liquid] < workshop.maxLiquids
+            );
+            if (sourceFull) {
+                const outCmd = new PourOutCommand(sourceFull, workshop);
+                const outResult = event.executeCommand(outCmd, workshop);
+                if (outResult.success) {
+                    return this._tryFulfillEmpty(req, workshop, location, event);
+                }
+            }
+        }
+
+                // 尝试满罐改形 (RESHAPE_FULL)
+        const fullSrc = workshop.jars.find(j => j.liquid && !j.isMarked && !workshop.isBanned(j.liquid) && workshop.canTransform(j.shape, shape));
+        if (fullSrc) {
+          const rr = workshop.reshapeFull(fullSrc, shape);
+          if (rr.success) { return { success: true, operation: { location, action: "reshape_full", jar: fullSrc.getDescription(), targetShape: shape } }; }
+        }
+        // 通用POUR_OUT回退
+        const pourAny = workshop.jars.find(j => j.liquid && !j.isMarked && !workshop.isBanned(j.liquid) && workshop.liquidStorage[j.liquid] < workshop.maxLiquids);
+        if (pourAny) {
+          const outCmd = new PourOutCommand(pourAny, workshop);
+          const outResult = event.executeCommand(outCmd, workshop);
+          if (outResult.success) {
+            if (pourAny.shape === shape && pourAny.isEmpty()) {
+              return { success: true, operation: { location, action: "pour_out_and_use", jar: pourAny.getDescription() } };
+            }
+            return this._tryFulfillEmpty(req, workshop, location, event);
+          }
+        }
+        return { success: false, reason: `无法获得空罐(${shape})` };
+    }
+}
+
+module.exports = IndependentExecutor;
+
+
+

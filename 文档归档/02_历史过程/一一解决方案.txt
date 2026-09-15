@@ -1,0 +1,313 @@
+# 陶罐系统 — 问题解决方案（与「新问题.txt」一一对应）
+
+> 说明：本文只给出**修改方案**，不改动任何代码，供你与「新问题.txt」逐条对比。
+> 编号规则：1–22 与「新问题.txt」正文编号一一对应；A/B/C 对应「五、前后端断链」中的三条。
+> 每条统一为：根因 → 改法 → 涉及文件 → 验证。
+
+---
+
+## 一、核心问题：可行性分析与实际执行不一致
+
+### 1. 求解器路径里有不可执行的步骤（满罐改形）
+
+- 根因：求解器会生成「满罐改形」（RESHAPE 满罐，用罐内液体自耗），但执行器处理 RESHAPE 时一律调用 `ReshapeEmpty`（A 类路径和 B 类主台路径都是如此），满罐必然失败 → 该步报错 → 静默降级到贪心。路径展示的方案与实际执行脱节。
+- 改法：
+  1. 在 `SolverOperation` 上增加一个显式字段（如 `bool FullReshape`），`StateSpaceSolver.EmptyOps` 的满罐分支置为 true；`MakeSummary` 把它序列化为顶级字段（如 `reshapeMode: "full"/"empty"`）。
+  2. 执行器两处 RESHAPE 分支（`ExecuteViaSolverPath` 与 `ExecuteTypeB` 的主台路径循环）按模式分派：`full` → `Workshop.ReshapeFull(jar, ts)`；`empty` → `Workshop.ReshapeEmpty(jar, ts, cost)`。
+  3. 旧格式/旧路径没有该字段时，回退为按当前罐子状态判断（`jar.IsEmpty()`），并在注释里标注这是兼容路径。
+  4. 删除主台路径里 `cst ?? "蜜"` 这种臆测默认值；成本液体一律取自路径步骤本身。
+- 涉及文件：`src/JarSystem.Core/Solver/StateSpaceSolver.cs`、`src/JarSystem.Core/Orders/FeasibilityChecker.cs`、`src/JarSystem.Core/Executor/IndependentExecutor.cs`。
+- 验证：构造一个「满罐改形」是唯一方案的场景（如只有满罐高罐/蜜 + 需求空罐高罐，且无空罐可改形），断言路径步骤与实际执行操作完全一致，不再走降级。
+
+### 2. B 类订单转移后，求解器路径的罐子索引错位
+
+- 根因：路径步骤用「转移前快照里的数组下标」引用罐子；转移后 `slave.Jars` 前面插入了全部主台罐子，下标整体偏移。`combined_under_slave` 顺序虽一致，但主台先跑贪心会改变状态，路径依赖的初始状态已不存在。
+- 改法（分两层）：
+  1. **路径改为按稳定身份引用罐子**：给 `JarState` 增加 `Id` 字段（快照里本就有 Id），执行时用「步骤的 `Before` 数组中 `op.Ji` 位置的罐子 Id」在当前工作台按 Id 查找真实罐子，而不是直接用下标。转移后无论罐子排到哪，都能命中正确对象。
+  2. **执行前校验状态**：应用步骤前，比较真实罐子的 shape/liquid 与步骤 `Before` 中的预期值；不一致立即判定路径失效并走降级，绝不「碰运气」地继续操作，避免把操作落到错误罐子上产生看似成功实则错误的结果。
+  3. **消除主台贪心对路径的干扰**：当检查方法是 `slave_only` 或 `combined_under_slave` 时，主台阶段**不做任何操作**（不跑 `ExecOnWs`），直接全量转移，然后在从台按 Id 解析执行路径——这与模拟假设完全一致。只有 `two_phase_simulation` 才在主台执行 `MasterPath`。
+- 涉及文件：`src/JarSystem.Core/Solver/StateSpaceSolver.cs`（JarState.Id）、`src/JarSystem.Core/Orders/FeasibilityChecker.cs`、`src/JarSystem.Core/Executor/IndependentExecutor.cs`。
+- 验证：主台有罐子、订单仅从台资源可满足（slave_only）时执行 B 类订单，断言执行的罐子与路径指向的罐子 Id 一致；再补一个「路径预检不匹配必须失败而非误操作」的用例。
+
+### 3. 两阶段模拟的液体账目漏掉 POUR_OUT 回补
+
+- 根因：`TwoPhaseSimulation` 计算阶段 1 残留液体时，从初始库存「只减每个步骤的 Cl」，而 POUR_OUT 步骤在求解器内部会把液体加回库存，账目没算这部分。
+- 改法：不再手工推算液体，让求解器直接把状态带出来：
+  1. `SolverStep` 增加 `AfterLiquids` 字段，在 `StateSpaceSolver.Bt` 中 Apply 成功后记录 `ns.Liquids` 的快照。
+  2. `TwoPhaseSimulation` 用「路径最后一步的 `AfterLiquids`」作为阶段 1 结束时的液体，删除现在的「初始值逐步骤减 Cl」逻辑（这整类账目 bug 会一起消失）。
+  3. 若第 4 条采用「按子集划分的精确求解」，本条自然被替代，但仍建议保留 `AfterLiquids` 供路径展示与断言使用。
+- 涉及文件：`src/JarSystem.Core/Solver/StateSpaceSolver.cs`、`src/JarSystem.Core/Orders/FeasibilityChecker.cs`。
+- 验证：构造阶段 1 含 POUR_OUT（如空罐需求靠倒出满罐获得液体来改形）的可行订单，断言当前误判「不可行」的场景变为「可行」，且执行成功。
+
+### 4. 两阶段模拟是启发式，不是完备证明
+
+- 根因：阶段 1 是「按需求顺序 DFS + 逐个补全」的贪心最大化，不保证主台贡献最优；阶段 2 只在固定贡献上再解一次。因此可行性可能假阴性，1% 级不一致是结构性的（当前 11/2000 全为 B 类「从台资源不足」）。
+- 改法（推荐：把两阶段改为**按子集划分的精确搜索**，需求数 N 小，代价可忽略）：
+  1. 对订单的 N 个需求（按出现顺序编号，重复需求算多次）枚举所有「主台子集/从台子集」划分，共 2^N 种。
+  2. 对每个划分：先在主台规则 + 主台状态上精确求解主台子集（现有 DFS 即可）；不可行则跳过该划分；可行则取其**真实终态**（罐子 + `AfterLiquids`），与从台状态合并。
+  3. 再在从台规则 + 合并状态上精确求解从台子集；可行即该划分可行。
+  4. 任一划分可行 → 订单可行，并保存该划分的「主台路径 + 从台路径」。可行性 = 各划分的 OR。
+  5. 删除现在 `TwoPhaseSimulation` 里的「单个需求补全循环」和 `alreadyDone` 重复需求跳过逻辑（这套启发式不再需要，重复需求按序号划分天然正确处理）。
+- 涉及文件：`src/JarSystem.Core/Orders/FeasibilityChecker.cs`（重写 `TwoPhaseSimulation` 或新增 `CheckTypeBExact`）。
+- 验证：随机化测试 2000 场景双向一致（见第 5 条）达到 0 bug；第 1、3 条的场景全部通过。可保留旧的启发式实现作为对照分支，用开关切换对比。
+
+### 5. 测试只验证了半边
+
+- 根因：测试把「可行但执行失败」计为 bug，把「不可行却执行成功」只记为 NOTE 不计数；且随机场景所有资源都在主台，从台永远为空；切换事件、容量、回滚、ID 碰撞均未覆盖。
+- 改法：
+  1. 两个方向都计 bug：`feasible && !exec.Success` 与 `!feasible && exec.Success` 都 `bugs++`，输出完整现场。
+  2. 随机生成器改为**主从台都有资源**（各生成若干罐子与液体），并保留一部分场景从台为空以覆盖转移路径。
+  3. 新增确定性回归用例（每个对应一条修复）：
+     - 满罐改形路径执行（第 1 条）；
+     - slave_only / combined 路径按 Id 重映射（第 2 条）；
+     - 含 POUR_OUT 的两阶段订单（第 3 条）；
+     - 旧主台仅液体时的切换（第 6 条）、Case 1 零游离液体（第 7 条）、Case 2 可用液体保留（第 8 条）；
+     - 主从同台被拒绝（第 9 条）；
+     - 切换事件异常回滚（第 10 条）；
+     - 罐子 ID 碰撞后的转移与回滚（第 11 条）；
+     - 删单后按 Id 执行（第 12 条）；
+     - A 类无从台可行可执行（第 13 条）；
+     - 从台容量不足时 B 类明确失败且状态不变（第 14 条）；
+     - 液体溢出回流中央仓库（第 15 条）。
+  4. 增加**全局资源守恒断言**：订单执行前后，「所有工作台 + 中央仓库 + 已交付」的罐子对象集合守恒（交付是移除，改形是改属性，转移是换容器），液体总量 = 初始 + 生产 − 订单消耗（改形空罐消耗、满罐改形自耗）− 明确记录的丢弃。这个断言能一次性兜住大部分资源类 bug。
+- 涉及文件：`test/JarSystem.Test/Program.cs`（可拆成多个测试类/文件，或保持单文件按类别分组）。
+- 验证：2000 场景两方向 0 bug；新增用例全部通过。
+
+---
+
+## 二、工作台切换事件
+
+### 6. 旧主台只有液体时，切换事件不触发
+
+- 根因：`JarSystem.SetMaster` 的触发条件是 `old.Jars.Count > 0`，只有游离液体时整个切换逻辑被跳过，资源原地滞留、无日志、前端无动画。
+- 改法：
+  1. 条件改为「旧主台有任何资源」：`old.Jars.Count > 0 || old.LiquidStorage.Values.Any(v => v > 0)`。
+  2. 更彻底的做法：让 `SetMaster` 不再靠判断资源有无决定是否执行事件，只要 `old != new` 就执行 `WorkshopSwitchEvent`（事件内部对空资源自然无事可做），并把结果（`{switched, caseType, operations}`）返回给调用方。
+  3. `Program.cs` 的 `workshopSwitched` 判定改为使用 `SetMaster` 的返回值，而不是从 eventHistory 末尾反推（避免与其它事件混淆，也避免未来 eventHistory 截断后误判）。
+- 涉及文件：`src/JarSystem.Core/JarSystem.cs`、`src/JarSystem.Web/Program.cs`。
+- 验证：旧主台 0 罐子 + 若干液体 → 切换后液体全部转移到新主台，旧台清零，事件日志与前端动画都出现。
+
+### 7. Case 1 只倒出「已有游离库存的那种液体」的满罐
+
+- 根因：`ExecuteCase1` 外层遍历的是「游离库存 > 0 的液体」，并要求满罐液体等于该液体；游离液体为 0 时，满罐液体完全不被利用，与设计文本不符。
+- 改法：把 Case 1 重写为「以空的基础形状罐子为驱动」的单循环：
+  1. 只要存在未标记的基础形状空罐：
+     - 若有可用的游离液体（未被旧台禁），按 FIFO 选择液体倒入；
+     - 否则，找一个「非基础形状、满罐、液体未禁」的罐子倒出，再把倒出的液体倒入空罐；
+     - 两者都找不到则结束。
+  2. 这样无论游离库存是否为 0，满罐液体都能被利用，与设计语义一致。
+- 涉及文件：`src/JarSystem.Core/Orders/WorkshopSwitchEvent.cs`。
+- 验证：旧主台游离液体为 0，但有「非基础形状满罐 + 基础形状空罐」→ 切换后空罐变满、满罐变空，两个罐子都转移。
+
+### 8. Case 2 无条件清空所有游离液体
+
+- 根因：`ExecuteCase2` 结尾对两种液体一律清零，即使新主台本来能用（例如旧台无禁、新台只禁蜜，酒应保留）。
+- 改法：
+  1. 删除结尾的无条件清零。
+  2. 让液体留在旧台存储中，由 `TransferAll` 统一处理——它已经按 `NewMaster.IsBanned(l)` 和容量过滤：可用则转移，不可用则丢弃并写日志（`新主台禁{l}` / `容量已满`）。
+  3. 如果设计上确实想「Case 2 优先把液体转化为罐子，剩余再转移」，则语义是「能转就转，转不完的按新台可用性转移或丢弃」，仍不应无条件清零。
+- 涉及文件：`src/JarSystem.Core/Orders/WorkshopSwitchEvent.cs`。
+- 验证：旧台无禁、新台禁蜜，旧台有酒+蜜 → 切换后酒转移、蜜丢弃且有日志。
+
+### 9. 主从可以同台
+
+- 根因：核心层无「主从不得相同」的不变量；前端允许对从台卡片点「设为主」（只隐藏了当前主台的按钮）。
+- 改法：
+  1. 核心：`SetMaster(index)` 若 `index == CurrentSlave` → 拒绝并返回错误（推荐），或者按设计意图「新主台即位后从台角色悬空」→ 设置 `CurrentSlave = null` 并告知前端。二选一，推荐前者（拒绝，错误提示明确）。
+  2. `SetSlave(index)` 若 `index == CurrentMaster` → 同样拒绝。
+  3. 前端：工作台卡片上，当前从台也隐藏「设为主」按钮；当前主台隐藏「设为从」按钮（后者已实现）。
+  4. `Program.cs`：`setMaster`/`setSlave` 若被拒绝，回发 `{type:"error", data:{message:...}}` 并在 UI 日志显示。
+- 涉及文件：`src/JarSystem.Core/JarSystem.cs`、`src/JarSystem.Web/Program.cs`、`src/JarSystem.Web/wwwroot/js/app.js`。
+- 验证：把当前从台设为主 → 被拒绝并提示；接口层直接发同样命令同样被拒；B 类订单不可能在主从同台状态下执行。
+
+### 10. 切换事件没有快照与回滚
+
+- 根因：`WorkshopSwitchEvent` 直接改真实工作台，`Execute()` 永远返回 true，中途异常没有恢复点；Case 2 液体清零基本无日志。
+- 改法：
+  1. 参照 `OrderEvent` 的生命周期：`Execute()` 开头对旧台（以及稳妥起见对新台）做 `CreateSnapshot()`。
+  2. `Execute()` 返回 `(bool Success, string? Error)`，整体包 try/catch；任何异常 → `RestoreFromSnapshot` 恢复两个工作台，返回失败信息。
+  3. `JarSystem.SetMaster` 只在切换成功后才更新 `CurrentMaster`；失败则保持原主台并向上层返回错误。
+  4. 所有丢弃（罐子、液体）都写日志（`TransferAll` 已基本具备；第 8 条修完后 Case 2 的液体丢弃也走日志路径）。
+- 涉及文件：`src/JarSystem.Core/Orders/WorkshopSwitchEvent.cs`、`src/JarSystem.Core/JarSystem.cs`。
+- 验证：注入一次切换中途异常（或在测试里把新台容量设为 0），断言两个工作台状态与切换前完全一致，且返回失败信息。
+
+---
+
+## 三、状态与 ID 管理
+
+### 11. 罐子 ID 每工作台自增，跨台转移撞号
+
+- 根因：`Workshop._nextJarId` 是实例字段；罐子转移保留 Id，两个工作台可能生成同号罐子。B 类回滚用 `HashSet<int>`（`TransferredJarIds`/`SlaveOriginalJarIds`）判定归属，撞号即回滚错乱。
+- 改法：
+  1. 改为**全局唯一 ID 源**：在 `Jar` 上加静态自增（或加一个 `JarIdProvider` 静态类），`Workshop.AddJar` 对 `Id == null` 的罐子统一从全局源取号；删除/不再使用每工作台的 `_nextJarId`（或保留但不再参与取号）。
+  2. `JarSystem.Reset()` 可同时重置全局计数器（可选，ID 只需单次运行内唯一，单调增长也完全可用）。
+  3. `GetState` 的罐子序列化增加 `id` 字段，供前端与测试追踪身份。
+- 涉及文件：`src/JarSystem.Core/Domain/Jar.cs`、`src/JarSystem.Core/Domain/Workshop.cs`、`src/JarSystem.Core/JarSystem.cs`。
+- 验证：两个工作台各自生成同号序列，执行 B 类转移 + 失败回滚，断言归还的是正确的罐子对象（按 Id 与形状双重校验）。
+
+### 12. 订单核心用 Id、前端用数组 index
+
+- 根因：WebSocket 命令传 `orderIndex`，删除订单后 index 位移，前端缓存的 `selectedOrderIndex` 与可行性结果全部错位。
+- 改法：
+  1. 所有订单命令改为传 `orderId`：`executeOrder`、`deleteOrder`、`checkFeasibility`；服务端用 `Orders.FirstOrDefault(o => o.Id == id)` 解析，找不到则回发错误。
+  2. `checkAllFeasibility`/`autoCheckResults` 的返回项从 `{index, result}` 改为 `{orderId, result}`；前端用 orderId 回写。
+  3. 前端把 `selectedOrderIndex` 改为 `selectedOrderId`，所有回调、模态框展示都按 Id 查找。
+- 涉及文件：`src/JarSystem.Web/Program.cs`、`src/JarSystem.Web/wwwroot/js/app.js`。
+- 验证：创建 3 个订单 → 删除第 1 个 → 对之前选中的订单执行/分析，断言作用于正确订单。
+
+### 13. A 类订单被无谓耦合从台
+
+- 根因：`CheckFeasibility` 与 `ExecuteOrder` 都要求 `CurrentSlave != null`，A 类不需要从台也被卡住；UI 同样。
+- 改法：
+  1. 校验改为：主台必选；从台仅 B 类必选：`CurrentMaster == null || (order.Type == "B" && CurrentSlave == null)`。
+  2. `FeasibilityChecker.Check` 对 A 类本来只读主台，无需改动；`Executor.Execute` 的 A 类分支不触碰从台，也无需改动（`OrderEvent` 构造时从台传 null 或占位均可，A 类不会使用）。
+  3. 前端 `canExec` 改为按订单类型判断：A 类只需主台，B 类需主从；状态栏提示区分「请选择主工作台」/「请选择从工作台（B 类需要）」。
+- 涉及文件：`src/JarSystem.Core/JarSystem.cs`、`src/JarSystem.Web/wwwroot/js/app.js`。
+- 验证：只选主台 → A 类订单可行且执行成功；B 类订单提示缺从台。
+
+### 14. B 类转移失败时流程混乱
+
+- 根因：批量转移失败回滚罐子后，阶段仍停在 master，第三阶段照常执行；solver 路径绕过阶段检查直接改从台，`ExecOnWs` 命令则全部被「当前不在从台阶段」拒绝，最终报笼统的「从台资源不足」。
+- 改法：
+  1. **转移失败即终止**：`tr.Success == false` 时不再进入第三阶段，直接返回失败，原因明确为「从台容量不足，无法接收全部资源」，并调用 `event_.Fail(...)`（此时尚未执行任何从台操作，回滚自然无副作用）。
+  2. 语义上固化「全量转移是原子的」：可行性分析假设全量转移，执行也必须全量；不接受「部分转移后继续」。
+  3. 统一阶段校验：`ExecuteViaSolverPath` 对 B 类订单在执行前断言 `ev.CurrentPhase == "slave"`（或改为经由 `ev.ExecuteCommand` 走统一的阶段/工作台校验），消除「绕过检查直改从台」的旁路。
+- 涉及文件：`src/JarSystem.Core/Executor/IndependentExecutor.cs`、`src/JarSystem.Core/Orders/OrderEvent.cs`（如需补阶段断言）。
+- 验证：从台容量小于主台罐子数 → 执行 B 类订单失败，原因清晰，主从两台上下午状态不变（快照恢复后对比）。
+
+### 15. 液体回流名不副实
+
+- 根因：转移阶段直接操作字典并忽略 `AddLiquid` 容量返回值；回滚阶段主台容量不足时液体直接消失，日志却写 `return_to_warehouse`（实际没进仓库）。
+- 改法：
+  1. 转移阶段改为容量感知：用 `slave.AddLiquid(l, amt)` 的返回值确定实际接收量，只对实际接收量调用 `RecordLiquidTransfer`；拒收部分留在主台或明确丢弃并写日志「从台容量已满，丢弃 液体×N」。
+  2. 回滚阶段：主台无法接收的液体**归还中央仓库**（`ProducerModule.LiquidWarehouse`），并把日志文案改为真实去向（`回流中央仓库` / `回流主台`），不再写误导性的 `return_to_warehouse`。
+  3. 规则矩阵「容量溢出回流」按新行为更新描述。
+- 涉及文件：`src/JarSystem.Core/Executor/IndependentExecutor.cs`、`src/JarSystem.Core/Orders/OrderEvent.cs`、`src/JarSystem.Core/JarSystem.cs`（如需把仓库引用传给 OrderEvent）。
+- 验证：主台液体已满时执行失败 B 类订单 → 转移液体回到仓库而非消失；全局守恒断言通过（见第 5 条）。
+
+---
+
+## 四、规则实现重复与数据不一致
+
+### 16. 形状转换规则有三份实现并已漂移
+
+- 根因：`Workshop.GetPossibleTransforms`、`WorkshopInfo.GetPossibleTransforms`、`RuleEngine.GetPossibleTransforms` 是独立拷贝；`RuleEngine` 只支持「基础→基础」，改形成本写死「酒」，且整个 `RuleEngine`/`WorkshopService` 目前是死代码。
+- 改法：
+  1. 单一来源：在 `Config/Rules.cs`（或新建 `Domain/ShapeRules.cs`）放一个静态纯函数 `GetPossibleTransforms(baseMarks, additionalMarks, shape)`，实现唯一的转换规则；`Workshop`、`WorkshopInfo`、`RuleEngine` 全部改为委托调用，删除各自的重复实现。
+  2. 成本液体规则也集中：新增 `Workshop.PickCostLiquid()`（返回任意未被禁且有库存的液体，按 FIFO 选择），执行器与求解器都使用它，删除散落的 `FirstOrDefault(...)` 和 `GetTransformCost` 写死逻辑。
+  3. 若决定彻底移除死代码，则删除 `RuleEngine.cs` 与 `WorkshopService.cs` 及 `JarSystem` 上的对应属性；若保留 API，则必须委托而非各写一套。
+- 涉及文件：`src/JarSystem.Core/Config/Rules.cs`、`src/JarSystem.Core/Domain/Workshop.cs`、`src/JarSystem.Core/Solver/StateSpaceSolver.cs`、`src/JarSystem.Core/Rules/RuleEngine.cs`、`src/JarSystem.Core/Services/WorkshopService.cs`、`src/JarSystem.Core/Executor/IndependentExecutor.cs`。
+- 验证：写三个 API 的等价性测试（附加标记形状、不在任何标记中的形状），断言结果完全一致。
+
+### 17. 禁令两种写法并存
+
+- 根因：模板用 `["酒"]`，青龙台用 `["禁蜜"]`，随机生成用裸液体；`IsBanned` 兼容两者，但序列化展示与直接比较都会踩坑。
+- 改法：
+  1. 在 `Workshop` 构造时**规范化**：`Ban` 统一存裸液体名（去掉「禁」前缀）。
+  2. 更新 `Rules.WORKSHOP_TEMPLATES` 与 `InitializeDefault` 中青龙台的数据为裸液体写法。
+  3. `IsBanned` 简化为 `Ban.Contains(l)`（可暂时保留「禁+l」兼容判断，数据规范化后移除）。
+  4. 前端展示若需要「禁酒/禁蜜」字样，在渲染时加前缀，不再依赖后端原始字符串。
+- 涉及文件：`src/JarSystem.Core/Domain/Workshop.cs`、`src/JarSystem.Core/Config/Rules.cs`、`src/JarSystem.Core/JarSystem.cs`、`src/JarSystem.Web/wwwroot/js/app.js`。
+- 验证：用两种写法创建工作台，断言 `IsBanned` 一致、`GetState` 的 ban 数组只有裸液体名。
+
+### 18. 「空罐在前」与实际执行顺序相反
+
+- 根因：`Order.ValidateOrder` 强制列表空罐在前，但求解器与执行器都把满罐需求排到前面执行；规则文档与 UI 提示因此产生误导。
+- 改法（推荐：保持「满罐优先」的执行语义，修正表述）：
+  1. 保留执行时满罐优先的排序（这是规则「满罐需求优先于空罐需求」的实现）。
+  2. 修改 `ValidateOrder` 的异常文案与 UI 提示：明确「需求列表按展示约定空罐在前；执行顺序为满罐优先」。
+  3. 同步更新 `规则.txt`、`系统设计与构造.md` 的订单规则小节，删除会造成误解的「空罐必须在满罐之前」表述或补充执行顺序说明。
+- 备选（如果希望列表顺序就是执行顺序）：删除求解器/执行器/可行性分析中的 `OrderBy(满罐优先)`，让顺序完全由订单列表决定——但这是行为变更，需先确认设计意图。
+- 涉及文件：`src/JarSystem.Core/Orders/Order.cs`、`src/JarSystem.Web/wwwroot/js/app.js`、`规则.txt`、`系统设计与构造.md`。
+- 验证：文档与 UI 文案更新；行为不变，现有测试全绿。
+
+---
+
+## 五、前后端断链
+
+### A. 容量编辑是死的
+
+- 根因：前端发送 `updateWorkshopCapacity`，但 `Program.cs` 的 WebSocket 命令表没有该 case，点击静默无效。
+- 改法：
+  1. `Program.cs` 增加 `case "updateWorkshopCapacity"`，调用 `sys.UpdateWorkshopCapacity(index, maxJars, maxLiquids)`（注意 `maxJars`/`maxLiquids` 需要可空解析，前端不填时传 null；`JI` 现在缺省返回 0，需新增 `JIOrNull` 辅助函数）。
+  2. 处理后广播新 state。
+- 涉及文件：`src/JarSystem.Web/Program.cs`（前端已就绪，无需改）。
+- 验证：UI 改容量 → 罐子/液体溢出进仓库，卡片数字更新。
+
+### B. B 类转移动画从不触发
+
+- 根因：服务端 `orderExecuted` 只回 `{success, reason, operations}`，前端却在等 `data.transferOccurred === true`，永远为 false。
+- 改法：`Program.cs` 的 `orderExecuted` payload 增加 `transferOccurred = r.TransferOccurred`（`ExecuteOrder` 已返回该值，直接透传）。
+- 涉及文件：`src/JarSystem.Web/Program.cs`（前端逻辑已就绪）。
+- 验证：执行 B 类订单后 Canvas 出现转移动画；A 类订单不触发。
+
+### C. 主从卡片高亮样式不生效
+
+- 根因：CSS 定义 `.workshop-card.master/.slave`，JS 生成 `role-master/role-slave`，选择器对不上。
+- 改法：二选一，推荐改 JS（一行）：`rc = isM ? 'master' : isS ? 'slave' : ''`，与现有 CSS 及 Canvas 语义对齐；或新增 `.workshop-card.role-master/.role-slave` 两条 CSS 规则。
+- 涉及文件：`src/JarSystem.Web/wwwroot/js/app.js` 或 `src/JarSystem.Web/wwwroot/css/style.css`。
+- 验证：选中主从后卡片出现红/蓝边框高亮。
+
+---
+
+## 六、游戏性 / 平衡性层面
+
+### 19. 满罐需求的隐藏限制
+
+- 根因：一罐一操作使「改形 + 倒液」两步不可行，满罐需求只能由现成满罐或「现成空罐 + 倒液」满足；改形只服务空罐需求。这是规则组合的隐含结论，文档未说明。
+- 改法（这是设计决策，不是代码 bug）：
+  1. 至少先在 `规则.txt` / 设计文档中明确写出该限制，避免玩家困惑。
+  2. 若想增加深度，两个可选方向（先讨论再定，本文不实现）：
+     - 放宽 isMarked 的作用域：同一订单内罐子可在「不同需求」间被复用（isMarked 改为按需求计数），会改变求解器语义，影响面大；
+     - 新增复合操作「制作」（RESHAPE + POUR_IN 合并为一个操作，消耗液体），在求解器与执行器中成对支持，改动集中在单一操作类型上，风险更小。
+- 涉及文件：仅文档；若放宽则涉及 `Solver`、`Executor`、`Workshop`。
+- 验证：文档说明即可；若放宽，需回归全部随机测试。
+
+### 20. 中央仓库无上限
+
+- 根因：`ProducerModule` 的 `Warehouse` 与 `LiquidWarehouse` 无限增长；`FlowToMaster` 固定取队首，形状分布失衡时部分形状长期滞留。
+- 改法：
+  1. 在 `Constants` 增加仓库上限（如 `WAREHOUSE_MAX_JARS`、`WAREHOUSE_MAX_LIQUIDS`）；`ProducerModule.Tick` 与 `ProduceLiquid` 达到上限后停止入仓，并累计「溢出丢弃」计数（可在 `GetState` 暴露给前端观察）。
+  2. 可选平衡杠杆：`FlowToMaster` 增加形状偏好——优先送「主台基础标记」形状的罐子（两队列或一次按偏好排序），减少滞留；这与问题十测试里的供给约束方向一致。
+- 涉及文件：`src/JarSystem.Core/Config/Constants.cs`、`src/JarSystem.Core/Production/ProducerModule.cs`。
+- 验证：长跑测试断言仓库始终 ≤ 上限，且主台基础形状的罐子流入占比更高。
+
+### 21. 策略对比结论统计上很弱
+
+- 根因：「FIFO 最优（38.2%）」来自每模式 60 单 × 1 次运行，四种策略平均成功率只差 0.1–0.3pp，很可能在噪声范围内。
+- 改法（证据质量修正，非功能改动）：
+  1. 每个模式多重复几次（不同随机种子，如 5–10 次）再汇总；或把每模式订单数提高到几百。
+  2. 报告置信区间/效应量，并对每个模式做配对比较（符号检验）后再下「策略差异显著」的结论。
+  3. 若重跑后差异仍 <0.5pp，应把结论改为「策略选择对长期成功率影响很小，FIFO 作为默认合理」。
+- 涉及文件：`test/JarSystem.Test`（新增多种子跑法）。
+- 验证：输出带 CI 的胜率表；结论文案与数据强度匹配。
+
+### 22. Web 层并发竞态
+
+- 根因：`JarSystemService.System` 是单例；多个 WebSocket 连接 + `TickTimer`/`AutoCheckTimer` 可并发触发 Tick/执行/切换，而核心逻辑无锁。
+- 改法：
+  1. 若该 Web 壳定位为「开发调试/单人演示」：在 `Program.cs` 的所有变更型命令处理与两个 Timer 回调里加 `lock (svc.System)`（或 SemaphoreSlim），`GetState` 也加锁取快照，成本极低。
+  2. 若未来要支持多人：核心应改为「命令队列 + 单线程执行循环」或引入事件溯源，而不是加锁修修补补——文档中明确该 Web 壳的边界。
+- 涉及文件：`src/JarSystem.Web/Program.cs`。
+- 验证：并发压测（多连接同时执行/重置/切换）不抛异常、状态一致；或文档注明单用户假设。
+
+---
+
+## 推荐实施顺序与验收标准
+
+顺序（依赖关系由前到后）：
+1. 路径可执行性：第 1、2、3 条（先让「路径 = 可执行方案」成立）。
+2. 精确可行性：第 4 条（重写两阶段为子集划分搜索，替换启发式）。
+3. 测试基建：第 5 条（双向计数 + 从台资源 + 守恒断言 + 回归用例），并立刻用新测试验收第 1–4 条。
+4. 切换事件：第 6、7、8、9、10 条。
+5. 状态与 ID：第 11、12、13、14、15 条。
+6. 规则统一：第 16、17、18 条。
+7. 前后端断链：A、B、C 三条（小改动可随时插入）。
+8. 平衡与工程：第 19–22 条（多为决策与文档，或低风险小改）。
+
+验收标准：
+- 2000 场景随机测试两方向 0 bug（不再有 NOTE 类型的不一致）。
+- 全局资源守恒断言在所有随机与回归用例中通过。
+- 新增的确定性用例（第 1、2、3、6–15 条对应的场景）全部通过。
+- 「路径弹窗展示的步骤」与实际执行日志逐条一致（按罐子 Id 校验）。
+- 主从同台、A 类无从台、从台容量不足三种状态均有明确且正确的用户提示。

@@ -1,0 +1,81 @@
+@startuml
+autonumber
+actor User
+participant Frontend
+participant Server
+participant JarSystem
+participant FeasibilityChecker
+participant Solver
+participant Executor
+participant "Workshop Master" as Master
+participant "Workshop Slave" as Slave
+
+User -> Frontend: 点击执行订单
+Frontend -> Server: WS executeOrder {orderId}
+Server -> JarSystem: ExecuteOrder(index)
+
+JarSystem -> FeasibilityChecker: Check(order, masterSnap, slaveSnap)
+activate FeasibilityChecker
+
+FeasibilityChecker -> Solver: Solve(slaveInfo, slaveJars, slaveLiq)
+Solver --> FeasibilityChecker: slave_only result
+
+alt slave_only 不可行
+  loop mask in 0 .. 2^N-1 (需求子集划分)
+    note right: 每条路径计算选择性转移清单\n(交付罐 + 从台使用的主台罐子)\n受从台罐位预算约束
+    FeasibilityChecker -> Solver: Solve(masterInfo, masterReqs, masterJars, masterLiq)
+    Solver --> FeasibilityChecker: 主台子集结果
+    alt 主台子集可行
+      FeasibilityChecker -> FeasibilityChecker: 取真实终态(AfterLiquids) 合并从台
+      FeasibilityChecker -> Solver: Solve(slaveInfo, slaveReqs, combinedJars, combinedLiq)
+      Solver --> FeasibilityChecker: 从台子集结果
+      alt 从台子集可行
+        FeasibilityChecker --> JarSystem: partition 可行 (MasterPath + SolverPath)
+      end
+    end
+  end
+end
+FeasibilityChecker --> JarSystem: 不可行 (lastBlockage)
+deactivate FeasibilityChecker
+
+JarSystem -> Executor: Execute(order, master, slave, event, solverPath)
+activate Executor
+
+== Phase 1: Master ==
+alt MasterPath 存在
+  Executor -> Master: SolverStepApplier.Apply(SolverStepDto, 按 jarId 定位 + 状态预检)
+  note right: 阶段 3-D：步骤为强类型 SolverStepDto\n（旧 SolverPathAdapter 已删除）
+else slave_only / partition 主台为空
+  note right: 不运行贪心主台操作\n保持路径依赖的初始状态
+else 无可行性结果
+  Executor -> Master: ExecOnWs(master, requirements)
+end
+
+== Phase 2: Transfer (选择性) ==
+Executor -> Master: 按 TransferJarIds 清单转移交付罐 + 工具罐
+Executor -> Slave: TransferIn(每个转移罐子)
+note right: 其余主台罐子留在主台\n转移失败即终止，不再进入从台阶段
+Executor -> Master: 按 TransferLiquids 只转移从台需要的液体
+Executor -> Slave: clear isMarked on all jars
+
+== Phase 3: Slave ==
+alt solverPath 存在且转移成功
+  Executor -> Slave: ExecuteViaSolverPath(slave, jarId + 状态校验)
+else fallback
+  Executor -> Slave: ExecOnWs(slave, requirements)
+end
+Executor --> JarSystem: success + operations + errors
+deactivate Executor
+
+== Phase 4: Deliver / Rollback ==
+JarSystem -> Slave: IsSatisfiedBy(jars)
+alt satisfied
+  JarSystem -> Slave: RemoveJar(delivered jars)
+  JarSystem -> OrderEvent: RollbackSlaveToMaster(剩余转移资源回流主台)
+else not satisfied
+  JarSystem -> OrderEvent: Fail + RollbackSlaveToMaster(溢出回流中央仓库)
+end
+
+Server --> Frontend: orderExecuted + state
+Frontend -> User: UI refresh + log display
+@enduml

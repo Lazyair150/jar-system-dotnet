@@ -1,0 +1,115 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>陶罐生产与订单系统 v3.1</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>🏺 陶罐生产与订单系统</h1>
+      <div class="controls">
+        <button id="btn-auto" onclick="toggleAuto()">⏸ 暂停推进</button>
+        <button onclick="manualTick()">⏭ 手动推进</button>
+        <button onclick="showCreateWorkshop()">🏭 新建工作台</button>
+        <button onclick="showCreateOrder()">📋 新建订单</button>
+        <button onclick="createRandomWorkshop()">🎲 随机工作台</button>
+        <button onclick="createRandomOrder()">🎲 随机订单</button>
+        <button id="btn-auto-check" onclick="toggleAutoCheck()">🔍 自动检测</button>
+        <button onclick="resetSystem()">🔄 重置</button>
+      </div>
+    </header>
+
+    <div id="global-pair-bar">
+      <div class="pair-info">
+        <span id="master-display">主工作台: <strong class="unset">未选择</strong></span>
+        <span id="slave-display">从工作台: <strong class="unset">未选择</strong></span>
+      </div>
+      <div class="pair-hint">💡 点击工作台卡片设置主/从</div>
+    </div>
+
+    <main>
+      <div class="panel" id="workshops-panel">
+        <h2>工作台 <button onclick="showCreateWorkshop()">+</button></h2>
+        <div id="workshops-list"></div>
+      </div>
+
+      <div class="panel" id="canvas-panel">
+        <canvas id="main-canvas"></canvas>
+        <div id="producer-panel">
+          <h4>⚙️ 生产者速率</h4>
+          <div id="producer-controls"></div>
+        </div>
+        <div id="event-log"></div>
+      </div>
+
+      <div class="panel" id="orders-panel">
+        <h2>订单 <button onclick="showCreateOrder()">+</button></h2>
+        <div id="orders-list"></div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="warehouse-info">
+        <span>📦 罐子仓库: <strong id="warehouse-jars">0</strong></span>
+        <span>🍷 酒: <strong id="warehouse-wine">0</strong></span>
+        <span>🍯 蜜: <strong id="warehouse-honey">0</strong></span>
+      </div>
+      <div id="status-bar">就绪</div>
+    </footer>
+  </div>
+
+  <div class="modal" id="modal-order">
+    <div class="modal-content">
+      <h3>📋 创建订单</h3>
+      <select id="order-type">
+        <option value="A">A类 - 主工作台交付</option>
+        <option value="B">B类 - 从工作台交付</option>
+      </select>
+      <div id="order-requirements"></div>
+      <button onclick="addRequirement()">+ 添加需求</button>
+      <div class="modal-actions">
+        <button onclick="submitOrder()">创建</button>
+        <button onclick="closeModal('modal-order')">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-workshop">
+    <div class="modal-content">
+      <h3>🏭 创建工作台</h3>
+      <input type="text" id="ws-name" placeholder="工作台名称">
+      <p>基础标记（1-2个）:</p>
+      <div class="shape-selector" id="ws-base-marks"></div>
+      <p>附加标记:</p>
+      <div class="shape-selector" id="ws-add-marks"></div>
+      <p>禁令:</p>
+      <div class="liquid-selector" id="ws-ban"></div>
+      <div class="modal-actions">
+        <button onclick="submitWorkshop()">创建</button>
+        <button onclick="closeModal('modal-workshop')">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-execute">
+    <div class="modal-content">
+      <h3>⚡ 执行订单 #<span id="execute-order-id"></span></h3>
+      <div id="execute-order-info"></div>
+      <div id="feasibility-result"></div>
+      <div class="modal-actions">
+        <button onclick="checkFeasibility()">🔍 检查可行性</button>
+        <button onclick="submitExecute()">⚡ 执行</button>
+        <button onclick="closeModal('modal-execute')">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/constants.js"></script>
+  <script src="/js/canvas.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
+

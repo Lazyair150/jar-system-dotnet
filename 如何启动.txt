@@ -1,0 +1,39 @@
+• cd D:\codex\jar-system-dotnet
+  dotnet run --project src\JarSystem.Web --urls http://localhost:3457
+
+  等输出中出现 Now listening on: http://localhost:3457 后，打开浏览器访问 http://localhost:3457
+  即可。端口可以换成其他值。
+
+
+  1. 先杀掉旧进程：
+
+  taskkill /f /im dotnet.exe
+
+  2. 重新编译 + 启动：
+
+  cd D:\codex\jar-system-dotnet
+  dotnet run --project src\JarSystem.Web --urls http://localhost:3457
+
+  3. 浏览器打开 http://localhost:3457
+
+• 编译通过，0 错误 0 警告。已经回退到最干净的设计：
+
+  回退内容：
+
+  - 去掉 SignalR Hub（删除 Hubs 目录和引用）
+  - 去掉 HTTP API 端点（/api/state、/api/command）
+  - 去掉内嵌 HTML 方式
+  - 恢复原始 WebSocket 通信（/ws）
+  - app.js 直接使用原版 Node.js 项目的代码，只改了 WebSocket 路径为 /ws
+
+  现在在你的 CMD 里：
+
+  cd D:\codex\jar-system-dotnet
+
+  taskkill /f /im dotnet.exe
+
+  dotnet run --project src\JarSystem.Web --urls http://localhost:3457
+
+  然后浏览器打开 http://localhost:3457。这个版本和原始 Node.js 项目的前后端通信方式完全一致（原生
+  WebSocket），不同之处只在于服务端从 Node.js 换成了
+  .NET。如果这个版本仍然不行，那问题可能不在通信方式本身，需要进一步排查浏览器环境或服务端逻辑。

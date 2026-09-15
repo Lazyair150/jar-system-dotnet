@@ -1,0 +1,182 @@
+/**
+ * StateSpaceSolver v6 - 状态空间搜索求解器（重构版）
+ * 合法操作: MATCH(预定), POUR_IN(倒液), POUR_OUT(倒空), RESHAPE(改形)
+ * MATCH: 不标记罐子, 订单层面预留
+ * POUR_OUT: 推进需求(当倒出罐匹配当前需求)
+ * RESHAPE: 适用于空罐(用工作台液体)和满罐(用自身液体)
+ */
+const { LIQUIDS } = require('../config/constants');
+
+class SolverState {
+  constructor(jars, liquids, workshopInfo) {
+    this.jars = jars.map(j => ({ ...j }));
+    this.liquids = { ...liquids };
+    this.workshopInfo = workshopInfo;
+  }
+  clone() { return new SolverState(this.jars, this.liquids, this.workshopInfo); }
+  findJarIndex(p) { return this.jars.findIndex((j, i) => p(j, i)); }
+  gl(l) { return this.liquids[l] || 0; }
+  hl(l, a) { return this.gl(l) >= (a || 1); }
+  cl(l, a) { if (!this.hl(l, a)) return false; this.liquids[l] -= (a || 1); return true; }
+  ucl(l, a) { this.liquids[l] = (this.liquids[l] || 0) + (a || 1); }
+  pl(l, a) { this.liquids[l] = (this.liquids[l] || 0) + (a || 1); }
+  mj(i) { this.jars[i].isMarked = true; }
+  rj(i, s) { this.jars[i].shape = s; }
+  pij(i, l) { this.jars[i].liquid = l; }
+  ej(i) { const l = this.jars[i].liquid; this.jars[i].liquid = null; return l; }
+  ie(j) { return j.liquid === null || j.liquid === undefined; }
+  ib(l) { const b = this.workshopInfo.ban || []; return b.includes(l) || b.includes("禁" + l); }
+  ct(f, t) { return this.workshopInfo.getPossibleTransforms(f).includes(t); }
+  gcl(ex) { return LIQUIDS.filter(l => !this.ib(l) && this.hl(l, 1) && !(ex||[]).includes(l)); }
+}
+
+class StateSpaceSolver {
+  constructor() {
+    this.stats = { nodesExplored: 0, solutionsFound: 0, deadEnds: 0, pourOuts: 0 };
+    this.bestPartialPath = [];
+  }
+
+  solve(requirements, workshopInfo, jars, liquids) {
+    this.stats = { nodesExplored: 0, solutionsFound: 0, deadEnds: 0, pourOuts: 0 };
+    this.bestPartialPath = [];
+    const st = new SolverState(jars, liquids, workshopInfo);
+    const path = [];
+    const r = this._bt(requirements, 0, st, path);
+    return r
+      ? { feasible: true, path: r, stats: { ...this.stats } }
+      : { feasible: false, path: this.bestPartialPath, blockage: this._block(requirements, st), stats: { ...this.stats } };
+  }
+
+  getPartialPath() { return this.bestPartialPath; }
+
+  _bt(reqs, idx, st, path) {
+    if (path.length > this.bestPartialPath.length) this.bestPartialPath = [...path];
+    if (idx >= reqs.length) { this.stats.solutionsFound++; return [...path]; }
+    const ops = this._genOps(reqs[idx], st);
+    for (const op of ops) {
+      this.stats.nodesExplored++;
+      const ns = st.clone();
+      if (!this._apply(op, ns)) continue;
+      const step = { step: idx, requirement: reqs[idx], operation: op, before: st.clone(), after: ns.clone() };
+      path.push(step);
+      // POUR_OUT: 只推进需求当倒出的罐子匹配当前需求形状
+      let ni = idx + 1;
+      if (op.type === 'POUR_OUT') {
+        const jBefore = st.jars[op.ji];
+        ni = (jBefore && jBefore.shape === reqs[idx].shape) ? idx + 1 : idx;
+      }
+      const r = this._bt(reqs, ni, ns, path);
+      if (r) return r;
+      path.pop();
+    }
+    this.stats.deadEnds++;
+    return null;
+  }
+
+  _genOps(req, st) {
+    const ops = [];
+    if (req.liquid) this._fullOps(req.shape, req.liquid, st, ops);
+    else this._emptyOps(req.shape, st, ops);
+    // POUR_OUT always available for full jars
+    for (let i = 0; i < st.jars.length; i++) {
+      const j = st.jars[i];
+      if (j.liquid && !j.isMarked && !st.ib(j.liquid)) {
+        if (st.gl(j.liquid) < (st.workshopInfo.maxLiquids || 30)) {
+          ops.push({ type: 'POUR_OUT', desc: "倒出 " + j.shape + " 中的 " + j.liquid, ji: i, cl: {} });
+        }
+      }
+    }
+    return ops;
+  }
+
+  _fullOps(shape, liquid, st, ops) {
+    // MATCH (不标记, 仅预留)
+    const di = st.findJarIndex(j => j.shape === shape && j.liquid === liquid && !j.isMarked);
+    if (di !== -1) ops.push({ type: 'MATCH', desc: "直接使用 " + shape + "/" + liquid, ji: di, cl: {} });
+    // POUR_IN: 空罐+液体
+    if (!st.ib(liquid) && st.workshopInfo.baseMarks.includes(shape)) {
+      const pi = st.findJarIndex(j => j.shape === shape && st.ie(j) && !j.isMarked);
+      if (pi !== -1) ops.push({ type: 'POUR_IN', desc: "倒入 " + liquid + " 到 " + shape + "空罐", ji: pi, tl: liquid, cl: { [liquid]: 1 } });
+    }
+  }
+
+  _emptyOps(shape, st, ops) {
+    // MATCH (不标记)
+    const di = st.findJarIndex(j => j.shape === shape && st.ie(j) && !j.isMarked);
+    if (di !== -1) ops.push({ type: 'MATCH', desc: "直接使用 " + shape + "空罐", ji: di, cl: {} });
+    // RESHAPE: 空罐改形 (消耗工作台液体)
+    for (const cl of st.gcl()) {
+      for (let i = 0; i < st.jars.length; i++) {
+        if (st.ie(st.jars[i]) && !st.jars[i].isMarked && st.ct(st.jars[i].shape, shape)) {
+          ops.push({ type: 'RESHAPE', desc: "改形 " + st.jars[i].shape + "->" + shape, ji: i, ts: shape, cst: cl, cl: { [cl]: 1 } });
+        }
+      }
+    }
+    // RESHAPE on FULL jar: 满罐改形 (使用自身液体作成本)
+    for (let i = 0; i < st.jars.length; i++) {
+      const j = st.jars[i];
+      if (j.liquid && !j.isMarked && !st.ib(j.liquid) && st.ct(j.shape, shape)) {
+        ops.push({ type: 'RESHAPE', desc: "满罐改形 " + j.shape + "->" + shape + " 自耗" + j.liquid, ji: i, ts: shape, cst: j.liquid, cl: {} });
+      }
+    }
+  }
+
+  _apply(op, st) {
+    const i = op.ji;
+    if (i < 0 || i >= st.jars.length) return false;
+    if (st.jars[i].isMarked) return false;
+    for (const [l, a] of Object.entries(op.cl || {})) { if (!st.hl(l, a)) return false; }
+    switch (op.type) {
+      case 'MATCH':
+        // MATCH不标记，仅用于路径追踪
+        break;
+      case 'POUR_IN':
+        if (!st.ie(st.jars[i])) return false;
+        if (!st.cl(op.tl, 1)) return false;
+        st.pij(i, op.tl); st.mj(i); break;
+      case 'RESHAPE':
+        if (st.ie(st.jars[i])) {
+          // 空罐改形: 消耗工作台液体
+          if (!st.cl(op.cst, 1)) return false;
+        } else {
+          // 满罐改形: 使用自身液体
+          if (st.ib(st.jars[i].liquid)) return false;
+          st.ej(i);
+        }
+        st.rj(i, op.ts); st.mj(i); break;
+      case 'POUR_OUT':
+        if (st.ie(st.jars[i])) return false;
+        const lq = st.ej(i); st.mj(i); st.pl(lq, 1); this.stats.pourOuts++; break;
+      default: return false;
+    }
+    return true;
+  }
+
+  _block(reqs, st) {
+    for (let i = 0; i < reqs.length; i++) {
+      const ops = this._genOps(reqs[i], st);
+      const dos = ops.filter(o => o.type !== 'POUR_OUT');
+      if (dos.length === 0) {
+        const d = reqs[i].liquid ? ("满罐(" + reqs[i].shape + "," + reqs[i].liquid + ")") : ("空罐(" + reqs[i].shape + ")");
+        if (reqs[i].liquid && st.ib(reqs[i].liquid)) return "需求 " + d + " 液体" + reqs[i].liquid + "被禁止";
+        return "需求 " + d + " 无任何可行路径";
+      }
+    }
+    return '资源冲突或液体不足';
+  }
+
+  getSolutionSummary(path) {
+    if (!path || path.length === 0) return [];
+    return path.map(s => ({
+      step: s.step,
+      requirement: s.requirement.liquid ? ("满罐(" + s.requirement.shape + "," + s.requirement.liquid + ")") : ("空罐(" + s.requirement.shape + ")"),
+      operation: s.operation.desc,
+      type: s.operation.type,
+      jarIndex: s.operation.ji,
+      consumed: { ...s.operation.cl },
+      jarsAfter: s.after ? s.after.jars.map(j => j.shape + (j.liquid ? "/" + j.liquid : "空")) : []
+    }));
+  }
+}
+
+module.exports = { StateSpaceSolver, SolverState };

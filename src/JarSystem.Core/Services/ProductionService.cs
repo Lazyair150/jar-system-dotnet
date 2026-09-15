@@ -1,0 +1,45 @@
+namespace JarSystem.Core.Services;
+
+/// <summary>
+/// 产出与时间推进（原 <c>JarSystem.Tick / UpdateProducerRate / UpdateLiquidProductionRate</c>）。
+///
+/// 语义（不可改动）：每次推进 = 生产者累积产罐 → 按速率产液体 → 向当前主台流入（3 罐 2 液，基础形状优先）。
+/// 属性一律从门面实时读取（<c>Reset()</c> 会重建 <c>ProducerModule</c> 与液体速率）。
+/// </summary>
+internal sealed class ProductionService
+{
+    private readonly JarSystem _system;
+
+    public ProductionService(JarSystem system)
+    {
+        _system = system;
+    }
+
+    /// <summary>推进 count 次；返回值恒为 0（保持对外签名与行为）。</summary>
+    public int Tick(int count = 1)
+    {
+        _system.ProducerModule.Tick(count);
+        for (int i = 0; i < count; i++)
+        {
+            var wineRate = _system.LiquidProductionRate["酒"];
+            var honeyRate = _system.LiquidProductionRate["蜜"];
+            if (wineRate > 0) _system.ProducerModule.ProduceLiquid("酒", wineRate);
+            if (honeyRate > 0) _system.ProducerModule.ProduceLiquid("蜜", honeyRate);
+        }
+        if (_system.CurrentMaster.HasValue)
+        {
+            var master = _system.Workshops[_system.CurrentMaster.Value];
+            if (master != null)
+                _system.ProducerModule.FlowToMaster(master, _system.FlowSettings.JarCount, _system.FlowSettings.LiquidAmount);
+        }
+        return 0;
+    }
+
+    public void UpdateProducerRate(string name, string shape, double rate) =>
+        _system.ProducerModule.UpdateRate(name, shape, rate);
+
+    public void UpdateLiquidProductionRate(string liquid, int rate)
+    {
+        if (_system.LiquidProductionRate.ContainsKey(liquid)) _system.SetLiquidProductionRate(liquid, rate);
+    }
+}

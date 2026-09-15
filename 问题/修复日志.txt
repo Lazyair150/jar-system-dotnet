@@ -1,0 +1,47 @@
+  已完成所有四个问题文件描述的问题修复，涉及 3 个文件：
+
+  ### /D:/codex/jar-system-dotnet/src/JarSystem.Core/Orders/FeasibilityChecker.cs
+
+  1. MakeSummary — 路径数据结构重构。原来 operation 字段是嵌套 Dictionary，序列化到前端变成 [Object]。现在改为扁平结构 ，
+     operation 是自然语言字符串如 "将 #0 改形为 圆罐 (消耗蜜)"，type、jarIndex、targetShape、targetLiquid、costLiquid 作
+     为顶级字段独立存在。
+
+  2. TwoPhaseSimulation — 阶段1残留液体计算修复。原来是错误的先清零再加罐内液体、然后盲目用 combinedLiquids 覆盖的逻辑 。
+     现在正确计算：从主台初始液体出发，减去路径中每个操作消耗的液体（operation.Cl），再加从台液体。
+
+  ### /D:/codex/jar-system-dotnet/src/JarSystem.Core/Executor/IndependentExecutor.cs
+
+  3. ExecuteTypeB — B类订单在转移后增加了求解器路径执行逻辑。如果存在 solverPath，优先使用 ExecuteViaSolverPath 执行； 如
+     果路径执行失败，降级到默认执行策略（ExecOnWs）。此前 solverPath 参数被接受但完全忽略。
+
+  4. ExecuteViaSolverPath — 支持双格式兼容：旧格式（operation 是子字典）和新格式（字段平铺）。同时 workshop 选择基于订 单
+     类型（A→master，B→slave），使 B类订单也能严格按求解器路径执行。
+
+  ### /D:/codex/jar-system-dotnet/src/JarSystem.Web/wwwroot/js/app.js
+
+  5. showPathModal — 从简陋的 alert() 改为标准模态框+表格展示，每行显示步骤序号、需求、操作描述、执行后罐子状态。人类可
+     读。
+
+  6. logOp — 新增操作日志格式化辅助函数。使用 phase 或 location 作为前缀，处理 jar、liquid 字段，消除了操作日志中的
+     undefined 前缀。
+
+  7. orderExecuted — 重构使用 logOp 统一处理成功和失败两个分支的操作日志输出。
+
+• ## 问题六修复
+
+  根因：CheckTypeB 使用 combined_under_merged 方法，将主从两台的标记全集（BaseMarks = 主+从）传给求解器。这让求解器找到
+  了一个"可行"路径，但这个路径忽略了 B 类订单的阶段边界——步骤2 POUR_IN 三角罐需要三角罐是基础标记，这只能在从台做，但 求
+  解器在合并规则下把它当成可以在同一阶段执行。
+
+  两处改动：
+
+  1. CheckTypeB — 移除 combined_under_merged 作为独立可行判断。B 类订单不能再绕开阶段边界。现在检查链为：slave_only →
+     combined_under_slave → TwoPhaseSimulation
+
+  2. TwoPhaseSimulation — 简化逻辑：阶段1在主台规则下求解全部需求获取路径 → 计算剩余资源（减消耗+加从台） → 阶段2在从台
+     规则下重新求解全部需求。阶段1已创建的罐子会被 MATCH 操作自然识别（MATCH 只看罐子状态不看工作台规则），从而在阶段2形
+     成完整路径。
+
+  不在本次改动的后续问题：执行器 ExecuteTypeB 目前只把 solverPath 用在从台阶段，但求解器返回的路径把所有操作混排在一起。
+  执行器拿到路径后，步骤2（三角罐倒蜜）会在从台执行——这是正确的。但如果路径中存在主台操作在从台操作之后的情况（即步骤 顺
+  序不符合先主后从），执行器会出问题。待有具体用例反馈再改进。

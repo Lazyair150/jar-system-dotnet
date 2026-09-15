@@ -1,0 +1,78 @@
+@startuml
+autonumber
+actor User
+participant Frontend
+participant Server
+participant JarSystem
+participant SwitchEvent
+participant "Old Master" as Old
+participant "New Master" as New
+
+User -> Frontend: click SetMaster(newIdx)
+Frontend -> Server: WS setMaster {index}
+Server -> JarSystem: SetMaster(newIdx)
+
+JarSystem -> JarSystem: 校验: old != new 且 old 有资源(罐子或液体)?
+alt 无资源 或 old == new
+  JarSystem -> JarSystem: CurrentMaster = newIdx (无切换事件)
+else 有资源
+  JarSystem -> SwitchEvent: new WorkshopSwitchEvent(old, new).Execute()
+  activate SwitchEvent
+
+  SwitchEvent -> SwitchEvent: 快照 old/new (CreateSnapshot)
+  SwitchEvent -> SwitchEvent: BansAreSame(old, new)
+
+  alt Case 1: 禁令相同
+    loop 基础形状空罐存在
+      alt 有游离液体
+        SwitchEvent -> Old: PourIn(emptyBaseJar, freeLiquid)
+      else 无游离液体
+        SwitchEvent -> Old: PourOut(任意非基础形状满罐, 未禁液体)
+        SwitchEvent -> Old: PourIn(emptyJar, 倒出的液体)
+      end
+    end
+  else Case 2: 禁令不同
+    SwitchEvent -> Old: 临时附加新主台基础标记
+    loop 目标形状
+      SwitchEvent -> Old: ReshapeEmpty(空罐, target, cost)
+      SwitchEvent -> Old: ReshapeFull(满罐, target)
+    end
+    SwitchEvent -> Old: 恢复附加标记 (finally)
+    note right: 不再无条件清空游离液体\n可用液体在转移阶段按禁令/容量转移
+  end
+
+  loop 每个罐子
+    SwitchEvent -> Old: RemoveJar(jar)
+    alt New 有容量
+      SwitchEvent -> New: AddJar(jar)
+    else 容量满
+      SwitchEvent -> SwitchEvent: log discard jar
+    end
+  end
+
+  loop 每种液体
+    alt New 未禁且有容量
+      SwitchEvent -> New: AddLiquid(l, amt)
+    else
+      SwitchEvent -> SwitchEvent: log discard liquid
+    end
+  end
+
+  alt 执行成功
+    SwitchEvent --> JarSystem: (true, null)
+    deactivate SwitchEvent
+    JarSystem -> JarSystem: EventHistory.Add + CurrentMaster = newIdx
+    alt newIdx == 旧从台
+      JarSystem -> JarSystem: CurrentSlave = null (自动解除)
+    end
+  else 执行失败 (异常，内部已快照回滚)
+    SwitchEvent --> JarSystem: (false, error)
+    deactivate SwitchEvent
+    JarSystem -> JarSystem: CurrentMaster 不变 + 返回错误
+  end
+end
+
+Server --> Frontend: workshopSwitched / error + state
+Frontend -> Frontend: animateWorkshopSwitch()
+Frontend -> User: visual update + log
+@enduml

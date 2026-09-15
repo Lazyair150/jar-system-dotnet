@@ -1,0 +1,31 @@
+﻿@startuml
+[*] --> EmptyFree : producer output
+
+state "Empty Jar (isMarked=false)" as EmptyFree
+state "Full Jar (isMarked=false)" as FullFree
+state "Empty Jar (isMarked=true)" as EmptyLocked
+state "Full Jar (isMarked=true)" as FullLocked
+
+EmptyFree --> FullFree : POUR_IN
+EmptyFree --> EmptyLocked : RESHAPE
+EmptyFree --> EmptyLocked : MATCH
+
+FullFree --> EmptyLocked : POUR_OUT
+FullFree --> FullLocked : MATCH
+FullFree --> EmptyLocked : RESHAPE_FULL
+
+EmptyLocked --> [*] : round end
+FullLocked --> [*] : round end
+
+note right of EmptyFree
+  POUR_IN: shape in base marks
+  RESHAPE: can transform to target
+  MATCH: matches order requirement
+end note
+
+note bottom of FullFree
+  POUR_OUT: liquid not banned
+  RESHAPE_FULL: can transform, liquid OK
+  MATCH: matches order requirement
+end note
+@enduml

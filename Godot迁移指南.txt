@@ -1,0 +1,313 @@
+# JarSystem.Core → Godot 4.x 迁移指南
+
+## 一、架构分离确认
+
+JarSystem 已实现核心逻辑与表现层的完全分离：
+
+```
+JarSystem.Core.dll          ← 零依赖，可直接在任何 C# 环境运行
+JarSystem.Web (Program.cs)  ← 薄胶水层，WebSocket + 静态文件
+app.js + index.html         ← Web UI，替换为 Godot Control 节点
+```
+
+`JarSystem.cs` 的 `GetState()` 返回强类型快照 `StateDto`（阶段 3 起；属性名经 `[JsonPropertyName]` 固定，
+**序列化后的 JSON 键与层级与旧的 `Dictionary<string,object?>` 完全一致**），只含纯数据、不包含任何 UI 类型。
+核心逻辑可以在无头模式下运行，不接任何界面也能 Tick、下单、执行、求解。
+
+## 二、Godot 项目集成步骤
+
+### 2.1 项目设置
+
+1. 创建 Godot 4.x 项目，选择 .NET 版本
+2. 将 `JarSystem.Core.csproj` 复制到项目目录
+3. 在 Godot 的 `.csproj` 中添加项目引用：
+   ```xml
+   <ItemGroup>
+     <ProjectReference Include="JarSystem.Core\JarSystem.Core.csproj" />
+   </ItemGroup>
+   ```
+4. 或者直接引用编译好的 DLL：
+   ```xml
+   <Reference Include="JarSystem.Core">
+     <HintPath>path/to/JarSystem.Core.dll</HintPath>
+   </Reference>
+   ```
+
+### 2.2 系统初始化
+
+在 Godot Autoload 或主场景的 `_Ready()` 中：
+
+```csharp
+using JarSystem.Core;
+
+public partial class GameManager : Node
+{
+    public JarSystem System { get; private set; }
+    
+    public override void _Ready()
+    {
+        System = new JarSystem();  // 自动调用 InitializeDefault()
+    }
+    
+    public override void _Process(double delta)
+    {
+        // 每 2 秒推进一次
+        _tickTimer += delta;
+        if (_tickTimer >= 2.0)
+        {
+            _tickTimer = 0;
+            System.Tick();
+            EmitSignal(SignalName.StateChanged);
+        }
+    }
+}
+```
+
+### 2.3 UI 绑定模式
+
+核心思路：`GetState()` → 读取 `StateDto`（或先序列化再按下列键名解析 JSON）→ 更新 Godot Control 节点。
+
+```
+GetState() 返回结构:
+
+workshops[]  → 每个 WorkshopPanel 实例绑定
+  baseMarks, additionalMarks, ban  → 标记标签
+  maxJars, maxLiquids              → 容量（2026-08 起序列化）
+  jars[] → 罐子图标网格
+    id, shape, liquid, isMarked, description
+  liquids → 液体数值
+orders[] → 每个 OrderPanel 实例绑定
+  id, type, requirements, status
+  feasibilityResult → feasible/blockage + solverPath（步骤含 jarId/jarShape/jarLiquid/reshapeMode）
+warehouse → jars/liquids + discardedJars/discardedLiquids（仓库上限溢出计数）
+globalState → 主从选择 + 自动检测状态
+eventHistory → 事件日志
+```
+
+### 2.4 推荐的 Godot 场景结构
+
+```
+res://
+├── scenes/
+│   ├── main.tscn                  # 根场景
+│   │   ├── Header (HBoxContainer)
+│   │   │   ├── Button "推进" → GameManager.System.Tick()
+│   │   │   ├── Button "自动检测" → toggle AutoCheckEnabled
+│   │   │   └── Label 状态栏
+│   │   ├── WorkshopsPanel (ScrollContainer)
+│   │   │   └── WorkshopCard.tscn × N (实例化)
+│   │   ├── OrdersPanel (ScrollContainer)
+│   │   │   └── OrderCard.tscn × N (实例化)
+│   │   └── LogPanel (RichTextLabel)
+│   ├── WorkshopCard.tscn
+│   │   ├── Label 名称 + 主/从标记
+│   │   ├── HBox 基础标记 / 附加标记
+│   │   ├── Label 禁令
+│   │   ├── GridContainer 罐子图标
+│   │   └── Label 液体数
+│   └── OrderCard.tscn
+│       ├── Label 订单ID + 类型
+│       ├── HBox 需求标签
+│       ├── Label 可行性结果 + 计数
+│       ├── Button "执行" / "分析" / "路径"
+│       └── Button "删除"
+├── scripts/
+│   ├── GameManager.cs             # Autoload 或主控制器
+│   ├── WorkshopCard.cs            # 工作台卡片绑定逻辑
+│   ├── OrderCard.cs               # 订单卡片绑定逻辑
+│   └── ResourceAnimator.cs        # 罐子移动动画
+└── JarSystem.Core/                # 核心库（不动）
+    └── ...所有 .cs 文件...
+```
+
+### 2.5 罐子可视化
+
+Godot 中可以用 `ColorRect` 或自定义 `TextureRect` 表示罐子：
+
+```csharp
+public void UpdateJars(WorkshopCard card, List<Dictionary> jars)
+{
+    // 清空旧图标
+    foreach (var child in card.JarsGrid.GetChildren())
+        child.QueueFree();
+    
+    foreach (var jarData in jars)
+    {
+        var rect = new ColorRect();
+        string shape = (string)jarData["shape"];
+        string liquid = jarData["liquid"] as string;
+        bool isMarked = (bool)jarData["isMarked"];
+        
+        // 形状 → 颜色映射
+        rect.Color = ShapeToColor(shape);
+        // 液体 → 边框颜色（空=灰色，酒=红色，蜜=金色）
+        if (liquid != null)
+            rect.Set("theme_override_styles/panel", LiquidStyle(liquid));
+        if (isMarked)
+            rect.Modulate = new Color(1, 1, 1, 0.5f);
+        
+        card.JarsGrid.AddChild(rect);
+    }
+}
+```
+
+### 2.6 事件驱动更新
+
+不要每帧调用 `GetState()`。使用信号机制：
+
+```csharp
+// GameManager.cs
+[Signal] public delegate void StateChangedEventHandler();
+[Signal] public delegate void OrderExecutedEventHandler(bool success, string reason);
+
+public void ExecuteOrder(int index)
+{
+    var result = System.ExecuteOrder(index);
+    EmitSignal(SignalName.OrderExecuted, result.Success, result.Reason);
+    EmitSignal(SignalName.StateChanged);
+}
+```
+
+各 UI 节点连接信号：
+
+```csharp
+// WorkshopCard.cs
+public override void _Ready()
+{
+    GameManager.Instance.StateChanged += UpdateDisplay;
+}
+```
+
+### 2.7 动画
+
+Godot 内置 `Tween` 系统替代 CSS 动画：
+
+```csharp
+// 工作台切换动画
+public void AnimateSwitch(int fromIdx, int toIdx)
+{
+    var oldCard = WorkshopCards[fromIdx];
+    var newCard = WorkshopCards[toIdx];
+    
+    // 旧台缩小
+    var tween = CreateTween();
+    tween.TweenProperty(oldCard, "scale", new Vector2(0.95f, 0.95f), 0.3f);
+    tween.Parallel().TweenProperty(oldCard, "modulate:a", 0.6f, 0.3f);
+    
+    // 新台发光
+    var glowTween = CreateTween();
+    glowTween.TweenProperty(newCard, "self_modulate", new Color(0, 0.85f, 1f), 0.4f);
+    glowTween.TweenProperty(newCard, "self_modulate", Colors.White, 0.6f);
+    
+    // 粒子效果：用小 Sprite2D 向新台移动
+    foreach (var dot in CreateParticles(operations.Count))
+    {
+        dot.Position = oldCard.GlobalPosition;
+        var moveTween = CreateTween();
+        moveTween.TweenProperty(dot, "global_position", newCard.GlobalPosition, 0.8f);
+    }
+}
+```
+
+## 三、GDScript 方案（如果不使用 C#）
+
+如果目标项目是纯 GDScript，需要手动移植核心逻辑。
+
+### 3.1 可复用部分
+
+| 组件 | 移植难度 | 说明 |
+|------|---------|------|
+| Constants | 低 | 常量数组，直接复制 |
+| 转换规则 | 低 | ShapeRules 单一来源（Workshop/WorkshopInfo 均委托） |
+| Jar 实体 | 低 | Resource 类型，shape/liquid/isMarked |
+| Workshop | 中 | 操作逻辑不变；ID 全局唯一；禁令规范化（裸液体名） |
+| Order | 低 | 需求验证 + IsSatisfiedBy |
+| Solver | 高 | DFS 递归 + State 克隆，小心性能 |
+| FeasibilityChecker | 中 | 依赖 Solver；B 类 = 需求子集划分精确搜索（2^N） |
+| IndependentExecutor | 中 | 依赖 Workshop 操作；路径执行按 jarId 解析 + reshapeMode 分派 |
+| WorkshopSwitchEvent | 低 | 纯 Workshop 操作编排；快照回滚 + 返回 (bool, error) |
+
+### 3.2 GDScript 关键注意点
+
+1. **无 nullable**：用空字符串 `""` 代替 `null` 表示空罐
+2. **无 LINQ**：`FirstOrDefault` → for 循环 + break
+3. **Dictionary 的深拷贝**：Solver 的快照需要用 `duplicate(true)` 
+4. **枚举替代**：用 const int 或 String 代替 C# enum
+5. **性能**：Solver 的 DFS 在 GDScript 中可能较慢，考虑限制搜索深度
+
+## 四、集成检查清单
+
+- [ ] JarSystem.Core 编译通过，无外部 NuGet 依赖
+- [ ] 在 Godot 项目中能 `new JarSystem()` 不报错
+- [ ] `GetState()` 返回的 `StateDto` 能正确映射到 Godot 侧结构（JSON 键与 2.3 节列出的键名一致）
+- [ ] Tick() + CreateOrder() + CheckFeasibility() + ExecuteOrder() 全链路跑通
+- [ ] WorkshopSwitchEvent 在 SetMaster 时正常触发
+- [ ] 自定义路径执行器按 jarId 定位罐子、按 reshapeMode 区分空/满罐改形（不要用数组下标）
+- [ ] UI 信号绑定正确，不出现每帧轮询
+- [ ] 罐子/液体动画使用 Tween 而非 CSS
+- [ ] 测试框架（Program.cs）可独立运行验证核心逻辑
+
+## 五、系统逻辑完整性说明
+
+当前 `JarSystem.Core` 是一个闭环系统：
+
+- **输入**：`Tick()`（时间推进+资源流入）、`CreateOrder()`（新订单）、`SetMaster/SetSlave()`（工作台选择）、`ExecuteOrder()`（订单执行）
+- **处理**：状态空间求解、可行性分析（B 类 = 需求子集划分精确搜索）、资源转移
+- **输出**：`GetState()` 完整状态快照、事件历史记录
+
+未包含的部分（非 bug，属设计范围外）：
+- 存档/读档（需额外序列化层）
+- 多人协作（需网络同步层）
+- 撤销/重做（需命令历史栈）
+- 图形化编辑器（需独立工具）
+
+核心逻辑可直接作为游戏子系统运行。
+
+---
+
+## 六、当前版本行为同步（2026-08-01 更新）
+
+迁移时以本节为准，以下行为已与当前实现同步：
+
+1. **可行性分析**：旧 `TwoPhaseSimulation` 已移除。B 类订单改为「需求子集划分精确搜索」：
+   枚举 2^N 个主台/从台需求划分，主台子集在主台规则下精确求解，取真实终态（含液体）与从台合并，
+   从台子集在从台规则下精确求解；任一划分可行即订单可行。`CheckMethod` 取值：
+   `single_phase`（A 类）、`slave_only`（仅从台）、`partition`（划分搜索）。
+2. **路径数据结构**：可行性路径步骤字段为 `jarIndex`（旧）、`jarId / jarShape / jarLiquid / reshapeMode`
+   （新，按 Id 定位与状态校验用）。执行器已改为「按 jarId 首选定位 + 执行前状态校验 +
+   RESHAPE 按 reshapeMode 分派空罐/满罐改形」。若在 Godot 侧自实现执行器，必须同样处理。
+3. **罐子 ID**：`Workshop.AddJar` 统一从全局静态 `Jar.NextId()` 取号，跨工作台转移/回滚不会撞号；
+   `GetState` 的 jars[] 含 `id` 字段，回滚按 Id 判定归属。
+4. **禁令数据**：工作台构造时规范化，ban 数组只含裸液体名（`酒`/`蜜`，不再有 `禁蜜` 写法）。
+5. **转换规则**：唯一来源为 `Config/ShapeRules.GetPossibleTransforms`；
+   `Workshop`、`WorkshopInfo` 均委托调用；`RuleEngine`/`WorkshopService` 已移除。
+6. **SetMaster / SetSlave**：
+   - `SetMaster(index)` 返回结果字典 `{success, switched, caseType, operations, slaveCleared?}`；
+   - 旧主台有任意资源（罐子或液体）才触发 `WorkshopSwitchEvent`；切换失败时 `CurrentMaster` 不变；
+   - 把当前从台设为主 → 切换成功后自动解除从台（`CurrentSlave = null`）；
+   - `SetSlave(index)` 拒绝把当前主台设为从台。
+7. **WorkshopSwitchEvent**：`Execute()` 返回 `(bool Success, string? Error)`；
+   开头对两个工作台做快照，异常时回滚；Case 1 在游离液体为 0 时也会利用非基础形状满罐；
+   Case 2 不再无条件清空游离液体（新主台可用的液体会被转移）。
+8. **订单执行（选择性转移）**：B 类只转移可行性路径记录的罐子清单（交付罐 + 从台计划使用的工具罐，
+   记录于 `FeasibilityResultData.TransferJarIds`）与所需液体（`TransferLiquids`），其余罐子/液体留在主台；
+   未交付的转移罐子与未用液体在订单结束后回流主台；转移失败即终止并返回明确原因；
+   回滚/容量调整的溢出资源直接丢弃（**仓库单向流动，不回收**）。
+9. **仓库上限与单向流动**：罐 200、每种液体 200；溢出丢弃并计数
+   （`warehouse.discardedJars/discardedLiquids`）；资源只从仓库流向工作台，
+   工作台容量溢出/回滚溢出的资源直接丢弃，不回收；`FlowToMaster` 优先送主台基础形状的罐子。
+10. **满罐需求限制（设计定案，不放宽）**：一罐一操作使「改形 + 倒液」两步不可行，
+    满罐需求只能由现成满罐或「现成同形空罐 + 倒入」满足；改形只服务空罐需求。移植时必须保持该规则。
+11. **Web 胶水层（仅本仓库的 Web 壳）**：订单命令改传 `orderId`；`orderExecuted` 带
+    `transferOccurred`；`updateWorkshopCapacity` 已接通；Web 层为单用户串行闸门（`SemaphoreSlim`），
+    多人场景需另做网络同步层。
+12. **测试与实验**：`test/JarSystem.Test`（2000 随机双向一致 + 3000 容量压力 + 20 个确定性回归，
+    含 `--dump-contract` 契约快照模式）、`test/StrategyExperiment`（711 抽象结构模式 × 多种子 × 4 策略，FIFO 显著最优）。
+13. **重构后的对外形态（2026-08 重构，行为与 JSON 未变）**：
+    - `GetState()` 返回 `StateDto`（`Services/StateDtos.cs`），键名经 `[JsonPropertyName]` 冻结为与旧字典一致；
+    - 门面 `JarSystem` 只做转发，用例在 `WorkshopService`/`OrderService`/`ProductionService`，快照在 `StateSerializer`；
+    - 可选注入：`ISolver`（`FeasibilityChecker(ISolver)`）、`IIdGenerator`（`Workshop`/`Order` 构造参数）、
+      `IJarSelectionStrategy`（罐子选择策略，Godot 侧可自行实现）；
+    - 执行器类名 `OrderExecutor`（原 `IndependentExecutor`）；`JarSelectionStrategy` 枚举与
+      `OrderExecutor.SelectionStrategy` 属性保持不变；
+    - 求解器操作属性名已对齐 JSON 字段（`JarIndex/TargetShape/TargetLiquid/CostLiquid/Consumed`）。

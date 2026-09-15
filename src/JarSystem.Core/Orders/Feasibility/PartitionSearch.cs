@@ -1,0 +1,165 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using JarSystem.Core.Abstractions;
+using JarSystem.Core.Config;
+using JarSystem.Core.Solver;
+
+namespace JarSystem.Core.Orders;
+
+/// <summary>划分搜索的输入（一次 B 类订单可行性分析的完整快照）。</summary>
+public sealed class PartitionSearchRequest
+{
+    /// <summary>已按执行顺序（满罐优先）排序的需求。</summary>
+    public List<Requirement> Requirements { get; init; } = new();
+
+    public WorkshopInfo MasterInfo { get; init; } = new();
+    public WorkshopInfo SlaveInfo { get; init; } = new();
+
+    public List<JarState> MasterJars { get; init; } = new();
+    public Dictionary<string, int> MasterLiquids { get; init; } = new();
+
+    public List<JarState> SlaveJars { get; init; } = new();
+    public Dictionary<string, int> SlaveLiquids { get; init; } = new();
+}
+
+/// <summary>一次可行划分的产出（两阶段路径 + 选择性转移清单 + 计数）。</summary>
+public sealed class PartitionSearchOutcome
+{
+    public List<SolverStep> MasterPath { get; init; } = new();
+    public List<SolverStep> SlavePath { get; init; } = new();
+
+    /// <summary>需要从主台转移到从台的罐子 Id（交付罐 + 从台路径实际使用的工具罐）。</summary>
+    public List<int> TransferJarIds { get; init; } = new();
+
+    /// <summary>需要从主台转移到从台的游离液体量（每种）。</summary>
+    public Dictionary<string, int> TransferLiquids { get; init; } = new();
+
+    public int DirectCount { get; init; }
+    public int OperationCount { get; init; }
+}
+
+/// <summary>
+/// B 类订单的「需求子集划分」精确搜索（原 <c>FeasibilityChecker.CheckTypeB</c> 的主体，整体迁出以便单独测试）。
+///
+/// 算法：把 N 个需求（重复需求按序号算多次）枚举为 2^N 个「主台子集 / 从台子集」划分；
+/// 每个划分先在主台规则下精确求解主台子集，取其**真实终态**（罐子 + 液体账目）与从台合并，
+/// 再在从台规则下精确求解从台子集；任一划分可行即订单可行。
+///
+/// 关键语义（不可改动）：
+/// - 主台交付罐必须原样交付，从台阶段不得再使用（防同一罐子跨阶段重复使用）；
+/// - 转移预算 = 从台罐位 − 从台原有罐子 − 交付罐数，超预算的划分直接判不可行；
+/// - 从台液体池按从台容量截断，与执行的「容量感知部分填充」一致；
+/// - 划分按 <c>mask</c> 升序枚举，失败时保留**最后一次**划分的阻塞原因。
+/// </summary>
+public sealed class PartitionSearch
+{
+    private readonly ISolver _solver;
+
+    public PartitionSearch(ISolver solver)
+    {
+        _solver = solver;
+    }
+
+    /// <summary>
+    /// 搜索所有划分。返回 null 表示无可行划分，此时 <paramref name="lastBlockage"/> 为最后一次划分的阻塞原因。
+    /// </summary>
+    public PartitionSearchOutcome? Search(PartitionSearchRequest request, out string? lastBlockage)
+    {
+        var reqs = request.Requirements;
+        var masterJars = request.MasterJars;
+        var masterLiquids = request.MasterLiquids;
+        var slaveJars = request.SlaveJars;
+        var slaveLiquids = request.SlaveLiquids;
+
+        string? blockage = null;
+        for (int mask = 0; mask < (1 << reqs.Count); mask++)
+        {
+            var mReqs = new List<Requirement>();
+            var sReqs = new List<Requirement>();
+            for (int i = 0; i < reqs.Count; i++)
+            {
+                if ((mask >> i & 1) == 1) mReqs.Add(reqs[i]);
+                else sReqs.Add(reqs[i]);
+            }
+
+            var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
+            if (!mr.Feasible || mr.Path == null) continue;
+
+            List<JarState> masterFinal = masterJars;
+            Dictionary<string, int> masterFinalLiq = masterLiquids;
+            if (mr.Path.Count > 0 && mr.Path[^1].After != null)
+            {
+                masterFinal = mr.Path[^1].After!;
+                masterFinalLiq = mr.Path[^1].AfterLiquids ?? masterLiquids;
+            }
+
+            // 主台交付罐：主台子集需求在终态中匹配的罐子，转移后必须原样交付，
+            // 从台阶段不得再操作/消耗（防止同一罐子跨阶段被重复使用）。
+            var deliverableIds = new HashSet<int>();
+            if (mReqs.Count > 0)
+            {
+                var matched = JarMatcher.MatchAll(masterFinal, mReqs, JarMatcher.Matches);
+                foreach (var idx in matched)
+                {
+                    if (idx < 0) continue;
+                    // 用局部变量接住再判空：重复索引 masterFinal[idx] 会打断可空性流分析（CS8629）
+                    var jarId = masterFinal[idx].Id;
+                    if (jarId.HasValue) deliverableIds.Add(jarId.Value);
+                }
+            }
+
+            // 选择性转移：从台求解池 = 主台终态（扣除交付罐，标记主台来源） + 从台原有罐子
+            var slavePool = masterFinal
+                .Where(j => !(j.Id.HasValue && deliverableIds.Contains(j.Id.Value)))
+                .Select(j => JarState.Copy(j, masterOrigin: true))
+                .Concat(slaveJars.Select(j => JarState.Copy(j, masterOrigin: false)))
+                .ToList();
+
+            // 转移预算：从台罐位 − 从台原有罐子 − 交付罐数（交付罐必转，不可再占预算）
+            int budget = request.SlaveInfo.MaxJars - slaveJars.Count - deliverableIds.Count;
+            if (budget < 0) continue;
+
+            // 液体池：从台自身 + 主台可转移液体（按从台每种液体容量截断，与执行部分填充一致）
+            var tLiquids = new Dictionary<string, int>();
+            foreach (var l in Constants.LIQUIDS)
+                tLiquids[l] = Math.Min(
+                    masterFinalLiq.GetValueOrDefault(l, 0) + slaveLiquids.GetValueOrDefault(l, 0),
+                    request.SlaveInfo.MaxLiquids);
+
+            var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
+            if (sr.Feasible && sr.Path != null)
+            {
+                // 转移罐子清单：交付罐 + 从台路径实际使用的主台来源罐子
+                var transferIds = new HashSet<int>(deliverableIds);
+                foreach (var step in sr.Path)
+                {
+                    if (step.Operation?.JarIndex.HasValue == true && step.Before != null &&
+                        step.Operation.JarIndex.Value >= 0 && step.Operation.JarIndex.Value < step.Before.Count)
+                    {
+                        var bj = step.Before[step.Operation.JarIndex.Value];
+                        if (bj.MasterOrigin && bj.Id.HasValue) transferIds.Add(bj.Id.Value);
+                    }
+                }
+
+                lastBlockage = blockage;
+                return new PartitionSearchOutcome
+                {
+                    MasterPath = mr.Path,
+                    SlavePath = sr.Path,
+                    TransferJarIds = transferIds.OrderBy(x => x).ToList(),
+                    TransferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path, slaveLiquids),
+                    DirectCount = mr.Path.Count(s => s.Operation?.Type == "MATCH")
+                                + sr.Path.Count(s => s.Operation?.Type == "MATCH"),
+                    OperationCount = mr.Path.Count(s => s.Operation?.Type != "MATCH")
+                                   + sr.Path.Count(s => s.Operation?.Type != "MATCH")
+                };
+            }
+
+            blockage = sr.Blockage ?? blockage;
+        }
+
+        lastBlockage = blockage;
+        return null;
+    }
+}
