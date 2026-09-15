@@ -9,7 +9,7 @@ using System.Text.Json;
 /// updateWorkshopCapacity / setMaster / setSlave / executeOrder / deleteOrder / checkFeasibility /
 /// checkAllFeasibility / manualTick / reset / updateProducerRate / startTick / stopTick / setAutoCheck；
 /// 消息 init / state / orderExecuted / workshopSwitched / feasibilityResult / allFeasibilityResults /
-/// autoCheckResults / autoCheckChanged / error。
+/// autoCheckResults / autoCheckChanged / error，以及**连接时一次性下发的 world**（形状/液体词表，见 <see cref="WebSocketHub"/>）。
 /// </summary>
 public sealed class CommandDispatcher
 {

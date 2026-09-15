@@ -15,6 +15,63 @@ package "Config" {
   class ShapeRules {
     {static} +GetPossibleTransforms(baseMarks, addMarks, shape) : List
   }
+
+  ' S2：形状/液体目录的唯一权威（默认 = 上面的常量）
+  class Vocabulary {
+    + Shapes : IReadOnlyList
+    + Liquids : IReadOnlyList
+    + IsValidShape(shape) : bool
+    + IsValidLiquid(liquid) : bool
+    {static} + Default : Vocabulary
+  }
+
+  ' S3：世界即数据（内容 + 参数），默认逐值等价于重构前的硬编码世界
+  class WorldOptions {
+    + Shapes / Liquids : List
+    + DefaultMaxJars / DefaultMaxLiquids : int
+    + Flow : FlowOptions
+    + InitialStock : Map
+    + Producers : List
+    + Workshops : List
+    + NamePools : NamePoolOptions
+    + BuildVocabulary() : Vocabulary
+    + Validate() : WorldValidationResult
+    {static} + Default : WorldOptions
+  }
+  class FlowOptions {
+    + JarCount / LiquidAmount : int
+    + LiquidRate : Map
+  }
+  class ProducerOptions {
+    + Name : String
+    + Rates : Map
+  }
+  class WorkshopOptions {
+    + Name : String
+    + BaseMarks / AdditionalMarks / Ban : List
+    + MaxJars / MaxLiquids : int?
+  }
+  class NamePoolOptions {
+    + Prefix / Suffix : List
+  }
+  class WorldValidationResult {
+    + Errors : List
+    + Warnings : List
+    + IsValid : bool
+  }
+  class WorldOptionsJson {
+    {static} +FromJson(json) : WorldOptions
+    {static} +ToJson(world) : String
+  }
+
+  WorkshopCapability ..> ShapeRules : delegates
+  WorldOptions ..> Vocabulary : BuildVocabulary()
+  WorldOptions *-- FlowOptions
+  WorldOptions *-- "0..*" ProducerOptions
+  WorldOptions *-- "0..*" WorkshopOptions
+  WorldOptions *-- NamePoolOptions
+  WorldOptions ..> WorldValidationResult : Validate()
+  WorldOptionsJson ..> WorldOptions : 解析/导出（只处理字符串，不做 IO）
 }
 
 package "Domain" {
@@ -36,14 +93,15 @@ package "Domain" {
 
   class Workshop {
     - Name : String
-    - BaseMarks : List
-    - AdditionalMarks : List
-    - Ban : List
+    - Capability : WorkshopCapability   ' S1：能力参数（标记/禁令）只有这一处存储
     - MaxJars : int
     - MaxLiquids : int
     - Jars : List
     - LiquidStorage : Map
+    - TemporaryAdditionalMarks : List  ' Case2 作用域内的运行时状态（不属于能力参数）
+    + BaseMarks / AdditionalMarks / Ban : IReadOnlyList  ' 只读委托视图（等价于 Capability.*）
     + IsBanned(l) : bool
+    + IsBaseMarked(s) / IsAdditionalMarked(s) : bool
     + HasJarCapacity() : bool
     + AddJar(jar) : bool
     + RemoveJar(jar) : Jar
@@ -53,11 +111,24 @@ package "Domain" {
     + ReshapeFull(jar, to) : Result
     + CanTransform(from, to) : bool
     + GetPossibleTransforms(shape) : List
+    ' S1：更换能力（换规则参数，不动罐子/液体；资源搬迁是 SetMaster 切换事件的职责）
+    + ReplaceCapability(capability) : void
+    + WithTemporaryAdditionalMarks(shapes) : IDisposable
     + CreateSnapshot() : Snapshot
     + RestoreFromSnapshot(s) : void
     + TransferOut(jar) : Jar
     + TransferIn(jar) : bool
   }
+
+  ' S1：不可变能力参数 —— 配置 → 工作台 → 快照 → 求解器 共用同一份（零拷贝）
+  class WorkshopCapability {
+    + BaseMarks / AdditionalMarks / Ban : IReadOnlyList
+    + IsBaseMarked(s) / IsAdditionalMarked(s) : bool
+    + IsBanned(liquid) : bool
+    + GetPossibleTransforms(shape, extraAdditionalMarks) : List
+    + CanTransform(from, to, extraAdditionalMarks) : bool
+  }
+  Workshop *-- WorkshopCapability : holds
 }
 
 package "Orders" {
@@ -96,6 +167,13 @@ package "Orders" {
     + TargetShape / TargetLiquid / CostLiquid / ReshapeMode : String
     + Consumed : Map<String,int>
     + JarsAfter : List<String>
+  }
+
+  ' 批 P4-a：autoCheckResults 的元素（原先是 List<object> 里的匿名对象）
+  class AutoCheckResultDto {
+    + Index : int
+    + OrderId : int
+    + Result : FRData
   }
 
   class FeasibilityChecker {
@@ -220,6 +298,7 @@ class JarSystem {
   + AutoCheckEnabled : bool
   + EventHistory : IReadOnlyList
   + Log : ISystemLog
+  + Rng : Random  ' internal（批 T4：整条随机链共用，可复现）
   + AddWorkshop(ws) : void
   + ClearWorkshops() : void
   + AddOrder(o) : void
@@ -287,6 +366,26 @@ package "Services（门面用例）" {
     + Error(message, ex) : void
     + Info(message) : void
   }
+
+  ' 批 P4-a：producerStatus 由 Dictionary<string,object> 投影为强类型（前端 canvas.js/app.js 消费）
+  class ProducerStatusDto {
+    + Producers : List<ProducerInfoDto>
+    + Generators : List<GeneratorStatusDto>
+    + Warehouse : ProducerWarehouseDto
+  }
+  class ProducerInfoDto {
+    + Name : String
+    + Rates : Map<String,double>
+  }
+  class GeneratorStatusDto {
+    + Shape : String
+    + Rate / Accumulated : double
+    + Producers : int
+  }
+  class ProducerWarehouseDto {
+    + Jars : int
+    + Liquids : Map<String,int>
+  }
 }
 
 package "Feasibility（可行性内部协作）" {
@@ -336,5 +435,41 @@ StateSerializer --> StateDto : projects
 ConsoleSystemLog ..|> ISystemLog
 JarSystem --> ISystemLog : Log（批 A 接线）
 CommandExecutor ..> ISystemLog : 回滚失败留痕
+
+' ---- 批 P4-a：命令/消息契约强类型化 ----
+StateDto *-- ProducerStatusDto : producerStatus
+ProducerStatusDto *-- "0..*" ProducerInfoDto : producers
+ProducerStatusDto *-- "0..*" GeneratorStatusDto : generators
+ProducerStatusDto *-- ProducerWarehouseDto : warehouse
+OrderService ..> AutoCheckResultDto : CheckAllFeasibility()
+AutoCheckResultDto --> FeasibilityResultData : result
+FeasibilityResultData *-- "0..*" SolverStepDto : solverPath / masterPath
+FeasibilityResultData --> "0..*" DirectMatch : directSatisfactions
+FeasibilityResultData --> "0..*" OperationNeed : operationsNeeded
+
+' 批 T4：随机源注入（随机策略/随机订单/随机工作台共用同一条可复现链）
+JarSystem ..> OrderExecutor : new OrderExecutor(Rng)
+OrderExecutor ..> JarSelector : new JarSelector(rng)
+JarSelector ..> RandomJarSelection : injects Random
+
+' ---- S1：能力参数只有一份（配置 → 工作台 → 快照 → 求解器 零拷贝）----
+WorkshopSnapshot *-- WorkshopCapability : holds
+WorkshopInfo --> WorkshopCapability : reuses（求解器与领域层同源）
+WorkshopInfoFactory ..> WorkshopInfo : From(snapshot)
+FeasibilityResultData ..> SolverStepDto
+
+' ---- S2：词表（形状/液体目录的唯一权威）----
+Jar ..> Vocabulary : 形状校验（构造/改形，随实例携带）
+Workshop ..> Vocabulary : 液体账目建键与键序
+ProducerModule ..> Vocabulary : 生产线建立 / Tick 遍历 / 罐子创建
+Order ..> Vocabulary : 需求校验
+JarSystem --> Vocabulary
+
+' ---- S3：世界即数据（默认 = 重构前的硬编码世界）----
+JarSystem --> WorldOptions : World（流入/速率/装配都来自它）
+SystemBootstrapper ..> WorldOptions : 按配置装配世界
+SystemBootstrapper ..> Vocabulary : 传入词表
+WorldOptions ..> Rules : Default 复用内置模板
+WorldOptionsJson ..> WorldOptions : 宿主负责读写文件（核心只做字符串解析）
 
 @enduml

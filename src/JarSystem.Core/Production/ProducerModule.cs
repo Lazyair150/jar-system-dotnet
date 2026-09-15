@@ -20,11 +20,18 @@ public class Producer
 
 public class ShapeProductionLine
 {
+    private readonly Vocabulary _vocabulary;
+
     public string Shape { get; }
     public List<(string Name, double Rate)> Producers { get; } = new();
     public double Accumulated { get; set; }
 
-    public ShapeProductionLine(string shape) { Shape = shape; }
+    /// <param name="vocabulary">词表（S2）：本线产出的罐子按它校验形状；null 表示内置默认词表。</param>
+    public ShapeProductionLine(string shape, Vocabulary? vocabulary = null)
+    {
+        Shape = shape;
+        _vocabulary = vocabulary ?? Vocabulary.Default;
+    }
 
     public void AddProducer(Producer p)
     {
@@ -50,7 +57,7 @@ public class ShapeProductionLine
         Accumulated -= n;
         var jars = new List<Jar>();
         for (int i = 0; i < n; i++)
-            jars.Add(new Jar(Shape));
+            jars.Add(new Jar(Shape, null, null, _vocabulary));
         return jars;
     }
 
@@ -70,8 +77,14 @@ public class ProducerModule
     private readonly Dictionary<string, ShapeProductionLine> _generators = new();
     private readonly Dictionary<string, Producer> _producers = new();
     private readonly List<Jar> _warehouse = new();
-    private readonly Dictionary<string, int> _liquidWarehouse = new() { ["酒"] = 0, ["蜜"] = 0 };
-    private readonly Dictionary<string, int> _discardedLiquids = new() { ["酒"] = 0, ["蜜"] = 0 };
+
+    // S2：词表（形状/液体目录）——生产线的建立、Tick 的遍历、罐子创建都按它来；
+    // 因此"换一份词表 = 多/少一种形状的生产线"，不需要改生产模块的代码。
+    private readonly Vocabulary _vocabulary;
+    // S0（数据驱动）：液体账目按**词表**初始化（原先写死 酒/蜜 两个名字）。
+    // 逐项构造而非集合初始化器，保证键的**插入顺序 = 词表顺序**（契约快照里 liquids 的键序依赖它）。
+    private readonly Dictionary<string, int> _liquidWarehouse = new();
+    private readonly Dictionary<string, int> _discardedLiquids = new();
 
     /// <summary>各形状的生产线（只读视图）。</summary>
     public IReadOnlyDictionary<string, ShapeProductionLine> Generators => _generators;
@@ -98,10 +111,19 @@ public class ProducerModule
     public void DiscardLiquids(string liquid, int n) =>
         _discardedLiquids[liquid] = _discardedLiquids.GetValueOrDefault(liquid, 0) + n;
 
-    public ProducerModule()
+    /// <param name="vocabulary">词表（S2）；null 表示内置默认词表（行为与重构前一致）。</param>
+    public ProducerModule(Vocabulary? vocabulary = null)
     {
-        foreach (var s in Constants.SHAPES)
-            _generators[s] = new ShapeProductionLine(s);
+        _vocabulary = vocabulary ?? Vocabulary.Default;
+        foreach (var s in _vocabulary.Shapes)
+            _generators[s] = new ShapeProductionLine(s, _vocabulary);
+        // S0（数据驱动）：液体账目按**词表**初始化（原先写死 酒/蜜 两个名字）。
+        // 逐项赋值保证键的**插入顺序 = 词表顺序**（契约快照里 liquids 的键序依赖它）。
+        foreach (var liquid in _vocabulary.Liquids)
+        {
+            _liquidWarehouse[liquid] = 0;
+            _discardedLiquids[liquid] = 0;
+        }
     }
 
     public Producer RegisterProducer(string name, Dictionary<string, double> rates)
@@ -136,7 +158,7 @@ public class ProducerModule
         var newJars = new List<Jar>();
         for (int i = 0; i < count; i++)
         {
-            foreach (var s in Constants.SHAPES)
+            foreach (var s in _vocabulary.Shapes)
                 newJars.AddRange(_generators[s].Tick());
         }
         // 仓库上限：溢出丢弃并计数，避免长跑无限膨胀

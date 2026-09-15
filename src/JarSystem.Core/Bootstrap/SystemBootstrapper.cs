@@ -6,30 +6,35 @@ using JarSystem.Core.Production;
 namespace JarSystem.Core.Bootstrap;
 
 /// <summary>
-/// 默认世界装配（从 <c>JarSystem.InitializeDefault</c> 迁出，让门面只做转发）。
-/// 装配内容与调用顺序与重构前逐字一致：4 个生产者 → 酒/蜜各 20 → 模板工作台 + 青龙台 + 白虎台。
+/// 世界装配：把 <see cref="WorldOptions"/>（**数据**）装配成真实世界（生产者 + 初始库存 + 工作台）。
+///
+/// S3 之前这里硬编码了 4 个生产者与 6 个工作台；现在它们全部来自配置，
+/// 而 <see cref="WorldOptions.Default"/> 逐值等于那套硬编码 ⇒ **不读配置时行为与重构前一致**。
+///
+/// 装配顺序 = 配置里的列表顺序，这一点是契约的一部分：
+/// 生产者顺序决定 `producerStatus.producers` 的键序，工作台顺序决定主从下标与 `workshops` 的顺序。
 /// </summary>
 public static class SystemBootstrapper
 {
-    /// <summary>向给定仓库与工作台列表装配默认世界（不清理已有内容，与重构前一致）。</summary>
-    public static void ApplyDefault(ProducerModule producers, List<Workshop> workshops)
+    /// <summary>按配置装配（不清理已有内容，与重构前一致）。</summary>
+    /// <param name="world">世界配置（内容 + 参数）。</param>
+    /// <param name="vocabulary">词表：决定液体账目的键与顺序，以及本次装配出的罐子/工作台的形状校验。</param>
+    public static void Apply(WorldOptions world, Vocabulary vocabulary, ProducerModule producers, List<Workshop> workshops)
     {
-        producers.RegisterProducer("陶工甲", new() { ["圆罐"] = 0.4, ["方罐"] = 0.3 });
-        producers.RegisterProducer("陶工乙", new() { ["高罐"] = 0.5, ["长罐"] = 0.2 });
-        producers.RegisterProducer("机器A", new() { ["三角罐"] = 0.6, ["扁罐"] = 0.3 });
-        producers.RegisterProducer("机器B", new() { ["鼓罐"] = 0.4, ["尖罐"] = 0.3 });
+        foreach (var p in world.Producers)
+            producers.RegisterProducer(p.Name, new Dictionary<string, double>(p.Rates));
 
-        producers.ProduceLiquid("酒", 20);
-        producers.ProduceLiquid("蜜", 20);
+        foreach (var kv in world.InitialStock)
+            producers.ProduceLiquid(kv.Key, kv.Value);
 
-        foreach (var t in Rules.WORKSHOP_TEMPLATES)
+        foreach (var w in world.Workshops)
             workshops.Add(new Workshop(
-                t.Name,
-                new List<string>(t.BaseMarks),
-                new List<string>(t.AdditionalMarks),
-                new List<string>(t.Ban)));
-
-        workshops.Add(new Workshop("青龙台", new List<string> { "三角罐" }, new List<string> { "圆罐" }, new List<string> { "蜜" }));
-        workshops.Add(new Workshop("白虎台", new List<string> { "长罐", "扁罐" }, new List<string> { "鼓罐" }, new List<string>()));
+                w.Name,
+                new List<string>(w.BaseMarks),
+                new List<string>(w.AdditionalMarks),
+                new List<string>(w.Ban),
+                w.MaxJars ?? world.DefaultMaxJars,
+                w.MaxLiquids ?? world.DefaultMaxLiquids,
+                vocabulary: vocabulary));
     }
 }

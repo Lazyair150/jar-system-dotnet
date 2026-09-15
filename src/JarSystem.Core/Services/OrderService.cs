@@ -24,20 +24,23 @@ internal sealed class OrderService
 
     public (bool Success, string? Error) CreateOrder(List<Requirement> requirements, string orderType = Constants.OrderType.A)
     {
-        try { var order = new Order(requirements, orderType); _system.OrderList.Add(order); return (true, null); }
+        try { var order = new Order(requirements, orderType, vocabulary: _system.Vocabulary); _system.OrderList.Add(order); return (true, null); }
         catch (Exception e) { return (false, e.Message); }
     }
 
     public (bool Success, string? Error) CreateRandomOrder()
     {
         var rand = _system.Rng;  // T4：共用门面的随机源（给了种子即可复现）
+        // S2：随机需求按**词表**取（原先写死读 Constants.SHAPES / Constants.LIQUIDS）
+        var shapes = _system.Vocabulary.Shapes;
+        var liquids = _system.Vocabulary.Liquids;
         var numReqs = rand.Next(1, 4);
         var requirements = new List<Requirement>();
         var numEmpty = rand.Next(1, numReqs + 1);
         for (int i = 0; i < numEmpty; i++)
-            requirements.Add(new Requirement { Shape = Constants.SHAPES[rand.Next(Constants.SHAPES.Length)] });
+            requirements.Add(new Requirement { Shape = shapes[rand.Next(shapes.Count)] });
         for (int i = 0; i < numReqs - numEmpty; i++)
-            requirements.Add(new Requirement { Shape = Constants.SHAPES[rand.Next(Constants.SHAPES.Length)], Liquid = Constants.LIQUIDS[rand.Next(Constants.LIQUIDS.Length)] });
+            requirements.Add(new Requirement { Shape = shapes[rand.Next(shapes.Count)], Liquid = liquids[rand.Next(liquids.Count)] });
         return CreateOrder(requirements, rand.NextDouble() > 0.5 ? Constants.OrderType.A : Constants.OrderType.B);
     }
 
@@ -79,14 +82,19 @@ internal sealed class OrderService
         return resultData;
     }
 
-    /// <summary>对所有「待执行」订单做可行性分析（返回项的键：index / orderId / result）。</summary>
-    public List<object> CheckAllFeasibility()
+    /// <summary>对所有「待执行」订单做可行性分析（元素见 <see cref="AutoCheckResultDto"/>：index / orderId / result）。</summary>
+    public List<AutoCheckResultDto> CheckAllFeasibility()
     {
-        var results = new List<object>();
+        var results = new List<AutoCheckResultDto>();
         for (int i = 0; i < _system.Orders.Count; i++)
         {
             if (_system.Orders[i].Status == Constants.OrderStatus.PENDING)
-                results.Add(new { index = i, orderId = _system.Orders[i].Id, result = CheckFeasibility(i) });
+                results.Add(new AutoCheckResultDto
+                {
+                    Index = i,
+                    OrderId = _system.Orders[i].Id,
+                    Result = CheckFeasibility(i)
+                });
         }
         return results;
     }

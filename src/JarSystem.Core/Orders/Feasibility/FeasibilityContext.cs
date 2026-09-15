@@ -42,11 +42,13 @@ internal sealed class FeasibilityContext
 /// <summary>工作台快照 → 求解器规则信息（原 <c>FeasibilityChecker.BuildWorkshopInfo</c>）。</summary>
 internal static class WorkshopInfoFactory
 {
+    /// <summary>
+    /// S1：能力参数**直接共享**快照里的那份不可变对象（零拷贝）——
+    /// 求解器看到的规则与工作台实际规则同源，不可能漂移。
+    /// </summary>
     public static WorkshopInfo From(WorkshopSnapshot snap) => new()
     {
-        BaseMarks = [.. snap.BaseMarks],
-        AdditionalMarks = [.. snap.AdditionalMarks],
-        Ban = [.. snap.Ban],
+        Capability = snap.Capability,
         MaxJars = snap.MaxJars,
         MaxLiquids = snap.MaxLiquids
     };

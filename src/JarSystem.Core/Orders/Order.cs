@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
@@ -20,14 +21,19 @@ public class Order
     /// <summary>最近一次可行性分析结果。只能经 <see cref="RecordFeasibility"/> 写入。</summary>
     public FeasibilityResultData? FeasibilityResult { get; private set; }
 
-    public Order(List<Requirement> requirements, string type = Constants.OrderType.A, IIdGenerator? ids = null)
+    public Order(List<Requirement> requirements, string type = Constants.OrderType.A, IIdGenerator? ids = null,
+        Vocabulary? vocabulary = null)
     {
         Id = (ids ?? DefaultIdGenerators.Orders).Next();
         Requirements = requirements;
         Type = type;
         Status = Config.Constants.OrderStatus.PENDING;
+        _vocabulary = vocabulary ?? Vocabulary.Default;
         ValidateOrder();
     }
+
+    // S2：订单需求按**词表**校验（原先写死读 Constants.SHAPES / Constants.LIQUIDS）
+    private readonly Vocabulary _vocabulary;
 
     private void ValidateOrder()
     {
@@ -36,10 +42,10 @@ public class Order
         bool seenFull = false;
         foreach (var req in Requirements)
         {
-            // 安全/健壮性：需求里的形状与液体必须是已知值，否则订单永远不可能被满足
-            if (!Array.Exists(Constants.SHAPES, s => s == req.Shape))
+            // 安全/健壮性：需求里的形状与液体必须是**词表内**的值，否则订单永远不可能被满足
+            if (!_vocabulary.IsValidShape(req.Shape))
                 throw new InvalidOperationException($"无效形状: {req.Shape}");
-            if (req.Liquid != null && !Array.Exists(Constants.LIQUIDS, l => l == req.Liquid))
+            if (req.Liquid != null && !_vocabulary.IsValidLiquid(req.Liquid))
                 throw new InvalidOperationException($"无效液体: {req.Liquid}");
 
             if (req.Liquid != null) seenFull = true;
@@ -80,25 +86,41 @@ public class Requirement
     public string? Liquid { get; set; }
 }
 
+/// <summary>
+/// 可行性分析结果。
+///
+/// ⚠️ **本类的属性名本身就是对外契约**：`autoCheckResults` / `allFeasibilityResults` 消息直接把本对象
+/// （嵌在 <see cref="AutoCheckResultDto"/> 里）序列化出去，走 Web 层的 camelCase 策略。
+/// 因此这里**逐个属性显式标注 <c>[JsonPropertyName]</c>**：改名不再静默改契约，且能导出 JSON Schema。
+/// （`GetState()` 里的 `feasibilityResult` 是另一份 10 键投影，见 <c>FeasibilityStateDto</c>，与本类不同。）
+/// </summary>
 public class FeasibilityResultData
 {
-    public bool Feasible { get; set; }
-    public string? Blockage { get; set; }
-    public string? Reason { get; set; }
-    public string? Timestamp { get; set; }
-    public int DirectCount { get; set; }
-    public int OperationCount { get; set; }
-    public List<SolverStepDto>? SolverPath { get; set; }
-    public List<SolverStepDto>? MasterPath { get; set; }
-    public List<object>? Path { get; set; }
-    public List<DirectMatch>? DirectSatisfactions { get; set; }
-    public List<OperationNeed>? OperationsNeeded { get; set; }
-    public Dictionary<string, object>? Stats { get; set; }
-    public string? CheckMethod { get; set; }
+    [JsonPropertyName("feasible")] public bool Feasible { get; set; }
+    [JsonPropertyName("blockage")] public string? Blockage { get; set; }
+    [JsonPropertyName("reason")] public string? Reason { get; set; }
+    [JsonPropertyName("timestamp")] public string? Timestamp { get; set; }
+    [JsonPropertyName("directCount")] public int DirectCount { get; set; }
+    [JsonPropertyName("operationCount")] public int OperationCount { get; set; }
+    [JsonPropertyName("solverPath")] public List<SolverStepDto>? SolverPath { get; set; }
+    [JsonPropertyName("masterPath")] public List<SolverStepDto>? MasterPath { get; set; }
+
+    /// <summary>恒为 null（历史遗留）。**不能删**：它是本消息键集合的一部分，删掉即改契约。</summary>
+    [JsonPropertyName("path")] public List<object>? Path { get; set; }
+
+    [JsonPropertyName("directSatisfactions")] public List<DirectMatch>? DirectSatisfactions { get; set; }
+    [JsonPropertyName("operationsNeeded")] public List<OperationNeed>? OperationsNeeded { get; set; }
+
+    /// <summary>恒为 null（历史遗留）。**不能删**：同上。</summary>
+    [JsonPropertyName("stats")] public Dictionary<string, object>? Stats { get; set; }
+
+    [JsonPropertyName("checkMethod")] public string? CheckMethod { get; set; }
+
     // 选择性转移记录（B 类）：本次可行性路径需要从主台转移到从台的罐子 Id 清单
-    public List<int>? TransferJarIds { get; set; }
+    [JsonPropertyName("transferJarIds")] public List<int>? TransferJarIds { get; set; }
+
     // 需要从主台转移到从台的游离液体量（每种），其余留在主台
-    public Dictionary<string, int>? TransferLiquids { get; set; }
+    [JsonPropertyName("transferLiquids")] public Dictionary<string, int>? TransferLiquids { get; set; }
 }
 
 public class DirectMatch

@@ -24,7 +24,31 @@ internal static class StateSerializer
             DiscardedJars = system.ProducerModule.DiscardedJars,
             DiscardedLiquids = system.ProducerModule.DiscardedLiquids.ToDictionary(kv => kv.Key, kv => kv.Value)
         },
-        ProducerStatus = system.ProducerModule.GetProducerStatus(),
+        // 产出模块：投影自 ProducerModule 的只读视图（键名/顺序与原先 GetProducerStatus() 的字典逐项一致）
+        ProducerStatus = new ProducerStatusDto
+        {
+            Producers = system.ProducerModule.Producers.Values
+                .Select(p => new ProducerInfoDto
+                {
+                    Name = p.Name,
+                    Rates = new Dictionary<string, double>(p.Rates)
+                })
+                .ToList(),
+            Generators = system.ProducerModule.Generators.Values
+                .Select(g => new GeneratorStatusDto
+                {
+                    Shape = g.Shape,
+                    Rate = g.GetTotalRate(),
+                    Accumulated = g.Accumulated,
+                    Producers = g.Producers.Count
+                })
+                .ToList(),
+            Warehouse = new ProducerWarehouseDto
+            {
+                Jars = system.ProducerModule.WarehouseJarCount,
+                Liquids = system.ProducerModule.LiquidWarehouse.ToDictionary(kv => kv.Key, kv => kv.Value)
+            }
+        },
         GlobalState = new GlobalStateDto
         {
             AutoCheckEnabled = system.AutoCheckEnabled,

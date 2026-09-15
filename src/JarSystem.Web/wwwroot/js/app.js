@@ -1,16 +1,43 @@
-﻿var ws = new WebSocket(`ws://${window.location.host}/ws`);
+// ============================================================
+// 连接与重连（T1）
+// 原实现只在加载时 new 一次 WebSocket，且没有 onclose/onerror：
+// 后端一重启，页面就永久静默失效。现在改为 connect() + 指数退避重连。
+// ============================================================
+let ws = null;
+let reconnectDelayMs = 1000;
+
 let currentState = null;
 let selectedOrderId = null;
 let autoCheckEnabled = false;
 let editingCapacityIndex = null;   // 正在编辑容量的工作台索引（避免被 state 重绘打断）
 let capacityDraft = null;          // 编辑中的草稿值 { jars: string, liquids: string }
 
-ws.onopen = () => {
-  log('系统连接成功', 'info');
-  ws.send(JSON.stringify({ type: 'startTick' }));
-};
+// 世界元数据（S4）：由后端在连接建立时一次性下发（world 消息），
+// 前端据此渲染形状下拉框/标记选择器 —— 不再维护一份形状清单副本（原 js/constants.js）。
+let worldMeta = { shapes: [], liquids: [] };
 
-ws.onmessage = (event) => {
+function connect() {
+  ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+  ws.onopen = () => {
+    reconnectDelayMs = 1000;
+    log('系统连接成功', 'info');
+    ws.send(JSON.stringify({ type: 'startTick' }));
+  };
+
+  ws.onmessage = handleMessage;
+
+  ws.onclose = () => {
+    const seconds = Math.round(reconnectDelayMs / 1000);
+    log(`连接断开，${seconds} 秒后重连…`, 'fail');
+    setTimeout(connect, reconnectDelayMs);
+    reconnectDelayMs = Math.min(reconnectDelayMs * 2, 15000);
+  };
+
+  ws.onerror = () => { /* 紧跟着会触发 onclose，这里不重复处理 */ };
+}
+
+function handleMessage(event) {
   const { type, data } = JSON.parse(event.data);
   switch (type) {
     case 'init':
@@ -96,11 +123,18 @@ ws.onmessage = (event) => {
       autoCheckEnabled = data.enabled;
       document.getElementById('btn-auto-check').textContent = autoCheckEnabled ? '⏹ 停止自检' : '🔍 自动检测';
       break;
+    case 'world':
+      // S4：后端下发的世界元数据（形状/液体词表）——前端不再自带副本
+      worldMeta = {
+        shapes: (data && data.shapes) || [],
+        liquids: (data && data.liquids) || []
+      };
+      break;
     case 'error':
       log(`错误: ${data.message || data}`, 'fail');
       break;
   }
-};
+}
 
 function updateUI() {
   if (!currentState) return;
@@ -242,7 +276,7 @@ function addRequirement() {
   if (c.children.length >= 10) { alert('订单需求数量不能超过 10 个'); return; }
   const d = document.createElement('div');
   d.className = 'req-row';
-  d.innerHTML = `<select class="req-shape">${SHAPES.map(s => `<option value="${s}">${s}</option>`).join('')}</select><select class="req-liquid"><option value="">空罐</option><option value="酒">酒</option><option value="蜜">蜜</option></select><button onclick="this.parentElement.remove()">✕</button>`;
+  d.innerHTML = `<select class="req-shape">${worldMeta.shapes.map(s => `<option value="${s}">${s}</option>`).join('')}</select><select class="req-liquid"><option value="">空罐</option>${worldMeta.liquids.map(l => `<option value="${l}">${l}</option>`).join('')}</select><button onclick="this.parentElement.remove()">✕</button>`;
   c.appendChild(d);
 }
 
@@ -259,9 +293,9 @@ function submitOrder() {
 }
 
 function showCreateWorkshop() {
-  document.getElementById('ws-base-marks').innerHTML = SHAPES.map(s => `<div class="shape-option" onclick="toggleSelect(this,'base')" data-shape="${s}">${s}</div>`).join('');
-  document.getElementById('ws-add-marks').innerHTML = SHAPES.map(s => `<div class="shape-option" onclick="toggleSelect(this,'add')" data-shape="${s}">${s}</div>`).join('');
-  document.getElementById('ws-ban').innerHTML = LIQUIDS.map(l => `<div class="liquid-option" onclick="toggleSelect(this,'ban')" data-liquid="${l}">${l}</div>`).join('');
+  document.getElementById('ws-base-marks').innerHTML = worldMeta.shapes.map(s => `<div class="shape-option" onclick="toggleSelect(this,'base')" data-shape="${s}">${s}</div>`).join('');
+  document.getElementById('ws-add-marks').innerHTML = worldMeta.shapes.map(s => `<div class="shape-option" onclick="toggleSelect(this,'add')" data-shape="${s}">${s}</div>`).join('');
+  document.getElementById('ws-ban').innerHTML = worldMeta.liquids.map(l => `<div class="liquid-option" onclick="toggleSelect(this,'ban')" data-liquid="${l}">${l}</div>`).join('');
   openModal('modal-workshop');
 }
 
@@ -533,6 +567,9 @@ function animateWorkshopSwitch(fromIdx, toIdx, operations) {
 document.addEventListener('DOMContentLoaded', () => {
   renderer = new CanvasRenderer('main-canvas');
 });
+
+// 建立连接（脚本在 body 末尾，DOM 已就绪）；断线由 onclose 自动重连
+connect();
 
 
 

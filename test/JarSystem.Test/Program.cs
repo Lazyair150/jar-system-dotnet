@@ -12,8 +12,17 @@ using JarSystem.Core.Orders;
 // ============================================================
 if (args.Length > 0 && args[0] == "--dump-contract")
 {
-    DumpContract();
+    // 可选：--config <path> ⇒ 从世界配置装配（用于证明"配置装配 == 内置世界"）
+    DumpContract(ArgValue("--config"));
     return;
+}
+
+// 取 "--name value" 形式的参数值（找不到返回 null）
+string? ArgValue(string name)
+{
+    for (int i = 0; i < args.Length - 1; i++)
+        if (args[i] == name) return args[i + 1];
+    return null;
 }
 
 // 契约 Schema 导出模式（模块边界产物）：
@@ -282,9 +291,9 @@ Run("S11-形状转换规则三处实现一致(问题16)", () =>
     var ws = new Workshop("W", new() { "圆罐", "方罐" }, new() { "三角罐" }, new(), 20, 30);
     var info = new JarSystem.Core.Solver.WorkshopInfo
     {
-        BaseMarks = new() { "圆罐", "方罐" },
-        AdditionalMarks = new() { "三角罐" },
-        Ban = new(),
+        // S1：能力参数改由 WorkshopCapability 承载（与 Workshop 共用同一份不可变对象）
+        Capability = new JarSystem.Core.Domain.WorkshopCapability(
+            new[] { "圆罐", "方罐" }, new[] { "三角罐" }),
         MaxLiquids = 30
     };
     bool ok = true;
@@ -637,10 +646,13 @@ List<string> GenBan(Random r, int chance)
 // 契约快照工具（仅 --dump-contract 模式使用）
 // ============================================================
 
-void DumpContract()
+/// <param name="configPath">世界配置文件（json）；null 表示用内核内置默认世界。</param>
+void DumpContract(string? configPath = null)
 {
+    var world = configPath == null ? null : LoadWorldConfig(configPath);
+
     // 固定场景：默认世界 + 主从选择 + 三个订单（A/B 各含满罐与空罐需求）+ 推进 + 一次执行
-    var sys = new JarSystem.Core.JarSystem();
+    var sys = new JarSystem.Core.JarSystem(world: world);
     sys.SetMasterIndex(0);
     sys.SetSlaveIndex(1);
     sys.CreateOrder(new() { new Requirement { Shape = "圆罐" } }, "A");
@@ -657,9 +669,24 @@ void DumpContract()
 
     var dir = Path.Combine("重构报告", "_contract");
     Directory.CreateDirectory(dir);
-    var file = Path.Combine(dir, "state_keys.txt");
+    var file = Path.Combine(dir, configPath == null ? "state_keys.txt" : "state_keys_config.txt");
     File.WriteAllLines(file, lines);
-    Console.WriteLine($"contract dumped: {file} ({lines.Count} lines)");
+    Console.WriteLine($"contract dumped: {file} ({lines.Count} lines)"
+        + (configPath == null ? " [built-in world]" : " [from world config: " + configPath + "]"));
+}
+
+// 读世界配置并校验（校验失败即抛：宁可这一步失败，也不要拿"静默缺产出"的世界去做对比）
+JarSystem.Core.Config.WorldOptions LoadWorldConfig(string path)
+{
+    var world = JarSystem.Core.Config.WorldOptionsJson.FromJson(File.ReadAllText(path));
+    var report = world.Validate();
+    foreach (var w in report.Warnings) Console.WriteLine("world warning: " + w);
+    if (!report.IsValid)
+    {
+        foreach (var e in report.Errors) Console.WriteLine("world error: " + e);
+        throw new InvalidOperationException("世界配置校验失败: " + path);
+    }
+    return world;
 }
 
 // ============================================================
@@ -672,7 +699,7 @@ void DumpContract()
 //   1. schema 描述结构而非某次运行的数据 ⇒ 不受固定场景与 <volatile> 时间戳影响；
 //   2. 它天然覆盖**路径步骤的 14 个字段**（文本基线因为固定场景里路径为空而没覆盖）；
 //   3. 它把"弱类型逃逸"变成可量化指标：Dictionary<string,object> / List<object> 处会退化成
-//      什么都允许的节点（本工具输出 loose=N 计数），那就是契约里没有类型的空洞。
+//      无约束节点（本工具输出 loose=N 计数），那就是契约里没有类型的空洞。
 //
 // 每个类型独立导出：某个类型失败只记录 $error，不影响其它类型，也不让 verify.bat 硬失败。
 // ============================================================
@@ -708,7 +735,9 @@ void DumpSchema()
         ("FeasibilityStateDto", typeof(JarSystem.Core.Services.FeasibilityStateDto)),
         ("WarehouseStateDto", typeof(JarSystem.Core.Services.WarehouseStateDto)),
         ("GlobalStateDto", typeof(JarSystem.Core.Services.GlobalStateDto)),
-        ("SolverStepDto", typeof(JarSystem.Core.Orders.SolverStepDto))
+        ("SolverStepDto", typeof(JarSystem.Core.Orders.SolverStepDto)),
+        ("AutoCheckResultDto", typeof(JarSystem.Core.Orders.AutoCheckResultDto)),
+        ("WorldMetaDto", typeof(JarSystem.Core.Services.WorldMetaDto))
     };
 
     var types = new System.Text.Json.Nodes.JsonObject();
@@ -720,7 +749,7 @@ void DumpSchema()
         {
             var node = System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(options, type, exporterOptions);
             types[name] = node;
-            int loose = CountLooseNodes(node);
+            int loose = CountUnconstrainedNodes(node);
             looseTotal += loose;
             Console.WriteLine($"schema {name}: OK loose={loose}");
         }
@@ -747,28 +776,60 @@ void DumpSchema()
     Console.WriteLine($"schema total loose={looseTotal}");
 }
 
-// 统计"什么都能通过"的 schema 节点（布尔 true / 空对象）：
-// 它们就是契约里**没有类型**的空洞，来自 Dictionary<string,object> / List<object> 这类弱类型逃逸。
-int CountLooseNodes(System.Text.Json.Nodes.JsonNode node)
+// 统计"无约束"的 schema 节点 —— 即"什么值都能通过"的地方，它们就是契约里的空洞：
+//   1) 布尔 true（JSON Schema 里表示"任意值"）；
+//   2) 空对象 {}（同义）；
+//   3) {"type":"object"} 但既无 properties 也无 additionalProperties:false ⇒ 成员完全不受约束；
+//   4) {"type":"array"} 但没有 items ⇒ 元素不受约束。
+// 注意：只写 {"type":"string"} 这类叶子**不算**空洞（它约束了类型）。
+//
+// 首版实现只认 1) 和 2)，于是 {"type":"object"} 形式的空洞被漏判、报出 loose=0（假阴性）。
+// 这条经验值得记住：度量本身也要能被反例推翻 —— 预测 StateDto 有 2 处空洞、实测为 0，才发现的。
+int CountUnconstrainedNodes(System.Text.Json.Nodes.JsonNode? node)
 {
-    switch (node)
+    if (node is null) return 0;
+    if (node is System.Text.Json.Nodes.JsonValue bv && bv.TryGetValue<bool>(out var b)) return b ? 1 : 0;
+    if (node is System.Text.Json.Nodes.JsonArray ja)
     {
-        case System.Text.Json.Nodes.JsonValue v when v.TryGetValue<bool>(out var b):
-            return b ? 1 : 0;
-        case System.Text.Json.Nodes.JsonObject o:
-            if (o.Count == 0) return 1;
-            int n = 0;
-            foreach (var kv in o)
-                if (kv.Value != null) n += CountLooseNodes(kv.Value);
-            return n;
-        case System.Text.Json.Nodes.JsonArray a:
-            int m = 0;
-            foreach (var item in a)
-                if (item != null) m += CountLooseNodes(item);
-            return m;
-        default:
-            return 0;
+        int c = 0;
+        foreach (var item in ja) c += CountUnconstrainedNodes(item);
+        return c;
     }
+    if (node is not System.Text.Json.Nodes.JsonObject o) return 0;
+    if (o.Count == 0) return 1;
+
+    int loose = 0;
+    if (TypeIncludes(o, "object"))
+    {
+        bool hasProps = o.TryGetPropertyValue("properties", out var props)
+                        && props is System.Text.Json.Nodes.JsonObject po && po.Count > 0;
+        bool addl = o.TryGetPropertyValue("additionalProperties", out var ap) && ap is not null
+                    && !(ap is System.Text.Json.Nodes.JsonValue apv && apv.TryGetValue<bool>(out var apb) && apb);
+        if (!hasProps && !addl) loose++;
+    }
+    if (TypeIncludes(o, "array") && !o.ContainsKey("items")) loose++;
+
+    foreach (var key in new[] { "properties", "$defs", "definitions" })
+        if (o.TryGetPropertyValue(key, out var sub) && sub is System.Text.Json.Nodes.JsonObject so)
+            foreach (var kv in so) loose += CountUnconstrainedNodes(kv.Value);
+    if (o.TryGetPropertyValue("items", out var items)) loose += CountUnconstrainedNodes(items);
+    if (o.TryGetPropertyValue("additionalProperties", out var apn) && apn is System.Text.Json.Nodes.JsonObject)
+        loose += CountUnconstrainedNodes(apn);
+    foreach (var key in new[] { "anyOf", "oneOf", "allOf", "prefixItems" })
+        if (o.TryGetPropertyValue(key, out var arr) && arr is System.Text.Json.Nodes.JsonArray aa)
+            foreach (var item in aa) loose += CountUnconstrainedNodes(item);
+    return loose;
+}
+
+// `type` 可能是字符串，也可能是数组（如 ["integer","null"]）；这里判断它是否包含某个类型名。
+bool TypeIncludes(System.Text.Json.Nodes.JsonObject o, string typeName)
+{
+    if (!o.TryGetPropertyValue("type", out var tn) || tn is null) return false;
+    if (tn is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var s)) return s == typeName;
+    if (tn is System.Text.Json.Nodes.JsonArray a)
+        foreach (var x in a)
+            if (x is System.Text.Json.Nodes.JsonValue xv && xv.TryGetValue<string>(out var xs) && xs == typeName) return true;
+    return false;
 }
 
 void Flatten(string path, object? node, List<string> lines)

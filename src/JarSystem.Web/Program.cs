@@ -19,6 +19,9 @@ if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URL
 builder.Services.AddSingleton<JarSystemService>();
 var app = builder.Build();
 
+// 立刻解析组合根：让"世界配置校验失败"发生在**启动时**，而不是第一个请求进来时才炸
+_ = app.Services.GetRequiredService<JarSystemService>();
+
 // 状态查询端点：与 WebSocket 命令、定时器共用同一串行闸门
 app.MapGet("/api/state", async (JarSystemService svc) =>
 {

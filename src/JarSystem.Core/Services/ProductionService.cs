@@ -21,10 +21,14 @@ internal sealed class ProductionService
         _system.ProducerModule.Tick(count);
         for (int i = 0; i < count; i++)
         {
-            var wineRate = _system.LiquidProductionRate["酒"];
-            var honeyRate = _system.LiquidProductionRate["蜜"];
-            if (wineRate > 0) _system.ProducerModule.ProduceLiquid("酒", wineRate);
-            if (honeyRate > 0) _system.ProducerModule.ProduceLiquid("蜜", honeyRate);
+            // S0（数据驱动）：按**词表**产出，不再写死 酒/蜜 两个名字。
+            // 液体仍然固定为 2 种（这是语义），这里去掉的只是"名字重复出现在逻辑里"。
+            // 顺序仍是词表顺序（酒 → 蜜），因此行为与重构前逐次相同。
+            foreach (var liquid in _system.Vocabulary.Liquids)
+            {
+                var rate = _system.LiquidProductionRate.GetValueOrDefault(liquid);
+                if (rate > 0) _system.ProducerModule.ProduceLiquid(liquid, rate);
+            }
         }
         if (_system.CurrentMaster.HasValue)
         {

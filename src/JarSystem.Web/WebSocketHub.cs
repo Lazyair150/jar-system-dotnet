@@ -38,6 +38,9 @@ public sealed class WebSocketHub : IWebSocketSink
         lock (_clients) _clients.Add(ws);
 
         var sys = svc.System;
+        // 先发**世界元数据**（形状/液体目录，一次性），再发 init ——
+        // 这样客户端拿到 init 时已经知道"有哪些形状"，可直接渲染下拉框与标记选择器
+        await SendAsync(ws, JsonArgs.J(new { type = "world", data = sys.WorldMeta() }));
         await SendAsync(ws, JsonArgs.J(new { type = "init", data = sys.GetState() }));
 
         var buf = new byte[32768];

@@ -17,8 +17,8 @@ public sealed class StateDto
     [JsonPropertyName("orders")] public List<OrderStateDto> Orders { get; init; } = new();
     [JsonPropertyName("warehouse")] public WarehouseStateDto Warehouse { get; init; } = new();
 
-    /// <summary>生产者状态：目前仍由 <c>ProducerModule.GetProducerStatus()</c> 组装为字典（可继续 DTO 化）。</summary>
-    [JsonPropertyName("producerStatus")] public Dictionary<string, object> ProducerStatus { get; init; } = new();
+    /// <summary>生产者状态（3 个键：producers / generators / warehouse）。</summary>
+    [JsonPropertyName("producerStatus")] public ProducerStatusDto ProducerStatus { get; init; } = new();
 
     [JsonPropertyName("globalState")] public GlobalStateDto GlobalState { get; init; } = new();
 
@@ -97,4 +97,43 @@ public sealed class GlobalStateDto
     [JsonPropertyName("currentSlave")] public int? CurrentSlave { get; init; }
     [JsonPropertyName("masterName")] public string? MasterName { get; init; }
     [JsonPropertyName("slaveName")] public string? SlaveName { get; init; }
+}
+
+// ============================================================
+// 产出模块状态（原先是 ProducerModule.GetProducerStatus() 组装的
+// Dictionary<string, object> 树 —— 契约里最后一个"没有类型"的大块）。
+//
+// 键名与层级完全按原字典的插入顺序声明，因此序列化结果逐字节相同
+// （契约快照 state_keys.txt 必须保持 165 行不变，这是本批的等价性证明）。
+// ============================================================
+
+/// <summary>产出模块状态（3 个键）。</summary>
+public sealed class ProducerStatusDto
+{
+    [JsonPropertyName("producers")] public List<ProducerInfoDto> Producers { get; init; } = new();
+    [JsonPropertyName("generators")] public List<GeneratorStatusDto> Generators { get; init; } = new();
+    [JsonPropertyName("warehouse")] public ProducerWarehouseDto Warehouse { get; init; } = new();
+}
+
+/// <summary>生产者（2 个键：名称 + 各形状速率）。</summary>
+public sealed class ProducerInfoDto
+{
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("rates")] public Dictionary<string, double> Rates { get; init; } = new();
+}
+
+/// <summary>某形状的生产线状态（4 个键）。</summary>
+public sealed class GeneratorStatusDto
+{
+    [JsonPropertyName("shape")] public string Shape { get; init; } = "";
+    [JsonPropertyName("rate")] public double Rate { get; init; }
+    [JsonPropertyName("accumulated")] public double Accumulated { get; init; }
+    [JsonPropertyName("producers")] public int Producers { get; init; }
+}
+
+/// <summary>产出模块视角的仓库（2 个键：罐子数 + 液体库存）。</summary>
+public sealed class ProducerWarehouseDto
+{
+    [JsonPropertyName("jars")] public int Jars { get; init; }
+    [JsonPropertyName("liquids")] public Dictionary<string, int> Liquids { get; init; } = new();
 }

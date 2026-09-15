@@ -3,28 +3,1351 @@
   "note": "\u6BCF\u4E2A\u7C7B\u578B\u72EC\u7ACB\u5BFC\u51FA\uFF1B\u51FA\u73B0 $error \u8868\u793A\u8BE5\u7C7B\u578B\u542B\u65E0\u6CD5\u63CF\u8FF0\u7684\u7ED3\u6784\uFF08\u5F31\u7C7B\u578B\u9003\u9038\uFF09",
   "types": {
     "StateDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "workshops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "baseMarks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "additionalMarks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ban": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "maxJars": {
+                "type": "integer"
+              },
+              "maxLiquids": {
+                "type": "integer"
+              },
+              "jars": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "shape": {
+                      "type": "string"
+                    },
+                    "liquid": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "isMarked": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "liquids": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "canPourShapes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "isMaster": {
+                "type": "boolean"
+              },
+              "isSlave": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "orders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "type": {
+                "type": "string"
+              },
+              "requirements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "shape": {
+                      "type": "string"
+                    },
+                    "liquid": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "status": {
+                "type": "string"
+              },
+              "feasibilityResult": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "feasible": {
+                    "type": "boolean"
+                  },
+                  "blockage": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "timestamp": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "directCount": {
+                    "type": "integer"
+                  },
+                  "operationCount": {
+                    "type": "integer"
+                  },
+                  "solverPath": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "step": {
+                          "type": "integer"
+                        },
+                        "requirement": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "operation": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "type": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "jarIndex": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "jarId": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "jarShape": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "jarLiquid": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "targetShape": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "targetLiquid": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "costLiquid": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "reshapeMode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "consumed": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "jarsAfter": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "masterPath": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "$ref": "#/properties/orders/items/properties/feasibilityResult/properties/solverPath/items"
+                    }
+                  },
+                  "transferJarIds": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "transferLiquids": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "warehouse": {
+          "type": "object",
+          "properties": {
+            "jars": {
+              "type": "integer"
+            },
+            "liquids": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "discardedJars": {
+              "type": "integer"
+            },
+            "discardedLiquids": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "producerStatus": {
+          "type": "object",
+          "properties": {
+            "producers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "rates": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "generators": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "shape": {
+                    "type": "string"
+                  },
+                  "rate": {
+                    "type": "number"
+                  },
+                  "accumulated": {
+                    "type": "number"
+                  },
+                  "producers": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "warehouse": {
+              "type": "object",
+              "properties": {
+                "jars": {
+                  "type": "integer"
+                },
+                "liquids": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "globalState": {
+          "type": "object",
+          "properties": {
+            "autoCheckEnabled": {
+              "type": "boolean"
+            },
+            "currentMaster": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "currentSlave": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "masterName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "slaveName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "eventHistory": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "WorkshopStateDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "baseMarks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "additionalMarks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ban": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "maxJars": {
+          "type": "integer"
+        },
+        "maxLiquids": {
+          "type": "integer"
+        },
+        "jars": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "shape": {
+                "type": "string"
+              },
+              "liquid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "isMarked": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "liquids": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "canPourShapes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "isMaster": {
+          "type": "boolean"
+        },
+        "isSlave": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     },
     "JarStateDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shape": {
+          "type": "string"
+        },
+        "liquid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isMarked": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     },
     "OrderStateDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "shape": {
+                "type": "string"
+              },
+              "liquid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "status": {
+          "type": "string"
+        },
+        "feasibilityResult": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "feasible": {
+              "type": "boolean"
+            },
+            "blockage": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timestamp": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "directCount": {
+              "type": "integer"
+            },
+            "operationCount": {
+              "type": "integer"
+            },
+            "solverPath": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": {
+                    "type": "integer"
+                  },
+                  "requirement": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "operation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "jarIndex": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "jarId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "jarShape": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "jarLiquid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "targetShape": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "targetLiquid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "costLiquid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reshapeMode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "consumed": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "jarsAfter": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "masterPath": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/properties/feasibilityResult/properties/solverPath/items"
+              }
+            },
+            "transferJarIds": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "integer"
+              }
+            },
+            "transferLiquids": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     },
     "FeasibilityStateDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "feasible": {
+          "type": "boolean"
+        },
+        "blockage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "directCount": {
+          "type": "integer"
+        },
+        "operationCount": {
+          "type": "integer"
+        },
+        "solverPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "step": {
+                "type": "integer"
+              },
+              "requirement": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "operation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "jarIndex": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "jarId": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "jarShape": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "jarLiquid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "targetShape": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "targetLiquid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "costLiquid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reshapeMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "consumed": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "jarsAfter": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "masterPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/properties/solverPath/items"
+          }
+        },
+        "transferJarIds": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer"
+          }
+        },
+        "transferLiquids": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "integer"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "WarehouseStateDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "jars": {
+          "type": "integer"
+        },
+        "liquids": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "discardedJars": {
+          "type": "integer"
+        },
+        "discardedLiquids": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "GlobalStateDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "autoCheckEnabled": {
+          "type": "boolean"
+        },
+        "currentMaster": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "currentSlave": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "masterName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "slaveName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "SolverStepDto": {
-      "$error": "InvalidOperationException: JsonSerializerOptions instance must specify a TypeInfoResolver setting before being marked as read-only."
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer"
+        },
+        "requirement": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "jarIndex": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "jarId": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "jarShape": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "jarLiquid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targetShape": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targetLiquid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "costLiquid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reshapeMode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "consumed": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "jarsAfter": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "AutoCheckResultDto": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "orderId": {
+          "type": "integer"
+        },
+        "result": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "feasible": {
+              "type": "boolean"
+            },
+            "blockage": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timestamp": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "directCount": {
+              "type": "integer"
+            },
+            "operationCount": {
+              "type": "integer"
+            },
+            "solverPath": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": {
+                    "type": "integer"
+                  },
+                  "requirement": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "operation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "jarIndex": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "jarId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "jarShape": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "jarLiquid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "targetShape": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "targetLiquid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "costLiquid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reshapeMode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "consumed": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "jarsAfter": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "masterPath": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/properties/result/properties/solverPath/items"
+              }
+            },
+            "path": {
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "directSatisfactions": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "requirement": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "shape": {
+                        "type": "string"
+                      },
+                      "liquid": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "location": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "jarIndex": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "operationsNeeded": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "requirement": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "shape": {
+                        "type": "string"
+                      },
+                      "liquid": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "plan": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "shape": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "liquid": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "method": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "sourceShape": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "steps": {
+                        "type": "integer"
+                      },
+                      "consumesLiquid": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "stats": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "checkMethod": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "transferJarIds": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "integer"
+              }
+            },
+            "transferLiquids": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

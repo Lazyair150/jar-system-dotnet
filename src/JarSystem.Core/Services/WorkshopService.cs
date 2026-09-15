@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 
@@ -24,24 +23,27 @@ internal sealed class WorkshopService
 
     public void CreateWorkshop(string name, List<string> baseMarks, List<string>? additionalMarks = null, List<string>? ban = null)
     {
-        _system.WorkshopList.Add(new Workshop(name, baseMarks, additionalMarks, ban));
+        _system.WorkshopList.Add(new Workshop(name, baseMarks, additionalMarks, ban, vocabulary: _system.Vocabulary));
     }
 
     public void CreateRandomWorkshop()
     {
         var rand = _system.Rng;  // T4：共用门面的随机源（给了种子即可复现）
-        var name = new[] { "金", "木", "水", "火", "土", "天", "地", "玄", "黄" }[rand.Next(9)] +
-                   new[] { "工坊", "作坊", "窑", "炉", "台", "阁" }[rand.Next(6)];
+        // S2：随机内容按**词表**取（原先写死读 Constants.SHAPES / Constants.LIQUIDS）
+        var shapes = _system.Vocabulary.Shapes;
+        var liquids = _system.Vocabulary.Liquids;
+        var name = _system.World.NamePools;
+        var fullName = name.Prefix[rand.Next(name.Prefix.Count)] + name.Suffix[rand.Next(name.Suffix.Count)];
         var baseMarks = new List<string>();
         var count = rand.Next(1, 3);
-        while (baseMarks.Count < count) { var s = Constants.SHAPES[rand.Next(Constants.SHAPES.Length)]; if (!baseMarks.Contains(s)) baseMarks.Add(s); }
+        while (baseMarks.Count < count) { var s = shapes[rand.Next(shapes.Count)]; if (!baseMarks.Contains(s)) baseMarks.Add(s); }
         var additionalMarks = new List<string>();
         count = rand.Next(0, 4);
-        while (additionalMarks.Count < count) { var s = Constants.SHAPES[rand.Next(Constants.SHAPES.Length)]; if (!baseMarks.Contains(s) && !additionalMarks.Contains(s)) additionalMarks.Add(s); }
+        while (additionalMarks.Count < count) { var s = shapes[rand.Next(shapes.Count)]; if (!baseMarks.Contains(s) && !additionalMarks.Contains(s)) additionalMarks.Add(s); }
         var ban = new List<string>();
         count = rand.Next(0, 3);
-        while (ban.Count < count) { var l = Constants.LIQUIDS[rand.Next(Constants.LIQUIDS.Length)]; if (!ban.Contains(l)) ban.Add(l); }
-        _system.WorkshopList.Add(new Workshop(name, baseMarks, additionalMarks, ban));
+        while (ban.Count < count) { var l = liquids[rand.Next(liquids.Count)]; if (!ban.Contains(l)) ban.Add(l); }
+        _system.WorkshopList.Add(new Workshop(fullName, baseMarks, additionalMarks, ban, vocabulary: _system.Vocabulary));
     }
 
     /// <summary>调整工作台容量；溢出资源直接丢弃并计数（仓库单向流动，不回流中央仓库）。</summary>

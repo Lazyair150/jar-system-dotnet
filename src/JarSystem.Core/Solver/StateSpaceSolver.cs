@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.Solver;
@@ -44,8 +45,8 @@ public class SolverState
     public bool IsEmpty(JarState j) => j.Liquid is null;
 
     // ---- 规则查询 ----
-    public bool IsBanned(string l) => WorkshopInfo.Ban.Contains(l) || WorkshopInfo.Ban.Contains("禁" + l);
-    public bool CanTransform(string f, string t) => WorkshopInfo.GetPossibleTransforms(f).Contains(t);
+    public bool IsBanned(string l) => WorkshopInfo.Capability.IsBanned(l);
+    public bool CanTransform(string f, string t) => WorkshopInfo.Capability.CanTransform(f, t);
 
     /// <summary>可用成本液体（未被禁 + 有库存 + 不在排除列表）。</summary>
     public List<string> AvailableCostLiquids(List<string>? exclude = null)
@@ -55,16 +56,22 @@ public class SolverState
     }
 }
 
+/// <summary>
+/// 求解器侧的工作台规则信息。
+///
+/// S1：能力参数（标记/禁令）改由 <see cref="Domain.WorkshopCapability"/> 承载 ——
+/// 与域层 <c>Workshop</c>、快照 <c>WorkshopSnapshot</c> **共用同一份不可变对象**，
+/// 不再各存一份标记表；因此"求解器的规则视图"与"领域层的规则视图"不可能漂移。
+/// </summary>
 public class WorkshopInfo
 {
-    public List<string> BaseMarks { get; set; } = new();
-    public List<string> AdditionalMarks { get; set; } = new();
-    public List<string> Ban { get; set; } = new();
+    /// <summary>能力参数（与域层同源）。</summary>
+    public WorkshopCapability Capability { get; set; } = new();
+
     public int MaxJars { get; set; } = 20;
     public int MaxLiquids { get; set; } = 30;
 
-    public List<string> GetPossibleTransforms(string shape)
-        => ShapeRules.GetPossibleTransforms(BaseMarks, AdditionalMarks, shape);
+    public List<string> GetPossibleTransforms(string shape) => Capability.GetPossibleTransforms(shape);
 }
 
 public class SolverStats
@@ -164,7 +171,7 @@ public class StateSpaceSolver : ISolver
     {
         var di = st.FindJarIndex(j => j.Shape == shape && j.Liquid == liquid && !j.IsMarked);
         if (di != -1) ops.Add(new SolverOperation { Type = "MATCH", Description = "直接使用 " + shape + "/" + liquid, JarIndex = di, Consumed = new() });
-        if (!st.IsBanned(liquid) && st.WorkshopInfo.BaseMarks.Contains(shape))
+        if (!st.IsBanned(liquid) && st.WorkshopInfo.Capability.IsBaseMarked(shape))
         {
             var pi = st.FindJarIndex(j => j.Shape == shape && st.IsEmpty(j) && !j.IsMarked);
             if (pi != -1) ops.Add(new SolverOperation { Type = "POUR_IN", Description = "倒入 " + liquid + " 到 " + shape + "空罐", JarIndex = pi, TargetLiquid = liquid, Consumed = new() { [liquid] = 1 } });

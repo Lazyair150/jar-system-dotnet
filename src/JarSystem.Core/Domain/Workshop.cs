@@ -16,22 +16,28 @@ public class Workshop
     private readonly List<Jar> _jars = new();
     private readonly Dictionary<string, int> _liquidStorage = new();
     private readonly IIdGenerator _ids;
-    private readonly List<string> _baseMarks;
-    private readonly List<string> _additionalMarks;
-    private readonly List<string> _ban;
+
+    // 能力参数（基础/附加标记、禁令）——S1：抽成不可变值对象 <see cref="WorkshopCapability"/>，
+    // 于是「配置 → 工作台 → 快照 → 求解器」共用同一份，不再三处各存一份标记表。
+    private WorkshopCapability _capability;
+
     // 「临时附加标记」：Case2 期间（旧台临时获得新台基础形状）使用，作用域结束即回收
+    // （属于**运行时状态**，不属于能力参数，因此留在本类里）
     private readonly List<string> _temporaryAdditionalMarks = new();
 
     public string Name { get; }
 
-    /// <summary>基础标记（只读）。</summary>
-    public IReadOnlyList<string> BaseMarks => _baseMarks;
+    /// <summary>能力参数（标记/禁令）。整体更换请用 <see cref="ReplaceCapability"/>。</summary>
+    public WorkshopCapability Capability => _capability;
 
-    /// <summary>附加标记（只读；转换规则查询会一并考虑临时附加标记）。</summary>
-    public IReadOnlyList<string> AdditionalMarks => _additionalMarks;
+    /// <summary>基础标记（只读视图；等价于 <c>Capability.BaseMarks</c>）。</summary>
+    public IReadOnlyList<string> BaseMarks => _capability.BaseMarks;
 
-    /// <summary>禁令（只读；构造时已规范化为裸液体名）。</summary>
-    public IReadOnlyList<string> Ban => _ban;
+    /// <summary>附加标记（只读视图；转换规则查询会一并考虑临时附加标记）。</summary>
+    public IReadOnlyList<string> AdditionalMarks => _capability.AdditionalMarks;
+
+    /// <summary>禁令（只读视图；构造时已规范化为裸液体名）。</summary>
+    public IReadOnlyList<string> Ban => _capability.Ban;
 
     /// <summary>罐位上限（变更只能经 <see cref="ResizeJarCapacity"/>）。</summary>
     public int MaxJars { get; private set; }
@@ -45,52 +51,51 @@ public class Workshop
     /// <summary>游离液体只读视图。变更只能经 AddLiquid / RemoveLiquid / DrainLiquid / TryReceiveLiquid / ResizeLiquidCapacity。</summary>
     public IReadOnlyDictionary<string, int> LiquidStorage => _liquidStorage;
 
+    /// <param name="vocabulary">词表（S2）：只用于初始化液体账目的键与顺序；null 表示内置默认词表。</param>
     public Workshop(string name, List<string>? baseMarks = null, List<string>? additionalMarks = null,
-        List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null)
+        List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null,
+        Vocabulary? vocabulary = null)
     {
         Name = name;
-        _baseMarks = new(baseMarks ?? new());
-        _additionalMarks = new(additionalMarks ?? new());
-        _ban = NormalizeBan(ban);
+        _capability = new WorkshopCapability(baseMarks, additionalMarks, ban);
         MaxJars = maxJars ?? Constants.DEFAULT_MAX_JARS;
         MaxLiquids = maxLiquids ?? Constants.DEFAULT_MAX_LIQUIDS;
         _ids = ids ?? DefaultIdGenerators.Jars;
-        foreach (var l in Constants.LIQUIDS) _liquidStorage[l] = 0;
+        // 液体账目按**词表**建键（顺序 = 词表顺序 ⇒ 契约快照里 liquids 的键序）
+        foreach (var l in (vocabulary ?? Vocabulary.Default).Liquids) _liquidStorage[l] = 0;
     }
 
-    // 禁令统一存裸液体名（去掉「禁」前缀），避免 "酒" 与 "禁酒" 两种写法并存
-    private static List<string> NormalizeBan(IEnumerable<string>? bans)
-    {
-        var r = new List<string>();
-        if (bans == null) return r;
-        foreach (var b in bans)
-        {
-            var v = b.Trim();
-            if (v.StartsWith("禁") && v.Length > 1) v = v[1..];
-            if (!r.Contains(v)) r.Add(v);
-        }
-        return r;
-    }
+    /// <summary>
+    /// **更换工作台的能力参数**（标记/禁令）——"工作台可以更换"的模型入口。
+    ///
+    /// 语义边界（重要，别和"切换主台"混）：
+    /// <list type="bullet">
+    /// <item>只换**规则参数**，**不动**罐子与游离液体；资源搬迁是 <c>JarSystem.SetMaster</c> 切换事件的职责；</item>
+    /// <item>换完允许存在"形状不在新标记里"的罐子：标记约束的是**操作合法性**（<c>PourIn</c>/改形），
+    /// 不是存储合法性（这与重构前一致）；</item>
+    /// <item>进行中的 Case2 临时附加标记作用域不受影响（临时标记叠在新能力之上，作用域结束照常回收）。</item>
+    /// </list>
+    /// </summary>
+    public void ReplaceCapability(WorkshopCapability capability) => _capability = capability;
 
     // ============================================================
     // 规则查询
     // ============================================================
 
-    public bool IsBaseMarked(string s) => _baseMarks.Contains(s);
+    public bool IsBaseMarked(string s) => _capability.IsBaseMarked(s);
 
     /// <summary>是否属于附加标记（含 Case2 期间的临时附加标记）。</summary>
-    public bool IsAdditionalMarked(string s) => _additionalMarks.Contains(s) || _temporaryAdditionalMarks.Contains(s);
+    public bool IsAdditionalMarked(string s) => _capability.IsAdditionalMarked(s) || _temporaryAdditionalMarks.Contains(s);
 
-    public bool IsBanned(string l) => _ban.Contains(l) || _ban.Contains("禁" + l);
+    public bool IsBanned(string l) => _capability.IsBanned(l);
 
-    public List<string> GetPossibleTransforms(string s) =>
-        ShapeRules.GetPossibleTransforms(_baseMarks, EffectiveAdditionalMarks(), s);
+    public List<string> GetPossibleTransforms(string s) => _capability.GetPossibleTransforms(s, TemporaryMarksOrNull());
+
     public bool CanTransform(string f, string t) => GetPossibleTransforms(f).Contains(t);
 
-    private List<string> EffectiveAdditionalMarks() =>
-        _temporaryAdditionalMarks.Count == 0
-            ? _additionalMarks
-            : _additionalMarks.Concat(_temporaryAdditionalMarks).ToList();
+    /// <summary>临时附加标记（无则为 null，省一次合并分配）。</summary>
+    private IReadOnlyList<string>? TemporaryMarksOrNull() =>
+        _temporaryAdditionalMarks.Count == 0 ? null : _temporaryAdditionalMarks;
 
     /// <summary>
     /// 在作用域内临时获得若干附加标记（切换事件 Case2 用：旧台临时获得新台基础形状）。
@@ -101,7 +106,7 @@ public class Workshop
         var added = new List<string>();
         foreach (var s in shapes)
         {
-            if (_baseMarks.Contains(s) || _additionalMarks.Contains(s) || _temporaryAdditionalMarks.Contains(s)) continue;
+            if (_capability.IsBaseMarked(s) || _capability.IsAdditionalMarked(s) || _temporaryAdditionalMarks.Contains(s)) continue;
             _temporaryAdditionalMarks.Add(s);
             added.Add(s);
         }
@@ -248,7 +253,7 @@ public class Workshop
     {
         if (j.IsMarked) return (false, "罐子已被操作");
         if (!j.IsEmpty()) return (false, "罐子不为空");
-        if (!_baseMarks.Contains(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
+        if (!_capability.IsBaseMarked(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
         if (IsBanned(l)) return (false, "工作台禁" + l);
         if (!RemoveLiquid(l)) return (false, "液体" + l + "不足");
         j.PourIn(l); j.Mark(); return (true, null);
@@ -292,9 +297,8 @@ public class Workshop
         Name = Name,
         MaxJars = MaxJars,
         MaxLiquids = MaxLiquids,
-        BaseMarks = new List<string>(_baseMarks),
-        AdditionalMarks = new List<string>(_additionalMarks),
-        Ban = new List<string>(_ban),
+        // S1：能力参数不可变 ⇒ 直接共享同一份，不再拷三份列表
+        Capability = _capability,
         Jars = _jars.Select(j => j.DeepClone()).ToList(),
         Liquids = _liquidStorage.ToDictionary(kv => kv.Key, kv => kv.Value)
     };
@@ -317,9 +321,19 @@ public class WorkshopSnapshot
     public string Name { get; init; } = "";
     public int MaxJars { get; init; }
     public int MaxLiquids { get; init; }
-    public IReadOnlyList<string> BaseMarks { get; init; } = [];
-    public IReadOnlyList<string> AdditionalMarks { get; init; } = [];
-    public IReadOnlyList<string> Ban { get; init; } = [];
+
+    /// <summary>能力参数（不可变 ⇒ 可与 <see cref="Workshop"/> 共享同一份，无需拷贝）。</summary>
+    public WorkshopCapability Capability { get; init; } = new();
+
+    /// <summary>基础标记（只读视图，等价于 <c>Capability.BaseMarks</c>）。</summary>
+    public IReadOnlyList<string> BaseMarks => Capability.BaseMarks;
+
+    /// <summary>附加标记（只读视图）。</summary>
+    public IReadOnlyList<string> AdditionalMarks => Capability.AdditionalMarks;
+
+    /// <summary>禁令（只读视图；已规范化为裸液体名）。</summary>
+    public IReadOnlyList<string> Ban => Capability.Ban;
+
     public IReadOnlyList<Jar> Jars { get; init; } = [];
     public IReadOnlyDictionary<string, int> Liquids { get; init; } = new Dictionary<string, int>();
 }

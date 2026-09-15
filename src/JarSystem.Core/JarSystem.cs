@@ -30,7 +30,7 @@ public class JarSystem
     private readonly List<Workshop> _workshops = new();
     private readonly List<Order> _orders = new();
     private readonly List<Dictionary<string, object?>> _eventHistory = new();
-    private readonly Dictionary<string, int> _liquidProductionRate = new() { ["酒"] = 1, ["蜜"] = 1 };
+    private readonly Dictionary<string, int> _liquidProductionRate;
 
     // ---- 对外只读视图（契约：内容与重构前逐项一致） ----
     public IReadOnlyList<Workshop> Workshops => _workshops;
@@ -64,7 +64,7 @@ public class JarSystem
     public int? CurrentSlave { get; internal set; }
 
     /// <summary>主台流入参数（每次流入的罐子数与液体量）。修改请用 <see cref="SetFlowSettings"/>。</summary>
-    public (int JarCount, int LiquidAmount) FlowSettings { get; private set; } = (3, 2);
+    public (int JarCount, int LiquidAmount) FlowSettings { get; private set; }
 
     /// <summary>自动可行性轮询开关。修改请用 <see cref="SetAutoCheck"/>。</summary>
     public bool AutoCheckEnabled { get; private set; } = false;
@@ -82,13 +82,34 @@ public class JarSystem
     /// </summary>
     internal Random Rng { get; }
 
+    /// <summary>
+    /// 世界词汇表（形状/液体目录）—— **S2 注入点**。
+    /// 规则语义不在词表里（形状只是名字，能力由工作台标记决定），因此换一份词表即可加/减形状，
+    /// 无需改规则引擎、求解器或执行器。默认 = 内置词表（8 形状 / 2 液体）。
+    /// </summary>
+    public Vocabulary Vocabulary { get; }
+
+    /// <summary>
+    /// 世界配置（**S3**）：生产者、初始库存、工作台清单、容量默认、流入与速率都来自它。
+    /// 默认 = <see cref="WorldOptions.Default"/>（逐值等于重构前那套硬编码世界）。
+    /// 宿主读到 <c>config/world.json</c> 时把它传进来即可 —— 核心实体不再"自知"某个具体世界。
+    /// </summary>
+    public WorldOptions World { get; }
+
     /// <param name="log">日志出口；null 时使用默认控制台日志（<see cref="ConsoleSystemLog"/>）。</param>
     /// <param name="randomSeed">随机种子；null 时使用不固定种子（保持"每次运行都不一样"的默认行为）。</param>
-    public JarSystem(ISystemLog? log = null, int? randomSeed = null)
+    /// <param name="vocabulary">世界词汇表；null 时由 <paramref name="world"/> 的词表字段构造。</param>
+    /// <param name="world">世界配置；null 时使用内置默认世界（行为与重构前一致）。</param>
+    public JarSystem(ISystemLog? log = null, int? randomSeed = null, Vocabulary? vocabulary = null,
+        WorldOptions? world = null)
     {
         Log = log ?? ConsoleSystemLog.Instance;
+        World = world ?? WorldOptions.Default;
+        Vocabulary = vocabulary ?? World.BuildVocabulary();
+        FlowSettings = (World.Flow.JarCount, World.Flow.LiquidAmount);
+        _liquidProductionRate = DefaultLiquidRates();
         Rng = randomSeed.HasValue ? new Random(randomSeed.Value) : new Random();
-        ProducerModule = new ProducerModule();
+        ProducerModule = new ProducerModule(Vocabulary);
         Executor = new OrderExecutor(Rng);
         _workshopService = new WorkshopService(this);
         _orderService = new OrderService(this);
@@ -96,8 +117,8 @@ public class JarSystem
         InitializeDefault();
     }
 
-    /// <summary>装配默认世界（4 个生产者 + 默认工作台）。实现已迁至 <see cref="Bootstrap.SystemBootstrapper"/>。</summary>
-    public void InitializeDefault() => Bootstrap.SystemBootstrapper.ApplyDefault(ProducerModule, WorkshopList);
+    /// <summary>装配世界（生产者 + 初始库存 + 工作台）。实现已迁至 <see cref="Bootstrap.SystemBootstrapper"/>。</summary>
+    public void InitializeDefault() => Bootstrap.SystemBootstrapper.Apply(World, Vocabulary, ProducerModule, WorkshopList);
 
     // ============================================================
     // 世界装配 / 状态注入（批 E：把"改世界"收成命名方法）
@@ -144,7 +165,7 @@ public class JarSystem
     }
 
     /// <summary>替换整个产出模块（旧仓库内容随之丢弃，与旧 `ProducerModule = new()` 等价）。</summary>
-    public void ResetProducerModule() => ProducerModule = new ProducerModule();
+    public void ResetProducerModule() => ProducerModule = new ProducerModule(Vocabulary);
 
     /// <summary>设置某液体的每 tick 产出速率（不参与 JSON 契约）。</summary>
     public void SetLiquidProductionRate(string liquid, int rate) => _liquidProductionRate[liquid] = rate;
@@ -185,8 +206,8 @@ public class JarSystem
     /// <summary>可行性分析（A 类只需主台；B 类需主从）；结果同时写入订单的 FeasibilityResult。</summary>
     public FeasibilityResultData? CheckFeasibility(int orderIndex) => _orderService.CheckFeasibility(orderIndex);
 
-    /// <summary>对所有「待执行」订单做可行性分析（返回项键：index / orderId / result）。</summary>
-    public List<object> CheckAllFeasibility() => _orderService.CheckAllFeasibility();
+    /// <summary>对所有「待执行」订单做可行性分析（元素见 <see cref="AutoCheckResultDto"/>：index / orderId / result）。</summary>
+    public List<AutoCheckResultDto> CheckAllFeasibility() => _orderService.CheckAllFeasibility();
 
     /// <summary>执行订单：返回 成功 / 原因 / 事件报告 / 是否发生转移 / 操作日志。</summary>
     public (bool Success, string? Reason, Dictionary<string, object?>? Event, bool TransferOccurred, List<ExecutionLogEntry>? Operations)
@@ -212,12 +233,35 @@ public class JarSystem
     {
         // 与重构前逐项一致：清空工作台/订单/事件历史 → 恢复速率与流入参数 → 清开关与主从 → 重建产出模块与默认世界
         ClearWorkshops(); ClearOrders(); CurrentEvent = null; _eventHistory.Clear();
-        _liquidProductionRate.Clear(); _liquidProductionRate["酒"] = 1; _liquidProductionRate["蜜"] = 1;
-        FlowSettings = (3, 2);
+        _liquidProductionRate.Clear();
+        foreach (var kv in DefaultLiquidRates()) _liquidProductionRate[kv.Key] = kv.Value;  // S3：按配置恢复速率
+        FlowSettings = (World.Flow.JarCount, World.Flow.LiquidAmount);                      // S3：按配置恢复流入
         AutoCheckEnabled = false;
         ResetProducerModule(); InitializeDefault();
     }
 
+    /// <summary>
+    /// 默认液体产出速率：按**词表**逐个取，速率来自世界配置（未列出者按 1）。
+    /// 键的插入顺序 = 词表顺序 —— 契约快照里 `liquids` 的键序依赖它。
+    /// </summary>
+    private Dictionary<string, int> DefaultLiquidRates()
+    {
+        var rates = new Dictionary<string, int>();
+        foreach (var liquid in Vocabulary.Liquids)
+            rates[liquid] = World.Flow.LiquidRate.TryGetValue(liquid, out var r) ? r : 1;
+        return rates;
+    }
+
     /// <summary>对外状态快照（强类型 DTO；字段名由 <c>[JsonPropertyName]</c> 冻结，见 <see cref="StateDto"/>）。</summary>
     public StateDto GetState() => StateSerializer.Snapshot(this);
+
+    /// <summary>
+    /// 世界元数据（形状/液体目录）：**连接时一次性下发**给客户端（见 `world` 消息）。
+    /// 刻意不放进 <see cref="GetState"/>：词表是静态信息，塞进每 2 秒推送的 state 只会让消息与契约膨胀。
+    /// </summary>
+    public WorldMetaDto WorldMeta() => new()
+    {
+        Shapes = new List<string>(Vocabulary.Shapes),
+        Liquids = new List<string>(Vocabulary.Liquids)
+    };
 }
