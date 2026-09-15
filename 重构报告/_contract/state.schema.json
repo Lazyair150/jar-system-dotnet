@@ -1348,6 +1348,24 @@
         }
       },
       "additionalProperties": false
+    },
+    "WorldMetaDto": {
+      "type": "object",
+      "properties": {
+        "shapes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "liquids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

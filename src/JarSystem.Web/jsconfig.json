@@ -1,0 +1,22 @@
+{
+  // 前端类型检查配置（**不引入打包器**）：
+  //   · contract.d.ts 由后端生成（`--dump-schema`，见 verify.bat 第 5 步）
+  //   · checkJs 让编辑器/`tsc --noEmit` 按 JSDoc 标注检查键名 —— 拼错字段名当场报错
+  //   · 不用 module/exports：前端仍是普通 <script>，contract.d.ts 是**全局**声明
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false
+  },
+  "include": [
+    "wwwroot/js/**/*.js",
+    "wwwroot/js/**/*.d.ts"
+  ],
+  "exclude": [
+    "wwwroot/js/app_original.js"
+  ]
+}

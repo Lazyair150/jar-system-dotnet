@@ -16,9 +16,10 @@ public class JarSystemService
 
     public JarSystem.Core.JarSystem System { get; }
 
-    public JarSystemService()
+    /// <param name="log">核心的可观测性出口（由宿主注入，见 <see cref="JarSystemHosting"/>）；null 时核心用默认控制台日志。</param>
+    public JarSystemService(JarSystem.Core.Abstractions.ISystemLog? log = null)
     {
-        System = new JarSystem.Core.JarSystem(world: LoadWorldOrNull());
+        System = new JarSystem.Core.JarSystem(log: log, world: LoadWorldOrNull());
     }
 
     public bool IsRunning { get; set; }

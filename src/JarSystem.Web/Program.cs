@@ -16,7 +16,8 @@ if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URL
     builder.WebHost.UseUrls("http://127.0.0.1:3457");
 }
 
-builder.Services.AddSingleton<JarSystemService>();
+// P5：核心与组合根由宿主侧的扩展方法注册（容器、日志生态只出现在宿主层；核心保持零依赖）
+builder.Services.AddJarSystem();
 var app = builder.Build();
 
 // 立刻解析组合根：让"世界配置校验失败"发生在**启动时**，而不是第一个请求进来时才炸

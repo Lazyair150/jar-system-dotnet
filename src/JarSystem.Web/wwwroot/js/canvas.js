@@ -5,6 +5,7 @@ class CanvasRenderer {
     this.workshops = [];
     this.producerStatus = null;
     this.particles = [];
+    this.dirty = true;   // S4b-2：脏标记（数据/尺寸变化才重绘）
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.animate();
@@ -14,16 +15,23 @@ class CanvasRenderer {
     const p = this.canvas.parentElement;
     this.canvas.width = p.clientWidth - 30;
     this.canvas.height = p.clientHeight - 280;
+    this.dirty = true;
   }
 
   setData(workshops, warehouse, producerStatus) {
     this.workshops = workshops;
     this.warehouse = warehouse;
     this.producerStatus = producerStatus;
+    this.dirty = true;   // 数据变了才需要重绘
   }
 
+  // S4b-2（卡顿修复）：原来无条件每帧重绘（网格/仓库/生产者/网络/粒子）。
+  // 这里只有"数据变了"或"还有粒子在飞"时才画 —— 稳态下完全不占绘制时间。
   animate() {
-    this.render();
+    if (this.dirty || this.particles.length > 0) {
+      this.render();
+      this.dirty = false;
+    }
     requestAnimationFrame(() => this.animate());
   }
 
@@ -136,6 +144,7 @@ class CanvasRenderer {
 
   addParticle(x, y, tx, ty) {
     this.particles.push({ x, y, tx, ty, p: 0, s: 0.02 + Math.random() * 0.02 });
+    this.dirty = true;
   }
 
   drawParticles() {

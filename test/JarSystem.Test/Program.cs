@@ -5,6 +5,54 @@ using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 
 // ============================================================
+// ============================================================
+// 协议契约清单（命令名 / 消息名）——**唯一来源**，被两处使用：
+//   ① CheckProtocol：核对 Web 层源码里实际使用的名字与本清单一致；
+//   ② DumpSchema：生成前端类型产物 contract.d.ts 时把名字联成联合类型。
+// 清单刻意硬编码：加命令/消息必须显式改这里 ⇒ 逼出一次"这是有意的契约变更"。
+// ============================================================
+string[] ProtocolCommands =
+[
+    "getState", "createOrder", "createRandomOrder", "createWorkshop", "createRandomWorkshop",
+    "updateWorkshopCapacity", "setMaster", "setSlave", "executeOrder", "deleteOrder",
+    "checkFeasibility", "checkAllFeasibility", "manualTick", "reset", "updateProducerRate",
+    "startTick", "stopTick", "setAutoCheck"
+];
+
+string[] ProtocolMessages =
+[
+    "init", "state", "orderExecuted", "workshopSwitched", "feasibilityResult",
+    "allFeasibilityResults", "autoCheckResults", "autoCheckChanged", "error", "world"
+];
+
+// ============================================================
+// 客户端 → 服务端 的命令载荷声明（键 + TS 类型）。
+// 键集合取自 CommandDispatcher 的 JsonArgs 读取点；CheckProtocol 会核对
+// **每个声明的键确实出现在 CommandDispatcher.cs 里** ⇒ 改名即报警（防"两套规格漂移"）。
+// 空数组 = 该命令不带载荷。
+// ============================================================
+(string Command, string Interface, (string Key, string TsType)[] Fields)[] CommandPayloads =
+[
+    ("createOrder", "CreateOrderPayload", [("requirements", "RequirementPayload[]"), ("orderType", "\"A\" | \"B\"")]),
+    ("createWorkshop", "CreateWorkshopPayload", [("name", "string"), ("baseMarks", "string[]"), ("additionalMarks", "string[]"), ("ban", "string[]")]),
+    ("updateWorkshopCapacity", "UpdateWorkshopCapacityPayload", [("index", "number"), ("maxJars", "number | null"), ("maxLiquids", "number | null")]),
+    ("setMaster", "SetMasterPayload", [("index", "number")]),
+    ("setSlave", "SetSlavePayload", [("index", "number")]),
+    ("executeOrder", "ExecuteOrderPayload", [("orderId", "number"), ("orderIndex", "number")]),
+    ("checkFeasibility", "CheckFeasibilityPayload", [("orderId", "number"), ("orderIndex", "number")]),
+    ("deleteOrder", "DeleteOrderPayload", [("orderId", "number"), ("orderIndex", "number")]),
+    ("updateProducerRate", "UpdateProducerRatePayload", [("producerName", "string"), ("shape", "string"), ("rate", "number")]),
+    ("setAutoCheck", "SetAutoCheckPayload", [("enabled", "boolean")]),
+    ("createRandomOrder", "CreateRandomOrderPayload", []),
+    ("createRandomWorkshop", "CreateRandomWorkshopPayload", []),
+    ("getState", "GetStatePayload", []),
+    ("checkAllFeasibility", "CheckAllFeasibilityPayload", []),
+    ("manualTick", "ManualTickPayload", []),
+    ("reset", "ResetPayload", []),
+    ("startTick", "StartTickPayload", []),
+    ("stopTick", "StopTickPayload", [])
+];
+
 // 契约快照模式（重构专用，不影响默认测试）：
 //   dotnet run --project test\JarSystem.Test -c Release -- --dump-contract
 // 用固定场景导出 GetState() 的全部键路径与值到 重构报告/_contract/state_keys.txt，
@@ -30,6 +78,14 @@ string? ArgValue(string name)
 if (args.Length > 0 && args[0] == "--dump-schema")
 {
     DumpSchema();
+    return;
+}
+
+// 协议契约守卫：核对 Web 层源码里的**命令名/消息名**与本文列出的清单一致：
+//   dotnet run --project test\JarSystem.Test -c Release -- --check-protocol
+if (args.Length > 0 && args[0] == "--check-protocol")
+{
+    CheckProtocol();
     return;
 }
 
@@ -643,6 +699,110 @@ List<string> GenBan(Random r, int chance)
 }
 
 // ============================================================
+// 协议契约守卫（--check-protocol）
+//
+// 为什么需要它：命令名/消息名是**对外契约**，但它们只是 Web 层源码里的字符串字面量 ——
+// 把 "getState" 打错成 "getstate"，编译通过、测试通过、快照也没变化，**前端却静默失效**。
+//（`verify.bat` 不跑 WebSocket，所以没有任何一步能发现这种错。）
+//
+// 做法：把 Web 层源码当**文本**扫描，取出 `case "xxx":` 的命令名与 `type = "xxx"` 的消息名，
+// 与下面这份**清单**（= 契约本身）比对。清单是刻意硬编码的：
+// 将来加命令/消息必须**显式改这里**，从而逼出一次"确认这是有意的契约变更"。
+// ============================================================
+void CheckProtocol()
+{
+    var expectedCommands = ProtocolCommands;   // 清单在文件顶部（顶部局部变量，与 DumpSchema 共用）
+    var expectedMessages = ProtocolMessages;
+
+    var dispatcher = ReadSource(Path.Combine("src", "JarSystem.Web", "CommandDispatcher.cs"));
+    var hub = ReadSource(Path.Combine("src", "JarSystem.Web", "WebSocketHub.cs"));
+
+    var commands = Matches(dispatcher, "case \"([A-Za-z]+)\":");
+    var messages = Matches(dispatcher, "type = \"([A-Za-z]+)\"").Concat(Matches(hub, "type = \"([A-Za-z]+)\"")).ToList();
+
+    int failures = 0;
+    failures += Compare("command", expectedCommands, commands);
+    failures += Compare("message", expectedMessages, messages);
+
+    // 载荷键核对：声明的每个键都必须能在**读取点**找到 ——
+    //   · CommandDispatcher.cs：直接读的键（name/index/enabled/…）
+    //   · JsonArgs.cs：通过 ParseReqs/JS/JI… 间接读的键（requirements 就在 ParseReqs 里）
+    // 注意：错误信息保持**纯 ASCII** —— 它们会进日志并被 findstr 回显到 GBK 控制台，
+    // 含中文会导致 findstr "写入错误"（真实踩过）。
+    var payloadSources = dispatcher + ReadSource(Path.Combine("src", "JarSystem.Web", "JsonArgs.cs"));
+    var payloadKeys = CommandPayloads.SelectMany(c => c.Fields.Select(f => f.Key)).Distinct().ToList();
+    var unknownPayloadKeys = payloadKeys.Where(k => !payloadSources.Contains("\"" + k + "\"")).ToList();
+    foreach (var k in unknownPayloadKeys)
+        Console.WriteLine("protocol payload: KEY-NOT-FOUND " + k + " (not read in CommandDispatcher/JsonArgs)");
+    failures += unknownPayloadKeys.Count > 0 ? 1 : 0;
+
+    // 命令载荷表必须覆盖全部命令（不多不少）
+    var payloadCommands = CommandPayloads.Select(c => c.Command).ToList();
+    var uncoveredCommands = expectedCommands.Where(c => !payloadCommands.Contains(c)).ToList();
+    var extraCommands = payloadCommands.Where(c => !expectedCommands.Contains(c)).ToList();
+    foreach (var c in uncoveredCommands) Console.WriteLine("protocol payload: COMMAND-WITHOUT-PAYLOAD " + c);
+    foreach (var c in extraCommands) Console.WriteLine("protocol payload: PAYLOAD-NOT-IN-COMMANDS " + c);
+    failures += uncoveredCommands.Count + extraCommands.Count > 0 ? 1 : 0;
+    if (unknownPayloadKeys.Count == 0 && uncoveredCommands.Count == 0 && extraCommands.Count == 0)
+        Console.WriteLine($"protocol payload: OK ({CommandPayloads.Length} commands, {payloadKeys.Count} keys)");
+
+    // 顺带守一条本项目硬规则：verify.bat 必须**纯 ASCII**。
+    // 原因（真实事故）：cmd 在 GBK 代码页下解析 UTF-8 中文会报语法错 —— 双击后窗口一闪即退，看起来就是"打不开"。
+    var batPath = Path.Combine("重构报告", "verify.bat");
+    if (File.Exists(batPath))
+    {
+        var bytes = File.ReadAllBytes(batPath);
+        int badIndex = -1;
+        for (int i = 0; i < bytes.Length; i++) if (bytes[i] >= 0x80) { badIndex = i; break; }
+        if (badIndex < 0) Console.WriteLine("script ascii: OK (verify.bat)");
+        else
+        {
+            Console.WriteLine($"script ascii: SCRIPT-NON-ASCII at byte {badIndex} (verify.bat)");
+            failures++;
+        }
+    }
+
+    Console.WriteLine(failures == 0
+        ? $"PROTOCOL-OK (commands={expectedCommands.Length}, messages={expectedMessages.Length})"
+        : $"PROTOCOL-MISMATCH ({failures})");
+    if (failures > 0) Environment.ExitCode = 1;
+}
+
+// 比对集合并打印差异（信息保持 ASCII：会被 verify.bat 的 findstr 回显到 GBK 控制台）
+int Compare(string label, string[] expected, List<string> actual)
+{
+    var missing = expected.Where(e => !actual.Contains(e)).ToList();
+    var added = actual.Where(a => !expected.Contains(a)).ToList();
+    if (missing.Count == 0 && added.Count == 0)
+    {
+        Console.WriteLine($"protocol {label}: OK ({expected.Length})");
+        return 0;
+    }
+    foreach (var m in missing) Console.WriteLine($"protocol {label}: MISSING " + m + " (in list, not found in source)");
+    foreach (var a in added) Console.WriteLine($"protocol {label}: UNEXPECTED " + a + " (in source, not in list)");
+    return 1;
+}
+
+List<string> Matches(string text, string pattern) =>
+    System.Text.RegularExpressions.Regex.Matches(text, pattern)
+        .Select(m => m.Groups[1].Value)
+        .Distinct()
+        .OrderBy(s => s)
+        .ToList();
+
+string ReadSource(string relativePath)
+{
+    if (!File.Exists(relativePath))
+    {
+        // 用 ASCII 标记（verify.bat 要按它判失败；输出会被 findstr 回显，中文会导致写入错误）
+        Console.WriteLine("protocol: SOURCE-NOT-FOUND " + relativePath + " (run from repo root)");
+        Environment.ExitCode = 1;
+        return "";
+    }
+    return File.ReadAllText(relativePath);
+}
+
+// ============================================================
 // 契约快照工具（仅 --dump-contract 模式使用）
 // ============================================================
 
@@ -774,6 +934,96 @@ void DumpSchema()
     File.WriteAllText(file, root.ToJsonString(
         new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerOptions.Default) { WriteIndented = true }));
     Console.WriteLine($"schema total loose={looseTotal}");
+
+    // ---- 顺带生成**前端类型产物**：后端契约 → wwwroot/js/contract.d.ts ----
+    // 全局 .d.ts（不是模块）：前端仍是普通 <script>，用 JSDoc /* @type {StateDto} */ 引用即可，
+    // 于是"后端改字段名 → 前端在编辑器/tsc --noEmit 阶段报错"，**不需要引入打包器**。
+    WriteTypeScriptContracts(types, file);
+}
+
+// 由 JSON Schema 生成前端类型（覆盖本项目 schema 用到的子集：对象/数组/字典/可空/标量）
+void WriteTypeScriptContracts(System.Text.Json.Nodes.JsonObject types, string schemaFile)
+{
+    var tsPath = Path.Combine("src", "JarSystem.Web", "wwwroot", "js", "contract.d.ts");
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("// 本文件由 `dotnet run --project test\\JarSystem.Test -c Release -- --dump-schema` 生成，请勿手改。");
+    sb.AppendLine("// 来源：后端 DTO 的 [JsonPropertyName]（" + Path.GetFileName(schemaFile) + "）");
+    sb.AppendLine("// 用法（前端仍是普通脚本，无需打包器）：在 jsconfig.json 的 checkJs 下用 JSDoc 引用，例如");
+    sb.AppendLine("//   /** @type {StateDto} */ let state = null;");
+    sb.AppendLine();
+
+    int emitted = 0;
+    foreach (var kv in types)
+    {
+        if (kv.Value is not System.Text.Json.Nodes.JsonObject obj) continue;
+        if (obj.ContainsKey("$error")) continue;                                  // 导出失败的类型跳过
+        if (!obj.TryGetPropertyValue("properties", out var propsNode) || propsNode is not System.Text.Json.Nodes.JsonObject props) continue;
+
+        var required = obj["required"] as System.Text.Json.Nodes.JsonArray;
+        sb.AppendLine($"interface {kv.Key} {{");
+        foreach (var p in props)
+        {
+            bool isRequired = required != null && required.Any(r => r != null && r.GetValue<string>() == p.Key);
+            sb.AppendLine($"  {p.Key}{(isRequired ? "" : "?")}: {ToTsType(p.Value)};");
+        }
+        sb.AppendLine("}");
+        sb.AppendLine();
+        emitted++;
+    }
+
+    sb.AppendLine("type CommandName = " + string.Join(" | ", ProtocolCommands.Select(c => "\"" + c + "\"")) + ";");
+    sb.AppendLine("type MessageType = " + string.Join(" | ", ProtocolMessages.Select(m => "\"" + m + "\"")) + ";");
+    sb.AppendLine();
+
+    // 客户端 → 服务端 的命令载荷（键与类型来自顶部 CommandPayloads 表；守卫核对键确实被 Dispatcher 读取）
+    sb.AppendLine("interface RequirementPayload { shape: string; liquid?: string | null; }");
+    sb.AppendLine();
+    foreach (var (command, iface, fields) in CommandPayloads)
+    {
+        sb.AppendLine($"/** `{command}` 的载荷 */");
+        sb.AppendLine($"interface {iface} {{");
+        foreach (var (key, tsType) in fields) sb.AppendLine($"  {key}?: {tsType};");
+        sb.AppendLine("}");
+        sb.AppendLine();
+    }
+    sb.AppendLine("/** 命令名 → 载荷类型 的映射（给 send(type, data) 这类帮助函数用） */");
+    sb.AppendLine("interface CommandPayloadMap {");
+    foreach (var (command, iface, _) in CommandPayloads) sb.AppendLine($"  \"{command}\": {iface};");
+    sb.AppendLine("}");
+    File.WriteAllText(tsPath, sb.ToString());
+    Console.WriteLine($"types dumped: {tsPath} ({emitted + CommandPayloads.Length + 2} interfaces, {File.ReadAllLines(tsPath).Length} lines)");
+}
+
+// JSON Schema 节点 → TypeScript 类型（只覆盖本项目用到的子集）
+string ToTsType(System.Text.Json.Nodes.JsonNode? node)
+{
+    if (node is System.Text.Json.Nodes.JsonValue bv && bv.TryGetValue<bool>(out var b))
+        return b ? "unknown" : "never";                     // 布尔 true = 任意值
+    if (node is not System.Text.Json.Nodes.JsonObject o) return "unknown";
+    if (o.Count == 0) return "unknown";                     // 空对象 = 任意值
+
+    var types = new List<string>();
+    if (o.TryGetPropertyValue("type", out var tn) && tn != null)
+    {
+        if (tn is System.Text.Json.Nodes.JsonValue tv && tv.TryGetValue<string>(out var single)) types.Add(single);
+        else if (tn is System.Text.Json.Nodes.JsonArray ta)
+            foreach (var t in ta) if (t != null) types.Add(t.GetValue<string>());
+    }
+
+    bool nullable = types.Remove("null");
+    string? main = types.FirstOrDefault();
+    string result = main switch
+    {
+        "object" => o.TryGetPropertyValue("additionalProperties", out var ap) && ap is System.Text.Json.Nodes.JsonObject apObj
+            ? $"Record<string, {ToTsType(apObj)}>"
+            : "Record<string, unknown>",
+        "array" => o.TryGetPropertyValue("items", out var items) ? ToTsType(items) + "[]" : "unknown[]",
+        "string" => "string",
+        "integer" or "number" => "number",
+        "boolean" => "boolean",
+        _ => "unknown"
+    };
+    return nullable ? result + " | null" : result;
 }
 
 // 统计"无约束"的 schema 节点 —— 即"什么值都能通过"的地方，它们就是契约里的空洞：

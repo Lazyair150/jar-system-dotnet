@@ -6,7 +6,7 @@
 let ws = null;
 let reconnectDelayMs = 1000;
 
-let currentState = null;
+let currentState = /** @type {StateDto|null} */ (null);
 let selectedOrderId = null;
 let autoCheckEnabled = false;
 let editingCapacityIndex = null;   // 正在编辑容量的工作台索引（避免被 state 重绘打断）
@@ -14,7 +14,22 @@ let capacityDraft = null;          // 编辑中的草稿值 { jars: string, liqu
 
 // 世界元数据（S4）：由后端在连接建立时一次性下发（world 消息），
 // 前端据此渲染形状下拉框/标记选择器 —— 不再维护一份形状清单副本（原 js/constants.js）。
+/** @type {{ shapes: string[], liquids: string[] }} */
 let worldMeta = { shapes: [], liquids: [] };
+
+// S4b-2（卡顿修复）：
+//  · uiScheduled —— 把同一帧内的多条 state 合并成一次渲染（原来每条消息都全量重建面板）
+//  · switchAnimating —— 切换动画期间暂停重绘（避免动画节点被 innerHTML 换掉）
+//  · MAX_SWITCH_DOTS —— 圆点动画的节点上限（原实现按 operation 数量线性开 setTimeout）
+let uiScheduled = false;
+let switchAnimating = false;
+const MAX_SWITCH_DOTS = 8;
+
+function scheduleUI() {
+  if (uiScheduled) return;
+  uiScheduled = true;
+  requestAnimationFrame(() => { uiScheduled = false; updateUI(); });
+}
 
 function connect() {
   ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -38,7 +53,9 @@ function connect() {
 }
 
 function handleMessage(event) {
-  const { type, data } = JSON.parse(event.data);
+  // `type` 由 contract.d.ts 的 MessageType 联合类型约束 ⇒ case 写错名字会被检查出来；
+  // `data` 保持 any（各消息载荷形状不同，逐个标注会淹没噪音，关键字段在渲染函数里按 DTO 用）。
+  const { type, data } = /** @type {{ type: MessageType, data: any }} */ (JSON.parse(event.data));
   switch (type) {
     case 'init':
     case 'state':
@@ -59,7 +76,7 @@ function handleMessage(event) {
         });
       }
       currentState = data;
-      updateUI();
+      scheduleUI();
       break;
     case 'orderExecuted':
       if (data.success) {
@@ -92,7 +109,7 @@ function handleMessage(event) {
           const idx = currentState.orders.findIndex(o => o.id === orderId);
           if (idx >= 0) {
             currentState.orders[idx].feasibilityResult = result;
-            updateUI();
+            scheduleUI();
           }
         }
         showFeasibilityResult(result);
@@ -107,7 +124,7 @@ function handleMessage(event) {
           }
         });
       }
-      updateUI();
+      scheduleUI();
       break;
     case 'workshopSwitched':
       animateWorkshopSwitch(data.fromIndex, data.toIndex, data.operations);
@@ -137,6 +154,9 @@ function handleMessage(event) {
 }
 
 function updateUI() {
+  // S4b-2（卡顿修复）：切换动画期间不重建 DOM —— 否则动画引用的卡片会被 innerHTML 换掉，
+  // 变成"孤儿节点"，回调仍在野节点上跑（表现为明显卡顿/闪断）。动画结束会补一次同步。
+  if (switchAnimating) return;
   if (!currentState) return;
   renderGlobalState();
   renderWorkshops();
@@ -512,6 +532,14 @@ function logOp(op) {
 function animateWorkshopSwitch(fromIdx, toIdx, operations) {
   if (!renderer) return;
 
+  var ops = operations || [];
+
+  // S4b-2（卡顿修复）：
+  //  ① 动画期间暂停整块重绘（见 updateUI 的守卫），并在动画结束后补一次同步；
+  //  ② 圆点数量设上限 —— 原实现按 operation 数量线性开 setTimeout，操作多时成倍放大。
+  switchAnimating = true;
+  setTimeout(function() { switchAnimating = false; updateUI(); }, Math.min(ops.length * 150 + 600, 1500));
+
   var oldCard = document.querySelector('.workshop-card[data-index="' + fromIdx + '"]');
   var newCard = document.querySelector('.workshop-card[data-index="' + toIdx + '"]');
 
@@ -530,9 +558,8 @@ function animateWorkshopSwitch(fromIdx, toIdx, operations) {
     newCard.style.boxShadow = '0 0 20px rgba(0,217,255,0.6)';
     newCard.style.borderColor = '#00d9ff';
 
-    var ops = operations || [];
     var delay = 0;
-    ops.forEach(function(op, i) {
+    ops.slice(0, MAX_SWITCH_DOTS).forEach(function(op, i) {
       setTimeout(function() {
         if (!newCard) return;
         newCard.style.position = 'relative';
@@ -556,7 +583,7 @@ function animateWorkshopSwitch(fromIdx, toIdx, operations) {
     setTimeout(function() {
       newCard.style.boxShadow = '';
       newCard.style.borderColor = '';
-    }, ops.length * 150 + 1000);
+    }, Math.min(ops.length, MAX_SWITCH_DOTS) * 150 + 1000);
   }
 
   if (renderer && typeof renderer.triggerTransfer === 'function') {
