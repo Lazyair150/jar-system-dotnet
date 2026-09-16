@@ -31,13 +31,29 @@ function scheduleUI() {
   requestAnimationFrame(() => { uiScheduled = false; updateUI(); });
 }
 
+/**
+ * 发送命令：命令名与**载荷键名**都由后端生成的类型约束（`wwwroot/js/contract.d.ts`，
+ * 由 verify.bat 第 5 步的 `--dump-schema` 产出）。
+ *
+ * 用法：`send('createOrder', { requirements: reqs, orderType: 'A' })`；无载荷的命令写 `send('startTick')`。
+ * 语义：产出的 JSON 与原先手写的 `ws.send(JSON.stringify({type, data}))` **逐字节相同**；
+ * 区别只在于——把 `type` 写错、或把载荷键名写错，在 `jsconfig.json(checkJs)` 下会**当场报错**。
+ *
+ * @template {CommandName} T
+ * @param {T} type
+ * @param {CommandPayloadMap[T]} [data]
+ */
+function send(type, data) {
+  ws.send(data === undefined ? JSON.stringify({ type }) : JSON.stringify({ type, data }));
+}
+
 function connect() {
   ws = new WebSocket(`ws://${window.location.host}/ws`);
 
   ws.onopen = () => {
     reconnectDelayMs = 1000;
     log('系统连接成功', 'info');
-    ws.send(JSON.stringify({ type: 'startTick' }));
+    send('startTick');
   };
 
   ws.onmessage = handleMessage;
@@ -281,8 +297,8 @@ function renderProducers() {
   }).join('');
 }
 
-function setMaster(index) { ws.send(JSON.stringify({ type: 'setMaster', data: { index } })); }
-function setSlave(index) { ws.send(JSON.stringify({ type: 'setSlave', data: { index } })); }
+function setMaster(index) { send('setMaster', { index }); }
+function setSlave(index) { send('setSlave', { index }); }
 function selectOrder(id) { selectedOrderId = id; }
 
 function showCreateOrder() {
@@ -308,7 +324,7 @@ function submitOrder() {
     if (liquid) { hasFull = true; reqs.push({ shape, liquid }); }
     else { if (hasFull) { alert('需求列表约定空罐在前（执行顺序为满罐优先）'); return; } reqs.push({ shape }); }
   });
-  ws.send(JSON.stringify({ type: 'createOrder', data: { requirements: reqs, orderType: document.getElementById('order-type').value } }));
+  send('createOrder', { requirements: reqs, orderType: document.getElementById('order-type').value });
   closeModal('modal-order');
 }
 
@@ -335,7 +351,7 @@ function submitWorkshop() {
   const additionalMarks = Array.from(document.querySelectorAll('#ws-add-marks .selected')).map(el => el.dataset.shape);
   const ban = Array.from(document.querySelectorAll('#ws-ban .selected')).map(el => el.dataset.liquid);
   if (baseMarks.length === 0) { alert('至少1个基础标记'); return; }
-  ws.send(JSON.stringify({ type: 'createWorkshop', data: { name, baseMarks, additionalMarks, ban } }));
+  send('createWorkshop', { name, baseMarks, additionalMarks, ban });
   closeModal('modal-workshop');
 }
 
@@ -349,7 +365,7 @@ function showExecuteModal(i) {
 }
 
 function checkFeasibility() {
-  ws.send(JSON.stringify({ type: 'checkFeasibility', data: { orderId: selectedOrderId } }));
+  send('checkFeasibility', { orderId: selectedOrderId });
 }
 
 function showFeasibilityResult(result) {
@@ -363,12 +379,12 @@ function showFeasibilityResult(result) {
 
 function submitExecute() {
   closeModal('modal-execute');
-  ws.send(JSON.stringify({ type: 'executeOrder', data: { orderId: selectedOrderId } }));
+  send('executeOrder', { orderId: selectedOrderId });
 }
 
 function toggleAutoCheck() {
   autoCheckEnabled = !autoCheckEnabled;
-  ws.send(JSON.stringify({ type: 'setAutoCheck', data: { enabled: autoCheckEnabled } }));
+  send('setAutoCheck', { enabled: autoCheckEnabled });
   document.getElementById('btn-auto-check').textContent = autoCheckEnabled ? '⏹ 停止自检' : '🔍 自动检测';
   log(autoCheckEnabled ? '自动可行性检测已开启' : '自动可行性检测已关闭', 'info');
 }
@@ -380,7 +396,7 @@ function editCapacity(index) {
   if (editingCapacityIndex === index && capacityDraft) {
     const nj = parseInt(capacityDraft.jars) || wsc.maxJars || 20;
     const nl = parseInt(capacityDraft.liquids) || wsc.maxLiquids || 30;
-    ws.send(JSON.stringify({ type: 'updateWorkshopCapacity', data: { index, maxJars: nj, maxLiquids: nl } }));
+    send('updateWorkshopCapacity', { index, maxJars: nj, maxLiquids: nl });
     log('更新 ' + wsc.name + ' 容量: 罐=' + nj + ' 液=' + nl, 'info');
     editingCapacityIndex = null;
     capacityDraft = null;
@@ -462,40 +478,40 @@ function showPathModal(i) {
 function quickExecute(i) {
   selectedOrderId = currentState.orders[i].id;
   closeModal('modal-execute');
-  ws.send(JSON.stringify({ type: 'executeOrder', data: { orderId: currentState.orders[i].id } }));
+  send('executeOrder', { orderId: currentState.orders[i].id });
   log('执行订单 #' + (currentState.orders[i]?.id || i), 'info');
 }
 
 function quickCheckFeasibility(i) {
   selectedOrderId = currentState.orders[i].id;
-  ws.send(JSON.stringify({ type: 'checkFeasibility', data: { orderId: currentState.orders[i].id } }));
+  send('checkFeasibility', { orderId: currentState.orders[i].id });
 }
 
 function deleteOrder(i) {
   if (confirm('确定删除订单 #' + (currentState.orders[i]?.id || i) + '?')) {
-    ws.send(JSON.stringify({ type: 'deleteOrder', data: { orderId: currentState.orders[i].id } }));
+    send('deleteOrder', { orderId: currentState.orders[i].id });
     log('删除订单订单', 'info');
   }
 }
 
-function manualTick() { ws.send(JSON.stringify({ type: 'manualTick' })); log('手动推进', 'info'); }
+function manualTick() { send('manualTick'); log('手动推进', 'info'); }
 
 let autoTicking = false;
 function toggleAuto() {
   autoTicking = !autoTicking;
-  ws.send(JSON.stringify({ type: autoTicking ? 'startTick' : 'stopTick' }));
+  send(autoTicking ? 'startTick' : 'stopTick');
   document.getElementById('btn-auto').textContent = autoTicking ? '▶ 自动推进' : '⏸ 暂停推进';
   log(autoTicking ? '自动推进启动' : '自动推进暂停', 'info');
 }
 
-function createRandomOrder() { ws.send(JSON.stringify({ type: 'createRandomOrder' })); log('生成随机订单', 'info'); }
-function createRandomWorkshop() { ws.send(JSON.stringify({ type: 'createRandomWorkshop' })); log('生成随机工作台', 'info'); }
-function resetSystem() { if (confirm('确定重置？')) { ws.send(JSON.stringify({ type: 'reset' })); log('系统重置', 'info'); } }
+function createRandomOrder() { send('createRandomOrder'); log('生成随机订单', 'info'); }
+function createRandomWorkshop() { send('createRandomWorkshop'); log('生成随机工作台', 'info'); }
+function resetSystem() { if (confirm('确定重置？')) { send('reset'); log('系统重置', 'info'); } }
 
 function updateRate(name, shape) {
   const input = document.getElementById(`rate-${name}-${shape}`);
   if (!input) return;
-  ws.send(JSON.stringify({ type: 'updateProducerRate', data: { producerName: name, shape, rate: parseFloat(input.value) } }));
+  send('updateProducerRate', { producerName: name, shape, rate: parseFloat(input.value) });
   log(`更新 ${name} 的 ${shape} 速率: ${input.value}`, 'info');
 }
 
