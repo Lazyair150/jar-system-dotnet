@@ -64,8 +64,14 @@ public sealed class PartitionSearch
     /// <summary>
     /// 搜索所有划分。返回 null 表示无可行划分，此时 <paramref name="lastBlockage"/> 为最后一次划分的阻塞原因。
     /// </summary>
-    public PartitionSearchOutcome? Search(PartitionSearchRequest request, out string? lastBlockage)
+    /// <param name="lastBlockage">最后一次划分的阻塞原因（诊断用，进 <c>blockage</c> 契约字段）。</param>
+    /// <param name="budgetExceeded">
+    /// 是否因**超出工作预算**而提前中止（见 <see cref="IWorkBudgetedSolver"/>）。
+    /// 为 true 时返回 null **只表示"没搜完"**，绝不能解释成"不可行"。
+    /// </param>
+    public PartitionSearchOutcome? Search(PartitionSearchRequest request, out string? lastBlockage, out bool budgetExceeded)
     {
+        budgetExceeded = false;
         var reqs = request.Requirements;
         var masterJars = request.MasterJars;
         var masterLiquids = request.MasterLiquids;
@@ -73,8 +79,21 @@ public sealed class PartitionSearch
         var slaveLiquids = request.SlaveLiquids;
 
         string? blockage = null;
+
+        // #1（2026-09）主台侧**单调性剪枝**：可行性对"需求集合"单调 ——
+        // 若子集 X 在主台上不可行，则任何 X ⊆ Y 的 Y 在主台上也不可行（Y 必须同时满足 X 的要求）。
+        // 于是把"已证不可行的主台子集"记下来，枚举 mask 时先看它是否已包含某个失败子集；
+        // 这类 mask 的主台求解**必然失败**，而原实现对"主台求解失败"的分支不做任何事
+        //（既不更新 blockage、也不返回）⇒ 跳过它们与逐次求解**逐值等价**，只是省掉那次昂贵的 DFS。
+        //
+        // 为什么这条最关键：B 类不可行订单要对全部 2^N 个划分各做一次主台+从台求解，
+        // 而最贵的正是"主台拿到很多需求"的那些 mask —— 一旦某个小失败子集被证出来，
+        // 它的全部超集（数量最多、单次最贵）一次跳过。
+        var masterInfeasible = new bool[1 << reqs.Count];
         for (int mask = 0; mask < (1 << reqs.Count); mask++)
         {
+            if (ContainsInfeasibleSubset(masterInfeasible, mask)) continue;
+
             var mReqs = new List<Requirement>();
             var sReqs = new List<Requirement>();
             for (int i = 0; i < reqs.Count; i++)
@@ -84,7 +103,13 @@ public sealed class PartitionSearch
             }
 
             var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
-            if (!mr.Feasible || mr.Path == null) continue;
+            if (_solver is IWorkBudgetedSolver mb && mb.BudgetExceeded)
+            {
+                budgetExceeded = true;
+                lastBlockage = "分析超出预算";
+                return null;
+            }
+            if (!mr.Feasible || mr.Path == null) { masterInfeasible[mask] = true; continue; }
 
             List<JarState> masterFinal = masterJars;
             Dictionary<string, int> masterFinalLiq = masterLiquids;
@@ -128,6 +153,12 @@ public sealed class PartitionSearch
                     request.SlaveInfo.MaxLiquids);
 
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
+            if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
+            {
+                budgetExceeded = true;
+                lastBlockage = "分析超出预算";
+                return null;
+            }
             if (sr.Feasible && sr.Path != null)
             {
                 // 转移罐子清单：交付罐 + 从台路径实际使用的主台来源罐子
@@ -161,5 +192,16 @@ public sealed class PartitionSearch
 
         lastBlockage = blockage;
         return null;
+    }
+
+    /// <summary>
+    /// mask 是否包含一个"已证不可行"的主台子集（枚举其全部子集）。
+    /// 需求数上限 10 ⇒ 全部 mask 加起来约 3^N = 59049 次判空，代价可忽略。
+    /// </summary>
+    private static bool ContainsInfeasibleSubset(bool[] infeasible, int mask)
+    {
+        for (int sub = mask; sub > 0; sub = (sub - 1) & mask)
+            if (infeasible[sub]) return true;
+        return false;
     }
 }

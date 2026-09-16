@@ -4,6 +4,12 @@ using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 
+// 别名：本文件里 schema 节点操作很密集，短名可读性明显更好
+using JsonArray = System.Text.Json.Nodes.JsonArray;
+using JsonNode = System.Text.Json.Nodes.JsonNode;
+using JsonObject = System.Text.Json.Nodes.JsonObject;
+using JsonValue = System.Text.Json.Nodes.JsonValue;
+
 // ============================================================
 // ============================================================
 // 协议契约清单（命令名 / 消息名）——**唯一来源**，被两处使用：
@@ -23,6 +29,25 @@ string[] ProtocolMessages =
 [
     "init", "state", "orderExecuted", "workshopSwitched", "feasibilityResult",
     "allFeasibilityResults", "autoCheckResults", "autoCheckChanged", "error", "world"
+];
+
+// ============================================================
+// 服务端 → 客户端 的**匿名对象**载荷声明（键集合）。
+//
+// 为什么需要第二份守卫：state / init / world / allFeasibilityResults / autoCheckResults 的载荷是 DTO，
+// 由 --dump-schema 的结构守卫覆盖；但其余消息的载荷仍是**匿名对象**，键名只活在源码字面量里 ——
+// 拼错一个字母照样编译通过、测试通过、快照通过，客户端只是静默少一个字段（历史真事故：
+// 首轮守卫只核对命令名/消息名/客户端载荷键，回包键没有任何机器检查）。
+// 因此这里把回包键逐个列出，并由 CheckProtocol 用正则从 CommandDispatcher.cs **反向提取**后比对。
+// 注意：只声明 `data = new { ... }` 形式的消息；`data = sys.GetState()` 这类 DTO 载荷由 schema 守卫负责。
+// ============================================================
+(string Message, string[] Keys)[] MessagePayloads =
+[
+    ("orderExecuted", ["success", "reason", "operations", "transferOccurred"]),
+    ("workshopSwitched", ["fromIndex", "toIndex", "caseType", "operations"]),
+    ("feasibilityResult", ["orderId", "result"]),
+    ("autoCheckChanged", ["enabled"]),
+    ("error", ["message"])
 ];
 
 // ============================================================
@@ -537,6 +562,25 @@ Run("S20-倒入命令撤销后液体与标记复原", () =>
     return (ok, $"afterExecute={afterExecute} undo={undone?.Success} 酒={ws.LiquidStorage["酒"]} marked={jar.IsMarked} empty={jar.IsEmpty()}");
 });
 
+// 2026-09 批次：**求解器注入缝**（"策略模式要能换算法，先得有可替换的入口"）。
+// 原先是 Checker { get; } = new()，门面把缝焊死了；现在构造可注入 ISolver。
+// 本用例注入一个**替身**（记录调用次数后委托真实实现）：既证明注入真的贯通，
+// 又保持行为不变，因此可以安全放进基线。将来换算法时，这条用例就是"缝还在"的守卫。
+Run("S21-求解器注入缝贯通(策略模式可替换)", () =>
+{
+    var spy = new CountingSolver();
+    var sys = new JarSystem.Core.JarSystem(randomSeed: 7, solver: spy);
+    sys.SetMasterIndex(0);
+    var master = sys.Workshops[0];
+    master.AddJar(new Jar("圆罐"));
+    sys.CreateOrder(new() { new Requirement { Shape = "圆罐" } }, "A");
+
+    var fr = sys.CheckFeasibility(0);
+    var exec = sys.ExecuteOrder(0);
+    bool ok = spy.Calls > 0 && fr?.Feasible == true && exec.Success && master.Jars.Count == 0;
+    return (ok, $"替身被调用={spy.Calls} 可行={fr?.Feasible} 执行={exec.Success} 主台剩余罐={master.Jars.Count}");
+});
+
 Console.WriteLine($"=== {bugs} bugs / {tests} random + {capBugs} bugs / {capTests} capacity + {detCount} deterministic ===");
 foreach (var b in bugReports) Console.WriteLine(b);
 
@@ -746,6 +790,26 @@ void CheckProtocol()
     if (unknownPayloadKeys.Count == 0 && uncoveredCommands.Count == 0 && extraCommands.Count == 0)
         Console.WriteLine($"protocol payload: OK ({CommandPayloads.Length} commands, {payloadKeys.Count} keys)");
 
+    // 回包（服务端 → 客户端）载荷键核对：从源码反向提取 `type = "X", data = new { ... }` 的键集合，
+    // 与顶部 MessagePayloads 清单逐项比对。这样"回包键改名/拼错"也会被机器拦下。
+    var replyFailures = 0;
+    var replyKeyTotal = 0;
+    foreach (var (message, expectedKeys) in MessagePayloads)
+    {
+        replyKeyTotal += expectedKeys.Length;
+        var actualKeys = ExtractPayloadKeys(dispatcher, message);
+        if (actualKeys == null)
+        {
+            Console.WriteLine("protocol reply-payload: NOT-FOUND " + message);
+            replyFailures++;
+            continue;
+        }
+        replyFailures += Compare("reply-payload " + message, expectedKeys, actualKeys);
+    }
+    failures += replyFailures > 0 ? 1 : 0;
+    if (replyFailures == 0)
+        Console.WriteLine($"protocol reply-payload: OK ({MessagePayloads.Length} messages, {replyKeyTotal} keys)");
+
     // 顺带守一条本项目硬规则：verify.bat 必须**纯 ASCII**。
     // 原因（真实事故）：cmd 在 GBK 代码页下解析 UTF-8 中文会报语法错 —— 双击后窗口一闪即退，看起来就是"打不开"。
     var batPath = Path.Combine("重构报告", "verify.bat");
@@ -789,6 +853,23 @@ List<string> Matches(string text, string pattern) =>
         .Distinct()
         .OrderBy(s => s)
         .ToList();
+
+// 从 `type = "<message>", data = new { ... }` 里提取键名（匿名对象体内没有嵌套花括号）。
+// 键名判定：片段开头的标识符后面跟 `=`（`key = value`）或紧跟逗号/结尾（`key` 简写，如 `new { orderId, result }`）。
+// 返回 null 表示源码里找不到该消息的匿名对象载荷（消息名写错、或载荷改成了 DTO/方法调用）。
+List<string>? ExtractPayloadKeys(string source, string message)
+{
+    var m = System.Text.RegularExpressions.Regex.Match(
+        source,
+        "type = \"" + System.Text.RegularExpressions.Regex.Escape(message) + "\"\\s*,\\s*data = new\\s*\\{([^{}]*)\\}");
+    if (!m.Success) return null;
+
+    var keys = new List<string>();
+    foreach (System.Text.RegularExpressions.Match k in System.Text.RegularExpressions.Regex.Matches(
+        m.Groups[1].Value, @"(?:^|,)\s*([A-Za-z][A-Za-z0-9]*)\s*(?:=|(?=,|$))"))
+        if (!keys.Contains(k.Groups[1].Value)) keys.Add(k.Groups[1].Value);
+    return keys;
+}
 
 string ReadSource(string relativePath)
 {
@@ -949,9 +1030,37 @@ void DumpSchema()
 }
 
 // 由 JSON Schema 生成前端类型（覆盖本项目 schema 用到的子集：对象/数组/字典/可空/标量）
-void WriteTypeScriptContracts(System.Text.Json.Nodes.JsonObject types, string schemaFile)
+//
+// ⚠️ 生成器必须**看懂 properties 与 $ref**（旧实现的缺陷，2026-09 修复）：
+//   · 旧实现只在对象节点里认 additionalProperties ⇒ 凡是"有 properties 的嵌套对象"一律塌成
+//     Record<string, unknown>，于是 StateDto.workshops 竟然是 Record<string, unknown>[]，
+//     而 WorkshopStateDto / JarStateDto / OrderStateDto … 这些接口成了**无人引用的死声明**；
+//   · JsonSchemaExporter 对重复出现的类型改用 $ref（本 schema 里是 SolverStepDto 的 4 处），
+//     旧实现遇到只有 $ref 的节点直接输出 unknown（表现为 masterPath?: unknown[]）。
+//   后果是"后端改字段名 → 前端在 checkJs 下报错"这条承诺**并不成立**（只有命令名/消息名/客户端载荷键成立）。
+// 新实现：$ref 按 JSON Pointer 解引用；嵌套对象优先按**结构**还原成具名接口，否则内联对象字面量；
+// 并输出**可机器判定**的 degraded 指标（本该能描述却仍塌成 unknown/Record 的节点数），由 verify.bat 拦截
+// —— 度量本身也要能被反例推翻，不能再靠肉眼看一个"看起来挺全"的 .d.ts。
+void WriteTypeScriptContracts(JsonObject types, string schemaFile)
 {
     var tsPath = Path.Combine("src", "JarSystem.Web", "wwwroot", "js", "contract.d.ts");
+
+    // 每个类型自己的 schema 根：$ref 的 JSON Pointer 以它（当前正在导出的类型）为基准
+    var rootByName = new Dictionary<string, JsonObject>();
+    foreach (var kv in types)
+        if (kv.Value is JsonObject o && !o.ContainsKey("$error")) rootByName[kv.Key] = o;
+
+    // 结构签名 → 类型名：把内联的嵌套对象还原成具名接口。
+    // 签名相同者**不猜**（歧义时摘掉映射，退化为内联对象字面量，仍然强类型）。
+    var nameByShape = new Dictionary<string, string>();
+    var ambiguous = new List<string>();
+    foreach (var kv in rootByName)
+    {
+        var sig = Signature(kv.Value, kv.Value);
+        if (!nameByShape.TryAdd(sig, kv.Key)) ambiguous.Add(sig);
+    }
+    foreach (var sig in ambiguous) nameByShape.Remove(sig);
+
     var sb = new System.Text.StringBuilder();
     sb.AppendLine("// 本文件由 `dotnet run --project test\\JarSystem.Test -c Release -- --dump-schema` 生成，请勿手改。");
     sb.AppendLine("// 来源：后端 DTO 的 [JsonPropertyName]（" + Path.GetFileName(schemaFile) + "）");
@@ -959,19 +1068,21 @@ void WriteTypeScriptContracts(System.Text.Json.Nodes.JsonObject types, string sc
     sb.AppendLine("//   /** @type {StateDto} */ let state = null;");
     sb.AppendLine();
 
-    int emitted = 0;
+    int emitted = 0, degraded = 0;
     foreach (var kv in types)
     {
-        if (kv.Value is not System.Text.Json.Nodes.JsonObject obj) continue;
+        if (kv.Value is not JsonObject obj) continue;
         if (obj.ContainsKey("$error")) continue;                                  // 导出失败的类型跳过
-        if (!obj.TryGetPropertyValue("properties", out var propsNode) || propsNode is not System.Text.Json.Nodes.JsonObject props) continue;
+        if (!obj.TryGetPropertyValue("properties", out var propsNode) || propsNode is not JsonObject props) continue;
 
-        var required = obj["required"] as System.Text.Json.Nodes.JsonArray;
+        var required = obj["required"] as JsonArray;
         sb.AppendLine($"interface {kv.Key} {{");
         foreach (var p in props)
         {
             bool isRequired = required != null && required.Any(r => r != null && r.GetValue<string>() == p.Key);
-            sb.AppendLine($"  {p.Key}{(isRequired ? "" : "?")}: {ToTsType(p.Value)};");
+            var (ts, bad) = ToTsType(p.Value, obj, nameByShape);
+            degraded += bad;
+            sb.AppendLine($"  {p.Key}{(isRequired ? "" : "?")}: {ts};");
         }
         sb.AppendLine("}");
         sb.AppendLine();
@@ -999,38 +1110,140 @@ void WriteTypeScriptContracts(System.Text.Json.Nodes.JsonObject types, string sc
     sb.AppendLine("}");
     File.WriteAllText(tsPath, sb.ToString());
     Console.WriteLine($"types dumped: {tsPath} ({emitted + CommandPayloads.Length + 2} interfaces, {File.ReadAllLines(tsPath).Length} lines)");
+    // 质量指标（机器判定）：degraded > 0 说明生成器又漏了某类节点（例如将来 schema 里出现新的 $ref 形式）
+    if (degraded > 0)
+    {
+        Console.WriteLine($"types dts: DTS-DEGRADED ({degraded} nodes became unknown)");
+        Environment.ExitCode = 1;
+    }
+    else
+    {
+        Console.WriteLine($"types dts: OK ({emitted} DTO interfaces fully typed, degraded=0)");
+    }
 }
 
-// JSON Schema 节点 → TypeScript 类型（只覆盖本项目用到的子集）
-string ToTsType(System.Text.Json.Nodes.JsonNode? node)
+// JSON Schema 节点 → TypeScript 类型。返回 (类型文本, 本次"塌掉"的节点数)。
+// 塌掉 = 本该能描述（有 properties，或本来是个 $ref）却仍输出 unknown / Record<string, unknown>。
+// 反例（**不算塌**）：eventHistory 的元素是"任意对象"，schema 里既无 properties 也无 additionalProperties，
+// 那种情况输出 Record<string, unknown> 就是**诚实答案**（与 schema 的 loose=N 计数一一对应）。
+(string Ts, int Degraded) ToTsType(JsonNode? node, JsonObject? root, Dictionary<string, string> nameByShape)
 {
-    if (node is System.Text.Json.Nodes.JsonValue bv && bv.TryGetValue<bool>(out var b))
-        return b ? "unknown" : "never";                     // 布尔 true = 任意值
-    if (node is not System.Text.Json.Nodes.JsonObject o) return "unknown";
-    if (o.Count == 0) return "unknown";                     // 空对象 = 任意值
+    if (node is JsonValue bv && bv.TryGetValue<bool>(out var b))
+        return (b ? "unknown" : "never", 0);                 // 布尔 true = 任意值
+    if (node is not JsonObject o) return ("unknown", 0);
+    if (o.Count == 0) return ("unknown", 0);                 // 空对象 = 任意值
+
+    // $ref：按 JSON Pointer（相对本类型根）解引用，再按结构还原成具名接口
+    if (o.TryGetPropertyValue("$ref", out var refNode) && refNode is JsonValue rv && rv.TryGetValue<string>(out var pointer))
+    {
+        var target = ResolvePointer(root, pointer);
+        if (target == null) return ("unknown", 1);           // 解不开 = 真塌了
+        return ToTsType(target, root, nameByShape);
+    }
 
     var types = new List<string>();
     if (o.TryGetPropertyValue("type", out var tn) && tn != null)
     {
-        if (tn is System.Text.Json.Nodes.JsonValue tv && tv.TryGetValue<string>(out var single)) types.Add(single);
-        else if (tn is System.Text.Json.Nodes.JsonArray ta)
+        if (tn is JsonValue tv && tv.TryGetValue<string>(out var single)) types.Add(single);
+        else if (tn is JsonArray ta)
             foreach (var t in ta) if (t != null) types.Add(t.GetValue<string>());
     }
 
     bool nullable = types.Remove("null");
     string? main = types.FirstOrDefault();
-    string result = main switch
+    var (result, degraded) = main switch
     {
-        "object" => o.TryGetPropertyValue("additionalProperties", out var ap) && ap is System.Text.Json.Nodes.JsonObject apObj
-            ? $"Record<string, {ToTsType(apObj)}>"
-            : "Record<string, unknown>",
-        "array" => o.TryGetPropertyValue("items", out var items) ? ToTsType(items) + "[]" : "unknown[]",
-        "string" => "string",
-        "integer" or "number" => "number",
-        "boolean" => "boolean",
-        _ => "unknown"
+        "object" => ObjectTs(o, root, nameByShape),
+        "array" => ArrayTs(o, root, nameByShape),
+        "string" => ("string", 0),
+        "integer" or "number" => ("number", 0),
+        "boolean" => ("boolean", 0),
+        _ => ("unknown", 0)
     };
-    return nullable ? result + " | null" : result;
+    return (nullable ? result + " | null" : result, degraded);
+}
+
+// 对象节点 → TypeScript 类型（三级优先：具名接口 → 内联对象字面量 → Record）。
+(string Ts, int Degraded) ObjectTs(JsonObject o, JsonObject? root, Dictionary<string, string> nameByShape)
+{
+    // ① 结构与某个具名 DTO 等价 ⇒ 直接用名字（这样 WorkshopStateDto / JarStateDto … 才真的被引用）
+    if (nameByShape.TryGetValue(Signature(o, root), out var named)) return (named, 0);
+
+    // ② 有 properties 却没匹配上具名接口 ⇒ 内联对象字面量（仍然强类型，绝不塌成 Record）
+    if (o.TryGetPropertyValue("properties", out var pn) && pn is JsonObject props && props.Count > 0)
+    {
+        var required = o["required"] as JsonArray;
+        int degraded = 0;
+        var parts = new List<string>();
+        foreach (var p in props)
+        {
+            var (ts, bad) = ToTsType(p.Value, root, nameByShape);
+            degraded += bad;
+            bool isRequired = required != null && required.Any(r => r != null && r.GetValue<string>() == p.Key);
+            parts.Add($"{p.Key}{(isRequired ? "" : "?")}: {ts}");
+        }
+        return ("{ " + string.Join("; ", parts) + " }", degraded);
+    }
+
+    // ③ 纯字典（additionalProperties 是对象）⇒ Record<string, T>
+    if (o.TryGetPropertyValue("additionalProperties", out var ap) && ap is JsonObject apObj)
+    {
+        var (ts, bad) = ToTsType(apObj, root, nameByShape);
+        return ($"Record<string, {ts}>", bad);
+    }
+
+    // ④ 既无 properties 也无 additionalProperties：**诚实的**弱契约（对应 schema 的 loose 计数）
+    return ("Record<string, unknown>", 0);
+}
+
+// 数组节点 → TypeScript 类型。
+// 注意：schema 里"没有 items 的数组"（如 List<object> 的 path）输出 unknown[] 是**诚实答案**，
+// 它与"没有 properties 的对象"一样属于**后端契约自身的空洞**，已经由 schema 的 loose=N 计数覆盖；
+// 这里不计入 degraded，否则会把"已知例外"误报成"生成器坏了"（两个指标必须各管各的）。
+(string Ts, int Degraded) ArrayTs(JsonObject o, JsonObject? root, Dictionary<string, string> nameByShape)
+{
+    if (!o.TryGetPropertyValue("items", out var items) || items is null) return ("unknown[]", 0);
+    var (ts, degraded) = ToTsType(items, root, nameByShape);
+    return ((ts.Contains(" | ") ? "(" + ts + ")" : ts) + "[]", degraded);
+}
+
+// 结构签名：忽略 required 与"$ref vs 内联"的写法差异（$ref 先解引用），只保留"属性名 → 结构"。
+// 用途有二：把内联嵌套对象还原成具名接口；发现两个 DTO 结构相同 ⇒ 不猜（退化为内联字面量）。
+string Signature(JsonNode? node, JsonObject? root, int depth = 0)
+{
+    if (depth > 8 || node is null) return "?";
+    if (node is JsonObject o)
+    {
+        if (o.TryGetPropertyValue("$ref", out var r) && r is JsonValue rv && rv.TryGetValue<string>(out var ptr))
+            return Signature(ResolvePointer(root, ptr), root, depth + 1);
+        if (o.TryGetPropertyValue("properties", out var pn) && pn is JsonObject props)
+            return "{" + string.Join(",", props.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => kv.Key + ":" + Signature(kv.Value, root, depth + 1))) + "}";
+        if (o.TryGetPropertyValue("additionalProperties", out var ap) && ap is JsonObject apObj)
+            return "map<" + Signature(apObj, root, depth + 1) + ">";
+        if (o.TryGetPropertyValue("type", out var tn) && tn != null) return "T:" + tn.ToJsonString();
+        return "{}";
+    }
+    return node.ToJsonString();
+}
+
+// JSON Pointer（形如 #/properties/orders/items/properties/solverPath/items）解引用；解不开返回 null。
+JsonNode? ResolvePointer(JsonObject? root, string pointer)
+{
+    if (root == null || !pointer.StartsWith('#')) return null;
+    JsonNode? cur = root;
+    foreach (var rawSeg in pointer.Substring(1).Split('/', StringSplitOptions.RemoveEmptyEntries))
+    {
+        var seg = rawSeg.Replace("~1", "/").Replace("~0", "~");
+        cur = cur switch
+        {
+            JsonObject jo when jo.TryGetPropertyValue(seg, out var next) => next,
+            JsonArray ja when int.TryParse(seg, out var idx) && idx >= 0 && idx < ja.Count => ja[idx],
+            _ => null
+        };
+        if (cur == null) return null;
+    }
+    return cur;
 }
 
 // 统计"无约束"的 schema 节点 —— 即"什么值都能通过"的地方，它们就是契约里的空洞：
@@ -1132,3 +1345,27 @@ string JsonName(System.Reflection.PropertyInfo p)
 }
 
 record OrderSpec(List<Requirement> Reqs, string Type);
+
+/// <summary>
+/// 替身求解器（S21）：记录调用次数后**委托**给真实实现。
+/// 用途是验证"门面可以注入求解器"这条缝真正贯通 —— 它是"换算法"的前提，
+/// 也是将来真换算法时的可用骨架（替换 <c>_inner</c> 即可）。
+/// </summary>
+sealed class CountingSolver : JarSystem.Core.Abstractions.ISolver
+{
+    private readonly JarSystem.Core.Solver.StateSpaceSolver _inner = new();
+
+    /// <summary>被调用次数（一次可行性分析可能调用多次：划分搜索里每侧各一次）。</summary>
+    public int Calls { get; private set; }
+
+    public JarSystem.Core.Solver.SolverResult Solve(
+        List<Requirement> requirements,
+        JarSystem.Core.Solver.WorkshopInfo workshopInfo,
+        List<JarState> jars,
+        Dictionary<string, int> liquids,
+        int transferBudget = int.MaxValue)
+    {
+        Calls++;
+        return _inner.Solve(requirements, workshopInfo, jars, liquids, transferBudget);
+    }
+}

@@ -12,6 +12,12 @@ public static class Constants
     public const int WAREHOUSE_MAX_LIQUIDS = 200;
     public const int MAX_ORDER_REQUIREMENTS = 10;
 
+    /// <summary>
+    /// 生产者速率的合法上限（每 tick）。**这是游戏规则，住在核心**（不是 Web 适配层的输入校验）——
+    /// 否则只有 Web 宿主遵守，Godot/脚本宿主可以提交 1e9 把产出循环变成 OOM（实测 20 万/tick 即造 20 万个罐子）。
+    /// </summary>
+    public const double MAX_PRODUCER_RATE = 100;
+
     public static class OrderType
     {
         public const string A = "A";

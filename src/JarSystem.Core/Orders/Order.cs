@@ -37,19 +37,24 @@ public class Order
 
     private void ValidateOrder()
     {
+        // 订单类型是契约取值（A/B）：非法值会被后续判定当成"非 A"（即 B 类）静默处理，
+        // 因此这条规则必须住在**领域**里，而不是住在 Web 的命令分派器里（那里只有 Web 宿主遵守）。
+        if (Type != Config.Constants.OrderType.A && Type != Config.Constants.OrderType.B)
+            throw new DomainValidationException($"订单类型只能是 A 或 B，收到: {Type}");
+
         if (Requirements.Count > Config.Constants.MAX_ORDER_REQUIREMENTS)
-            throw new InvalidOperationException($"订单需求数量不能超过 {Config.Constants.MAX_ORDER_REQUIREMENTS} 个");
+            throw new DomainValidationException($"订单需求数量不能超过 {Config.Constants.MAX_ORDER_REQUIREMENTS} 个");
         bool seenFull = false;
         foreach (var req in Requirements)
         {
             // 安全/健壮性：需求里的形状与液体必须是**词表内**的值，否则订单永远不可能被满足
             if (!_vocabulary.IsValidShape(req.Shape))
-                throw new InvalidOperationException($"无效形状: {req.Shape}");
+                throw new DomainValidationException($"无效形状: {req.Shape}");
             if (req.Liquid != null && !_vocabulary.IsValidLiquid(req.Liquid))
-                throw new InvalidOperationException($"无效液体: {req.Liquid}");
+                throw new DomainValidationException($"无效液体: {req.Liquid}");
 
             if (req.Liquid != null) seenFull = true;
-            else if (seenFull) throw new InvalidOperationException("订单需求列表约定: 空罐需求在前、满罐需求在后（执行顺序为满罐优先）");
+            else if (seenFull) throw new DomainValidationException("订单需求列表约定: 空罐需求在前、满罐需求在后（执行顺序为满罐优先）");
         }
     }
 
@@ -97,6 +102,15 @@ public class Requirement
 public class FeasibilityResultData
 {
     [JsonPropertyName("feasible")] public bool Feasible { get; set; }
+
+    /// <summary>
+    /// **未判定**（2026-09 新增键）：搜索因超出工作预算而提前中止 ⇒ 既不能说"可行"、也不能说"不可行"。
+    /// 与 <see cref="Feasible"/>=false 合起来读：`feasible=false && undetermined=false` 才是"确实不可行"，
+    /// 也只有那种情况受"不可行 ⇒ 执行必失败"这条不变量的约束。
+    /// 前端据此显示"⚠ 未判定"，并且**仍然允许执行**（执行由贪心兜底，不受预测承诺约束）。
+    /// </summary>
+    [JsonPropertyName("undetermined")] public bool Undetermined { get; set; }
+
     [JsonPropertyName("blockage")] public string? Blockage { get; set; }
     [JsonPropertyName("reason")] public string? Reason { get; set; }
     [JsonPropertyName("timestamp")] public string? Timestamp { get; set; }

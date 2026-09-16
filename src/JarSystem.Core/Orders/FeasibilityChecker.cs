@@ -20,6 +20,13 @@ public class FeasibilityChecker
     /// <summary>求解器（阶段 2：依赖 <see cref="ISolver"/> 抽象）。</summary>
     public ISolver Solver { get; }
 
+    /// <summary>
+    /// 一次可行性检查的工作预算（搜索节点数；≤0 表示不限）。宿主可调：
+    /// 调大 ⇒ 更可能给出确定结论，但最坏延迟变长；调小 ⇒ 更快回"未判定"。
+    /// 默认见 <see cref="StateSpaceSolver.DefaultNodeBudget"/>（实测约 2 秒上限）。
+    /// </summary>
+    public int NodeBudget { get; set; } = StateSpaceSolver.DefaultNodeBudget;
+
     /// <summary>默认装配：真实状态空间求解器 + 默认检查链。</summary>
     public FeasibilityChecker() : this(new StateSpaceSolver()) { }
 
@@ -41,6 +48,10 @@ public class FeasibilityChecker
     {
         var startTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var context = new FeasibilityContext(order, masterSnap, slaveSnap, Solver);
+
+        // 一次可行性检查 = 一份共享工作预算（B 类的 2^N 个划分共用它）。
+        // 预算耗尽时链上的检查返回"未判定"，不会再让整个宿主等下去（详见 IWorkBudgetedSolver）。
+        if (Solver is IWorkBudgetedSolver budgeted) budgeted.BeginCheck(NodeBudget);
 
         FeasibilityResultData? result = null;
         foreach (var check in _checks)

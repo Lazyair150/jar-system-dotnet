@@ -25,6 +25,12 @@ public sealed class CommandDispatcher
     {
         await svc.Gate.WaitAsync();
         try { await HandleCoreAsync(svc, ws, type, dataEl); }
+        catch (JarSystem.Core.Domain.DomainValidationException ex)
+        {
+            // 领域规则拒绝（速率越界 / 容量非法 / 订单类型非法 / 需求形状越界…）统一在这里转成 error 回包。
+            // 适配层只负责"呈现"，规则本身住在核心 ⇒ Web / Godot / 脚本三个宿主自动继承同一条约束。
+            await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = ex.Message } }));
+        }
         finally { svc.Gate.Release(); }
     }
 
@@ -37,18 +43,13 @@ public sealed class CommandDispatcher
 
             case "createOrder":
             {
-                // 输入校验（安全）：订单类型只接受 A/B
                 var orderType = JsonArgs.JS(dataEl, "orderType") ?? "A";
-                if (orderType != "A" && orderType != "B")
-                {
-                    await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "订单类型只能是 A 或 B" } }));
-                    break;
-                }
                 var reqs = JsonArgs.ParseReqs(dataEl);
+                // 订单类型 A/B、形状/液体域、需求条数与顺序 —— 全部由核心校验（见 Order.ValidateOrder）；
+                // 这里只把拒绝原因转给客户端。
                 var created = sys.CreateOrder(reqs, orderType);
                 if (!created.Success)
                 {
-                    // 形状/液体/需求数量/顺序等域校验失败时给出明确原因（此前静默忽略）
                     await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = created.Error ?? "订单创建失败" } }));
                     break;
                 }
@@ -78,12 +79,7 @@ public sealed class CommandDispatcher
                 var idx = JsonArgs.JI(dataEl, "index");
                 var maxJars = JsonArgs.JIOrNull(dataEl, "maxJars");
                 var maxLiquids = JsonArgs.JIOrNull(dataEl, "maxLiquids");
-                // 输入校验（安全）：负容量会让 Resize*Capacity 的区间移除越界，在边界处拦掉
-                if ((maxJars.HasValue && maxJars.Value < 0) || (maxLiquids.HasValue && maxLiquids.Value < 0))
-                {
-                    await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "容量不能为负数" } }));
-                    break;
-                }
+                // 容量合法性由核心校验（WorkshopService.UpdateWorkshopCapacity 抛 DomainValidationException）
                 sys.UpdateWorkshopCapacity(idx, maxJars, maxLiquids);
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
@@ -172,9 +168,13 @@ public sealed class CommandDispatcher
                 break;
 
             case "updateProducerRate":
-                sys.UpdateProducerRate(JsonArgs.JS(dataEl, "producerName") ?? "", JsonArgs.JS(dataEl, "shape") ?? "", JsonArgs.JD(dataEl, "rate"));
+            {
+                var rate = JsonArgs.JD(dataEl, "rate");
+                // 速率上下界由核心校验（ProductionService.UpdateProducerRate）
+                sys.UpdateProducerRate(JsonArgs.JS(dataEl, "producerName") ?? "", JsonArgs.JS(dataEl, "shape") ?? "", rate);
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
+            }
 
             case "startTick":
                 // P5：推进循环改由 TickBackgroundService（PeriodicTimer）驱动，这里只翻开关

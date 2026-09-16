@@ -90,6 +90,7 @@ internal static class StateSerializer
             fr = new FeasibilityStateDto
             {
                 Feasible = order.FeasibilityResult.Feasible,
+                Undetermined = order.FeasibilityResult.Undetermined,
                 Blockage = order.FeasibilityResult.Blockage,
                 Reason = order.FeasibilityResult.Reason,
                 Timestamp = order.FeasibilityResult.Timestamp,

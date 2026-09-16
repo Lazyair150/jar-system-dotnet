@@ -66,6 +66,10 @@ public sealed class WorldOptions
         if (Duplicate(Shapes) is { } dupShape) r.Errors.Add("shapes 有重复项: " + dupShape);
         if (Liquids.Count != 2) r.Errors.Add("liquids 必须恰好两个（玩法语义），当前 " + Liquids.Count + " 个");
         if (Duplicate(Liquids) is { } dupLiquid) r.Errors.Add("liquids 有重复项: " + dupLiquid);
+        // 形状/液体名会进求解器的"子问题键"（用控制字符做分隔符），也会进前端 HTML。
+        // 因此这里直接拒绝空名与控制字符 —— 顺带避免"名字里塞分隔符导致记忆化键碰撞"这类隐患。
+        foreach (var s in Shapes) if (IsBadName(s)) r.Errors.Add("shapes 含非法名称（空/空白或含控制字符）: " + Describe(s));
+        foreach (var l in Liquids) if (IsBadName(l)) r.Errors.Add("liquids 含非法名称（空/空白或含控制字符）: " + Describe(l));
 
         // ⚠️ 已知边界（有意为之，不是遗漏）：**液体名字目前不可改**。
         // 求解器/执行器/切换/可行性里仍有 10 处按内置液体名遍历（且遍历顺序会影响选出的路径），
@@ -112,6 +116,10 @@ public sealed class WorldOptions
             {
                 if (!Shapes.Contains(kv.Key)) r.Errors.Add("生产者 " + p.Name + " 含未知形状: " + kv.Key);
                 if (kv.Value < 0) r.Errors.Add("生产者 " + p.Name + " 的 " + kv.Key + " 速率不能为负");
+                // 上界与核心规则一致（Constants.MAX_PRODUCER_RATE）：速率会线性放大产出循环，
+                // 配置里放一个 1e9 同样能把宿主打爆 ⇒ 启动即拒绝，而不是等运行时 OOM。
+                else if (kv.Value > Constants.MAX_PRODUCER_RATE) r.Errors.Add("生产者 " + p.Name + " 的 " + kv.Key
+                    + " 速率不能超过 " + Constants.MAX_PRODUCER_RATE + "（每 tick 产出上限）");
                 else if (kv.Value > 0 && !producedShapes.Contains(kv.Key)) producedShapes.Add(kv.Key);
             }
         }
@@ -153,6 +161,26 @@ public sealed class WorldOptions
             seen.Add(i);
         }
         return null;
+    }
+
+    /// <summary>名称是否非法：空/纯空白，或含控制字符（控制字符会被求解器的子问题键用作分隔符）。</summary>
+    private static bool IsBadName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return true;
+        foreach (var ch in name) if (char.IsControl(ch)) return true;
+        return false;
+    }
+
+    /// <summary>把非法名称渲染成可读文本（控制字符转义输出，避免错误信息本身被污染）。</summary>
+    private static string Describe(string name)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in name)
+        {
+            if (char.IsControl(ch)) sb.Append("\\u").Append(((int)ch).ToString("X4"));
+            else sb.Append(ch);
+        }
+        return "\"" + sb + "\"";
     }
 
     /// <summary>禁令允许写 "酒" 或 "禁酒" 两种写法（与 <c>WorkshopCapability</c> 的规范化一致）。</summary>

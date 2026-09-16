@@ -6,6 +6,7 @@ using JarSystem.Core.Executor;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
 using JarSystem.Core.Services;
+using JarSystem.Core.Solver;
 
 namespace JarSystem.Core;
 
@@ -26,6 +27,7 @@ public class JarSystem
     private readonly WorkshopService _workshopService;
     private readonly OrderService _orderService;
     private readonly ProductionService _productionService;
+    private readonly MasterSwitchCoordinator _masterSwitch;
 
     private readonly List<Workshop> _workshops = new();
     private readonly List<Order> _orders = new();
@@ -43,13 +45,30 @@ public class JarSystem
     // ---- 程序集内可变视图（仅供 Services/Bootstrap 使用；外部看不到） ----
     internal List<Workshop> WorkshopList => _workshops;
     internal List<Order> OrderList => _orders;
-    internal List<Dictionary<string, object?>> EventHistoryList => _eventHistory;
+
+    /// <summary>
+    /// 事件历史保留条数（**内存边界**，2026-09）。对外只下发最近 10 条（见 <c>StateSerializer</c>），
+    /// 但内部列表此前是无限增长的（实测 500 次主从切换后内部已有 500 条）—— 长跑宿主会持续泄漏。
+    /// 保留窗口 = 下发窗口 ⇒ 对外 JSON 逐字节不变，只是不再无界。
+    /// </summary>
+    private const int MaxEventHistory = 10;
+
+    /// <summary>追加一条事件历史并维持长度上限（写入事件历史的**唯一入口**）。</summary>
+    internal void AddEvent(Dictionary<string, object?> entry)
+    {
+        _eventHistory.Add(entry);
+        if (_eventHistory.Count > MaxEventHistory)
+            _eventHistory.RemoveRange(0, _eventHistory.Count - MaxEventHistory);
+    }
 
     /// <summary>产出模块。整体替换请用 <see cref="ResetProducerModule"/>。</summary>
     public ProducerModule ProducerModule { get; private set; }
 
-    /// <summary>可行性检查器（注入点：构造后不可整体替换；其 <c>Solver</c> 可经构造注入替身）。</summary>
-    public FeasibilityChecker Checker { get; } = new();
+    /// <summary>
+    /// 可行性检查器（构造后不可整体替换，但**求解器可注入**：见构造参数 <c>solver</c>）。
+    /// 预算可经 <see cref="FeasibilityChecker.NodeBudget"/> 调整。
+    /// </summary>
+    public FeasibilityChecker Checker { get; }
 
     /// <summary>订单执行器（注入点：构造后不可整体替换；<c>SelectionStrategy</c> 仍可设置）。</summary>
     public OrderExecutor Executor { get; }
@@ -100,8 +119,13 @@ public class JarSystem
     /// <param name="randomSeed">随机种子；null 时使用不固定种子（保持"每次运行都不一样"的默认行为）。</param>
     /// <param name="vocabulary">世界词汇表；null 时由 <paramref name="world"/> 的词表字段构造。</param>
     /// <param name="world">世界配置；null 时使用内置默认世界（行为与重构前一致）。</param>
+    /// <param name="solver">
+    /// **求解器注入点**（策略模式真正可用的前提）：null 时用内置状态空间求解器。
+    /// 有了它，宿主/测试可以把"判定算法"整体换掉，而不必绕开门面直接组装 <see cref="FeasibilityChecker"/>。
+    /// 注意：替身必须满足现有对外契约（判定结论 + 计划字段），细节见 <see cref="ISolver"/>。
+    /// </param>
     public JarSystem(ISystemLog? log = null, int? randomSeed = null, Vocabulary? vocabulary = null,
-        WorldOptions? world = null)
+        WorldOptions? world = null, ISolver? solver = null)
     {
         Log = log ?? ConsoleSystemLog.Instance;
         World = world ?? WorldOptions.Default;
@@ -110,10 +134,12 @@ public class JarSystem
         _liquidProductionRate = DefaultLiquidRates();
         Rng = randomSeed.HasValue ? new Random(randomSeed.Value) : new Random();
         ProducerModule = new ProducerModule(Vocabulary);
+        Checker = new FeasibilityChecker(solver ?? new StateSpaceSolver());
         Executor = new OrderExecutor(Rng);
         _workshopService = new WorkshopService(this);
         _orderService = new OrderService(this);
         _productionService = new ProductionService(this);
+        _masterSwitch = new MasterSwitchCoordinator(this);
         InitializeDefault();
     }
 
@@ -177,11 +203,15 @@ public class JarSystem
     // 工作台
     // ============================================================
 
-    /// <summary>设为主工作台（旧主台有资源时执行切换事件）。返回字典键：success/switched/caseType/operations/slaveCleared/reason。</summary>
-    public Dictionary<string, object?> SetMaster(int index) => _workshopService.SetMaster(index);
+    /// <summary>
+    /// 设为主工作台（旧主台有资源时执行切换事件）。
+    /// 返回字典键：success/switched/caseType/operations/slaveCleared/reason。
+    /// 编排已移至 <see cref="MasterSwitchCoordinator"/>（原 WorkshopService 的一部分）。
+    /// </summary>
+    public Dictionary<string, object?> SetMaster(int index) => _masterSwitch.SetMaster(index);
 
-    /// <summary>设为从工作台；拒绝把当前主台设为从台。</summary>
-    public Dictionary<string, object?> SetSlave(int index) => _workshopService.SetSlave(index);
+    /// <summary>设为从工作台；拒绝把当前主台设为从台。编排见 <see cref="MasterSwitchCoordinator"/>。</summary>
+    public Dictionary<string, object?> SetSlave(int index) => _masterSwitch.SetSlave(index);
 
     public void CreateWorkshop(string name, List<string> baseMarks, List<string>? additionalMarks = null, List<string>? ban = null)
         => _workshopService.CreateWorkshop(name, baseMarks, additionalMarks, ban);

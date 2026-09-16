@@ -16,16 +16,16 @@ public static class JsonArgs
         d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     public static int JI(JsonElement d, string k) =>
-        d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+        d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : 0;
 
     public static double JD(JsonElement d, string k) =>
-        d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
+        d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var x) ? x : 0;
 
     public static bool JB(JsonElement d, string k) =>
-        d.TryGetProperty(k, out var v) && v.GetBoolean();
+        d.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False && v.GetBoolean();
 
     public static int? JIOrNull(JsonElement d, string k) =>
-        d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : (int?)null;
+        d.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : (int?)null;
 
     public static List<string> JL(JsonElement d, string k)
     {
@@ -41,11 +41,16 @@ public static class JsonArgs
         var r = new List<Requirement>();
         if (d.TryGetProperty("requirements", out var v) && v.ValueKind == JsonValueKind.Array)
             foreach (var i in v.EnumerateArray())
+            {
+                // 元素必须是对象：非对象元素（字符串/数字/数组）这里直接跳过，
+                // 而不是让 JsonElement.TryGetProperty 抛 InvalidOperationException 把整条连接带走。
+                if (i.ValueKind != JsonValueKind.Object) continue;
                 r.Add(new Requirement
                 {
                     Shape = i.TryGetProperty("shape", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() ?? "" : "",
                     Liquid = i.TryGetProperty("liquid", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() : null
                 });
+            }
         return r;
     }
 }

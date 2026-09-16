@@ -301,7 +301,7 @@ public void AnimateSwitch(int fromIdx, int toIdx)
 11. **Web 胶水层（仅本仓库的 Web 壳）**：订单命令改传 `orderId`；`orderExecuted` 带
     `transferOccurred`；`updateWorkshopCapacity` 已接通；Web 层为单用户串行闸门（`SemaphoreSlim`），
     多人场景需另做网络同步层。
-12. **测试与实验**：`test/JarSystem.Test`（2000 随机双向一致 + 3000 容量压力 + 20 个确定性回归，
+12. **测试与实验**：`test/JarSystem.Test`（2000 随机双向一致 + 3000 容量压力 + 21 个确定性回归，
     含 `--dump-contract` 契约快照模式）、`test/StrategyExperiment`（711 抽象结构模式 × 多种子 × 4 策略，FIFO 显著最优）。
 13. **重构后的对外形态（2026-08 重构，行为与 JSON 未变）**：
     - `GetState()` 返回 `StateDto`（`Services/StateDtos.cs`），键名经 `[JsonPropertyName]` 冻结为与旧字典一致；

@@ -25,6 +25,18 @@ let uiScheduled = false;
 let switchAnimating = false;
 const MAX_SWITCH_DOTS = 8;
 
+/**
+ * HTML 转义（S6）。所有"来自服务端 / 用户输入"的字符串在拼进 innerHTML 前都必须过一遍。
+ * 工作台名就是用户可控的自由文本（createWorkshop），此前直接拼进 innerHTML ⇒ 自伤 XSS。
+ * @param {unknown} v
+ * @returns {string}
+ */
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, function (c) {
+    return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;';
+  });
+}
+
 function scheduleUI() {
   if (uiScheduled) return;
   uiScheduled = true;
@@ -189,8 +201,8 @@ function renderGlobalState() {
   const md = document.getElementById('master-display');
   const sd = document.getElementById('slave-display');
   const sb = document.getElementById('status-bar');
-  md.innerHTML = gs.currentMaster !== null ? `主工作台: <strong class="set">${gs.masterName}</strong>` : `主工作台: <strong class="unset">未选择</strong>`;
-  sd.innerHTML = gs.currentSlave !== null ? `从工作台: <strong class="set">${gs.slaveName}</strong>` : `从工作台: <strong class="unset">未选择</strong>`;
+  md.innerHTML = gs.currentMaster !== null ? `主工作台: <strong class="set">${esc(gs.masterName)}</strong>` : `主工作台: <strong class="unset">未选择</strong>`;
+  sd.innerHTML = gs.currentSlave !== null ? `从工作台: <strong class="set">${esc(gs.slaveName)}</strong>` : `从工作台: <strong class="unset">未选择</strong>`;
   if (gs.currentMaster === null) { sb.textContent = '请选择主工作台（接收仓库流入）'; sb.style.color = '#ffd700'; }
   else if (gs.currentSlave === null) { sb.textContent = '请选择从工作台'; sb.style.color = '#ffd700'; }
   else { sb.textContent = `就绪: ${gs.masterName} → ${gs.slaveName}`; sb.style.color = '#00d9ff'; }
@@ -208,10 +220,10 @@ function renderWorkshops() {
     const isHoneyBanned = w.ban.includes('蜜') || w.ban.includes('禁蜜');
     return `<div class="workshop-card ${rc}" data-index="${i}">
       <div class="workshop-header">
-        <span class="workshop-name">${w.name} ${rt}</span>
+        <span class="workshop-name">${esc(w.name)} ${rt}</span>
         <div class="workshop-capacity">
           ${i === editingCapacityIndex && capacityDraft
-            ? `<span style="font-size:0.75em;color:#888;">📦 <input type="number" value="${capacityDraft.jars}" oninput="updateCapacityDraft('jars', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> | 🍷 <input type="number" value="${capacityDraft.liquids}" oninput="updateCapacityDraft('liquids', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> <button style="background:#0f3460;color:#fff;border:none;padding:0 6px;border-radius:2px;cursor:pointer;" onclick="event.stopPropagation();editCapacity(${i})">✔</button></span>`
+            ? `<span style="font-size:0.75em;color:#888;">📦 <input type="number" value="${esc(capacityDraft.jars)}" oninput="updateCapacityDraft('jars', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> | 🍷 <input type="number" value="${esc(capacityDraft.liquids)}" oninput="updateCapacityDraft('liquids', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> <button style="background:#0f3460;color:#fff;border:none;padding:0 6px;border-radius:2px;cursor:pointer;" onclick="event.stopPropagation();editCapacity(${i})">✔</button></span>`
             : `<span style="font-size:0.75em;color:#888;cursor:pointer" onclick="event.stopPropagation();editCapacity(${i})">
             📦 ${w.jars.length}/${w.maxJars||20} | 🍷${(w.liquids && w.liquids['酒'])||0}/${w.maxLiquids||30}
           </span>`}
@@ -222,12 +234,12 @@ function renderWorkshops() {
         </div>
       </div>
       <div class="workshop-marks">
-        ${w.baseMarks.map(m => `<span class="mark-base">${m}</span>`).join('')}
-        ${w.additionalMarks.map(m => `<span class="mark-additional">${m}</span>`).join('')}
+        ${w.baseMarks.map(m => `<span class="mark-base">${esc(m)}</span>`).join('')}
+        ${w.additionalMarks.map(m => `<span class="mark-additional">${esc(m)}</span>`).join('')}
       </div>
-      ${w.ban.length > 0 ? `<div class="workshop-ban">🚫 ${w.ban.join(', ')}</div>` : ''}
+      ${w.ban.length > 0 ? `<div class="workshop-ban">🚫 ${esc(w.ban.join(', '))}</div>` : ''}
       <div class="workshop-jars">
-        ${w.jars.map(j => `<div class="jar-item ${j.liquid ? (j.liquid === '酒' ? 'jar-full-wine' : 'jar-full-honey') : 'jar-empty'} ${j.isMarked ? 'jar-marked' : ''}" title="${j.description}">${j.shape[0]}</div>`).join('')}
+        ${w.jars.map(j => `<div class="jar-item ${j.liquid ? (j.liquid === '酒' ? 'jar-full-wine' : 'jar-full-honey') : 'jar-empty'} ${j.isMarked ? 'jar-marked' : ''}" title="${esc(j.description)}">${esc(j.shape[0])}</div>`).join('')}
       </div>
       <div class="workshop-liquids">
         <span class="${isWineBanned ? 'liquid-banned' : 'liquid-wine'}">🍷 ${(w.liquids && w.liquids['酒']) || 0}</span>
@@ -245,10 +257,13 @@ function renderOrders() {
     let feasibilityHtml = '';
     if (order.feasibilityResult) {
       const fr = order.feasibilityResult;
-      if (fr.feasible) {
+      if (fr.undetermined) {
+        // 预算耗尽 ⇒ 未判定（不是不可行）。执行按钮仍然可用：执行走贪心兜底，不受预测承诺约束。
+        feasibilityHtml = `<div class="feasibility-tag" style="background:#3a2f00;color:#ffd700;">⚠ 未判定（订单过大，分析超出预算）</div>`;
+      } else if (fr.feasible) {
         feasibilityHtml = `<div class="feasibility-tag pass">✅ 可行 (直接${(fr.directCount != null ? fr.directCount : (fr.directSatisfactions ? fr.directSatisfactions.length : 0)) || 0}个，操作${(fr.operationCount != null ? fr.operationCount : (fr.operationsNeeded ? fr.operationsNeeded.length : 0)) || 0}个)</div>`;
       } else {
-        feasibilityHtml = `<div class="feasibility-tag fail">❌ 不可行: ${fr.blockage || fr.reason || "未知原因"}</div>`;
+        feasibilityHtml = `<div class="feasibility-tag fail">❌ 不可行: ${esc(fr.blockage || fr.reason || "未知原因")}</div>`;
       }
     }
     const statusClass = order.status === '待执行' ? 'pending' : order.status === '成功' ? 'success' : 'failed';
@@ -256,14 +271,14 @@ function renderOrders() {
     const hasPath = order.feasibilityResult && order.feasibilityResult.solverPath && order.feasibilityResult.solverPath.length > 0;
     return `<div class="order-card ${statusClass}${feasibleClass}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-        <div><span class="order-id">#${order.id}</span> <span class="order-type">${order.type}类</span></div>
+        <div><span class="order-id">#${esc(order.id)}</span> <span class="order-type">${esc(order.type)}类</span></div>
         <button onclick="event.stopPropagation();deleteOrder(${i})" style="background:none;border:none;color:#ff4444;cursor:pointer;font-size:1.1em;padding:0 2px;" title="删除订单">✕</button>
       </div>
       <div class="order-reqs">
-        ${order.requirements.map(r => r.liquid ? `<span class="req-item req-full">🍶${r.shape}+${r.liquid}</span>` : `<span class="req-item">🏺${r.shape}</span>`).join("")}
+        ${order.requirements.map(r => r.liquid ? `<span class="req-item req-full">🍶${esc(r.shape)}+${esc(r.liquid)}</span>` : `<span class="req-item">🏺${esc(r.shape)}</span>`).join("")}
       </div>
       ${feasibilityHtml}
-      <div style="margin-top:6px;font-size:0.8em;color:#aaa;">状态: ${order.status}</div>
+      <div style="margin-top:6px;font-size:0.8em;color:#aaa;">状态: ${esc(order.status)}</div>
       <div style="display:flex;gap:4px;margin-top:8px;">
         ${order.status === "待执行" ? `<button onclick="event.stopPropagation();quickCheckFeasibility(${i})" style="flex:1;background:#0f3460;border:none;color:#fff;padding:6px;border-radius:4px;font-size:0.8em;cursor:pointer;">🔍 可行性分析</button>` : ""}
         ${order.status === "待执行" && canExec ? `<button onclick="event.stopPropagation();quickExecute(${i})" style="flex:1;background:#e94560;border:none;color:#fff;padding:6px;border-radius:4px;font-size:0.8em;cursor:pointer;">⚡ 执行</button>` : order.status === "待执行" ? `<button disabled style="flex:1;background:#555;border:none;color:#888;padding:6px;border-radius:4px;font-size:0.8em;">先选主从</button>` : ""}
@@ -288,10 +303,10 @@ function renderProducers() {
   c.innerHTML = currentState.producerStatus.producers.map(p => {
     return Object.entries(p.rates).map(([shape, rate]) => `
       <div class="producer-row">
-        <span style="width:60px;">${p.name}</span>
-        <span style="width:40px;">${shape}</span>
-        <input type="number" step="0.1" min="0" max="5" value="${rate}" id="rate-${p.name}-${shape}">
-        <button onclick="updateRate('${p.name}', '${shape}')">更新</button>
+        <span style="width:60px;">${esc(p.name)}</span>
+        <span style="width:40px;">${esc(shape)}</span>
+        <input type="number" step="0.1" min="0" max="5" value="${esc(rate)}" id="rate-${esc(p.name)}-${esc(shape)}">
+        <button data-producer="${esc(p.name)}" data-shape="${esc(shape)}" onclick="updateRate(this.dataset.producer, this.dataset.shape)">更新</button>
       </div>
     `).join('');
   }).join('');
@@ -312,7 +327,7 @@ function addRequirement() {
   if (c.children.length >= 10) { alert('订单需求数量不能超过 10 个'); return; }
   const d = document.createElement('div');
   d.className = 'req-row';
-  d.innerHTML = `<select class="req-shape">${worldMeta.shapes.map(s => `<option value="${s}">${s}</option>`).join('')}</select><select class="req-liquid"><option value="">空罐</option>${worldMeta.liquids.map(l => `<option value="${l}">${l}</option>`).join('')}</select><button onclick="this.parentElement.remove()">✕</button>`;
+  d.innerHTML = `<select class="req-shape">${worldMeta.shapes.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select><select class="req-liquid"><option value="">空罐</option>${worldMeta.liquids.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select><button onclick="this.parentElement.remove()">✕</button>`;
   c.appendChild(d);
 }
 
@@ -329,9 +344,9 @@ function submitOrder() {
 }
 
 function showCreateWorkshop() {
-  document.getElementById('ws-base-marks').innerHTML = worldMeta.shapes.map(s => `<div class="shape-option" onclick="toggleSelect(this,'base')" data-shape="${s}">${s}</div>`).join('');
-  document.getElementById('ws-add-marks').innerHTML = worldMeta.shapes.map(s => `<div class="shape-option" onclick="toggleSelect(this,'add')" data-shape="${s}">${s}</div>`).join('');
-  document.getElementById('ws-ban').innerHTML = worldMeta.liquids.map(l => `<div class="liquid-option" onclick="toggleSelect(this,'ban')" data-liquid="${l}">${l}</div>`).join('');
+  document.getElementById('ws-base-marks').innerHTML = worldMeta.shapes.map(s => `<div class="shape-option" onclick="toggleSelect(this,'base')" data-shape="${esc(s)}">${esc(s)}</div>`).join('');
+  document.getElementById('ws-add-marks').innerHTML = worldMeta.shapes.map(s => `<div class="shape-option" onclick="toggleSelect(this,'add')" data-shape="${esc(s)}">${esc(s)}</div>`).join('');
+  document.getElementById('ws-ban').innerHTML = worldMeta.liquids.map(l => `<div class="liquid-option" onclick="toggleSelect(this,'ban')" data-liquid="${esc(l)}">${esc(l)}</div>`).join('');
   openModal('modal-workshop');
 }
 
@@ -359,7 +374,7 @@ function showExecuteModal(i) {
   const order = currentState.orders[i];
   selectedOrderId = order.id;
   document.getElementById('execute-order-id').textContent = order.id;
-  document.getElementById('execute-order-info').innerHTML = `<p>类型: ${order.type}类</p><p>需求: ${order.requirements.map(r => r.liquid ? `满罐(${r.shape},${r.liquid})` : `空罐(${r.shape})`).join(', ')}</p>`;
+  document.getElementById('execute-order-info').innerHTML = `<p>类型: ${esc(order.type)}类</p><p>需求: ${esc(order.requirements.map(r => r.liquid ? `满罐(${r.shape},${r.liquid})` : `空罐(${r.shape})`).join(', '))}</p>`;
   document.getElementById('feasibility-result').innerHTML = '';
   openModal('modal-execute');
 }
@@ -370,10 +385,12 @@ function checkFeasibility() {
 
 function showFeasibilityResult(result) {
   const c = document.getElementById('feasibility-result');
-  if (result.feasible) {
+  if (result.undetermined) {
+    c.innerHTML = `<div style="color:#ffd700;">⚠ 未判定：${esc(result.reason || '分析超出预算')}</div>`;
+  } else if (result.feasible) {
     c.innerHTML = `<div class="feasibility-success">✓ 可行！${result.directSatisfactions?.length > 0 ? `(${result.directSatisfactions.length}个直接满足，${result.operationsNeeded?.length || 0}个需要操作)` : ''}</div>`;
   } else {
-    c.innerHTML = `<div class="feasibility-fail">✗ 不可行: ${result.blockage || result.reason || '未知原因'}</div>`;
+    c.innerHTML = `<div class="feasibility-fail">✗ 不可行: ${esc(result.blockage || result.reason || '未知原因')}</div>`;
   }
 }
 
@@ -427,8 +444,8 @@ function showPathModal(i) {
     return;
   }
   let html = '<div style="max-height:70vh;overflow-y:auto;padding:10px;">';
-  html += '<h3 style="margin:0 0 12px 0;color:#00d9ff;">订单 #' + order.id + ' 可行性路径</h3>';
-  html += '<p style="color:#888;font-size:0.85em;margin:0 0 12px 0;">类型: ' + order.type + '类 | 需求: ' + order.requirements.map(function(r) { return r.liquid ? '满罐(' + r.shape + ',' + r.liquid + ')' : '空罐(' + r.shape + ')'; }).join(', ') + '</p>';
+  html += '<h3 style="margin:0 0 12px 0;color:#00d9ff;">订单 #' + esc(order.id) + ' 可行性路径</h3>';
+  html += '<p style="color:#888;font-size:0.85em;margin:0 0 12px 0;">类型: ' + esc(order.type) + '类 | 需求: ' + esc(order.requirements.map(function(r) { return r.liquid ? '满罐(' + r.shape + ',' + r.liquid + ')' : '空罐(' + r.shape + ')'; }).join(', ')) + '</p>';
 
   if ((fr.transferJarIds && fr.transferJarIds.length > 0) || fr.transferLiquids) {
     var jarStr = fr.transferJarIds && fr.transferJarIds.length > 0 ? '#' + fr.transferJarIds.join(', #') : '无';
@@ -436,7 +453,7 @@ function showPathModal(i) {
       ? Object.entries(fr.transferLiquids).filter(function(kv) { return kv[1] > 0; }).map(function(kv) { return kv[0] + '×' + kv[1]; }).join(', ')
       : '';
     html += '<div style="background:#102a43;border:1px solid #0f3460;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:0.85em;color:#9be8ff;">';
-    html += '📦 选择性转移清单：罐子 ' + jarStr + (liqStr ? ' ；液体：' + liqStr : '') + '（其余资源留在主台）</div>';
+    html += '📦 选择性转移清单：罐子 ' + esc(jarStr) + (liqStr ? ' ；液体：' + esc(liqStr) : '') + '（其余资源留在主台）</div>';
   }
 
   html += '<table style="width:100%;border-collapse:collapse;font-size:0.85em;">';
@@ -448,9 +465,9 @@ function showPathModal(i) {
     html += '<tr style="border-bottom:1px solid #1a1a2e;">';
     html += '<td style="padding:6px;color:' + (phaseLabel === '主台' ? '#e94560' : '#00d9ff') + ';">' + phaseLabel + '</td>';
     html += '<td style="padding:6px;color:#00d9ff;">' + (idx+1) + '</td>';
-    html += '<td style="padding:6px;">' + (p.requirement || '-') + '</td>';
-    html += '<td style="padding:6px;color:#e94560;">' + opText + '</td>';
-    html += '<td style="padding:6px;color:#888;font-size:0.8em;">' + jarsAfter + '</td>';
+    html += '<td style="padding:6px;">' + esc(p.requirement || '-') + '</td>';
+    html += '<td style="padding:6px;color:#e94560;">' + esc(opText) + '</td>';
+    html += '<td style="padding:6px;color:#888;font-size:0.8em;">' + esc(jarsAfter) + '</td>';
     html += '</tr>';
     });
   }
@@ -613,8 +630,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // 建立连接（脚本在 body 末尾，DOM 已就绪）；断线由 onclose 自动重连
 connect();
-
-
-
-
-

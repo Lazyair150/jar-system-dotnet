@@ -10,6 +10,8 @@ namespace JarSystem.Core.Orders;
 
 public class OrderEvent
 {
+    private readonly SlaveRollback _rollback = new();
+
     public Order Order { get; }
     public Workshop Master { get; }
     public Workshop Slave { get; }
@@ -157,56 +159,12 @@ public class OrderEvent
         return (false, reason);
     }
 
-    public void RollbackSlaveToMaster()
-    {
-        var slaveJars = new List<Jar>(Slave.Jars);
-
-        foreach (var jar in slaveJars)
-        {
-            if (jar == null) continue;
-            var isTransferred = jar.Id.HasValue && TransferredJarIds.Contains(jar.Id.Value);
-            var isOriginal = jar.Id.HasValue && SlaveOriginalJarIds.Contains(jar.Id.Value);
-
-            if (isTransferred && !isOriginal)
-            {
-                Slave.TransferOut(jar);
-                // 禁液令不影响满罐转移：装满被主台禁用的液体的罐子原样归还，
-                // 不在此清空罐内液体（禁令只作用于倒入、游离存储与改形成本）。
-                if (!Master.TransferIn(jar))
-                {
-                    ExecutionLog.Add(new ExecutionLogEntry
-                    {
-                        Phase = "rollback",
-                        Command = "discard_jar",
-                        Jar = jar.GetDescription(),
-                        Reason = "主台罐子容量满，丢弃（仓库单向流动，不回收）"
-                    });
-                }
-            }
-        }
-
-        foreach (var kv in TransferredLiquids)
-        {
-            var liquid = kv.Key;
-            var amount = Math.Min(kv.Value, Slave.LiquidStorage.GetValueOrDefault(liquid, 0));
-            if (amount > 0)
-            {
-                Slave.RemoveLiquid(liquid, amount);
-                // 部分填充：主台可接收多少就接收多少，剩余丢弃（仓库单向流动，不回收）
-                int accepted = Master.TryReceiveLiquid(liquid, amount);
-                int remainder = amount - accepted;
-                if (remainder > 0)
-                {
-                    ExecutionLog.Add(new ExecutionLogEntry
-                    {
-                        Phase = "rollback",
-                        Command = "discard_liquid",
-                        Reason = (Master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满") + "，" + liquid + "×" + remainder + " 丢弃（仓库单向流动，不回收）"
-                    });
-                }
-            }
-        }
-    }
+    /// <summary>
+    /// 把本次转移过来的罐子与未用液体退回主台（主台接不下的直接丢弃）。
+    /// 语义细节全部移入 <see cref="SlaveRollback"/>（归属判定 / 禁令边界 / 容量丢弃三件事一处说清）。
+    /// </summary>
+    public void RollbackSlaveToMaster() =>
+        _rollback.Execute(Master, Slave, TransferredJarIds, SlaveOriginalJarIds, TransferredLiquids, ExecutionLog);
 
     public Dictionary<string, object?> GetReport()
     {

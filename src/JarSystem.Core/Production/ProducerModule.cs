@@ -63,13 +63,6 @@ public class ShapeProductionLine
 
     public double GetTotalRate() => Producers.Sum(p => p.Rate);
 
-    public Dictionary<string, object> GetStatus() => new()
-    {
-        ["shape"] = Shape,
-        ["rate"] = GetTotalRate(),
-        ["accumulated"] = Accumulated,
-        ["producers"] = Producers.Count
-    };
 }
 
 public class ProducerModule
@@ -143,14 +136,26 @@ public class ProducerModule
             g.RemoveProducer(name);
     }
 
+    /// <summary>
+    /// 设置某生产者对某形状的产出速率。**三条规则都住在这一层**（数据在这里 ⇒ 规则在这里）：
+    /// <list type="number">
+    /// <item>生产者必须存在 —— 否则"静默无操作"，调用方以为改成功了（原实现如此）；</item>
+    /// <item>形状必须存在 —— 否则会往 <c>Rates</c> 里插入一个**没有对应生产线**的垃圾键，
+    /// 而 <c>Rates</c> 会经 <c>producerStatus.producers[].rates</c> 进入对外契约（原实现实测可复现）；</item>
+    /// <item>速率必须是 0~<see cref="Constants.MAX_PRODUCER_RATE"/> 的有限数 —— 否则产出循环会被放大到 OOM。</item>
+    /// </list>
+    /// </summary>
     public void UpdateRate(string name, string shape, double rate)
     {
-        if (_producers.TryGetValue(name, out var p))
-        {
-            p.Rates[shape] = rate;
-            if (_generators.ContainsKey(shape))
-                _generators[shape].UpdateRate(name, rate);
-        }
+        if (!_producers.TryGetValue(name, out var p))
+            throw new DomainValidationException("没有这个生产者: " + name);
+        if (!_generators.ContainsKey(shape))
+            throw new DomainValidationException("没有这个形状: " + shape);
+        if (double.IsNaN(rate) || double.IsInfinity(rate) || rate < 0 || rate > Constants.MAX_PRODUCER_RATE)
+            throw new DomainValidationException($"速率必须是 0 到 {Constants.MAX_PRODUCER_RATE} 之间的有限数，收到: {rate}");
+
+        p.Rates[shape] = rate;
+        _generators[shape].UpdateRate(name, rate);
     }
 
     public List<Jar> Tick(int count = 1)
@@ -225,23 +230,8 @@ public class ProducerModule
         return (transferredJars, transferredLiquids);
     }
 
-    public int GetWarehouseLiquid(string l) => _liquidWarehouse.GetValueOrDefault(l, 0);
-
-    public Dictionary<string, object> GetProducerStatus()
-    {
-        return new()
-        {
-            ["producers"] = _producers.Values.Select(p => new Dictionary<string, object>
-            {
-                ["name"] = p.Name,
-                ["rates"] = new Dictionary<string, double>(p.Rates)
-            }).ToList(),
-            ["generators"] = _generators.Values.Select(g => g.GetStatus()).ToList(),
-            ["warehouse"] = new Dictionary<string, object>
-            {
-                ["jars"] = _warehouse.Count,
-                ["liquids"] = new Dictionary<string, int>(_liquidWarehouse)
-            }
-        };
-    }
+    // 2026-09 删除两处死代码（grep 证实无调用方）：
+    //   · GetWarehouseLiquid —— 只读单个液体库存，已被 LiquidWarehouse 只读视图取代
+    //   · GetProducerStatus —— 弱类型报告字典，已被 StateSerializer + StateDtos 的强类型投影取代
+    //     （后者才是对外契约，且键序由 [JsonPropertyName] 与快照钉死）
 }

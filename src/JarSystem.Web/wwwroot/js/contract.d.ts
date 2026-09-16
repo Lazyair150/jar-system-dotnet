@@ -4,11 +4,11 @@
 //   /** @type {StateDto} */ let state = null;
 
 interface StateDto {
-  workshops?: Record<string, unknown>[];
-  orders?: Record<string, unknown>[];
-  warehouse?: Record<string, unknown>;
-  producerStatus?: Record<string, unknown>;
-  globalState?: Record<string, unknown>;
+  workshops?: WorkshopStateDto[];
+  orders?: OrderStateDto[];
+  warehouse?: WarehouseStateDto;
+  producerStatus?: { producers?: { name?: string; rates?: Record<string, number> }[]; generators?: { shape?: string; rate?: number; accumulated?: number; producers?: number }[]; warehouse?: { jars?: number; liquids?: Record<string, number> } };
+  globalState?: GlobalStateDto;
   eventHistory?: Record<string, unknown>[];
 }
 
@@ -20,7 +20,7 @@ interface WorkshopStateDto {
   ban?: string[];
   maxJars?: number;
   maxLiquids?: number;
-  jars?: Record<string, unknown>[];
+  jars?: JarStateDto[];
   liquids?: Record<string, number>;
   canPourShapes?: string[];
   isMaster?: boolean;
@@ -39,21 +39,22 @@ interface OrderStateDto {
   index?: number;
   id?: number;
   type?: string;
-  requirements?: Record<string, unknown>[];
+  requirements?: ({ shape?: string; liquid?: string | null })[];
   status?: string;
-  feasibilityResult?: Record<string, unknown> | null;
+  feasibilityResult?: FeasibilityStateDto | null;
   description?: string;
 }
 
 interface FeasibilityStateDto {
   feasible?: boolean;
+  undetermined?: boolean;
   blockage?: string | null;
   reason?: string | null;
   timestamp?: string | null;
   directCount?: number;
   operationCount?: number;
-  solverPath?: Record<string, unknown>[] | null;
-  masterPath?: unknown[] | null;
+  solverPath?: SolverStepDto[] | null;
+  masterPath?: SolverStepDto[] | null;
   transferJarIds?: number[] | null;
   transferLiquids?: Record<string, number> | null;
 }
@@ -93,7 +94,7 @@ interface SolverStepDto {
 interface AutoCheckResultDto {
   index?: number;
   orderId?: number;
-  result?: Record<string, unknown> | null;
+  result?: { feasible?: boolean; undetermined?: boolean; blockage?: string | null; reason?: string | null; timestamp?: string | null; directCount?: number; operationCount?: number; solverPath?: SolverStepDto[] | null; masterPath?: SolverStepDto[] | null; path?: unknown[] | null; directSatisfactions?: ({ requirement?: { shape?: string; liquid?: string | null } | null; location?: string | null; jarIndex?: number | null; type?: string | null })[] | null; operationsNeeded?: ({ requirement?: { shape?: string; liquid?: string | null } | null; plan?: { type?: string | null; shape?: string | null; liquid?: string | null; method?: string | null; sourceShape?: string | null; steps?: number; consumesLiquid?: Record<string, number> | null } | null })[] | null; stats?: Record<string, unknown> | null; checkMethod?: string | null; transferJarIds?: number[] | null; transferLiquids?: Record<string, number> | null } | null;
 }
 
 interface WorldMetaDto {

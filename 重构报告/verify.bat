@@ -14,7 +14,11 @@ rem    2) test/JarSystem.Test       -c Release
 rem    3) test/StrategyExperiment   -c Release
 rem    4) contract snapshot         (--dump-contract)
 rem    5) contract schema           (--dump-schema, JsonSchemaExporter)
-rem    6) world config -> contract  (--dump-contract --config config\world.json)
+rem       + front-end types         (contract.d.ts) with a machine-checkable
+rem                                 quality metric: DTS-DEGRADED must not appear
+rem                                 (it means a describable node collapsed to
+rem                                 unknown/Record, e.g. an unresolvable $ref)
+rem    6) world config as contract  (--dump-contract --config config\world.json)
 rem       purpose: prove "assembled from config world" == "built-in world" byte-for-byte
 rem    7) protocol guard           (--check-protocol: command/message name inventory)
 rem       purpose: command & message names ARE the contract but live as string literals --
@@ -54,7 +58,7 @@ echo     exit=%ERRORLEVEL%
 type "%REP%_build_output.txt" >> "%LOG%"
 type "%REP%_build_output.txt"
 
-echo [2/7] JarSystem.Test   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 20 deterministic)
+echo [2/7] JarSystem.Test   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 21 deterministic)
 echo [2/7] JarSystem.Test >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
@@ -69,13 +73,16 @@ echo [4/7] contract snapshot >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-contract >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
-echo [5/7] contract schema   (expect: StateDto + 9 part types, 0 FAILED, total loose=3)
+echo [5/7] contract schema   (expect: StateDto + 9 part types, 0 FAILED, total loose=3, types dts: OK)
 echo [5/7] contract schema >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-schema >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
-echo [6/7] world config -> contract   (expect: CONFIG-WORLD-MATCH)
-echo [6/7] world config -> contract >> "%LOG%"
+rem  NOTE: do NOT write "->" inside an echo line.  cmd parses the ">" of "->"
+rem  as a redirection, so "echo a -> contract" silently creates a file named
+rem  "contract" in the repo root on EVERY run (real accident, fixed 2026-09).
+echo [6/7] world config to contract   (expect: CONFIG-WORLD-MATCH)
+echo [6/7] world config to contract >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-contract --config config\world.json >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 fc /n "%CONTRACT%\state_keys.txt" "%CONTRACT%\state_keys_config.txt" > "%CONTRACT%\diff_config.txt" 2>&1
@@ -92,7 +99,7 @@ if exist "%CONTRACT%\state_keys.txt" fc /n "%CONTRACT%\state_keys.baseline.txt" 
 
 echo.
 echo ---------------- KEY LINES ----------------
-findstr /i /c:"error CS" /c:"warning CS" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" "%LOG%"
+findstr /i /c:"error CS" /c:"warning CS" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" "%LOG%"
 echo -------------------------------------------
 echo full log : %LOG%
 echo contract : %CONTRACT%\state_keys.txt
@@ -108,6 +115,7 @@ findstr /c:"schema dump FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"PROTOCOL-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SOURCE-NOT-FOUND" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SCRIPT-NON-ASCII" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"DTS-DEGRADED" "%LOG%" >nul && set "VERDICT=FAIL"
 echo VERDICT=%VERDICT%
 echo VERDICT=%VERDICT% >> "%LOG%"
 echo.

@@ -118,6 +118,13 @@ internal sealed class OrderService
         if (order.Type == Constants.OrderType.B && slave == null)
             return (false, "B类订单需要选择从台", null, false, null);
 
+        // 订单状态机前置校验：**终态订单不允许再次执行**。
+        // 此前只有前端按钮做了可见性限制（非"待执行"不渲染执行按钮），而 WebSocket 命令没有闸门 ——
+        // 直接发 executeOrder 就能对已成功/已失败的订单重复执行，导致同一订单在 `eventHistory`
+        // 与交付账目里出现两次记录（罐子守恒仍成立，但审计语义被破坏）。
+        if (order.Status != Constants.OrderStatus.PENDING)
+            return (false, "订单已是终态（" + order.Status + "），不能重复执行", null, false, null);
+
         var effectiveSlave = slave ?? master;
         var event_ = new OrderEvent(order, master, effectiveSlave, _system.Log);
         event_.Start();
@@ -132,7 +139,7 @@ internal sealed class OrderService
         {
             var delivery = event_.Deliver();
             if (delivery.Success) order.MarkSucceeded(); else order.MarkFailed();
-            _system.EventHistoryList.Add(new Dictionary<string, object?>
+            _system.AddEvent(new Dictionary<string, object?>
             {
                 ["order"] = order.Id,
                 ["master"] = master.Name,
@@ -147,7 +154,7 @@ internal sealed class OrderService
         {
             event_.Fail(execResult.Reason);
             order.MarkFailed();
-            _system.EventHistoryList.Add(new Dictionary<string, object?>
+            _system.AddEvent(new Dictionary<string, object?>
             {
                 ["order"] = order.Id,
                 ["master"] = master.Name,

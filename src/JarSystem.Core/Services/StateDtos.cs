@@ -65,10 +65,12 @@ public sealed class OrderStateDto
     [JsonPropertyName("description")] public string Description { get; init; } = "";
 }
 
-/// <summary>可行性结果状态（10 个键；不含 checkMethod，与重构前一致）。</summary>
+/// <summary>可行性结果状态（**11 个键**：重构前 10 键 + 2026-09 新增 `undetermined`；仍不含 checkMethod）。</summary>
 public sealed class FeasibilityStateDto
 {
     [JsonPropertyName("feasible")] public bool Feasible { get; init; }
+    /// <summary>`undetermined`（2026-09 新增 1 键）：搜索超出工作预算 ⇒ 可行/不可行都未判定。</summary>
+    [JsonPropertyName("undetermined")] public bool Undetermined { get; init; }
     [JsonPropertyName("blockage")] public string? Blockage { get; init; }
     [JsonPropertyName("reason")] public string? Reason { get; init; }
     [JsonPropertyName("timestamp")] public string? Timestamp { get; init; }

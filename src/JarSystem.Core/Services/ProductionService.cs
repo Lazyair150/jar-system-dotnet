@@ -1,3 +1,6 @@
+using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
+
 namespace JarSystem.Core.Services;
 
 /// <summary>
@@ -39,6 +42,11 @@ internal sealed class ProductionService
         return 0;
     }
 
+    /// <summary>
+    /// 设置某生产者的某形状速率。规则（生产者存在 / 形状存在 / 速率上界）统一住在
+    /// <see cref="Production.ProducerModule.UpdateRate"/> —— 那里才是这份数据的归属地，
+    /// 于是直接调模块的宿主也受同一条约束；本方法只做转发，不再重复一份规则。
+    /// </summary>
     public void UpdateProducerRate(string name, string shape, double rate) =>
         _system.ProducerModule.UpdateRate(name, shape, rate);
 
