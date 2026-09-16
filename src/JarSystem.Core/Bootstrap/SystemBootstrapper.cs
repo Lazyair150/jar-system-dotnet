@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
@@ -19,13 +20,18 @@ public static class SystemBootstrapper
     /// <summary>按配置装配（不清理已有内容，与重构前一致）。</summary>
     /// <param name="world">世界配置（内容 + 参数）。</param>
     /// <param name="vocabulary">词表：决定液体账目的键与顺序，以及本次装配出的罐子/工作台的形状校验。</param>
-    public static void Apply(WorldOptions world, Vocabulary vocabulary, ProducerModule producers, List<Workshop> workshops)
+    /// <param name="jarIds">
+    /// 罐子 ID 源（**回放/多世界必须注入独立实例**）：装配出的每个工作台都用它给罐子编号，
+    /// 否则进程级共享计数器会让"重建出的世界"与原次的 ID 不同（见 Sessions.WorldCommand 的边界说明）。
+    /// </param>
+    public static void Apply(WorldOptions world, Vocabulary vocabulary, ProducerModule producers,
+        List<Workshop> workshops, IIdGenerator? jarIds = null)
     {
         foreach (var p in world.Producers)
             producers.RegisterProducer(p.Name, new Dictionary<string, double>(p.Rates));
 
         foreach (var kv in world.InitialStock)
-            producers.ProduceLiquid(kv.Key, kv.Value);
+            producers.Warehouse.ProduceLiquid(kv.Key, kv.Value);
 
         foreach (var w in world.Workshops)
             workshops.Add(new Workshop(
@@ -35,6 +41,7 @@ public static class SystemBootstrapper
                 new List<string>(w.Ban),
                 w.MaxJars ?? world.DefaultMaxJars,
                 w.MaxLiquids ?? world.DefaultMaxLiquids,
+                jarIds,
                 vocabulary: vocabulary));
     }
 }

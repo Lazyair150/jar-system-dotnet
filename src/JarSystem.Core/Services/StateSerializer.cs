@@ -19,10 +19,11 @@ internal static class StateSerializer
         Orders = system.Orders.Select((o, i) => SerializeOrder(o, i)).ToList(),
         Warehouse = new WarehouseStateDto
         {
-            Jars = system.ProducerModule.WarehouseJarCount,
-            Liquids = system.ProducerModule.LiquidWarehouse.ToDictionary(kv => kv.Key, kv => kv.Value),
-            DiscardedJars = system.ProducerModule.DiscardedJars,
-            DiscardedLiquids = system.ProducerModule.DiscardedLiquids.ToDictionary(kv => kv.Key, kv => kv.Value)
+            // 仓库这一块现在归 Production.Warehouse 管（2026-09 从 ProducerModule 抽出）
+            Jars = system.ProducerModule.Warehouse.JarCount,
+            Liquids = system.ProducerModule.Warehouse.LiquidWarehouse.ToDictionary(kv => kv.Key, kv => kv.Value),
+            DiscardedJars = system.ProducerModule.Warehouse.DiscardedJars,
+            DiscardedLiquids = system.ProducerModule.Warehouse.DiscardedLiquids.ToDictionary(kv => kv.Key, kv => kv.Value)
         },
         // 产出模块：投影自 ProducerModule 的只读视图（键名/顺序与原先 GetProducerStatus() 的字典逐项一致）
         ProducerStatus = new ProducerStatusDto
@@ -45,8 +46,8 @@ internal static class StateSerializer
                 .ToList(),
             Warehouse = new ProducerWarehouseDto
             {
-                Jars = system.ProducerModule.WarehouseJarCount,
-                Liquids = system.ProducerModule.LiquidWarehouse.ToDictionary(kv => kv.Key, kv => kv.Value)
+                Jars = system.ProducerModule.Warehouse.JarCount,
+                Liquids = system.ProducerModule.Warehouse.LiquidWarehouse.ToDictionary(kv => kv.Key, kv => kv.Value)
             }
         },
         GlobalState = new GlobalStateDto
@@ -85,23 +86,6 @@ internal static class StateSerializer
 
     private static OrderStateDto SerializeOrder(Order order, int index)
     {
-        FeasibilityStateDto? fr = null;
-        if (order.FeasibilityResult != null)
-            fr = new FeasibilityStateDto
-            {
-                Feasible = order.FeasibilityResult.Feasible,
-                Undetermined = order.FeasibilityResult.Undetermined,
-                Blockage = order.FeasibilityResult.Blockage,
-                Reason = order.FeasibilityResult.Reason,
-                Timestamp = order.FeasibilityResult.Timestamp,
-                DirectCount = order.FeasibilityResult.DirectCount,
-                OperationCount = order.FeasibilityResult.OperationCount,
-                SolverPath = order.FeasibilityResult.SolverPath,
-                MasterPath = order.FeasibilityResult.MasterPath,
-                TransferJarIds = order.FeasibilityResult.TransferJarIds,
-                TransferLiquids = order.FeasibilityResult.TransferLiquids
-            };
-
         return new OrderStateDto
         {
             Index = index,
@@ -109,7 +93,8 @@ internal static class StateSerializer
             Type = order.Type,
             Requirements = order.Requirements,
             Status = order.Status,
-            FeasibilityResult = fr,
+            // 契约统一（2026-09）：直接投影同一个类型，不再做"另一份投影" —— 两种形状的根源就没了。
+            FeasibilityResult = order.FeasibilityResult,
             Description = order.ToString()
         };
     }

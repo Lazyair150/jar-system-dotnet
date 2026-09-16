@@ -10,8 +10,8 @@
 #   1) dotnet build（0 错误）
 #   2) JarSystem.Test  → 0 bugs / 2000 random + 0 bugs / 3000 capacity + 20 deterministic
 #   3) StrategyExperiment
-#   4) 契约快照（165 行）
-#   5) 契约 JSON Schema（9 类型，total loose=3）
+#   4) 契约快照（与基线逐字节一致）
+#   5) 契约 JSON Schema（9 类型，total loose=1）
 #   6) 从 config/world.json 装配的世界 == 内置世界（CONFIG-WORLD-MATCH）
 
 name: verify

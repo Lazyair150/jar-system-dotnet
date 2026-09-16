@@ -30,14 +30,15 @@ internal sealed class ProductionService
             foreach (var liquid in _system.Vocabulary.Liquids)
             {
                 var rate = _system.LiquidProductionRate.GetValueOrDefault(liquid);
-                if (rate > 0) _system.ProducerModule.ProduceLiquid(liquid, rate);
+                if (rate > 0) _system.ProducerModule.Warehouse.ProduceLiquid(liquid, rate);
             }
         }
         if (_system.CurrentMaster.HasValue)
         {
             var master = _system.Workshops[_system.CurrentMaster.Value];
             if (master != null)
-                _system.ProducerModule.FlowToMaster(master, _system.FlowSettings.JarCount, _system.FlowSettings.LiquidAmount);
+                _system.ProducerModule.Warehouse.FlowToMaster(
+                    master, _system.FlowSettings.JarCount, _system.FlowSettings.LiquidAmount);
         }
         return 0;
     }
@@ -52,6 +53,8 @@ internal sealed class ProductionService
 
     public void UpdateLiquidProductionRate(string liquid, int rate)
     {
-        if (_system.LiquidProductionRate.ContainsKey(liquid)) _system.SetLiquidProductionRate(liquid, rate);
+        // 注意：走 **Core**（不写日志）—— 会话日志由门面的 UpdateLiquidProductionRate 记一条即可，
+        // 否则同一次宿主意图会被记两条（回放时日志越滚越长）。
+        if (_system.LiquidProductionRate.ContainsKey(liquid)) _system.SetLiquidProductionRateCore(liquid, rate);
     }
 }

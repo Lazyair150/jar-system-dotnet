@@ -26,7 +26,8 @@ internal sealed class WorkshopService
         // 规则住在核心：没有基础标记的工作台永远无法倒液/改形（"卡死台"），与 world.json 校验口径一致。
         if (baseMarks == null || baseMarks.Count == 0)
             throw new DomainValidationException("工作台至少需要 1 个基础标记");
-        _system.WorkshopList.Add(new Workshop(name, baseMarks, additionalMarks, ban, vocabulary: _system.Vocabulary));
+        _system.WorkshopList.Add(new Workshop(name, baseMarks, additionalMarks, ban,
+            ids: _system.JarIds, vocabulary: _system.Vocabulary));
     }
 
     public void CreateRandomWorkshop()
@@ -37,16 +38,20 @@ internal sealed class WorkshopService
         var liquids = _system.Vocabulary.Liquids;
         var name = _system.World.NamePools;
         var fullName = name.Prefix[rand.Next(name.Prefix.Count)] + name.Suffix[rand.Next(name.Suffix.Count)];
+        // 三个随机数量都必须**夹在"可用不重复项"之内**：原实现是 `while (list.Count < count)` 抽取不重复项，
+        // 一旦 count 超过可用项数就会**无限循环**（默认词表 8 形状 / 2 液体时侥幸安全，
+        // 但词汇表是可注入的 —— 例如 2 个形状的自定义词表 + count=3 就会卡死宿主）。
         var baseMarks = new List<string>();
-        var count = rand.Next(1, 3);
+        var count = Math.Min(rand.Next(1, 3), shapes.Count);
         while (baseMarks.Count < count) { var s = shapes[rand.Next(shapes.Count)]; if (!baseMarks.Contains(s)) baseMarks.Add(s); }
         var additionalMarks = new List<string>();
-        count = rand.Next(0, 4);
+        count = Math.Min(rand.Next(0, 4), shapes.Count - baseMarks.Count);
         while (additionalMarks.Count < count) { var s = shapes[rand.Next(shapes.Count)]; if (!baseMarks.Contains(s) && !additionalMarks.Contains(s)) additionalMarks.Add(s); }
         var ban = new List<string>();
-        count = rand.Next(0, 3);
+        count = Math.Min(rand.Next(0, 3), liquids.Count);
         while (ban.Count < count) { var l = liquids[rand.Next(liquids.Count)]; if (!ban.Contains(l)) ban.Add(l); }
-        _system.WorkshopList.Add(new Workshop(fullName, baseMarks, additionalMarks, ban, vocabulary: _system.Vocabulary));
+        _system.WorkshopList.Add(new Workshop(fullName, baseMarks, additionalMarks, ban,
+            ids: _system.JarIds, vocabulary: _system.Vocabulary));
     }
 
     /// <summary>调整工作台容量；溢出资源直接丢弃并计数（仓库单向流动，不回流中央仓库）。</summary>
@@ -61,12 +66,12 @@ internal sealed class WorkshopService
         if (maxJars.HasValue)
         {
             var discarded = ws.ResizeJarCapacity(maxJars.Value);
-            if (discarded > 0) _system.ProducerModule.DiscardJars(discarded);
+            if (discarded > 0) _system.ProducerModule.Warehouse.CountDiscardedJars(discarded);
         }
         if (maxLiquids.HasValue)
         {
             foreach (var kv in ws.ResizeLiquidCapacity(maxLiquids.Value))
-                _system.ProducerModule.DiscardLiquids(kv.Key, kv.Value);
+                _system.ProducerModule.Warehouse.CountDiscardedLiquids(kv.Key, kv.Value);
         }
         return new { success = true };
     }

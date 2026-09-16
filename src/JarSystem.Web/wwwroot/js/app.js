@@ -88,21 +88,9 @@ function handleMessage(event) {
     case 'init':
     case 'state':
     case 'tick':
-      if (currentState && data && data.orders) {
-        data.orders.forEach(function(newOrder) {
-          var oldOrder = currentState.orders.find(function(o) { return o.id === newOrder.id; });
-          if (oldOrder && oldOrder.feasibilityResult) {
-            newOrder.feasibilityResult = oldOrder.feasibilityResult;
-            // 确保显示用计数存在 (directSatisfactions数组→directCount数字)
-            if (newOrder.feasibilityResult.directCount === undefined) {
-              newOrder.feasibilityResult.directCount = (newOrder.feasibilityResult.directSatisfactions ? newOrder.feasibilityResult.directSatisfactions.length : 0) || 0;
-            }
-            if (newOrder.feasibilityResult.operationCount === undefined) {
-              newOrder.feasibilityResult.operationCount = (newOrder.feasibilityResult.operationsNeeded ? newOrder.feasibilityResult.operationsNeeded.length : 0) || 0;
-            }
-          }
-        });
-      }
+      // 2026-09 契约统一：state 与各消息里的 feasibilityResult 现在是**同一个类型、同一份键集合**，
+      // 所以这里不再需要"用旧结果覆盖新结果 + 自己从数组长度推导计数"的兼容层
+      // （那层代码正是"两套形状"逼出来的，删掉它是这次契约统一的直接收益）。
       currentState = data;
       scheduleUI();
       break;
@@ -261,7 +249,7 @@ function renderOrders() {
         // 预算耗尽 ⇒ 未判定（不是不可行）。执行按钮仍然可用：执行走贪心兜底，不受预测承诺约束。
         feasibilityHtml = `<div class="feasibility-tag" style="background:#3a2f00;color:#ffd700;">⚠ 未判定（订单过大，分析超出预算）</div>`;
       } else if (fr.feasible) {
-        feasibilityHtml = `<div class="feasibility-tag pass">✅ 可行 (直接${(fr.directCount != null ? fr.directCount : (fr.directSatisfactions ? fr.directSatisfactions.length : 0)) || 0}个，操作${(fr.operationCount != null ? fr.operationCount : (fr.operationsNeeded ? fr.operationsNeeded.length : 0)) || 0}个)</div>`;
+        feasibilityHtml = `<div class="feasibility-tag pass">✅ 可行 (直接${fr.directCount || 0}个，操作${fr.operationCount || 0}个)</div>`;
       } else {
         feasibilityHtml = `<div class="feasibility-tag fail">❌ 不可行: ${esc(fr.blockage || fr.reason || "未知原因")}</div>`;
       }
@@ -388,7 +376,7 @@ function showFeasibilityResult(result) {
   if (result.undetermined) {
     c.innerHTML = `<div style="color:#ffd700;">⚠ 未判定：${esc(result.reason || '分析超出预算')}</div>`;
   } else if (result.feasible) {
-    c.innerHTML = `<div class="feasibility-success">✓ 可行！${result.directSatisfactions?.length > 0 ? `(${result.directSatisfactions.length}个直接满足，${result.operationsNeeded?.length || 0}个需要操作)` : ''}</div>`;
+    c.innerHTML = `<div class="feasibility-success">✓ 可行！${result.directCount > 0 ? `(${result.directCount}个直接满足，${result.operationCount || 0}个需要操作)` : ''}</div>`;
   } else {
     c.innerHTML = `<div class="feasibility-fail">✗ 不可行: ${esc(result.blockage || result.reason || '未知原因')}</div>`;
   }

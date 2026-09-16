@@ -63,36 +63,6 @@ internal static class PathSummaryFormatter
         }).ToList();
     }
 
-    /// <summary>路径中的直接命中（MATCH）步骤统计。</summary>
-    public static List<DirectMatch> DirectMatches(List<SolverStep> path)
-    {
-        return path.Where(s => s.Operation?.Type == "MATCH")
-            .Select(s => new DirectMatch
-            {
-                Requirement = s.Requirement,
-                Location = "solver",
-                JarIndex = s.Operation?.JarIndex,
-                Type = s.Operation?.Type
-            }).ToList();
-    }
-
-    /// <summary>路径中需要操作（非 MATCH）的步骤统计。</summary>
-    public static List<OperationNeed> Operations(List<SolverStep> path)
-    {
-        return path.Where(s => s.Operation?.Type != "MATCH")
-            .Select(s => new OperationNeed
-            {
-                Requirement = s.Requirement,
-                Plan = new OperationPlan
-                {
-                    Type = (s.Operation?.Type == "POUR_IN" || s.Operation?.Type == "POUR_OUT") ? "full" : "empty",
-                    Shape = s.Requirement?.Shape,
-                    Liquid = s.Requirement?.Liquid,
-                    Method = s.Operation?.Type,
-                    SourceShape = s.Operation?.TargetShape,
-                    Steps = 1,
-                    ConsumesLiquid = s.Operation?.Consumed
-                }
-            }).ToList();
-    }
+    // 2026-09 契约统一时删除 DirectMatches / Operations：它们只喂给已删除的
+    // directSatisfactions / operationsNeeded 两个键，而这两个键的信息由 solverPath 完整覆盖。
 }

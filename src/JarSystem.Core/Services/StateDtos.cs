@@ -61,26 +61,16 @@ public sealed class OrderStateDto
     [JsonPropertyName("type")] public string Type { get; init; } = "";
     [JsonPropertyName("requirements")] public List<Requirement> Requirements { get; init; } = new();
     [JsonPropertyName("status")] public string Status { get; init; } = "";
-    [JsonPropertyName("feasibilityResult")] public FeasibilityStateDto? FeasibilityResult { get; init; }
+    /// <summary>
+    /// 最近一次可行性分析结果。**与消息里的 `feasibilityResult` 是同一个类型**（2026-09 契约统一）——
+    /// 此前这里是一份 10 键投影、消息里是 16 键本体，前端被迫写"两种形状都兼容"的代码。
+    /// </summary>
+    [JsonPropertyName("feasibilityResult")] public FeasibilityResultData? FeasibilityResult { get; init; }
     [JsonPropertyName("description")] public string Description { get; init; } = "";
 }
 
-/// <summary>可行性结果状态（**11 个键**：重构前 10 键 + 2026-09 新增 `undetermined`；仍不含 checkMethod）。</summary>
-public sealed class FeasibilityStateDto
-{
-    [JsonPropertyName("feasible")] public bool Feasible { get; init; }
-    /// <summary>`undetermined`（2026-09 新增 1 键）：搜索超出工作预算 ⇒ 可行/不可行都未判定。</summary>
-    [JsonPropertyName("undetermined")] public bool Undetermined { get; init; }
-    [JsonPropertyName("blockage")] public string? Blockage { get; init; }
-    [JsonPropertyName("reason")] public string? Reason { get; init; }
-    [JsonPropertyName("timestamp")] public string? Timestamp { get; init; }
-    [JsonPropertyName("directCount")] public int DirectCount { get; init; }
-    [JsonPropertyName("operationCount")] public int OperationCount { get; init; }
-    [JsonPropertyName("solverPath")] public List<SolverStepDto>? SolverPath { get; init; }
-    [JsonPropertyName("masterPath")] public List<SolverStepDto>? MasterPath { get; init; }
-    [JsonPropertyName("transferJarIds")] public List<int>? TransferJarIds { get; init; }
-    [JsonPropertyName("transferLiquids")] public Dictionary<string, int>? TransferLiquids { get; init; }
-}
+// 2026-09 契约统一：删除了 FeasibilityStateDto（原本只用于 state 的 10 键投影）。
+// 现在 state 与消息共用 Orders.FeasibilityResultData（12 键），前端不再需要"两种形状都兼容"。
 
 /// <summary>中央仓库状态（4 个键）。</summary>
 public sealed class WarehouseStateDto

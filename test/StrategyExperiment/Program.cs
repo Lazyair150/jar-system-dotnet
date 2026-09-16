@@ -80,7 +80,7 @@ foreach (var m in modes)
                 sys.Tick();
                 if (o % 3 == 0)
                     foreach (var l in Constants.LIQUIDS)
-                        if (!master.IsBanned(l)) sys.ProducerModule.ProduceLiquid(l, 1);
+                        if (!master.IsBanned(l)) sys.ProducerModule.Warehouse.ProduceLiquid(l, 1);
                 var spec = orderSpecs[o];
                 sys.CreateOrder(spec.Reqs, spec.Type);
                 if (sys.ExecuteOrder(sys.Orders.Count - 1).Success) win++;

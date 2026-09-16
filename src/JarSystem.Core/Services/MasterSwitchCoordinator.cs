@@ -61,7 +61,7 @@ internal sealed class MasterSwitchCoordinator
                     ["to"] = next.Name,
                     ["caseType"] = switchEvent.CaseType,
                     ["operations"] = ops,
-                    ["timestamp"] = DateTimeOffset.UtcNow.ToString("o")
+                    ["timestamp"] = _system.Now.ToString("o")   // 用"本次意图的时间"（可记录/可回放）
                 });
                 result["switched"] = true;
                 result["caseType"] = switchEvent.CaseType;

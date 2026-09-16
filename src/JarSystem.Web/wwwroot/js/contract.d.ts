@@ -41,11 +41,11 @@ interface OrderStateDto {
   type?: string;
   requirements?: ({ shape?: string; liquid?: string | null })[];
   status?: string;
-  feasibilityResult?: FeasibilityStateDto | null;
+  feasibilityResult?: FeasibilityResultData | null;
   description?: string;
 }
 
-interface FeasibilityStateDto {
+interface FeasibilityResultData {
   feasible?: boolean;
   undetermined?: boolean;
   blockage?: string | null;
@@ -55,6 +55,7 @@ interface FeasibilityStateDto {
   operationCount?: number;
   solverPath?: SolverStepDto[] | null;
   masterPath?: SolverStepDto[] | null;
+  checkMethod?: string | null;
   transferJarIds?: number[] | null;
   transferLiquids?: Record<string, number> | null;
 }
@@ -94,7 +95,7 @@ interface SolverStepDto {
 interface AutoCheckResultDto {
   index?: number;
   orderId?: number;
-  result?: { feasible?: boolean; undetermined?: boolean; blockage?: string | null; reason?: string | null; timestamp?: string | null; directCount?: number; operationCount?: number; solverPath?: SolverStepDto[] | null; masterPath?: SolverStepDto[] | null; path?: unknown[] | null; directSatisfactions?: ({ requirement?: { shape?: string; liquid?: string | null } | null; location?: string | null; jarIndex?: number | null; type?: string | null })[] | null; operationsNeeded?: ({ requirement?: { shape?: string; liquid?: string | null } | null; plan?: { type?: string | null; shape?: string | null; liquid?: string | null; method?: string | null; sourceShape?: string | null; steps?: number; consumesLiquid?: Record<string, number> | null } | null })[] | null; stats?: Record<string, unknown> | null; checkMethod?: string | null; transferJarIds?: number[] | null; transferLiquids?: Record<string, number> | null } | null;
+  result?: FeasibilityResultData | null;
 }
 
 interface WorldMetaDto {

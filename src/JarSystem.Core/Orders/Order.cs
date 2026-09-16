@@ -94,10 +94,10 @@ public class Requirement
 /// <summary>
 /// 可行性分析结果。
 ///
-/// ⚠️ **本类的属性名本身就是对外契约**：`autoCheckResults` / `allFeasibilityResults` 消息直接把本对象
-/// （嵌在 <see cref="AutoCheckResultDto"/> 里）序列化出去，走 Web 层的 camelCase 策略。
-/// 因此这里**逐个属性显式标注 <c>[JsonPropertyName]</c>**：改名不再静默改契约，且能导出 JSON Schema。
-/// （`GetState()` 里的 `feasibilityResult` 是另一份 10 键投影，见 <c>FeasibilityStateDto</c>，与本类不同。）
+/// ⚠️ **本类的属性名本身就是对外契约**：`state` / `feasibilityResult` / `autoCheckResults` /
+/// `allFeasibilityResults` **全都序列化这一个类型**（2026-09 契约统一，此前有两套形状：state 走
+/// 一份 10 键投影、消息走本类，前端因此被迫写兼容层）。因此这里**逐个属性显式标注
+/// <c>[JsonPropertyName]</c>**：改名不再静默改契约，且能导出 JSON Schema。
 /// </summary>
 public class FeasibilityResultData
 {
@@ -118,16 +118,6 @@ public class FeasibilityResultData
     [JsonPropertyName("operationCount")] public int OperationCount { get; set; }
     [JsonPropertyName("solverPath")] public List<SolverStepDto>? SolverPath { get; set; }
     [JsonPropertyName("masterPath")] public List<SolverStepDto>? MasterPath { get; set; }
-
-    /// <summary>恒为 null（历史遗留）。**不能删**：它是本消息键集合的一部分，删掉即改契约。</summary>
-    [JsonPropertyName("path")] public List<object>? Path { get; set; }
-
-    [JsonPropertyName("directSatisfactions")] public List<DirectMatch>? DirectSatisfactions { get; set; }
-    [JsonPropertyName("operationsNeeded")] public List<OperationNeed>? OperationsNeeded { get; set; }
-
-    /// <summary>恒为 null（历史遗留）。**不能删**：同上。</summary>
-    [JsonPropertyName("stats")] public Dictionary<string, object>? Stats { get; set; }
-
     [JsonPropertyName("checkMethod")] public string? CheckMethod { get; set; }
 
     // 选择性转移记录（B 类）：本次可行性路径需要从主台转移到从台的罐子 Id 清单
@@ -137,30 +127,10 @@ public class FeasibilityResultData
     [JsonPropertyName("transferLiquids")] public Dictionary<string, int>? TransferLiquids { get; set; }
 }
 
-public class DirectMatch
-{
-    public Requirement? Requirement { get; set; }
-    public string? Location { get; set; }
-    public int? JarIndex { get; set; }
-    public string? Type { get; set; }
-}
-
-public class OperationNeed
-{
-    public Requirement? Requirement { get; set; }
-    public OperationPlan? Plan { get; set; }
-}
-
-public class OperationPlan
-{
-    public string? Type { get; set; }
-    public string? Shape { get; set; }
-    public string? Liquid { get; set; }
-    public string? Method { get; set; }
-    public string? SourceShape { get; set; }
-    public int Steps { get; set; }
-    public Dictionary<string, int>? ConsumesLiquid { get; set; }
-}
+// 2026-09 契约统一时删除：DirectMatch / OperationNeed / OperationPlan。
+// 它们只服务于已删除的 directSatisfactions / operationsNeeded 两个键，而后者的唯一消费者
+// （前端）只用到了数组长度 —— 而长度就等于 directCount / operationCount；
+// 逐条明细由 solverPath（14 字段/步）承载，信息量严格更大。
 
 public class SolverStep
 {

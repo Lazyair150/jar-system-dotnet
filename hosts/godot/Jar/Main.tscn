@@ -1,0 +1,131 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/Main.cs" id="1_main"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main")
+
+[node name="Root" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Header" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="TickButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "推进"
+
+[node name="AutoTickButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "自动推进: 开"
+
+[node name="AutoCheckButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "自动检测: 关"
+
+[node name="RandomOrderButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "随机订单"
+
+[node name="RandomWorkshopButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "随机工作台"
+
+[node name="NewOrderButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "新建订单"
+
+[node name="Sep2" type="VSeparator" parent="Root/Header"]
+layout_mode = 2
+
+[node name="EditorButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "编辑器"
+
+[node name="SaveButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "存档"
+
+[node name="LoadButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "读档"
+
+[node name="Sep3" type="VSeparator" parent="Root/Header"]
+layout_mode = 2
+
+[node name="ResetButton" type="Button" parent="Root/Header"]
+layout_mode = 2
+text = "重置"
+
+[node name="StatusLabel" type="Label" parent="Root/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "就绪"
+
+[node name="Body" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="WorkshopsColumn" type="VBoxContainer" parent="Root/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Title" type="Label" parent="Root/Body/WorkshopsColumn"]
+layout_mode = 2
+text = "工作台"
+
+[node name="Scroll" type="ScrollContainer" parent="Root/Body/WorkshopsColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="WorkshopsList" type="VBoxContainer" parent="Root/Body/WorkshopsColumn/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="OrdersColumn" type="VBoxContainer" parent="Root/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Title" type="Label" parent="Root/Body/OrdersColumn"]
+layout_mode = 2
+text = "订单"
+
+[node name="Scroll" type="ScrollContainer" parent="Root/Body/OrdersColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="OrdersList" type="VBoxContainer" parent="Root/Body/OrdersColumn/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SummaryColumn" type="VBoxContainer" parent="Root/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Title" type="Label" parent="Root/Body/SummaryColumn"]
+layout_mode = 2
+text = "概览 / 事件日志"
+
+[node name="SummaryLabel" type="Label" parent="Root/Body/SummaryColumn"]
+layout_mode = 2
+text = "..."
+
+[node name="LogLabel" type="RichTextLabel" parent="Root/Body/SummaryColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+scroll_following = true

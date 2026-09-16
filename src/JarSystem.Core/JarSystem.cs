@@ -5,6 +5,7 @@ using JarSystem.Core.Domain;
 using JarSystem.Core.Executor;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
+using JarSystem.Core.Sessions;
 using JarSystem.Core.Services;
 using JarSystem.Core.Solver;
 
@@ -33,6 +34,39 @@ public class JarSystem
     private readonly List<Order> _orders = new();
     private readonly List<Dictionary<string, object?>> _eventHistory = new();
     private readonly Dictionary<string, int> _liquidProductionRate;
+
+    // ---- 会话日志（Event Sourcing 切片）：每次"改世界"的意图都追加一条 ----
+    private readonly List<WorldCommand> _commandLog = new();
+    private int _logSeq;
+
+    /// <summary>
+    /// **命令日志**（只读）：从构造（或 <see cref="Reset"/> 之后的默认世界）开始，
+    /// 依次记录宿主下过的每一条"改世界"意图。配合 <see cref="RandomSeed"/> 与同一个世界配置，
+    /// 可以用 <see cref="SessionReplay.Into"/> 重建出**同样的世界**。
+    /// 读操作（GetState/可行性分析的结果写入除外）不记录。
+    /// </summary>
+    public IReadOnlyList<WorldCommand> CommandLog => _commandLog;
+
+    /// <summary>构造时使用的随机种子；null 表示不固定（那样**无法**保证回放一致）。</summary>
+    public int? RandomSeed { get; }
+
+    /// <summary>
+    /// **本次意图的时间**：事件历史里的 `timestamp` 取自它，而不是直接取 `DateTimeOffset.UtcNow`。
+    /// 于是它成为"可记录、可回放"的输入：回放时由日志里的时间驱动，读档后状态才能逐字节一致。
+    /// </summary>
+    internal DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>是否正在回放（由 <see cref="SessionReplay"/> 置位）：回放时**不刷新** <see cref="Now"/>。</summary>
+    internal bool Replaying { get; set; }
+
+    /// <summary>
+    /// 罐子 ID 源（**注入点**）。回放/多世界场景必须注入各自独立的实例 ——
+    /// 否则进程级计数器会让重建出的 ID 与原次不同（见 <see cref="Sessions.WorldCommand"/> 的边界说明）。
+    /// </summary>
+    public IIdGenerator JarIds { get; }
+
+    /// <summary>订单 ID 源（注入点，同上）。</summary>
+    public IIdGenerator OrderIds { get; }
 
     // ---- 对外只读视图（契约：内容与重构前逐项一致） ----
     public IReadOnlyList<Workshop> Workshops => _workshops;
@@ -124,12 +158,18 @@ public class JarSystem
     /// 有了它，宿主/测试可以把"判定算法"整体换掉，而不必绕开门面直接组装 <see cref="FeasibilityChecker"/>。
     /// 注意：替身必须满足现有对外契约（判定结论 + 计划字段），细节见 <see cref="ISolver"/>。
     /// </param>
+    /// <param name="jarIds">罐子 ID 源；null 时用进程级共享计数器（保持既有行为）。回放/多世界场景请注入独立实例。</param>
+    /// <param name="orderIds">订单 ID 源；null 时用进程级共享计数器（保持既有行为）。</param>
     public JarSystem(ISystemLog? log = null, int? randomSeed = null, Vocabulary? vocabulary = null,
-        WorldOptions? world = null, ISolver? solver = null)
+        WorldOptions? world = null, ISolver? solver = null,
+        IIdGenerator? jarIds = null, IIdGenerator? orderIds = null)
     {
         Log = log ?? ConsoleSystemLog.Instance;
         World = world ?? WorldOptions.Default;
         Vocabulary = vocabulary ?? World.BuildVocabulary();
+        RandomSeed = randomSeed;
+        JarIds = jarIds ?? DefaultIdGenerators.Jars;
+        OrderIds = orderIds ?? DefaultIdGenerators.Orders;
         FlowSettings = (World.Flow.JarCount, World.Flow.LiquidAmount);
         _liquidProductionRate = DefaultLiquidRates();
         Rng = randomSeed.HasValue ? new Random(randomSeed.Value) : new Random();
@@ -143,8 +183,48 @@ public class JarSystem
         InitializeDefault();
     }
 
-    /// <summary>装配世界（生产者 + 初始库存 + 工作台）。实现已迁至 <see cref="Bootstrap.SystemBootstrapper"/>。</summary>
-    public void InitializeDefault() => Bootstrap.SystemBootstrapper.Apply(World, Vocabulary, ProducerModule, WorkshopList);
+    /// <summary>
+    /// 装配世界（生产者 + 初始库存 + 工作台）。实现已迁至 <see cref="Bootstrap.SystemBootstrapper"/>。
+    ///
+    /// **刻意不是 public**（2026-09 收口）：装配是**追加**语义（不清理已有内容，与重构前一致），
+    /// 因此宿主若在活世界上再调一次，会静默得到"工作台翻倍 + 每条生产线速率翻倍 + 初始库存翻倍"
+    /// （实测：4→8 台、0.4→0.8、酒 20→40，而这些都会进 <c>producerStatus</c> 契约字段）。
+    /// 装配只应由**门面自己的两个安全调用点**触发：构造（空世界）与 <see cref="Reset"/>（已先清空）。
+    /// 宿主想换世界请用构造参数 <see cref="WorldOptions"/>，想重来请用 <see cref="Reset"/>。
+    /// </summary>
+    internal void InitializeDefault() =>
+        Bootstrap.SystemBootstrapper.Apply(World, Vocabulary, ProducerModule, WorkshopList, JarIds);
+
+    // ============================================================
+    // 会话日志（唯一的写入口：本类所有"改世界"的意图方法都调它）
+    // ============================================================
+
+    private void Record(string op, string? name = null, string? orderType = null,
+        List<Requirement>? requirements = null, List<string>? baseMarks = null,
+        List<string>? additionalMarks = null, List<string>? ban = null, WorkshopPayload? workshop = null,
+        int? intA = null, int? intB = null, int? intC = null, double? doubleA = null, bool? flag = null)
+    {
+        _logSeq++;
+        _commandLog.Add(new WorldCommand
+        {
+            Seq = _logSeq,
+            Op = op,
+            Time = Now.ToString("o"),
+            Name = name,
+            OrderType = orderType,
+            // 深拷贝：日志必须与调用方后续的改动隔离（否则回放会拿到被改过的载荷）
+            Requirements = requirements?.Select(r => new Requirement { Shape = r.Shape, Liquid = r.Liquid }).ToList(),
+            BaseMarks = baseMarks == null ? null : new List<string>(baseMarks),
+            AdditionalMarks = additionalMarks == null ? null : new List<string>(additionalMarks),
+            Ban = ban == null ? null : new List<string>(ban),
+            Workshop = workshop,
+            IntA = intA,
+            IntB = intB,
+            IntC = intC,
+            DoubleA = doubleA,
+            Flag = flag
+        });
+    }
 
     // ============================================================
     // 世界装配 / 状态注入（批 E：把"改世界"收成命名方法）
@@ -155,10 +235,29 @@ public class JarSystem
     // ============================================================
 
     /// <summary>追加一个工作台（不做额外校验，与旧 `Workshops.Add` 等价）。</summary>
-    public void AddWorkshop(Workshop workshop) => _workshops.Add(workshop);
+    public void AddWorkshop(Workshop workshop)
+    {
+        _workshops.Add(workshop);
+        Record(WorldOps.AddWorkshop, workshop: new WorkshopPayload
+        {
+            Name = workshop.Name,
+            BaseMarks = new List<string>(workshop.BaseMarks),
+            AdditionalMarks = new List<string>(workshop.AdditionalMarks),
+            Ban = new List<string>(workshop.Ban),
+            MaxJars = workshop.MaxJars,
+            MaxLiquids = workshop.MaxLiquids
+        });
+    }
 
     /// <summary>清空工作台，并同步解除主/从选择 —— 避免"清空后仍指向越界下标"的非法状态。</summary>
     public void ClearWorkshops()
+    {
+        ClearWorkshopsCore();
+        Record(WorldOps.ClearWorkshops);
+    }
+
+    /// <summary>只改状态、不写日志（内部转发用；理由见 <see cref="SetLiquidProductionRateCore"/>）。</summary>
+    internal void ClearWorkshopsCore()
     {
         _workshops.Clear();
         CurrentMaster = null;
@@ -166,10 +265,24 @@ public class JarSystem
     }
 
     /// <summary>追加一个订单（与旧 `Orders.Add` 等价）。</summary>
-    public void AddOrder(Order order) => _orders.Add(order);
+    public void AddOrder(Order order)
+    {
+        _orders.Add(order);
+        Record(WorldOps.AddOrder, orderType: order.Type, requirements: order.Requirements);
+    }
 
     /// <summary>清空订单。</summary>
-    public void ClearOrders() => _orders.Clear();
+    public void ClearOrders()
+    {
+        ClearOrdersCore();
+        Record(WorldOps.ClearOrders);
+    }
+
+    /// <summary>只改状态、不写日志（内部转发用）。</summary>
+    internal void ClearOrdersCore()
+    {
+        _orders.Clear();
+    }
 
     /// <summary>
     /// 直接指定主台下标，**不触发切换事件**（区别于 <see cref="SetMaster"/>）。
@@ -180,6 +293,7 @@ public class JarSystem
         if (index.HasValue && (index.Value < 0 || index.Value >= _workshops.Count))
             throw new ArgumentOutOfRangeException(nameof(index), "主台下标越界: " + index.Value + "（工作台数 " + _workshops.Count + "）");
         CurrentMaster = index;
+        Record(WorldOps.SetMasterIndex, intA: index);
     }
 
     /// <summary>直接指定从台下标，**不触发切换事件**（区别于 <see cref="SetSlave"/>）；越界即抛异常。</summary>
@@ -188,16 +302,42 @@ public class JarSystem
         if (index.HasValue && (index.Value < 0 || index.Value >= _workshops.Count))
             throw new ArgumentOutOfRangeException(nameof(index), "从台下标越界: " + index.Value + "（工作台数 " + _workshops.Count + "）");
         CurrentSlave = index;
+        Record(WorldOps.SetSlaveIndex, intA: index);
     }
 
     /// <summary>替换整个产出模块（旧仓库内容随之丢弃，与旧 `ProducerModule = new()` 等价）。</summary>
-    public void ResetProducerModule() => ProducerModule = new ProducerModule(Vocabulary);
+    public void ResetProducerModule()
+    {
+        ResetProducerModuleCore();
+        Record(WorldOps.ResetProducerModule);
+    }
+
+    /// <summary>只改状态、不写日志（内部转发用）。</summary>
+    internal void ResetProducerModuleCore()
+    {
+        ProducerModule = new ProducerModule(Vocabulary);
+    }
 
     /// <summary>设置某液体的每 tick 产出速率（不参与 JSON 契约）。</summary>
-    public void SetLiquidProductionRate(string liquid, int rate) => _liquidProductionRate[liquid] = rate;
+    public void SetLiquidProductionRate(string liquid, int rate)
+    {
+        SetLiquidProductionRateCore(liquid, rate);
+        Record(WorldOps.SetLiquidProductionRate, ban: new List<string> { liquid }, intA: rate);
+    }
+
+    /// <summary>
+    /// 只改数据、**不写会话日志**的内部入口：给"服务内部转发"用。
+    /// 会话日志必须**一次宿主意图只记一条** —— 否则存档里会出现重复条目、回放会把日志越滚越长
+    /// （实测踩过：`UpdateLiquidProductionRate` 内部调 `SetLiquidProductionRate`，同一次意图被记两条）。
+    /// </summary>
+    internal void SetLiquidProductionRateCore(string liquid, int rate) => _liquidProductionRate[liquid] = rate;
 
     /// <summary>设置主台流入参数（每次流入的罐子数与液体量）。</summary>
-    public void SetFlowSettings(int jarCount, int liquidAmount) => FlowSettings = (jarCount, liquidAmount);
+    public void SetFlowSettings(int jarCount, int liquidAmount)
+    {
+        FlowSettings = (jarCount, liquidAmount);
+        Record(WorldOps.SetFlowSettings, intA: jarCount, intB: liquidAmount);
+    }
 
     // ============================================================
     // 工作台
@@ -208,66 +348,140 @@ public class JarSystem
     /// 返回字典键：success/switched/caseType/operations/slaveCleared/reason。
     /// 编排已移至 <see cref="MasterSwitchCoordinator"/>（原 WorkshopService 的一部分）。
     /// </summary>
-    public Dictionary<string, object?> SetMaster(int index) => _masterSwitch.SetMaster(index);
+    public Dictionary<string, object?> SetMaster(int index)
+    {
+        // 切换事件会写事件历史（带时间戳）⇒ 先定好"本次意图的时间"（回放时不刷新，用日志里的时间）
+        if (!Replaying) Now = DateTimeOffset.UtcNow;
+        var result = _masterSwitch.SetMaster(index);
+        Record(WorldOps.SetMaster, intA: index);
+        return result;
+    }
 
     /// <summary>设为从工作台；拒绝把当前主台设为从台。编排见 <see cref="MasterSwitchCoordinator"/>。</summary>
-    public Dictionary<string, object?> SetSlave(int index) => _masterSwitch.SetSlave(index);
+    public Dictionary<string, object?> SetSlave(int index)
+    {
+        var result = _masterSwitch.SetSlave(index);
+        Record(WorldOps.SetSlave, intA: index);
+        return result;
+    }
 
     public void CreateWorkshop(string name, List<string> baseMarks, List<string>? additionalMarks = null, List<string>? ban = null)
-        => _workshopService.CreateWorkshop(name, baseMarks, additionalMarks, ban);
+    {
+        _workshopService.CreateWorkshop(name, baseMarks, additionalMarks, ban);
+        Record(WorldOps.CreateWorkshop, name: name, baseMarks: baseMarks, additionalMarks: additionalMarks, ban: ban);
+    }
 
-    public void CreateRandomWorkshop() => _workshopService.CreateRandomWorkshop();
+    public void CreateRandomWorkshop()
+    {
+        _workshopService.CreateRandomWorkshop();
+        Record(WorldOps.CreateRandomWorkshop);
+    }
 
     /// <summary>调整工作台容量；溢出的罐子/液体直接丢弃并计数（仓库单向流动，不回收）。</summary>
     public object? UpdateWorkshopCapacity(int index, int? maxJars, int? maxLiquids)
-        => _workshopService.UpdateWorkshopCapacity(index, maxJars, maxLiquids);
+    {
+        var result = _workshopService.UpdateWorkshopCapacity(index, maxJars, maxLiquids);
+        Record(WorldOps.UpdateWorkshopCapacity, intA: index, intB: maxJars, intC: maxLiquids);
+        return result;
+    }
 
     // ============================================================
     // 订单
     // ============================================================
 
     public (bool Success, string? Error) CreateOrder(List<Requirement> requirements, string orderType = Constants.OrderType.A)
-        => _orderService.CreateOrder(requirements, orderType);
+    {
+        var result = _orderService.CreateOrder(requirements, orderType);
+        // 只记**已生效**的意图：校验失败（形状/液体/顺序/条数）没有改变世界，不进日志
+        if (result.Success) Record(WorldOps.CreateOrder, orderType: orderType, requirements: requirements);
+        return result;
+    }
 
-    public (bool Success, string? Error) CreateRandomOrder() => _orderService.CreateRandomOrder();
+    public (bool Success, string? Error) CreateRandomOrder()
+    {
+        var result = _orderService.CreateRandomOrder();
+        if (result.Success) Record(WorldOps.CreateRandomOrder);
+        return result;
+    }
 
-    public object? DeleteOrder(int index) => _orderService.DeleteOrder(index);
+    public object? DeleteOrder(int index)
+    {
+        var result = _orderService.DeleteOrder(index);
+        Record(WorldOps.DeleteOrder, intA: index);
+        return result;
+    }
 
     /// <summary>可行性分析（A 类只需主台；B 类需主从）；结果同时写入订单的 FeasibilityResult。</summary>
-    public FeasibilityResultData? CheckFeasibility(int orderIndex) => _orderService.CheckFeasibility(orderIndex);
+    public FeasibilityResultData? CheckFeasibility(int orderIndex)
+    {
+        var result = _orderService.CheckFeasibility(orderIndex);
+        // 分析会把结果写进订单（属于状态变更）⇒ 记进日志，回放才能复现同一份分析结果
+        Record(WorldOps.CheckFeasibility, intA: orderIndex);
+        return result;
+    }
 
     /// <summary>对所有「待执行」订单做可行性分析（元素见 <see cref="AutoCheckResultDto"/>：index / orderId / result）。</summary>
-    public List<AutoCheckResultDto> CheckAllFeasibility() => _orderService.CheckAllFeasibility();
+    public List<AutoCheckResultDto> CheckAllFeasibility()
+    {
+        var result = _orderService.CheckAllFeasibility();
+        Record(WorldOps.CheckAllFeasibility);
+        return result;
+    }
 
     /// <summary>执行订单：返回 成功 / 原因 / 事件报告 / 是否发生转移 / 操作日志。</summary>
     public (bool Success, string? Reason, Dictionary<string, object?>? Event, bool TransferOccurred, List<ExecutionLogEntry>? Operations)
-        ExecuteOrder(int orderIndex) => _orderService.ExecuteOrder(orderIndex);
+        ExecuteOrder(int orderIndex)
+    {
+        // 订单执行同样会写事件历史（带时间戳）
+        if (!Replaying) Now = DateTimeOffset.UtcNow;
+        var result = _orderService.ExecuteOrder(orderIndex);
+        // 失败也记：按设计"失败的尝试也留下代价"，它**改变过**世界
+        Record(WorldOps.ExecuteOrder, intA: orderIndex);
+        return result;
+    }
 
     // ============================================================
     // 产出与推进
     // ============================================================
 
     /// <summary>推进 count 次（生产者产罐 → 液体产出 → 向主台流入）。返回值恒为 0。</summary>
-    public int Tick(int count = 1) => _productionService.Tick(count);
+    public int Tick(int count = 1)
+    {
+        var result = _productionService.Tick(count);
+        Record(WorldOps.Tick, intA: count);
+        return result;
+    }
 
     public void UpdateProducerRate(string name, string shape, double rate)
-        => _productionService.UpdateProducerRate(name, shape, rate);
+    {
+        _productionService.UpdateProducerRate(name, shape, rate);
+        Record(WorldOps.UpdateProducerRate, name: name, baseMarks: new List<string> { shape }, doubleA: rate);
+    }
 
     public void UpdateLiquidProductionRate(string liquid, int rate)
-        => _productionService.UpdateLiquidProductionRate(liquid, rate);
+    {
+        _productionService.UpdateLiquidProductionRate(liquid, rate);
+        Record(WorldOps.UpdateLiquidProductionRate, ban: new List<string> { liquid }, intA: rate);
+    }
 
-    public void SetAutoCheck(bool enabled) { AutoCheckEnabled = enabled; }
+    public void SetAutoCheck(bool enabled)
+    {
+        AutoCheckEnabled = enabled;
+        Record(WorldOps.SetAutoCheck, flag: enabled);
+    }
 
     /// <summary>重置世界并重新装配默认数据（ID 计数器按既有语义不清零）。</summary>
     public void Reset()
     {
         // 与重构前逐项一致：清空工作台/订单/事件历史 → 恢复速率与流入参数 → 清开关与主从 → 重建产出模块与默认世界
-        ClearWorkshops(); ClearOrders(); CurrentEvent = null; _eventHistory.Clear();
+        // 内部一律走 *Core（不写日志），本方法自己只记一条 `reset` —— 保证"一次宿主意图一条记录"
+        ClearWorkshopsCore(); ClearOrdersCore(); CurrentEvent = null; _eventHistory.Clear();
         _liquidProductionRate.Clear();
         foreach (var kv in DefaultLiquidRates()) _liquidProductionRate[kv.Key] = kv.Value;  // S3：按配置恢复速率
         FlowSettings = (World.Flow.JarCount, World.Flow.LiquidAmount);                      // S3：按配置恢复流入
         AutoCheckEnabled = false;
-        ResetProducerModule(); InitializeDefault();
+        ResetProducerModuleCore(); InitializeDefault();
+        Record(WorldOps.Reset);
     }
 
     /// <summary>

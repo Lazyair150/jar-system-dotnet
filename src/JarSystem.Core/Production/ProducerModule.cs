@@ -69,15 +69,16 @@ public class ProducerModule
 {
     private readonly Dictionary<string, ShapeProductionLine> _generators = new();
     private readonly Dictionary<string, Producer> _producers = new();
-    private readonly List<Jar> _warehouse = new();
 
     // S2：词表（形状/液体目录）——生产线的建立、Tick 的遍历、罐子创建都按它来；
     // 因此"换一份词表 = 多/少一种形状的生产线"，不需要改生产模块的代码。
     private readonly Vocabulary _vocabulary;
-    // S0（数据驱动）：液体账目按**词表**初始化（原先写死 酒/蜜 两个名字）。
-    // 逐项构造而非集合初始化器，保证键的**插入顺序 = 词表顺序**（契约快照里 liquids 的键序依赖它）。
-    private readonly Dictionary<string, int> _liquidWarehouse = new();
-    private readonly Dictionary<string, int> _discardedLiquids = new();
+
+    /// <summary>
+    /// **中央仓库**（2026-09 从本类抽出）：罐子/液体库存、容量与丢弃计数、仓库→主台的流入规则。
+    /// 本类从此只管"生产者与生产线"；仓库那半边的规则在 <see cref="Production.Warehouse"/> 里自成一处。
+    /// </summary>
+    public Warehouse Warehouse { get; }
 
     /// <summary>各形状的生产线（只读视图）。</summary>
     public IReadOnlyDictionary<string, ShapeProductionLine> Generators => _generators;
@@ -85,24 +86,12 @@ public class ProducerModule
     /// <summary>已注册的生产者（只读视图）。</summary>
     public IReadOnlyDictionary<string, Producer> Producers => _producers;
 
-    /// <summary>中央仓库中的罐子（只读视图；增删只能经 Tick / FlowToMaster）。</summary>
-    public IReadOnlyList<Jar> Warehouse => _warehouse;
-
-    /// <summary>中央仓库液体库存（只读视图；变更只能经 ProduceLiquid / FlowToMaster）。</summary>
-    public IReadOnlyDictionary<string, int> LiquidWarehouse => _liquidWarehouse;
-
-    /// <summary>因仓库上限而丢弃的液体计数（只读视图）。</summary>
-    public IReadOnlyDictionary<string, int> DiscardedLiquids => _discardedLiquids;
-
-    /// <summary>仓库中的罐子数量（替代原先泄漏内部列表的 GetWarehouseJars）。</summary>
-    public int WarehouseJarCount => _warehouse.Count;
-
-    /// <summary>因仓库/工作台容量上限而丢弃的罐子计数。</summary>
-    public int DiscardedJars { get; private set; }
-
-    public void DiscardJars(int n) => DiscardedJars += n;
-    public void DiscardLiquids(string liquid, int n) =>
-        _discardedLiquids[liquid] = _discardedLiquids.GetValueOrDefault(liquid, 0) + n;
+    /// <summary>
+    /// 兼容转发：仓库液体库存。保留它是因为 `test/JarSystem.Tests`（xUnit）直接用了这个成员，
+    /// 而该工程在本机**离线无法编译**（NuGet 还原受限）⇒ 不动它的调用面。
+    /// **新代码请用 <see cref="Warehouse"/>。
+    /// </summary>
+    public IReadOnlyDictionary<string, int> LiquidWarehouse => Warehouse.LiquidWarehouse;
 
     /// <param name="vocabulary">词表（S2）；null 表示内置默认词表（行为与重构前一致）。</param>
     public ProducerModule(Vocabulary? vocabulary = null)
@@ -110,17 +99,19 @@ public class ProducerModule
         _vocabulary = vocabulary ?? Vocabulary.Default;
         foreach (var s in _vocabulary.Shapes)
             _generators[s] = new ShapeProductionLine(s, _vocabulary);
-        // S0（数据驱动）：液体账目按**词表**初始化（原先写死 酒/蜜 两个名字）。
-        // 逐项赋值保证键的**插入顺序 = 词表顺序**（契约快照里 liquids 的键序依赖它）。
-        foreach (var liquid in _vocabulary.Liquids)
-        {
-            _liquidWarehouse[liquid] = 0;
-            _discardedLiquids[liquid] = 0;
-        }
+        Warehouse = new Warehouse(_vocabulary);
     }
 
+    /// <summary>
+    /// 注册生产者。**重名直接拒绝**（2026-09）：原实现是覆盖 <c>_producers[name]</c> 同时向生产线
+    /// **再追加一条**同名的产出记录 ⇒ 该形状的速率静默翻倍（实测 0.4 → 0.8），而且会进
+    /// <c>producerStatus.generators[].rate</c> 契约字段。改速率请用 <see cref="UpdateRate"/>。
+    /// </summary>
     public Producer RegisterProducer(string name, Dictionary<string, double> rates)
     {
+        if (_producers.ContainsKey(name))
+            throw new DomainValidationException("生产者已存在: " + name + "（改速率请用 UpdateRate）");
+
         var p = new Producer(name, rates);
         _producers[name] = p;
         foreach (var s in rates.Keys)
@@ -167,67 +158,8 @@ public class ProducerModule
                 newJars.AddRange(_generators[s].Tick());
         }
         // 仓库上限：溢出丢弃并计数，避免长跑无限膨胀
-        foreach (var j in newJars)
-        {
-            if (_warehouse.Count < Constants.WAREHOUSE_MAX_JARS) _warehouse.Add(j);
-            else DiscardedJars++;
-        }
+        Warehouse.StoreJars(newJars);
         return newJars;
-    }
-
-    public void ProduceLiquid(string liquid, int amount)
-    {
-        var cur = _liquidWarehouse.GetValueOrDefault(liquid, 0);
-        var accepted = Math.Min(amount, Math.Max(0, Constants.WAREHOUSE_MAX_LIQUIDS - cur));
-        _liquidWarehouse[liquid] = cur + accepted;
-        _discardedLiquids[liquid] = _discardedLiquids.GetValueOrDefault(liquid, 0) + (amount - accepted);
-    }
-
-    public (List<Jar> Jars, Dictionary<string, int> Liquids) FlowToMaster(
-        Workshop master, int jarCount = 3, int liquidAmount = 2)
-    {
-        var transferLog = new Dictionary<string, object>();
-        var transferredJars = new List<Jar>();
-
-        // 1. 罐子转移（带容量检查）
-        int taken = 0;
-        while (taken < jarCount && _warehouse.Count > 0)
-        {
-            // 主台基础形状优先，减少与主台无关形状的滞留
-            int pick = _warehouse.FindIndex(j => master.IsBaseMarked(j.Shape));
-            if (pick < 0) pick = 0;
-            var jar = _warehouse[pick];
-            _warehouse.RemoveAt(pick);
-            if (master.AddJar(jar))
-            {
-                transferredJars.Add(jar);
-                taken++;
-            }
-            else
-            {
-                // 主台满了，返还仓库
-                _warehouse.Insert(pick, jar);
-                break;
-            }
-        }
-
-        // 2. 液体转移（禁令与容量由工作台的意图方法统一裁决）
-        var transferredLiquids = new Dictionary<string, int>();
-        foreach (var kv in _liquidWarehouse.ToList())
-        {
-            var liquid = kv.Key;
-            var amount = Math.Min(liquidAmount, kv.Value);
-            if (amount <= 0) continue;
-
-            // 容量感知的部分填充：主台能收多少收多少，被禁/满则全额留在仓库
-            var accepted = master.TryReceiveLiquid(liquid, amount);
-            if (accepted <= 0) continue;
-
-            _liquidWarehouse[liquid] = kv.Value - accepted;
-            transferredLiquids[liquid] = accepted;
-        }
-
-        return (transferredJars, transferredLiquids);
     }
 
     // 2026-09 删除两处死代码（grep 证实无调用方）：

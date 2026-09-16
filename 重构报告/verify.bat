@@ -21,6 +21,10 @@ rem                                 unknown/Record, e.g. an unresolvable $ref)
 rem    6) world config as contract  (--dump-contract --config config\world.json)
 rem       purpose: prove "assembled from config world" == "built-in world" byte-for-byte
 rem    7) protocol guard           (--check-protocol: command/message name inventory)
+rem    8) solver differential       (--check-solver: production solver vs an
+rem                                 independent reference solver; must be SOLVER-OK)
+rem    9) session replay           (--check-replay: command log -> replay into a
+rem                                 fresh system; GetState() + log must match)
 rem       purpose: command & message names ARE the contract but live as string literals --
 rem       a single typo passes build, tests and snapshot, yet silently breaks the client
 rem  OUTPUT
@@ -51,55 +55,66 @@ echo ==== %DATE% %TIME% ==== > "%LOG%"
 echo repo root: %CD% >> "%LOG%"
 echo. >> "%LOG%"
 
-echo [1/7] dotnet build JarSystem.slnx
-echo [1/7] dotnet build JarSystem.slnx >> "%LOG%"
+echo [1/9] dotnet build JarSystem.slnx
+echo [1/9] dotnet build JarSystem.slnx >> "%LOG%"
 dotnet build JarSystem.slnx > "%REP%_build_output.txt" 2>&1
 echo     exit=%ERRORLEVEL%
 type "%REP%_build_output.txt" >> "%LOG%"
 type "%REP%_build_output.txt"
 
-echo [2/7] JarSystem.Test   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 21 deterministic)
-echo [2/7] JarSystem.Test >> "%LOG%"
+echo [2/9] JarSystem.Test   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 21 deterministic)
+echo [2/9] JarSystem.Test >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
-echo [3/7] StrategyExperiment
-echo [3/7] StrategyExperiment >> "%LOG%"
+echo [3/9] StrategyExperiment
+echo [3/9] StrategyExperiment >> "%LOG%"
 dotnet run --project test\StrategyExperiment -c Release >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
-echo [4/7] contract snapshot
-echo [4/7] contract snapshot >> "%LOG%"
+echo [4/9] contract snapshot
+echo [4/9] contract snapshot >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-contract >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
-echo [5/7] contract schema   (expect: StateDto + 9 part types, 0 FAILED, total loose=3, types dts: OK)
-echo [5/7] contract schema >> "%LOG%"
+echo [5/9] contract schema   (expect: StateDto + 8 part types, 0 FAILED, total loose=1, types dts: OK)
+echo [5/9] contract schema >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-schema >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
 rem  NOTE: do NOT write "->" inside an echo line.  cmd parses the ">" of "->"
 rem  as a redirection, so "echo a -> contract" silently creates a file named
 rem  "contract" in the repo root on EVERY run (real accident, fixed 2026-09).
-echo [6/7] world config to contract   (expect: CONFIG-WORLD-MATCH)
-echo [6/7] world config to contract >> "%LOG%"
+echo [6/9] world config to contract   (expect: CONFIG-WORLD-MATCH)
+echo [6/9] world config to contract >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-contract --config config\world.json >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 fc /n "%CONTRACT%\state_keys.txt" "%CONTRACT%\state_keys_config.txt" > "%CONTRACT%\diff_config.txt" 2>&1
 if errorlevel 1 echo CONFIG-WORLD-MISMATCH
 if not errorlevel 1 echo CONFIG-WORLD-MATCH
 
-echo [7/7] protocol guard   (expect: PROTOCOL-OK)
-echo [7/7] protocol guard >> "%LOG%"
+echo.
+echo [7/9] protocol guard   (expect: PROTOCOL-OK)
+echo [7/9] protocol guard >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --check-protocol >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
+echo [8/9] solver differential   (expect: SOLVER-OK)
+echo [8/9] solver differential >> "%LOG%"
+dotnet run --project test\JarSystem.Test -c Release -- --check-solver >> "%LOG%" 2>&1
+echo     exit=%ERRORLEVEL%
+
+echo.
+echo [9/9] session replay   (expect: REPLAY-OK)
+echo [9/9] session replay >> "%LOG%"
+dotnet run --project test\JarSystem.Test -c Release -- --check-replay >> "%LOG%" 2>&1
+echo     exit=%ERRORLEVEL%
 if not exist "%CONTRACT%\state_keys.baseline.txt" copy /Y "%CONTRACT%\state_keys.txt" "%CONTRACT%\state_keys.baseline.txt" >nul 2>&1
 if exist "%CONTRACT%\state_keys.txt" fc /n "%CONTRACT%\state_keys.baseline.txt" "%CONTRACT%\state_keys.txt" > "%CONTRACT%\diff.txt" 2>&1
 
 echo.
 echo ---------------- KEY LINES ----------------
-findstr /i /c:"error CS" /c:"warning CS" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" "%LOG%"
+findstr /i /c:"error CS" /c:"warning CS" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"REPLAY-" "%LOG%"
 echo -------------------------------------------
 echo full log : %LOG%
 echo contract : %CONTRACT%\state_keys.txt
@@ -116,6 +131,8 @@ findstr /c:"PROTOCOL-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SOURCE-NOT-FOUND" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SCRIPT-NON-ASCII" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"DTS-DEGRADED" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"SOLVER-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"REPLAY-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
 echo VERDICT=%VERDICT%
 echo VERDICT=%VERDICT% >> "%LOG%"
 echo.

@@ -268,6 +268,12 @@
                       "$ref": "#/properties/orders/items/properties/feasibilityResult/properties/solverPath/items"
                     }
                   },
+                  "checkMethod": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "transferJarIds": {
                     "type": [
                       "array",
@@ -707,6 +713,12 @@
                 "$ref": "#/properties/feasibilityResult/properties/solverPath/items"
               }
             },
+            "checkMethod": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "transferJarIds": {
               "type": [
                 "array",
@@ -734,7 +746,7 @@
       },
       "additionalProperties": false
     },
-    "FeasibilityStateDto": {
+    "FeasibilityResultData": {
       "type": "object",
       "properties": {
         "feasible": {
@@ -871,6 +883,12 @@
           "items": {
             "$ref": "#/properties/solverPath/items"
           }
+        },
+        "checkMethod": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "transferJarIds": {
           "type": [
@@ -1189,147 +1207,6 @@
               "items": {
                 "$ref": "#/properties/result/properties/solverPath/items"
               }
-            },
-            "path": {
-              "type": [
-                "array",
-                "null"
-              ]
-            },
-            "directSatisfactions": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "object",
-                "properties": {
-                  "requirement": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "properties": {
-                      "shape": {
-                        "type": "string"
-                      },
-                      "liquid": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "location": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "jarIndex": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "type": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "operationsNeeded": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "object",
-                "properties": {
-                  "requirement": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "properties": {
-                      "shape": {
-                        "type": "string"
-                      },
-                      "liquid": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "plan": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "properties": {
-                      "type": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "shape": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "liquid": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "method": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "sourceShape": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "steps": {
-                        "type": "integer"
-                      },
-                      "consumesLiquid": {
-                        "type": [
-                          "object",
-                          "null"
-                        ],
-                        "additionalProperties": {
-                          "type": "integer"
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "stats": {
-              "type": [
-                "object",
-                "null"
-              ]
             },
             "checkMethod": {
               "type": [

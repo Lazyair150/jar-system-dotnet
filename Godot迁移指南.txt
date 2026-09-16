@@ -78,7 +78,11 @@ workshops[]  → 每个 WorkshopPanel 实例绑定
   liquids → 液体数值
 orders[] → 每个 OrderPanel 实例绑定
   id, type, requirements, status
-  feasibilityResult → feasible/blockage + solverPath（步骤含 jarId/jarShape/jarLiquid/reshapeMode）
+feasibilityResult → **12 键，state 与消息共用同一个类型**（2026-09 契约统一）：
+  feasible / undetermined / blockage / reason / timestamp / directCount / operationCount /
+  checkMethod / solverPath / masterPath / transferJarIds / transferLiquids
+  （solverPath 步骤含 jarId/jarShape/jarLiquid/reshapeMode；undetermined=true 表示"未判定"，
+    与 feasible=false 合读：只有 undetermined=false 才代表"确实不可行"）
 warehouse → jars/liquids + discardedJars/discardedLiquids（仓库上限溢出计数）
 globalState → 主从选择 + 自动检测状态
 eventHistory → 事件日志

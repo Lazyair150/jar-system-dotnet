@@ -1,0 +1,19 @@
+<!-- Godot 4.7 的 C# 宿主工程。
+     文件名必须是 jar.csproj：Godot 用 project.godot 里的 [dotnet] project/assembly_name="jar"
+     去找程序集，而 SDK 默认把程序集名取成工程文件名（两者必须一致）。 -->
+<Project Sdk="Godot.NET.Sdk/4.7.1">
+  <PropertyGroup>
+    <!-- 本机只装了 .NET 10（无 net8.0 targeting pack），故用 net10.0：
+         GodotSharp 4.7.1 是按 net8.0 编译的库，net10.0 工程引用它没有问题（已实测可构建可运行）。 -->
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>enable</Nullable>
+    <RootNamespace>JarHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 直接引用核心源码工程：改 JarSystem.Core 后宿主立刻生效，不需要手动拷 DLL。
+         （核心是零依赖的普通类库，跨工程引用完全安全。） -->
+    <ProjectReference Include="..\..\..\src\JarSystem.Core\JarSystem.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -81,16 +81,16 @@ internal sealed class PartitionCheck : IFeasibilityCheck
             MasterLiquids = ctx.Master.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value),
             SlaveJars = ctx.Slave.Jars.Select(JarState.From).ToList(),
             SlaveLiquids = ctx.Slave.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value)
-        }, out var lastBlockage, out var budgetExceeded);
+        }, out var lastBlockage, out var inconclusiveReason);
 
-        // 预算耗尽 ⇒ **未判定**（不是不可行）。必须与"真的搜完了且没找到"区分开：
-        // 后者才是"不可行"，并被"判定不可行 ⇒ 执行必失败"这条不变量守护。
-        if (budgetExceeded)
+        // 没能得出结论（预算耗尽 / 求解器没按契约给终态）⇒ **未判定**，不是"不可行"。
+        // 必须与"真的搜完了且没找到"区分开：后者才是不可行，并被"判定不可行 ⇒ 执行必失败"守护。
+        if (inconclusiveReason != null)
             return new FeasibilityResultData
             {
                 Feasible = false,
                 Undetermined = true,
-                Reason = "分析超出预算：订单过大（" + ctx.Requirements.Count + " 个需求），未完成搜索",
+                Reason = inconclusiveReason + "（订单 " + ctx.Requirements.Count + " 个需求）",
                 Blockage = null,
                 CheckMethod = Method
             };

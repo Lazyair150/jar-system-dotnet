@@ -24,7 +24,13 @@ internal sealed class OrderService
 
     public (bool Success, string? Error) CreateOrder(List<Requirement> requirements, string orderType = Constants.OrderType.A)
     {
-        try { var order = new Order(requirements, orderType, vocabulary: _system.Vocabulary); _system.OrderList.Add(order); return (true, null); }
+        try
+        {
+            // 订单 ID 源同样可注入（回放/多世界一致性，见 JarSystem.OrderIds）
+            var order = new Order(requirements, orderType, _system.OrderIds, _system.Vocabulary);
+            _system.OrderList.Add(order);
+            return (true, null);
+        }
         catch (Exception e) { return (false, e.Message); }
     }
 
@@ -145,7 +151,7 @@ internal sealed class OrderService
                 ["master"] = master.Name,
                 ["slave"] = effectiveSlave.Name,
                 ["success"] = delivery.Success,
-                ["timestamp"] = DateTimeOffset.UtcNow.ToString("o"),
+                ["timestamp"] = _system.Now.ToString("o"),   // 用"本次意图的时间"（可记录/可回放）
                 ["operations"] = execResult.Operations
             });
             return (delivery.Success, null, event_.GetReport(), event_.TransferOccurred, execResult.Operations);
@@ -161,7 +167,7 @@ internal sealed class OrderService
                 ["slave"] = effectiveSlave.Name,
                 ["success"] = false,
                 ["reason"] = execResult.Reason,
-                ["timestamp"] = DateTimeOffset.UtcNow.ToString("o"),
+                ["timestamp"] = _system.Now.ToString("o"),   // 同上
                 ["operations"] = execResult.Operations
             });
             return (false, execResult.Reason, event_.GetReport(), event_.TransferOccurred, execResult.Operations);

@@ -30,8 +30,6 @@ internal static class FeasibilityResultFactory
     public static FeasibilityResultData FromPath(List<SolverStep> path, string method) => new()
     {
         Feasible = true,
-        DirectSatisfactions = PathSummaryFormatter.DirectMatches(path),
-        OperationsNeeded = PathSummaryFormatter.Operations(path),
         SolverPath = PathSummaryFormatter.Summary(path),
         DirectCount = path.Count(s => s.Operation?.Type == "MATCH"),
         OperationCount = path.Count(s => s.Operation?.Type != "MATCH"),

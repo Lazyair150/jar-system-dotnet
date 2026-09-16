@@ -100,6 +100,17 @@ public class SolverResult
     /// true 时 <see cref="Feasible"/>=false 表示"未判定"，**不是**"不可行"。
     /// </summary>
     public bool BudgetExceeded { get; set; }
+
+    /// <summary>
+    /// 可行时的**最终世界状态：罐子**。这是**求解器契约的一部分**，不是可选诊断信息 ——
+    /// B 类（<c>PartitionSearch</c>）要靠它算"主台剩下的罐子"才能构造从台求解池。
+    /// 缺失时旧实现会退化成"用主台**原始**状态"，于是从台池算错、结论静默失真
+    /// （差分测试实测过：只填 Path 不填快照的求解器会让 B 类算错）。
+    /// </summary>
+    public List<JarState>? FinalJars { get; set; }
+
+    /// <summary>可行时的**最终世界状态：液体账目**（同 <see cref="FinalJars"/> 的契约要求）。</summary>
+    public Dictionary<string, int>? FinalLiquids { get; set; }
 }
 
 /// <summary>
@@ -172,7 +183,16 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         if (BudgetExceeded)
             return new SolverResult { Feasible = false, BudgetExceeded = true, Stats = Stats };
         return r != null
-            ? new SolverResult { Feasible = true, Path = r, Stats = Stats }
+            ? new SolverResult
+            {
+                Feasible = true,
+                Path = r,
+                Stats = Stats,
+                // 终态是**契约字段**（见 SolverResult.FinalJars）：B 类的划分搜索靠它算"主台剩下的资源"。
+                // 空路径（零需求）时终态就是初始状态。
+                FinalJars = r.Count > 0 ? r[^1].After : st.Jars.Select(j => JarState.Copy(j)).ToList(),
+                FinalLiquids = r.Count > 0 ? r[^1].AfterLiquids : new Dictionary<string, int>(st.Liquids)
+            }
             : new SolverResult { Feasible = false, Path = BestPartialPath, Blockage = Block(requirements, st), Stats = Stats };
     }
 

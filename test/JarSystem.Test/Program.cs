@@ -3,6 +3,9 @@ using JarSystem.Core.Commands;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Sessions;
+using JarSystem.Core.Services;
+using JarSystem.Test;   // ReferenceSolver（差分测试用的独立参考实现）
 
 // 别名：本文件里 schema 节点操作很密集，短名可读性明显更好
 using JsonArray = System.Text.Json.Nodes.JsonArray;
@@ -111,6 +114,25 @@ if (args.Length > 0 && args[0] == "--dump-schema")
 if (args.Length > 0 && args[0] == "--check-protocol")
 {
     CheckProtocol();
+    return;
+}
+
+// 求解器差分测试（让"换算法"这件事**有验收门**）：
+//   dotnet run --project test\JarSystem.Test -c Release -- --check-solver
+// 同一批场景分别喂给"生产求解器"与"独立参考求解器"（BFS + 精确状态键 + 不做剪枝），
+// 比对判定结论。若生产实现的剪枝漏掉真解，这里会报反例。
+if (args.Length > 0 && args[0] == "--check-solver")
+{
+    CheckSolverDifferential();
+    return;
+}
+
+// 会话回放（Event Sourcing 切片）：
+//   dotnet run --project test\JarSystem.Test -c Release -- --check-replay
+// 跑一段确定性会话 → 把命令日志导成 JSON → 读回 → 重放进**全新系统** → 比对两次 GetState() 的 JSON 是否逐字节相同。
+if (args.Length > 0 && args[0] == "--check-replay")
+{
+    CheckSessionReplay();
     return;
 }
 
@@ -425,15 +447,15 @@ Run("S14-Case2剩余禁液丢弃且不回流仓库", () =>
     a.AddLiquid("蜜", 3);
     var sys = NewSwitchSystem(a, b);
     sys.SetMasterIndex(0);
-    int warehouseBefore = sys.ProducerModule.LiquidWarehouse["蜜"];
+    int warehouseBefore = sys.ProducerModule.Warehouse.LiquidWarehouse["蜜"];
     var res = sys.SetMaster(1);
     // 改形消耗 1 蜜（圆罐→方罐），剩余 2 蜜被新主台禁 → 丢弃，绝不能回流中央仓库
     bool ok = (res.TryGetValue("success", out var sv) && sv is bool s1 && s1)
         && b.LiquidStorage["蜜"] == 0
         && a.LiquidStorage["蜜"] == 0
-        && sys.ProducerModule.LiquidWarehouse["蜜"] == warehouseBefore
+        && sys.ProducerModule.Warehouse.LiquidWarehouse["蜜"] == warehouseBefore
         && b.Jars.Count == 1 && b.Jars[0].Shape == "方罐" && b.Jars[0].IsEmpty();
-    return (ok, $"A={DescribeWS(a.CreateSnapshot())} B={DescribeWS(b.CreateSnapshot())} warehouse蜜={sys.ProducerModule.LiquidWarehouse["蜜"]}(before={warehouseBefore})");
+    return (ok, $"A={DescribeWS(a.CreateSnapshot())} B={DescribeWS(b.CreateSnapshot())} warehouse蜜={sys.ProducerModule.Warehouse.LiquidWarehouse["蜜"]}(before={warehouseBefore})");
 });
 
 // 2026-08-01 第三轮：容量纳入可行性资源管理 + 主台交付罐跨阶段保留
@@ -588,9 +610,11 @@ foreach (var b in bugReports) Console.WriteLine(b);
 // 工具函数
 // ============================================================
 
-JarSystem.Core.JarSystem NewSystem(Workshop master, Workshop slave, Order order)
+// solver 可选：差分测试用它把"判定算法"整体换掉（门面注入缝，见 S21）
+JarSystem.Core.JarSystem NewSystem(Workshop master, Workshop slave, Order order,
+    JarSystem.Core.Abstractions.ISolver? solver = null)
 {
-    var sys = new JarSystem.Core.JarSystem();
+    var sys = new JarSystem.Core.JarSystem(solver: solver);
     sys.ClearWorkshops(); sys.ClearOrders();
     sys.AddWorkshop(master); sys.AddWorkshop(slave);
     sys.SetMasterIndex(0); sys.SetSlaveIndex(1);
@@ -604,6 +628,236 @@ JarSystem.Core.JarSystem NewSwitchSystem(params Workshop[] workshops)
     sys.ClearWorkshops();
     foreach (var w in workshops) sys.AddWorkshop(w);
     return sys;
+}
+
+// ============================================================
+// 求解器差分测试（--check-solver）
+//
+// 目的：让"换算法"有**验收门**，而不是只靠"缝能注入"。做法是同一批场景跑两遍：
+//   ① 生产链路（记忆化 DFS + 同构剪枝 + 工作预算）；
+//   ② 同一链路但把 ISolver 换成 ReferenceSolver（BFS + 精确状态键 + 不做剪枝 + 不设预算）。
+// 两者判定结论必须一致 —— 不一致说明**生产实现的剪枝剪掉了真解**（或参考实现有 bug）。
+//
+// 输出标记保持 ASCII（会被 verify.bat 的 findstr 回显到 GBK 控制台）：
+//   SOLVER-OK (compared=…, agree=…, feasible=…, undetermined=…)
+//   SOLVER-MISMATCH (n)
+// 明细行用 "mismatch detail:" 前缀（不含 SOLVER- 字样，因此不会被 findstr 回显成乱码）。
+// ============================================================
+// ============================================================
+// 会话回放检查（--check-replay）
+//
+// 判据（**逐字节**）：同一份世界配置 + 同一个种子 + 全新 ID 源 ⇒
+// 「跑一遍会话」与「把命令日志 JSON 读回来后重放」必须得到**完全相同的 GetState() JSON**，
+// 并且重放系统自己记录出来的日志也要与原日志逐条相同（回放走的是同一套意图方法，不绕后门）。
+//
+// 输出标记保持 ASCII：`REPLAY-OK (…)` / `REPLAY-MISMATCH`。
+// ============================================================
+void CheckSessionReplay()
+{
+    const int seed = 20260916;
+    var jsonOptions = new System.Text.Json.JsonSerializerOptions
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase   // 与 Web 宿主同一套序列化口径
+    };
+
+    // ---- ① 原次会话：全新 ID 源 + 固定种子 ----
+    var original = new JarSystem.Core.JarSystem(
+        randomSeed: seed, world: WorldOptions.Default,
+        jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
+    RunScriptedSession(original);
+
+    string stateJsonA = NormalizeState(System.Text.Json.JsonSerializer.Serialize(original.GetState(), jsonOptions));
+    string logJsonA = WorldCommandJson.ToJson(original.CommandLog);
+
+    // ---- ② 日志落盘/读回（真正的"存档"路径）----
+    var commands = WorldCommandJson.FromJson(logJsonA);
+    var replay = new JarSystem.Core.JarSystem(
+        randomSeed: seed, world: WorldOptions.Default,
+        jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
+    int applied = SessionReplay.Into(replay, commands);
+
+    string stateJsonB = NormalizeState(System.Text.Json.JsonSerializer.Serialize(replay.GetState(), jsonOptions));
+    string logJsonB = WorldCommandJson.ToJson(replay.CommandLog);
+
+    bool stateEqual = stateJsonA == stateJsonB;
+    bool logEqual = logJsonA == logJsonB;
+    Console.WriteLine(stateEqual && logEqual
+        ? $"REPLAY-OK (commands={applied}, stateBytes={stateJsonA.Length}, logBytes={logJsonA.Length})"
+        : $"REPLAY-MISMATCH (stateEqual={stateEqual}, logEqual={logEqual}, commands={applied})");
+    if (!stateEqual) Console.WriteLine("  state diff at: " + FirstDifference(stateJsonA, stateJsonB));
+    if (!logEqual) Console.WriteLine("  log   diff at: " + FirstDifference(logJsonA, logJsonB));
+    if (!stateEqual || !logEqual) Environment.ExitCode = 1;
+
+    string FirstDifference(string a, string b)
+    {
+        int n = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < n; i++)
+            if (a[i] != b[i])
+                return $"字符 {i}: A=…{a[Math.Max(0, i - 40)..Math.Min(a.Length, i + 40)]}… / B=…{b[Math.Max(0, i - 40)..Math.Min(b.Length, i + 40)]}…";
+        return $"长度不同: A={a.Length} B={b.Length}";
+    }
+
+    // `feasibilityResult.timestamp` 装的是**分析耗时毫秒**（不是时间点），属于墙面时间测得值，
+    // 回放不可能复现 ⇒ 与契约快照同一口径，把它记为 <volatile> 再比对。
+    // 注意：**只**排除这种纯数字耗时；`eventHistory[].timestamp` 是 ISO 墙钟时间，
+    // 已由"命令日志带时间"（WorldCommand.Time）保证可复现，仍然逐字节比对。
+    string NormalizeState(string json) =>
+        System.Text.RegularExpressions.Regex.Replace(json, "\"timestamp\":\"\\d+\"", "\"timestamp\":\"<volatile>\"");
+}
+
+// 一段覆盖尽可能多意图方法的确定性会话。注意两处**宿主约定**：
+// 注入工作台/订单时必须用系统自己的 ID 源（JarIds/OrderIds），否则回放的 ID 无法一致。
+void RunScriptedSession(JarSystem.Core.JarSystem sys)
+{
+    sys.SetMasterIndex(0);
+    sys.SetSlaveIndex(1);
+    sys.Tick(3);                                     // 仓库 → 主台流入
+    sys.CreateRandomOrder();                         // 随机（种子固定 ⇒ 可复现）
+    sys.CheckFeasibility(sys.Orders.Count - 1);
+    sys.ExecuteOrder(sys.Orders.Count - 1);
+    sys.SetMaster(2);                                // 主从切换（旧主台有资源 ⇒ 会跑切换事件）
+    sys.SetSlave(3);
+    sys.CreateWorkshop("工坊X", new() { "圆罐" }, new() { "方罐" }, new() { "酒" });
+    sys.UpdateWorkshopCapacity(sys.Workshops.Count - 1, 25, 30);
+    sys.UpdateProducerRate("陶工甲", "圆罐", 0.5);
+    sys.UpdateLiquidProductionRate("酒", 2);
+    sys.CreateOrder(new() { new Requirement { Shape = "圆罐" }, new Requirement { Shape = "方罐", Liquid = "蜜" } }, "B");
+    sys.CheckAllFeasibility();
+    sys.SetAutoCheck(true);
+    sys.Tick(2);
+    sys.DeleteOrder(0);
+    sys.SetFlowSettings(4, 3);
+    sys.CreateRandomWorkshop();
+    sys.ResetProducerModule();
+
+    // 注入类 API（宿主/测试用）——注意用系统自己的 ID 源
+    sys.ClearWorkshops();
+    sys.AddWorkshop(new Workshop("裸台", new() { "圆罐" }, new() { "方罐" }, new(), 20, 30,
+        sys.JarIds, sys.Vocabulary));
+    sys.SetMasterIndex(0);
+    sys.Tick(1);
+    sys.ClearOrders();
+    sys.AddOrder(new Order(new() { new Requirement { Shape = "圆罐" } }, "A", sys.OrderIds, sys.Vocabulary));
+
+    sys.Reset();                                     // 重置世界（日志继续累积）
+    sys.SetMasterIndex(0);
+    sys.Tick(1);
+}
+
+void CheckSolverDifferential()
+{
+    const int perKind = 2000;                 // 每类 2000 个场景（随机 + 容量）
+    int compared = 0, agree = 0, feasibleCount = 0, undetermined = 0, mismatches = 0;
+
+    var randGen = new Random(42);             // 与主测试同一批种子，便于对照
+    var randCap = new Random(2026);
+
+    for (int t = 0; t < perKind; t++)
+    {
+        var (m1, s1, spec1) = Gen(randGen);
+        Compare("random", t, m1, s1, spec1);
+
+        var (m2, s2, spec2) = GenCap(randCap);
+        Compare("capacity", t, m2, s2, spec2);
+    }
+
+    // ------------------------------------------------------------------
+    // 定向反例集：随机场景对"剪枝假设"是**盲的**（实测：故意把去重键退化成"只按形状"，
+    // 4000 个随机场景一个都没抓到）。因此这里按"每条剪枝假设"手写反例：
+    //   T1 攻击「同构去重」的健全性：**两个同形不同液体的满罐** —— 若去重丢掉液体维度，
+    //      就会只倒出一种液体，另一条真解被吃掉。
+    //   T2 同形同液体（真同构）仍必须可行 —— 防止"剪太狠"。
+    //   T3 满罐自耗改形路径（RESHAPE full）必须可行。
+    //
+    // ⚠️ **敏感度边界（实测，务必记住）**：本门**抓到过一个真实缺陷**（求解器不填终态快照 ⇒
+    // B 类静默算错），但下面这三种"故意破坏"**没被抓到**：
+    //   ① 记忆化键里去掉"是否已标记"位；② 把"已访问"当成"已证无解"记入；
+    //   ③ 去重键退化成"只按形状"（丢掉液体）。
+    // 逐个分析后确认：这三种在本系统的结构下**恰好是健全变换**（候选列表每步重新生成 ⇒
+    // 同列表内去重不损失可达性；DFS 里"进入时记录"与"失败时记录"等价），因此不是门的漏报。
+    // **但结论仍要记牢**：别据此认为门能挡住一切 —— 凡改动记忆化键/去重规则，
+    // 必须**同时补一个针对性反例**（就像 T1~T3 那样手写），否则随机场景集对这类假设是盲的。
+    // ------------------------------------------------------------------
+    Targeted("T1-同形不同液体的两个满罐", () =>
+    {
+        var m = new Workshop("T1M", new() { "圆罐", "方罐" }, new(), new(), 30, 30);
+        m.AddJar(new Jar("圆罐", "酒"));
+        m.AddJar(new Jar("圆罐", "蜜"));
+        m.AddJar(new Jar("圆罐"));                       // 待改形的空罐
+        var s = new Workshop("T1S", new() { "圆罐" }, new(), new(), 30, 30);
+        // 需要 满罐(方罐,蜜)：空罐改形要燃料（倒出任一满罐获得），倒液入罐必须是蜜
+        return (m, s, new List<Requirement> { new Requirement { Shape = "方罐", Liquid = "蜜" } }, "A");
+    });
+
+    Targeted("T2-同形同液体的真同构罐子", () =>
+    {
+        var m = new Workshop("T2M", new() { "圆罐" }, new(), new(), 30, 30);
+        m.AddJar(new Jar("圆罐", "酒"));
+        m.AddJar(new Jar("圆罐", "酒"));
+        var s = new Workshop("T2S", new() { "圆罐" }, new(), new(), 30, 30);
+        return (m, s, new List<Requirement> { new Requirement { Shape = "圆罐", Liquid = "酒" } }, "A");
+    });
+
+    Targeted("T3-满罐自耗改形", () =>
+    {
+        var m = new Workshop("T3M", new() { "圆罐" }, new() { "方罐" }, new(), 30, 30);
+        m.AddJar(new Jar("圆罐", "酒"));
+        var s = new Workshop("T3S", new() { "圆罐" }, new(), new(), 30, 30);
+        return (m, s, new List<Requirement> { new Requirement { Shape = "方罐" } }, "A");
+    });
+
+    // 在这个规模的场景集上，"未判定"不该出现：要么是预算异常耗尽，要么是求解器违约。
+    // 因此把它也算作失败（否则契约缺口会被"跳过比较"悄悄吞掉）。
+    Console.WriteLine(mismatches == 0 && undetermined == 0
+        ? $"SOLVER-OK (compared={compared}, agree={agree}, feasible={feasibleCount}, undetermined={undetermined}, targeted=3)"
+        : mismatches > 0
+            ? $"SOLVER-MISMATCH ({mismatches})"
+            : $"SOLVER-MISMATCH ({undetermined} undetermined: 预算异常或求解器违约)");
+    if (mismatches > 0 || undetermined > 0) Environment.ExitCode = 1;
+
+    void Compare(string kind, int index, Workshop master, Workshop slave, OrderSpec spec)
+    {
+        CompareCore(kind + " #" + index, master, slave, spec.Reqs, spec.Type);
+    }
+
+    void Targeted(string label, Func<(Workshop M, Workshop S, List<Requirement> Reqs, string Type)> build)
+    {
+        var (m, s, reqs, type) = build();
+        CompareCore(label, m, s, reqs, type);
+    }
+
+    void CompareCore(string label, Workshop master, Workshop slave, List<Requirement> reqs, string orderType)
+    {
+        var production = NewSystem(master, slave, new Order(reqs, orderType));
+        var reference = NewSystem(master, slave, new Order(reqs, orderType), new ReferenceSolver());
+
+        var a = production.CheckFeasibility(0);
+        var b = reference.CheckFeasibility(0);
+        compared++;
+        if (a == null || b == null) return;
+
+        // 任一侧"未判定"（预算耗尽 / 求解器违约）⇒ 无可比结论，单独计数（并在汇总处判失败）
+        if (a.Undetermined || b.Undetermined) { undetermined++; return; }
+        if (a.Feasible == b.Feasible) { agree++; if (a.Feasible) feasibleCount++; return; }
+
+        mismatches++;
+        Console.WriteLine($"mismatch detail: [{label}] 需求={string.Join(",", reqs.Select(r => r.Liquid == null ? "空罐(" + r.Shape + ")" : "满罐(" + r.Shape + "," + r.Liquid + ")"))} "
+            + $"生产={a.Feasible}({a.CheckMethod}) 参考={b.Feasible} "
+            + $"M={DescribeWS(master.CreateSnapshot())} S={DescribeWS(slave.CreateSnapshot())}");
+        Console.WriteLine("  参考-主台路径: " + DescribePath(b.MasterPath) + " ；转移罐="
+            + (b.TransferJarIds == null ? "-" : string.Join(",", b.TransferJarIds)));
+        Console.WriteLine("  参考-从台路径: " + DescribePath(b.SolverPath));
+    }
+
+    string DescribePath(List<JarSystem.Core.Orders.SolverStepDto>? path)
+    {
+        if (path == null || path.Count == 0) return "(空)";
+        return string.Join(" → ", path.Select(s =>
+            $"{s.Type}@{(s.JarId.HasValue ? "#" + s.JarId : "idx" + s.JarIndex)}"
+            + (s.TargetShape != null ? "→" + s.TargetShape : "")
+            + (s.TargetLiquid != null ? "+" + s.TargetLiquid : "")
+            + (s.CostLiquid != null ? "(耗" + s.CostLiquid + ")" : "")));
+    }
 }
 
 void Run(string name, Func<(bool Ok, string Detail)> scenario)
@@ -980,7 +1234,8 @@ void DumpSchema()
         ("WorkshopStateDto", typeof(JarSystem.Core.Services.WorkshopStateDto)),
         ("JarStateDto", typeof(JarSystem.Core.Services.JarStateDto)),
         ("OrderStateDto", typeof(JarSystem.Core.Services.OrderStateDto)),
-        ("FeasibilityStateDto", typeof(JarSystem.Core.Services.FeasibilityStateDto)),
+        // 2026-09 契约统一：state 与消息共用同一个 feasibilityResult 类型（原先分 10 键投影 + 16 键本体）
+        ("FeasibilityResultData", typeof(JarSystem.Core.Orders.FeasibilityResultData)),
         ("WarehouseStateDto", typeof(JarSystem.Core.Services.WarehouseStateDto)),
         ("GlobalStateDto", typeof(JarSystem.Core.Services.GlobalStateDto)),
         ("SolverStepDto", typeof(JarSystem.Core.Orders.SolverStepDto)),

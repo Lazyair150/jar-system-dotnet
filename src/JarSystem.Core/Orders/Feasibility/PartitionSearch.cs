@@ -65,13 +65,16 @@ public sealed class PartitionSearch
     /// 搜索所有划分。返回 null 表示无可行划分，此时 <paramref name="lastBlockage"/> 为最后一次划分的阻塞原因。
     /// </summary>
     /// <param name="lastBlockage">最后一次划分的阻塞原因（诊断用，进 <c>blockage</c> 契约字段）。</param>
-    /// <param name="budgetExceeded">
-    /// 是否因**超出工作预算**而提前中止（见 <see cref="IWorkBudgetedSolver"/>）。
-    /// 为 true 时返回 null **只表示"没搜完"**，绝不能解释成"不可行"。
+    /// <param name="inconclusiveReason">
+    /// 为 null 表示"搜完了、结论可靠"；非 null 表示**没能得出结论**（原因见字符串），
+    /// 此时返回 null **绝不能解释成"不可行"**。两种已知情形：
+    /// ① 超出工作预算（见 <see cref="IWorkBudgetedSolver"/>）；
+    /// ② 求解器没按 <see cref="ISolver"/> 契约提供主台**终态** —— 那就无法构造从台池，
+    ///    与其静默按"主台原始状态"算错，不如如实报"未判定"（差分测试实测过这个坑）。
     /// </param>
-    public PartitionSearchOutcome? Search(PartitionSearchRequest request, out string? lastBlockage, out bool budgetExceeded)
+    public PartitionSearchOutcome? Search(PartitionSearchRequest request, out string? lastBlockage, out string? inconclusiveReason)
     {
-        budgetExceeded = false;
+        inconclusiveReason = null;
         var reqs = request.Requirements;
         var masterJars = request.MasterJars;
         var masterLiquids = request.MasterLiquids;
@@ -105,15 +108,33 @@ public sealed class PartitionSearch
             var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
             if (_solver is IWorkBudgetedSolver mb && mb.BudgetExceeded)
             {
-                budgetExceeded = true;
+                inconclusiveReason = "分析超出预算";
                 lastBlockage = "分析超出预算";
                 return null;
             }
             if (!mr.Feasible || mr.Path == null) { masterInfeasible[mask] = true; continue; }
 
+            // 契约检查：主台终态必须能拿到（FinalJars 或路径末步快照），否则从台池无从构造
+            bool hasFinalState = mr.FinalJars != null
+                || (mr.Path.Count > 0 && mr.Path[^1].After != null);
+            if (!hasFinalState)
+            {
+                inconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
+                lastBlockage = inconclusiveReason;
+                return null;
+            }
+
             List<JarState> masterFinal = masterJars;
             Dictionary<string, int> masterFinalLiq = masterLiquids;
-            if (mr.Path.Count > 0 && mr.Path[^1].After != null)
+            // 主台**终态**优先取求解器的契约字段 FinalJars/FinalLiquids（见 SolverResult.FinalJars 的说明）；
+            // 其次兼容"只填了路径快照"的实现。两者都缺时才会退回主台**原始**状态 ——
+            // 那是一个会静默算错的退化路径（差分测试实测过），因此把它记进 ISolver 的契约要求。
+            if (mr.FinalJars != null)
+            {
+                masterFinal = mr.FinalJars;
+                masterFinalLiq = mr.FinalLiquids ?? masterLiquids;
+            }
+            else if (mr.Path.Count > 0 && mr.Path[^1].After != null)
             {
                 masterFinal = mr.Path[^1].After!;
                 masterFinalLiq = mr.Path[^1].AfterLiquids ?? masterLiquids;
@@ -155,7 +176,7 @@ public sealed class PartitionSearch
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
             if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
             {
-                budgetExceeded = true;
+                inconclusiveReason = "分析超出预算";
                 lastBlockage = "分析超出预算";
                 return null;
             }
