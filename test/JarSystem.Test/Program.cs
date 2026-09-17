@@ -903,7 +903,7 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
     int jc = r.Next(1, 7);
     for (int i = 0; i < jc; i++)
     {
-        var s = sh[r.Next(sh.Length)];
+        var s = sh[r.Next(sh.Count)];
         string? l = null;
         if (r.Next(2) == 0) { var lq = li[r.Next(2)]; if (!m.IsBanned(lq)) l = lq; }
         m.AddJar(new Jar(s, l));
@@ -916,7 +916,7 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
     int sjc = r.Next(0, 5);
     for (int i = 0; i < sjc; i++)
     {
-        var s = sh[r.Next(sh.Length)];
+        var s = sh[r.Next(sh.Count)];
         string? l = null;
         if (r.Next(2) == 0) { var lq = li[r.Next(2)]; if (!sl.IsBanned(lq)) l = lq; }
         sl.AddJar(new Jar(s, l));
@@ -930,7 +930,7 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
     for (int i = 0; i < nr; i++)
     {
         string? liqu = r.Next(2) == 0 ? li[r.Next(2)] : null;
-        reqs.Add(new Requirement { Shape = sh[r.Next(sh.Length)], Liquid = liqu });
+        reqs.Add(new Requirement { Shape = sh[r.Next(sh.Count)], Liquid = liqu });
     }
     reqs = reqs.OrderBy(rr => rr.Liquid != null ? 1 : 0).ToList();
     return (m, sl, new OrderSpec(reqs, r.Next(2) == 0 ? "A" : "B"));
@@ -957,7 +957,7 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
 
     for (int i = 0; i < r.Next(1, 7); i++)
     {
-        var s = sh[r.Next(sh.Length)];
+        var s = sh[r.Next(sh.Count)];
         string? l = null;
         if (r.Next(2) == 0) { var lq = li[r.Next(2)]; if (!m.IsBanned(lq)) l = lq; }
         if (!m.AddJar(new Jar(s, l))) break;
@@ -968,7 +968,7 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
 
     for (int i = 0; i < r.Next(0, 5); i++)
     {
-        var s = sh[r.Next(sh.Length)];
+        var s = sh[r.Next(sh.Count)];
         string? l = null;
         if (r.Next(2) == 0) { var lq = li[r.Next(2)]; if (!sl.IsBanned(lq)) l = lq; }
         if (!sl.AddJar(new Jar(s, l))) break;
@@ -982,7 +982,7 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
     for (int i = 0; i < nr; i++)
     {
         string? liqu = r.Next(2) == 0 ? li[r.Next(2)] : null;
-        reqs.Add(new Requirement { Shape = sh[r.Next(sh.Length)], Liquid = liqu });
+        reqs.Add(new Requirement { Shape = sh[r.Next(sh.Count)], Liquid = liqu });
     }
     reqs = reqs.OrderBy(rr => rr.Liquid != null ? 1 : 0).ToList();
     return (m, sl, new OrderSpec(reqs, r.Next(2) == 0 ? "A" : "B"));
@@ -1159,12 +1159,21 @@ void DumpContract(string? configPath = null)
     // ⇒ solverPath / masterPath 恒为 null ⇒ **路径步骤的 14 个键一直没被快照覆盖**。
     // 现在先 Tick(3) 让主台拿到罐子与液体，订单 0（空罐·圆罐）即可行、路径非空，
     // 快照因此覆盖 step/requirement/operation/type/jarIndex/jarId/jarShape/jarLiquid/
-    // targetShape/targetLiquid/costLiquid/reshapeMode/consumed/jarsAfter。
+    // targetShape/targetLiquid/costLiquid/reshapeMode/jarsAfter —— 但**不含 consumed**（见下）。
     sys.Tick(3);
     sys.CheckFeasibility(0);
     sys.CheckFeasibility(1);
     sys.ExecuteOrder(0);
     sys.SetSlave(2);
+
+    // 补上一处**真实消耗液体**的路径（2026-09-16，见 00_从这里继续.md §11.1）：
+    // 上面订单 0 走的是 MATCH（Consumed = 空字典）⇒ `consumed` 这个键在快照里**整个消失**，
+    // 改名/删除都不会被门发现。这里追加一条「空罐(方罐)」订单：此刻主台没有空的方罐，
+    // 但有两个可改形的空罐（三角罐 / 高罐）且尚有可用成本液体 ⇒ 求解器只能走 RESHAPE 分支，
+    // 于是 consumed 带**真实条目**（恰好补上第 14 个键）。
+    // 用 sys.Orders.Count - 1 取下标，不写死数字（前面那条 B 类订单会创建失败、不占位置）。
+    sys.CreateOrder(new() { new Requirement { Shape = "方罐" } }, "A");
+    sys.CheckFeasibility(sys.Orders.Count - 1);
 
     var lines = new List<string>();
     Flatten("state", sys.GetState(), lines);
@@ -1565,12 +1574,18 @@ void Flatten(string path, object? node, List<string> lines)
             lines.Add(path + " = null");
             break;
         case System.Collections.IDictionary dict:
+            // 空字典必须留一条占位行：否则「这个键存在」本身无法被快照断言。
+            // 真实踩过：SolverStepDto.consumed 无消耗时是空字典（不是 null），
+            // 于是整个键在快照里消失，改名/删除都不会被门发现（见 00_从这里继续.md §11.1）。
+            if (dict.Count == 0) { lines.Add(path + " = <empty>"); break; }
             foreach (System.Collections.DictionaryEntry kv in dict)
                 Flatten(path + "." + kv.Key, kv.Value, lines);
             break;
         case System.Collections.IEnumerable list when node is not string:
             int i = 0;
             foreach (var item in list) { Flatten(path + "[" + i + "]", item, lines); i++; }
+            // 理由同空字典：空列表（如空 jarsAfter）同样不能"什么都不写"。
+            if (i == 0) lines.Add(path + " = <empty>");
             break;
         default:
             var type = node.GetType();

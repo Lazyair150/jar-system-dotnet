@@ -1,45 +1,104 @@
 @startuml
+title B 类订单可行性 —— 三级责任链 + 需求子集划分
+' ============================================================
+'  2026-09-16 重写（第 2 版）。
+'  旧图入口是 CheckTypeB（该类已被 IFeasibilityCheck 责任链取代，不存在了），
+'  且漏掉 节点预算 / undetermined 出口 / 单调剪枝 / MasterOrigin / 转移预算。
+'  本版每条语句都写在单行上，if/endif 与 while/endwhile 逐对配平。
+' ============================================================
+
 start
 
-:CheckTypeB(order, masterSnap, slaveSnap);
+:FeasibilityChecker.Check(order, masterSnap, slaveSnap);
+:BeginCheck(NodeBudget) —— 若求解器实现了 IWorkBudgetedSolver;
+:reqs = RequirementOrdering.FullFirst(order.Requirements) 满罐需求优先;
 
-:reqs = 需求按满罐优先排序;
-:slaveInfo = BuildWorkshopInfo(slave);
-:masterInfo = BuildWorkshopInfo(master);
+note right
+  **链序即优先级**（便宜的先试，不通过才降级）
+  1 SinglePhaseCheck   仅 A 类，只用主台
+  2 SlaveOnlyCheck     仅 B 类，只用从台，且显式置空转移清单
+  3 PartitionCheck     B 类兜底，无论成败都给出结论
+  三级共用**同一份**节点预算（默认 40 万）
+end note
 
-:Solver.Solve(reqs, slaveInfo, slaveJars, slaveLiq);
-
-if (slave_only feasible?) then (yes)
-  :return "slave_only";
+if (订单是 A 类) then (是)
+  :Solve reqs 于主台规则与主台资源;
+  :checkMethod = single_phase;
   stop
 endif
 
-partition 划分搜索 (2^N) {
-  :mask = 0;
-  while (mask < 2^N?) is (是)
-    :mReqs = 划分给主台的需求子集;
-    :sReqs = 其余需求 (从台);
-    :Solver.Solve(mReqs, masterInfo, masterJars, masterLiq);
+:Solve reqs 于从台规则与从台资源;
+if (从台独立可行) then (是)
+  :checkMethod = slave_only;
+  :TransferJarIds 与 TransferLiquids 显式置空 —— 不需要任何转移;
+  stop
+endif
 
-    if (主台子集可行?) then (否)
-    else (是)
-      :masterFinal = 路径终态罐子;
-      :masterFinalLiq = AfterLiquids;
-      :combined = masterFinal + slaveJars;
-      :combinedLiq = MergeLiquids(masterFinalLiq, slaveLiq);
-      :Solver.Solve(sReqs, slaveInfo, combined, combinedLiq);
-
-      if (从台子集可行?) then (是)
-        :return "partition" + MasterPath/SolverPath;
+partition "PartitionCheck —— 2 的 N 次方个需求子集划分，mask 升序枚举" {
+  :masterInfeasible = 布尔标记数组，长度 2 的 N 次方;
+  while (还有未枚举的 mask) is (是)
+    if (该 mask 已包含某个已证不可行的主台子集) then (是)
+      :单调剪枝 跳过 —— 该 mask 的主台求解必然失败;
+    else (否)
+      :按 mask 第 i 位划分出 mReqs 与 sReqs;
+      :Solve mReqs 于主台规则与主台资源;
+      if (节点预算耗尽) then (是)
+        :未判定，原因 = 分析超出预算;
         stop
+      endif
+      if (主台子集可行) then (是)
+        if (求解器提供了主台终态) then (是)
+          :deliverableIds = JarMatcher.MatchAll 主台终态 与 mReqs;
+          :slavePool = 主台终态 扣除交付罐 并打 MasterOrigin，再并上从台自有罐子;
+          :budget = 从台罐位 - 从台原有罐子 - 交付罐数;
+          if (budget 小于 0) then (是)
+            :该划分直接判不可行，继续下一个 mask;
+          else (否)
+            :tLiquids 每种液 = min 主台终态液 + 从台液, 从台液位;
+            :Solve sReqs 于从台规则与 slavePool，预算 = budget;
+            if (节点预算耗尽) then (是)
+              :未判定;
+              stop
+            endif
+            if (从台子集可行) then (是)
+              :转移罐子 = 交付罐 并上 从台路径实际用到的主台来源罐子;
+              :转移液体 = LiquidRequirementCalculator.ComputeRequired;
+              :checkMethod = partition;
+              :返回可行 MasterPath / SolverPath / 转移清单 / DirectCount / OperationCount;
+              stop
+            else (否)
+              :blockage = 从台失败原因，保留最后一次;
+            endif
+          endif
+        else (否)
+          :未判定，原因 = 求解器未按 ISolver 契约提供主台终态;
+          stop
+        endif
       else (否)
+        :masterInfeasible 标记该 mask;
       endif
     endif
-
-    :mask++;
-  endwhile (否)
+    :mask 自增;
+  endwhile (枚举完)
 }
 
-:return 不可行 (lastBlockage);
+:返回不可行，blockage = 最后一次划分的阻塞原因;
+note right
+  **三条不可改动的语义**
+  · 主台交付罐必须原样交付、从台阶段不得再使用 —— 防同一罐子跨阶段被重复使用
+  · 判定可行 则 执行必成功；判定不可行 则 执行必失败（承重墙）
+  · **未判定 不等于 不可行**：前端显示"未判定"且仍允许执行，执行走贪心，不受预测承诺约束
+
+  **两个未判定出口**（都对 undetermined 契约字段负责）
+  · 节点预算耗尽 —— B 类 8 需求实测 1904 ms、10 需求 1864 ms 后如实回未判定
+  · 求解器没按 ISolver 契约给出主台终态 —— 宁可报未判定，也不静默按"主台原始状态"算错
+    （差分门实测过：违约求解器让 1890/4003 个场景结论失真，而且不报错）
+
+  **单调剪枝为什么最值钱**
+  B 类不可行订单要对全部 2 的 N 次方个划分各做一次主台加从台求解，
+  而最贵的正是"主台拿到很多需求"的那些 mask。
+  一旦某个小失败子集被证出来，它的全部超集（数量最多、单次最贵）一次跳过。
+end note
+
 stop
 @enduml

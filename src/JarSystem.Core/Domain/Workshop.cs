@@ -313,8 +313,15 @@ public class Workshop
 }
 
 /// <summary>
-/// 工作台状态快照（不可变备忘录）。注意：按当前实现只恢复罐子与液体，
-/// 规则/容量字段为诊断信息保留（审计 §2.10 记录该不一致，未擅自改变行为）。
+/// 工作台状态快照（备忘录）。
+///
+/// **隔离性**：<see cref="Workshop.CreateSnapshot"/> 对罐子逐个 DeepClone、液体账目另建字典，
+/// 因此快照与源工作台互不影响；`init` 也锁住了属性赋值。
+/// **但严格说它不是"不可变对象"**：Jars/Liquids 仍是可变的 List/Dictionary，
+/// 只是程序集外拿不到 <see cref="Jar"/> 的变更方法（它们是 internal），所以外部只读。
+///
+/// 注意：按当前实现只恢复罐子与液体，规则/容量字段为诊断信息保留
+///（审计 §2.10 记录该不一致，未擅自改变行为）。
 /// </summary>
 public class WorkshopSnapshot
 {

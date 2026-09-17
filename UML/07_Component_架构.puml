@@ -1,66 +1,190 @@
 @startuml
+title JarSystem.Core 包分层与依赖方向
+' ============================================================
+'  2026-09-16 重写（第 2 版：完全扁平，去掉嵌套 component 与方括号语法）
+'  依赖方向按各文件的 using 与类型引用逐个核对。
+'  实线 = 有类型引用；虚线 = 少量引用 / 值得注意的例外。
+' ============================================================
+skinparam shadowing false
 
 package "Config" {
-  [ShapeRules] as ShapeRules
-  [Constants] as Consts
-}
-
-package "Web" {
-  [Program.cs] as WS
-  [index.html + app.js] as UI
-  [canvas.js] as Canvas
-}
-
-package "Application" {
-  [JarSystem.cs] as Facade
-}
-
-package "Order Processing" {
-  [FeasibilityChecker] as Checker
-  [OrderExecutor] as Executor
-  [OrderEvent] as OrdEvt
-  [WorkshopSwitchEvent] as SwitchEvt
-  [JarSelectionStrategy] as Strategy
+  component "Constants + 6 个嵌套契约类" as C1
+  component "Rules / ShapeRules" as C2
+  component "Vocabulary" as C3
+  component "WorldOptions + 4 个嵌套 Options" as C4
+  component "WorldOptionsJson" as C5
 }
 
 package "Domain" {
-  [Workshop] as WSdomain
-  [Jar] as Jar
-  [Order] as Order
+  component "Jar" as D1
+  component "Workshop + TemporaryMarksScope" as D2
+  component "WorkshopCapability" as D3
+  component "WorkshopSnapshot" as D4
+  component "DomainValidationException" as D5
+}
+
+package "Orders" {
+  component "Order / Requirement" as O1
+  component "OrderEvent + ExecutionLogEntry / LogError" as O2
+  component "SlaveRollback" as O3
+  component "WorkshopSwitchEvent" as O4
+  component "FeasibilityChecker" as O5
+  component "SolverStepDto / FeasibilityResultData" as O6
+  component "AutoCheckResultDto" as O7
+}
+
+package "Orders.Feasibility" {
+  component "IFeasibilityCheck + 3 实现" as F1
+  component "PartitionSearch + Request / Outcome" as F2
+  component "FeasibilityContext + WorkshopInfoFactory" as F3
+  component "FeasibilityResultFactory + PathSummaryFormatter" as F4
+  component "JarMatcher / LiquidRequirementCalculator / RequirementOrdering" as F5
+}
+
+package "Orders.Switching" {
+  component "ISwitchCase + SameBans / DifferentBans" as W1
+  component "ResourceTransferrer + JarValuePolicy" as W2
+  component "BanComparison / SwitchOperationLog" as W3
 }
 
 package "Solver" {
-  [StateSpaceSolver] as SSolver
+  component "StateSpaceSolver" as S1
+  component "SolverState / WorkshopInfo / SolverStats / SolverResult" as S2
 }
 
-package "Production" {
-  [ProducerModule] as Producer
+package "Executor" {
+  component "OrderExecutor" as E1
+  component "SolverStepApplier" as E2
+  component "GreedyPlanBuilder" as E3
+  component "JarSelector + 5 个策略实现" as E4
 }
 
 package "Commands" {
-  [PourInCommand]
-  [ReshapeEmptyCommand]
-  [PourOutCommand]
-  [TransferCommand]
+  component "Command / CommandResult" as M1
+  component "4 个具体命令" as M2
+  component "CommandExecutor" as M3
 }
 
-UI --> WS : WebSocket
-UI --> Canvas : render
-WS --> Facade : HTTP
+package "Production" {
+  component "ProducerModule" as P1
+  component "Warehouse" as P2
+  component "Producer / ShapeProductionLine" as P3
+}
 
-Facade --> Checker
-Facade --> Executor
-Facade --> OrdEvt
-Facade --> SwitchEvt
-Facade --> Producer
-Facade --> WSdomain
-Facade --> Order
+package "Services" {
+  component "StateSerializer + 10 个 DTO" as V1
+  component "WorkshopService / OrderService / ProductionService" as V2
+  component "MasterSwitchCoordinator" as V3
+  component "SequentialIdGenerator / DefaultIdGenerators" as V4
+  component "ConsoleSystemLog" as V5
+}
 
-Checker --> SSolver
-Executor --> WSdomain
-Executor --> Strategy
+package "Sessions" {
+  component "WorldCommand / WorldOps / WorkshopPayload" as X1
+  component "SessionReplay / WorldCommandJson" as X2
+}
 
-WSdomain --> Jar
-WSdomain --> ShapeRules : 委托
-SSolver ..> ShapeRules : 委托
+package "Bootstrap" {
+  component "SystemBootstrapper" as B1
+}
+
+package "Abstractions" {
+  component "ISolver / IWorkBudgetedSolver" as A1
+  component "IIdGenerator" as A2
+  component "IJarSelectionStrategy" as A3
+  component "ISystemLog" as A4
+}
+
+component "门面 JarSystem" as Facade
+
+' ---- Domain ----
+D1 --> C3
+D2 --> C3
+D2 --> C2
+D2 --> A2
+D2 ..> V4 : 向上依赖（见 note）
+
+' ---- Orders ----
+O1 --> C1
+O2 --> D2
+O2 --> M3
+O4 --> W1
+O4 --> W2
+O5 --> A1
+
+' ---- Orders.Feasibility ----
+F1 --> A1
+F2 --> A1
+F2 --> S2
+F3 --> S2
+F5 --> O1
+
+' ---- Solver ----
+S1 --> A1
+S1 --> C1
+S1 --> D3
+S2 --> D3
+S2 --> O1
+
+' ---- Executor / Commands ----
+E1 --> E2
+E1 --> E3
+E1 --> E4
+E1 --> O2
+E2 --> D1
+E3 --> D1
+E4 --> A3
+M1 --> D1
+M2 --> D2
+M3 --> A4
+
+' ---- Production ----
+P1 --> P2
+P2 --> D2
+P1 --> C3
+
+' ---- Services ----
+V1 --> P1
+V2 --> D2
+V2 --> O5
+V2 --> E1
+V3 --> O4
+
+' ---- Bootstrap / Sessions ----
+B1 --> C4
+B1 --> C3
+B1 --> D2
+B1 --> P1
+X2 --> Facade
+
+' ---- 门面 ----
+Facade --> V2
+Facade --> V3
+Facade --> O5
+Facade --> E1
+Facade --> P1
+Facade --> V1
+Facade --> X2
+Facade --> A2
+Facade --> A4
+Facade --> C4
+Facade --> C3
+
+note as NLayerSmell
+  **两处真实存在的"味道"（不是错误，但值得知道）**
+  1 **Domain 依赖 Services**：Workshop 用 Services.DefaultIdGenerators.Jars
+    给罐子分配 Id，下层依赖了上层。
+  2 **Abstractions 与 Solver / Orders 互相引用**：
+    ISolver.Solve 的签名里出现 Requirement / JarState（Orders）
+    与 SolverResult / WorkshopInfo（Solver），而 Solver 又实现 ISolver。
+    同程序集内成环，编译无碍，但接口并不是"零依赖"的。
+end note
+
+note as NZeroDep
+  **Core 零外部依赖**
+  只用 .NET 基类库 + System.Text.Json（后者只用于 WorldOptionsJson
+  与 Sessions 存档格式）。没有 Hosting / DI 容器 / 任何 NuGet 包，
+  因此可被 Godot / Unity 直接引用。
+  Config 自身不引用任何其它包。
+end note
 @enduml

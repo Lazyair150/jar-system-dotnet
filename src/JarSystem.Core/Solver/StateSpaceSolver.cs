@@ -8,7 +8,11 @@ using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.Solver;
 
-public class SolverState
+/// <summary>
+/// 求解器的**工作态**（罐子快照 + 液体账目 + 规则视图 + 转移预算）。
+/// **internal**：它只在本文件内使用，不出现在任何公开签名里 ⇒ 不对外暴露可变工作态。
+/// </summary>
+internal class SolverState
 {
     public List<JarState> Jars { get; set; }
     public Dictionary<string, int> Liquids { get; set; }
@@ -116,7 +120,6 @@ public class SolverResult
 /// <summary>
 /// StateSpaceSolver v6 — 状态空间搜索求解器（实现 <see cref="ISolver"/>）
 /// 合法操作: MATCH(预定), POUR_IN(倒液), POUR_OUT(倒空), RESHAPE(改形)
-/// MATCH: 不标记罐子
 /// RESHAPE: 适用于空罐(用工作台液体)和满罐(用自身液体)
 /// </summary>
 public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
@@ -149,12 +152,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     /// <summary>
     /// 已证明"无解"的**子问题**集合 —— 搜索加速的唯一结构（见 <see cref="Bt"/> 的说明）。
     ///
-    /// 键是**自描述**的（规则指纹 + 剩余需求 + 罐子多重集 + 液体账目 + 转移预算），因此可以
-    /// **跨 Solve 调用复用**：这正是 B 类「需求子集划分搜索」的关键 —— 它对 2^N 个子集各调用一次求解，
-    /// 而这些子集的搜索前缀大量重叠（mask 与 mask+1 只差一个需求）。
-    /// 若每调用一次就清空，8 需求仍要 71 秒；共享后见 `重构报告` 的实测。
-    ///
-    /// 容量上限只是安全阀：达到上限就整体清空（少剪枝、但绝不误判）。
+    /// 键是**自描述**的（规则指纹 + 剩余需求 + 罐子多重集 + 液体账目 + 转移预算）。
     /// 注意：本类是**非线程安全**的（<see cref="Stats"/>/<see cref="BestPartialPath"/> 原本就是实例字段），
     /// 与既有约定一致 —— 宿主用 <c>JarSystemService.Gate</c> 串行化全部调用。
     /// </summary>
@@ -274,8 +272,8 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     }
 
     /// <summary>
-    /// **子问题**的规范键（自描述，故可跨 Solve 调用复用）：
-    /// 规则指纹 + 剩余需求序列 + 罐子描述符**多重集**（排序后）+ 液体账目 + 转移预算/已用量。
+    /// **子问题**的规范键：
+    /// 剩余需求下标 + 罐子描述符**多重集**（排序后）+ 液体账目 + 转移预算/已用量。
     ///
     /// 刻意不包含罐子 Id —— 求解器的任何分支都不读 Id（Id 只用于把已找到的路径映射回真实罐子）。
     /// 需求用**下标**表示即可：一次 Solve 内 reqs 是固定的（跨调用复用已被实测否决，见 Solve 的说明）。

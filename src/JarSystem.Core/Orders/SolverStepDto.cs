@@ -56,7 +56,15 @@ public sealed class SolverStepDto
     /// <summary>改形方式：<c>full</c> / <c>empty</c>；非改形步骤为 null。</summary>
     [JsonPropertyName("reshapeMode")] public string? ReshapeMode { get; init; }
 
-    /// <summary>本步骤消耗的液体量（按液体名聚合）；无消耗为 null。</summary>
+    /// <summary>
+    /// 本步骤消耗的液体量（按液体名聚合）。
+    /// ⚠️ **内置求解器无消耗时写的是空字典 <c>{}</c>，不是 null**：对 <c>MATCH</c>/<c>POUR_OUT</c>
+    /// /「满罐改形」一律写 <c>new()</c>，只有 <c>POUR_IN</c> 与「空罐改形」才带条目。
+    /// （此处曾误记为"无消耗为 null"，正是这个误解让契约快照漏掉了本键，见 `00_从这里继续.md` §11.1。）
+    /// ⚠️ 例外：`PathSummaryFormatter` 在步骤的 `Operation` 或其 `Consumed` 为 null 时仍会写出 null；
+    /// 而 `ISolver` 是可注入的（FeasibilityChecker 支持替身）⇒ 第三方求解器能产出 null。
+    /// 把内置路径的空字典改成 null 等于改对外 JSON（`{}` 与 `null` 不同）⇒ 属契约变更，需连同快照与前端一起动。
+    /// </summary>
     [JsonPropertyName("consumed")] public Dictionary<string, int>? Consumed { get; init; }
 
     /// <summary>本步骤之后的罐子摘要（`形状/液体`，空罐记为 `形状空`）。</summary>

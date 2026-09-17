@@ -15,18 +15,41 @@ public class OrderEvent
     public Order Order { get; }
     public Workshop Master { get; }
     public Workshop Slave { get; }
-    public string Status { get; set; }
-    public WorkshopSnapshot? MasterSnapshot { get; set; }
-    public WorkshopSnapshot? SlaveSnapshot { get; set; }
-    public bool TransferOccurred { get; set; }
-    public string CurrentPhase { get; set; } = Constants.OrderPhase.NONE;
-    public List<ExecutionLogEntry> ExecutionLog { get; set; } = new();
-    public List<LogError> Errors { get; set; } = new();
-    public List<Jar> DeliveredJars { get; set; } = new();
-    public HashSet<int> TransferredJarIds { get; set; } = new();
-    public Dictionary<string, int> TransferredLiquids { get; set; } = new();
-    public HashSet<int> SlaveOriginalJarIds { get; set; } = new();
-    public CommandExecutor Executor { get; set; }
+
+    // ------------------------------------------------------------
+    // 状态一律**对外只读**：私有可变容器 + IReadOnly* 视图，变更只走本类的具名意图方法。
+    // 此前这 15 个成员全是 public { get; set; }，容器还是可变的 List/HashSet/Dictionary
+    // ⇒ 外部既能改状态、也能直接 Add 进执行日志与错误表，而这些恰恰是
+    // 「审计留痕（GetReport / eventHistory）」与「回滚依据（TransferredJarIds）」的数据源。
+    // 写入点已 grep 确认：除本类自身，只有 OrderExecutor（fallback 日志）、
+    // CommandExecutor（回滚失败错误）、SlaveRollback（丢弃日志）三处，均已改为具名方法。
+    // ------------------------------------------------------------
+    private readonly List<ExecutionLogEntry> _executionLog = new();
+    private readonly List<LogError> _errors = new();
+    private readonly List<Jar> _deliveredJars = new();
+    private readonly HashSet<int> _transferredJarIds = new();
+    private readonly Dictionary<string, int> _transferredLiquids = new();
+    private readonly HashSet<int> _slaveOriginalJarIds = new();
+
+    public string Status { get; private set; }
+    public WorkshopSnapshot? MasterSnapshot { get; private set; }
+    public WorkshopSnapshot? SlaveSnapshot { get; private set; }
+    public bool TransferOccurred { get; private set; }
+    public string CurrentPhase { get; private set; } = Constants.OrderPhase.NONE;
+
+    public IReadOnlyList<ExecutionLogEntry> ExecutionLog => _executionLog;
+    public IReadOnlyList<LogError> Errors => _errors;
+    public IReadOnlyList<Jar> DeliveredJars => _deliveredJars;
+    public IReadOnlyCollection<int> TransferredJarIds => _transferredJarIds;
+    public IReadOnlyDictionary<string, int> TransferredLiquids => _transferredLiquids;
+    public IReadOnlyCollection<int> SlaveOriginalJarIds => _slaveOriginalJarIds;
+    public CommandExecutor Executor { get; }
+
+    /// <summary>追加一条执行日志（仅供本程序集内的执行 / 回滚路径调用）。</summary>
+    internal void AppendLog(ExecutionLogEntry entry) => _executionLog.Add(entry);
+
+    /// <summary>追加一条错误记录（仅供本程序集内的命令执行 / 回滚路径调用）。</summary>
+    internal void AppendError(LogError error) => _errors.Add(error);
 
     /// <param name="log">可观测性出口（阶段 3-A）：透传给本事件的命令执行器，用于回滚失败留痕；null 用默认控制台日志。</param>
     public OrderEvent(Order order, Workshop masterWorkshop, Workshop slaveWorkshop, ISystemLog? log = null)
@@ -42,7 +65,9 @@ public class OrderEvent
     {
         MasterSnapshot = Master.CreateSnapshot();
         SlaveSnapshot = Slave.CreateSnapshot();
-        SlaveOriginalJarIds = new HashSet<int>(Slave.Jars.Select(j => j.Id!.Value));
+        _slaveOriginalJarIds.Clear();
+        foreach (var j in Slave.Jars)
+            if (j.Id.HasValue) _slaveOriginalJarIds.Add(j.Id.Value);
         Master.ClearMarks();
         Slave.ClearMarks();
         Status = Constants.OrderStatus.EXECUTING;
@@ -73,7 +98,7 @@ public class OrderEvent
 
         if (result.Success)
         {
-            ExecutionLog.Add(new ExecutionLogEntry
+            _executionLog.Add(new ExecutionLogEntry
             {
                 Phase = CurrentPhase,
                 Workshop = workshop.Name,
@@ -83,7 +108,7 @@ public class OrderEvent
         }
         else
         {
-            Errors.Add(new LogError
+            _errors.Add(new LogError
             {
                 Phase = CurrentPhase,
                 Command = command.Type,
@@ -111,12 +136,12 @@ public class OrderEvent
     public void RecordTransfer(Jar jar)
     {
         if (jar.Id.HasValue)
-            TransferredJarIds.Add(jar.Id.Value);
+            _transferredJarIds.Add(jar.Id.Value);
     }
 
     public void RecordLiquidTransfer(string liquid, int amount)
     {
-        TransferredLiquids[liquid] = TransferredLiquids.GetValueOrDefault(liquid, 0) + amount;
+        _transferredLiquids[liquid] = _transferredLiquids.GetValueOrDefault(liquid, 0) + amount;
     }
 
     public (bool CanDeliver, string Location) CheckDelivery()
@@ -139,7 +164,8 @@ public class OrderEvent
 
         foreach (var jar in jarsToDeliver)
             deliveryWorkshop.RemoveJar(jar);
-        DeliveredJars = jarsToDeliver;
+        _deliveredJars.Clear();
+        _deliveredJars.AddRange(jarsToDeliver);
 
         if (Order.Type == Constants.OrderType.B)
             RollbackSlaveToMaster();
@@ -164,7 +190,7 @@ public class OrderEvent
     /// 语义细节全部移入 <see cref="SlaveRollback"/>（归属判定 / 禁令边界 / 容量丢弃三件事一处说清）。
     /// </summary>
     public void RollbackSlaveToMaster() =>
-        _rollback.Execute(Master, Slave, TransferredJarIds, SlaveOriginalJarIds, TransferredLiquids, ExecutionLog);
+        _rollback.Execute(Master, Slave, _transferredJarIds, _slaveOriginalJarIds, _transferredLiquids, AppendLog);
 
     public Dictionary<string, object?> GetReport()
     {
@@ -183,22 +209,24 @@ public class OrderEvent
     }
 }
 
+/// <summary>执行日志的一条记录。**init**：日志是审计数据（对外报告的数据源），构造后不得再改。</summary>
 public class ExecutionLogEntry
 {
-    public string? Phase { get; set; }
-    public string? Workshop { get; set; }
-    public string? Command { get; set; }
-    public string? Action { get; set; }
-    public string? Description { get; set; }
-    public string? Jar { get; set; }
-    public string? Liquid { get; set; }
-    public int? Amount { get; set; }
-    public string? Reason { get; set; }
+    public string? Phase { get; init; }
+    public string? Workshop { get; init; }
+    public string? Command { get; init; }
+    public string? Action { get; init; }
+    public string? Description { get; init; }
+    public string? Jar { get; init; }
+    public string? Liquid { get; init; }
+    public int? Amount { get; init; }
+    public string? Reason { get; init; }
 }
 
+/// <summary>一条错误记录。**init**：同上，审计数据不可变。</summary>
 public class LogError
 {
-    public string? Phase { get; set; }
-    public string? Command { get; set; }
-    public string? Reason { get; set; }
+    public string? Phase { get; init; }
+    public string? Command { get; init; }
+    public string? Reason { get; init; }
 }

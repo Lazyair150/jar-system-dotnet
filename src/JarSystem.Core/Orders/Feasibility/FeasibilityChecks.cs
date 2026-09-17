@@ -48,11 +48,9 @@ internal sealed class SlaveOnlyCheck : IFeasibilityCheck
             ctx.Slave.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value));
         if (!solverResult.Feasible) return null;
 
-        var result = FeasibilityResultFactory.FromSolverResult(solverResult, Method);
-        // slave_only 不需要任何转移
-        result.TransferJarIds = new List<int>();
-        result.TransferLiquids = new Dictionary<string, int>();
-        return result;
+        // slave_only 不需要任何转移 ⇒ 显式传**空表**（不是 null：契约里这两种取值语义不同）
+        return FeasibilityResultFactory.FromSolverResult(solverResult, Method,
+            transferJarIds: new List<int>(), transferLiquids: new Dictionary<string, int>());
     }
 }
 
@@ -103,13 +101,6 @@ internal sealed class PartitionCheck : IFeasibilityCheck
                 CheckMethod = Method
             };
 
-        var result = FeasibilityResultFactory.FromPath(outcome.SlavePath, Method);
-        result.MasterPath = PathSummaryFormatter.Summary(outcome.MasterPath);
-        result.SolverPath = PathSummaryFormatter.Summary(outcome.SlavePath);
-        result.TransferJarIds = outcome.TransferJarIds;
-        result.TransferLiquids = outcome.TransferLiquids;
-        result.DirectCount = outcome.DirectCount;
-        result.OperationCount = outcome.OperationCount;
-        return result;
+        return FeasibilityResultFactory.FromPartition(outcome, Method);
     }
 }

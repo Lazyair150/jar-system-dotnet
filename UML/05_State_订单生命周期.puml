@@ -1,28 +1,59 @@
 @startuml
-[*] --> Pending : createOrder()
+title 订单生命周期
 
-state "待执行 (PENDING)" as Pending
-state "执行中 (EXECUTING)" as Executing
-state "成功 (SUCCESS)" as Success
-state "失败 (FAILED)" as Failed
+' 状态名与取值来源：Config/Constants.cs 的 Constants.OrderStatus
+'   PENDING = "待执行"  EXECUTING = "执行中"  SUCCESS = "成功"  FAILED = "失败"
+'   这四个字符串即对外 JSON 契约的取值，勿改。
 
-Pending --> Pending : autoCheck
-Pending --> Executing : executeOrder()
+state "待执行 PENDING" as Pending
+state "执行中 EXECUTING" as Executing
+state "成功 SUCCESS" as Success
+state "失败 FAILED" as Failed
 
-Executing --> Success : Deliver() passed
-Executing --> Failed : Fail()
+[*] --> Pending : CreateOrder
 
-Success --> [*] : jars delivered
-Failed --> [*] : RollbackSlaveToMaster()
+' 可行性分析不改变订单状态（只写 feasibilityResult）
+Pending --> Pending : CheckFeasibility\n只更新 feasibilityResult
+
+' 终态不可重复执行（2026-09 修复）：
+' 此前只有前端按钮做限制，WS 命令可对已成功/已失败的订单重复执行，
+' 会污染 eventHistory 与交付账目。现在 OrderService 直接拒绝。
+Pending --> Executing : ExecuteOrder
+
+Executing --> Success : Deliver 通过，需求全部满足
+Executing --> Failed : Fail 带失败原因
+
+Success --> [*] : 交付罐已 RemoveJar 离场
+Failed --> [*] : 仅跨台转移被回滚
 
 note right of Pending
-  Manual execution available
-  Auto-check for feasibility
+  **可执行的前提**
+  · 状态必须是「待执行」
+  · 可行性分析结果不作硬门槛
+    （未判定 undetermined 也允许执行，
+     执行走贪心，不受预测承诺约束）
 end note
 
 note right of Executing
-  Type A: master only (无需从台)
-  Type B: master -> transfer -> slave -> deliver
-  转移失败(从台容量不足) -> Failed
+  **两种订单类型的阶段差**
+  · A 类：仅主台，无需从台
+  · B 类：主台阶段 到 选择性转移 到 从台阶段 到 交付
+  · 转移失败（从台罐位不足）直接 Failed
+end note
+
+note right of Failed
+  **失败不回滚主台已发生的操作**（规则.txt 定案）
+  改形消耗的液体、已经发生的形状变换一律保留；
+  只回滚**跨台转移**（SlaveRollback）。
+  原因：试探有代价，是 puzzle 的一部分。
+  ⚠️ 因此「执行失败」不是幂等操作 —— 失败本身会改变世界。
+end note
+
+note right of Success
+  **成功 = 交付**
+  OrderEvent.Deliver() 会先 CheckDelivery()，
+  再对匹配需求的罐子逐个 RemoveJar 记入 DeliveredJars。
+  这就是「罐子守恒」不变量的**出口**：
+  罐子只会经由交付或溢出丢弃离开系统。
 end note
 @enduml

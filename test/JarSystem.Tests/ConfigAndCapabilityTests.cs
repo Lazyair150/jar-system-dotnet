@@ -12,7 +12,8 @@ namespace JarSystem.Tests;
 /// </summary>
 public class ConfigAndCapabilityTests
 {
-    /// <summary>深拷贝默认配置：<see cref="WorldOptions.Default"/> 是共享静态实例，测试里不能就地改它。</summary>
+    /// <summary>深拷贝默认配置。WorldOptions.Default 现在每次访问都返回**新实例**（已不是共享静态单例），
+    /// 但这里仍走一次 JSON 往返：既验证序列化往返无损，也让测试拿到的是一份与任何全局状态无关的配置。</summary>
     private static WorldOptions CloneDefault() =>
         WorldOptionsJson.FromJson(WorldOptionsJson.ToJson(WorldOptions.Default));
 
@@ -129,8 +130,8 @@ public class ConfigAndCapabilityTests
         var world = WorldOptionsJson.FromJson(File.ReadAllText(path!));
 
         Assert.True(world.Validate().IsValid);
-        Assert.Equal(Constants.SHAPES.Length, world.Shapes.Count);
-        Assert.Equal(Constants.LIQUIDS.Length, world.Liquids.Count);
+        Assert.Equal(Constants.SHAPES.Count, world.Shapes.Count);
+        Assert.Equal(Constants.LIQUIDS.Count, world.Liquids.Count);
         Assert.Equal(4, world.Workshops.Count);
         Assert.Equal(4, world.Producers.Count);
     }

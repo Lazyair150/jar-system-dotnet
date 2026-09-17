@@ -1,78 +1,114 @@
 @startuml
+title 工作台切换事件 —— 内部：Case1 / Case2 分支细节
+' ============================================================
+'  2026-09-16 重写。本图专讲**事件内部**做了什么（S1 抽出的协作对象）；
+'  端到端调用链（Dispatcher 到 Service 到 Event 到 History 到回包 到前端动画）
+'  另见 05_Sequence_工作台切换事件，两张刻意分开以避免重复。
+'  与旧版的差别：旧图把 Case 逻辑画在 WorkshopSwitchEvent 自己身上，
+'  且写"finally 恢复附加标记"；实际已抽出 ISwitchCase 并用 using var 作用域回收。
+' ============================================================
 autonumber
-actor User
-participant Frontend
-participant Server
-participant JarSystem
-participant SwitchEvent
-participant "Old Master" as Old
-participant "New Master" as New
+participant "调用方\n(MasterSwitchCoordinator)" as Caller
+participant "WorkshopSwitchEvent" as Evt
+participant "BanComparison" as Ban
+participant "ISwitchCase" as Case
+participant "SameBansCase\n(Case1)" as C1
+participant "DifferentBansCase\n(Case2)" as C2
+participant "旧主台 Workshop" as Old
+participant "新主台 Workshop" as New
+participant "ResourceTransferrer\n(+ JarValuePolicy)" as Xfer
+participant "SwitchOperationLog" as Log
 
-User -> Frontend: click SetMaster(newIdx)
-Frontend -> Server: WS setMaster {index}
-Server -> JarSystem: SetMaster(newIdx)
+Caller -> Evt: Execute()
+activate Evt
+Evt -> Old: CreateSnapshot()
+Evt -> New: CreateSnapshot()
+note right of Evt
+  两份快照是**原子回滚**的凭据：任一步抛异常就 RestoreFromSnapshot 还原两台。
+end note
 
-JarSystem -> JarSystem: 校验: old != new 且 old 有资源(罐子或液体)?
-alt 无资源 或 old == new
-  JarSystem -> JarSystem: CurrentMaster = newIdx (无切换事件)
-else 有资源
-  JarSystem -> SwitchEvent: new WorkshopSwitchEvent(old, new).Execute()
-  activate SwitchEvent
+Evt -> Ban: Same(oldMaster, newMaster)
+Ban --> Evt: 逐液体比较 IsBanned（用 Constants.LIQUIDS）
+Evt -> Evt: ResolveCase —— 相同则 SameBansCase，否则 DifferentBansCase
+note right of Evt
+  ⚠️ ISwitchCase.Applies(oldMaster, newMaster) 被声明也被实现了，
+  但**从未被调用** —— 选择逻辑在 ResolveCase 里用 BanComparison.Same 重写了一遍。
+  两个实现里唯一的调用点就是这个没被用到的成员。
+end note
+Evt -> Case: CaseType
+Case --> Evt: same_bans / different_bans
 
-  SwitchEvent -> SwitchEvent: 快照 old/new (CreateSnapshot)
-  SwitchEvent -> SwitchEvent: BansAreSame(old, new)
+Evt -> Case: Execute(oldMaster, newMaster, log)
 
-  alt Case 1: 禁令相同
-    loop 基础形状空罐存在
-      alt 有游离液体
-        SwitchEvent -> Old: PourIn(emptyBaseJar, freeLiquid)
-      else 无游离液体
-        SwitchEvent -> Old: PourOut(任意非基础形状满罐, 未禁液体)
-        SwitchEvent -> Old: PourIn(emptyJar, 倒出的液体)
-      end
-    end
-  else Case 2: 禁令不同
-    SwitchEvent -> Old: 临时附加新主台基础标记
-    loop 目标形状
-      SwitchEvent -> Old: ReshapeEmpty(空罐, target, cost)
-      SwitchEvent -> Old: ReshapeFull(满罐, target)
-    end
-    SwitchEvent -> Old: 恢复附加标记 (finally)
-    note right: 不再无条件清空游离液体\n可用液体在转移阶段按禁令/容量转移
-  end
-
-  loop 每个罐子
-    SwitchEvent -> Old: RemoveJar(jar)
-    alt New 有容量
-      SwitchEvent -> New: AddJar(jar)
-    else 容量满
-      SwitchEvent -> SwitchEvent: log discard jar
-    end
-  end
-
-  loop 每种液体
-    alt New 未禁且有容量
-      SwitchEvent -> New: AddLiquid(l, amt)
-    else
-      SwitchEvent -> SwitchEvent: log discard liquid
-    end
-  end
-
-  alt 执行成功
-    SwitchEvent --> JarSystem: (true, null)
-    deactivate SwitchEvent
-    JarSystem -> JarSystem: EventHistory.Add + CurrentMaster = newIdx
-    alt newIdx == 旧从台
-      JarSystem -> JarSystem: CurrentSlave = null (自动解除)
-    end
-  else 执行失败 (异常，内部已快照回滚)
-    SwitchEvent --> JarSystem: (false, error)
-    deactivate SwitchEvent
-    JarSystem -> JarSystem: CurrentMaster 不变 + 返回错误
-  end
+alt Case1 same_bans —— 禁令相同
+  C1 -> Old: 找基础形状的空罐
+  C1 -> Old: PourIn(空罐, 游离液体)
+  note right of C1
+    目的：让新主台收到**已装满的罐子**作为额外液体容量
+    （液体账目本身不带过去，所以灌进罐子里带走）。
+  end note
+else Case2 different_bans —— 禁令不同
+  C2 -> Old: WithTemporaryAdditionalMarks(New.BaseMarks)
+  note right of C2
+    旧台**临时**获得新台基础形状作为附加标记，
+    这样才能把罐子改形成新台认识的基础形状。
+    用 using var scope = … —— 作用域结束（**含异常**）自动回收，不留脏状态。
+    旧图写的"finally 恢复附加标记"已被这个作用域取代。
+  end note
+  C2 -> Old: 逐罐 ReshapeEmpty / ReshapeFull / PourOut
+  note right of C2: 一罐一操作仍然成立（每次操作都会标记罐子）
 end
 
-Server --> Frontend: workshopSwitched / error + state
-Frontend -> Frontend: animateWorkshopSwitch()
-Frontend -> User: visual update + log
+Evt -> Xfer: TransferAll(oldMaster, newMaster, log, caseType)
+activate Xfer
+Xfer -> Xfer: new JarValuePolicy(newMaster)
+Xfer -> Xfer: 按 ValueOf(jar) **升序**排序 —— 对新主台价值低的先转移
+note right of Xfer
+  JarValuePolicy.ValueOf：满罐 0 或 4；空罐 1 / 2 / 3（按形状与标记对新台的价值）。
+  升序 = 先把"最不值钱"的搬过去，等于尽量把值钱的留下… 见下方 note。
+end note
+
+loop 每个罐子
+  Xfer -> Old: RemoveJar(jar)
+  alt 新主台有罐位
+    Xfer -> New: AddJar(jar)
+  else 收不下
+    Xfer -> Log: Add("discard_jar", …)
+  end
+end
+note right of Xfer
+  **语义（不可改动）**
+  · 旧台资源一律**先移出**
+  · 新台收不下即**丢弃不回收**（仓库是单向流动）
+  · **禁液令不影响满罐转移**（满罐连罐带液整体过去，不做禁令检查）
+end note
+
+loop 每种液体
+  alt 新主台未禁且有液位
+    Xfer -> New: AddLiquid(liquid, amount)
+  else
+    Xfer -> Log: Add("discard_liquid", …)
+  end
+end
+deactivate Xfer
+
+alt 任一步抛异常
+  Evt -> Old: RestoreFromSnapshot
+  Evt -> New: RestoreFromSnapshot
+  Evt -> Log: Add("error", "切换事件失败，已回滚: " + message)
+  Evt --> Caller: (false, "切换事件失败: …")
+  note right of Evt: CaseType 若在异常前还没赋值，会保持空字符串
+else 成功
+  Evt --> Caller: (true, null)
+end
+deactivate Evt
+
+note over Log
+  切换日志的 action 取值（都是字面量）
+  pour_in / pour_out / reshape_empty / reshape_full
+  transfer_jar / discard_jar / transfer_liquid / discard_liquid
+  complete / error
+  SwitchOperationLog 只累积 SwitchLogEntry（Action + Description），
+  最终由 EventHistory 的 operations 键对外暴露。
+end note
 @enduml

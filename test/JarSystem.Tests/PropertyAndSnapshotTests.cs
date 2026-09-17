@@ -73,7 +73,7 @@ public class PropertyAndSnapshotTests
     /// 审批测试：把**内置世界的数据形态**（<see cref="WorldOptions.Default"/> 经 JSON 往返）钉成可读基线。
     ///
     /// 为什么选它而不是 `GetState()`：`state` 含时间戳等易变字段，而世界配置**没有易变字段** ⇒ 基线稳定、diff 一眼看懂。
-    /// 与 180 行文本快照互补：那份锁"对外状态的键与值"，这份锁"世界是怎么装配出来的"。
+    /// 与 223 行文本快照互补：那份锁"对外状态的键与值"，这份锁"世界是怎么装配出来的"。
     /// </summary>
     [Fact]
     public void DefaultWorldOptionsIsStable()

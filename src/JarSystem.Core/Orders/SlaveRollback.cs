@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.Orders;
@@ -20,17 +21,18 @@ internal sealed class SlaveRollback
 {
     /// <param name="master">主台（回滚资源的接收方）。</param>
     /// <param name="slave">从台（回滚来源）。</param>
-    /// <param name="transferredJarIds">本次订单实际转移过来的罐子 Id。</param>
-    /// <param name="slaveOriginalJarIds">订单开始时从台**原有**罐子的 Id（这些不参与回滚）。</param>
-    /// <param name="transferredLiquids">本次转移到从台的液体账目。</param>
-    /// <param name="log">执行日志（对外报告的数据源）。</param>
+    /// <param name="transferredJarIds">本次订单实际转移过来的罐子 Id（只读）。</param>
+    /// <param name="slaveOriginalJarIds">订单开始时从台**原有**罐子的 Id（这些不参与回滚，只读）。</param>
+    /// <param name="transferredLiquids">本次转移到从台的液体账目（只读）。</param>
+    /// <param name="appendLog">追加执行日志的出口（由 <see cref="OrderEvent"/> 提供）——
+    /// 日志本身不再对外可变，因此这里收回调而不是可变 List。</param>
     public void Execute(
         Workshop master,
         Workshop slave,
-        HashSet<int> transferredJarIds,
-        HashSet<int> slaveOriginalJarIds,
-        Dictionary<string, int> transferredLiquids,
-        List<ExecutionLogEntry> log)
+        IReadOnlyCollection<int> transferredJarIds,
+        IReadOnlyCollection<int> slaveOriginalJarIds,
+        IReadOnlyDictionary<string, int> transferredLiquids,
+        Action<ExecutionLogEntry> appendLog)
     {
         var slaveJars = new List<Jar>(slave.Jars);
 
@@ -47,7 +49,7 @@ internal sealed class SlaveRollback
                 // 不在此清空罐内液体（禁令只作用于倒入、游离存储与改形成本）。
                 if (!master.TransferIn(jar))
                 {
-                    log.Add(new ExecutionLogEntry
+                    appendLog(new ExecutionLogEntry
                     {
                         Phase = "rollback",
                         Command = "discard_jar",
@@ -70,7 +72,7 @@ internal sealed class SlaveRollback
                 int remainder = amount - accepted;
                 if (remainder > 0)
                 {
-                    log.Add(new ExecutionLogEntry
+                    appendLog(new ExecutionLogEntry
                     {
                         Phase = "rollback",
                         Command = "discard_liquid",

@@ -1,16 +1,48 @@
 @startuml
 title Jar System UML 索引
 
+' ============================================================
+'  2026-09-16 全部重写：本目录 10 张图逐张对 src/JarSystem.Core 当前代码核对后重写。
+'  核对方式 = 逐个类型读源码，不采用任何历史结论。
+'  历史遗留：旧版索引与 UML.txt 都写"8 张"，且文件名写成简写别名（全部与实际不符）。
+' ============================================================
+
 note as N1
-  独立 UML 文件列表 (每个文件可单独在 plantuml.com 渲染):
-  =============================================
-  02_ClassDiagram       类图: 全部核心类、属性、方法、关系
-  03_Sequence_orders    时序图: B类订单完整执行流程(可行性->主台->转移->从台->交付)
-  04_Sequence_switch    时序图: WorkshopSwitchEvent(快照回滚 + 资源转移)
-  05_State_orderLife    状态图: 待执行->执行中->成功/失败
-  06_State_jarOps       状态图: 空罐/满罐 x isMarked 六态
-  07_Component_layers   组件图: 系统分层架构
-  08_Activity_feasibility 活动图: CheckTypeB 精确划分搜索流程
+  **本目录共 10 张图**
+
+  |= 文件 |= 类型 |= 内容 |
+  | 01_索引.puml | 索引 | 本文件 |
+  | 02_ClassDiagram.puml | 类图 | Core 全部类型与其成员、契约键名、关系 |
+  | 03_Sequence_B类订单.puml | 时序图 | B 类订单端到端链路 |
+  | 04_Sequence_工作台切换.puml | 时序图 | 切换事件**内部**：Case1 / Case2 分支细节 |
+  | 04_Component_模块边界.puml | 组件图 | contract-first 模块边界 + 多宿主 |
+  | 05_State_订单生命周期.puml | 状态图 | 待执行 到 执行中 到 成功 / 失败 |
+  | 05_Sequence_工作台切换事件.puml | 时序图 | 切换事件**端到端**调用链 |
+  | 06_State_罐子操作.puml | 状态图 | 空罐 / 满罐 乘 未标记 / 已标记 |
+  | 07_Component_架构.puml | 组件图 | Core 包分层与依赖方向 |
+  | 08_Activity_B类可行性.puml | 活动图 | 可行性三级责任链 + 2^N 划分 + 未判定出口 |
 end note
 
+note as N2
+  **两处需要你知道的历史遗留**
+
+  **1. 编号有重复**：04_ 有两张、05_ 有两张（历史追加导致）。
+  索引只能靠全名区分。建议你手动重命名为
+  04a/04b 与 05a/05b（或顺延为 04/09 与 05/10）—— 自动化工具无改权限。
+
+  **2. 04_Sequence 与 05_Sequence 讲同一件事的两个层次**，刻意这样分开以免重复：
+  · 04_Sequence_工作台切换 = 事件**内部**的分支细节（Case1 / Case2 各做什么、S1 协作对象）
+  · 05_Sequence_工作台切换事件 = **端到端**链路（Dispatcher 到 Service 到 Event 到 History 到回包 到前端动画）
+  若你只想留一张，留 05_Sequence_工作台切换事件 即可。
+end note
+
+note as N3
+  **渲染方式**
+  · 在线：把单个文件内容贴到 plantuml.com
+  · 本地：VS Code 装 PlantUML 扩展直接预览
+
+  ⚠️ 本次重写**只保证与代码一致**，**渲染未经验证**
+  （本机无 Java / PlantUML，且当时连命令都无法执行）。
+  若某张图渲染报错，把报错行贴回来即可，我按报错修语法。
+end note
 @enduml

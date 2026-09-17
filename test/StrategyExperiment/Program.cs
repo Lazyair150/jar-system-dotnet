@@ -231,9 +231,9 @@ List<string> BanList(int code) => code switch
     var reqs = new List<Requirement>();
     int emptyCount = r.Next(1, nr + 1);
     for (int i = 0; i < emptyCount; i++)
-        reqs.Add(new Requirement { Shape = Constants.SHAPES[r.Next(Constants.SHAPES.Length)] });
+        reqs.Add(new Requirement { Shape = Constants.SHAPES[r.Next(Constants.SHAPES.Count)] });
     for (int i = emptyCount; i < nr; i++)
-        reqs.Add(new Requirement { Shape = Constants.SHAPES[r.Next(Constants.SHAPES.Length)], Liquid = Constants.LIQUIDS[r.Next(Constants.LIQUIDS.Length)] });
+        reqs.Add(new Requirement { Shape = Constants.SHAPES[r.Next(Constants.SHAPES.Count)], Liquid = Constants.LIQUIDS[r.Next(Constants.LIQUIDS.Count)] });
     return (reqs, r.Next(2) == 0 ? "A" : "B");
 }
 

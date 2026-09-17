@@ -14,7 +14,13 @@ namespace JarSystem.Core.Commands;
 public abstract class Command
 {
     public string Type { get; }
-    public Dictionary<string, object?> Params { get; }
+
+    // 私有字典 + 只读视图。原先直接交出 Dictionary，调用方能就地改命令参数；
+    // 而命令是"已执行并进入历史"的审计对象，参数必须构造后不再可变。
+    private readonly Dictionary<string, object?> _params;
+
+    /// <summary>命令参数（对外只读）。</summary>
+    public IReadOnlyDictionary<string, object?> Params => _params;
 
     /// <summary>是否已成功执行（决定 <see cref="Undo"/> 是否生效）。</summary>
     public bool Executed { get; protected set; }
@@ -28,7 +34,7 @@ public abstract class Command
     protected Command(string type, Dictionary<string, object?>? params_ = null)
     {
         Type = type;
-        Params = params_ ?? new();
+        _params = params_ ?? new();
         Executed = false;
         Result = null;
         Timestamp = null;
@@ -45,7 +51,7 @@ public abstract class Command
         return new()
         {
             ["type"] = Type,
-            ["params"] = Params,
+            ["params"] = _params,
             ["executed"] = Executed,
             ["result"] = Result,
             ["timestamp"] = Timestamp
@@ -53,9 +59,9 @@ public abstract class Command
     }
 }
 
-/// <summary>命令执行结果（成功与否 + 失败原因文案）。</summary>
+/// <summary>命令执行结果（成功与否 + 失败原因文案）。**init**：结果是一次调用的产物，构造后不得再改。</summary>
 public class CommandResult
 {
-    public bool Success { get; set; }
-    public string? Reason { get; set; }
+    public bool Success { get; init; }
+    public string? Reason { get; init; }
 }

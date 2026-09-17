@@ -9,13 +9,23 @@ namespace JarSystem.Core.Production;
 public class Producer
 {
     public string Name { get; }
-    public Dictionary<string, double> Rates { get; }
+
+    // 私有字典 + 只读视图。Rates 会经 producerStatus.producers[].rates 进入对外契约；
+    // 原先 external 拿到的是可变 Dictionary，能塞进"没有对应生产线"的垃圾键 ——
+    // UpdateRate 的第 2 条规则专门在防这件事，而公开可变字典让那道防线形同虚设。
+    private readonly Dictionary<string, double> _rates;
+
+    /// <summary>各形状的产出速率（对外只读）。</summary>
+    public IReadOnlyDictionary<string, double> Rates => _rates;
 
     public Producer(string name, Dictionary<string, double> rates)
     {
         Name = name;
-        Rates = new Dictionary<string, double>(rates);
+        _rates = new Dictionary<string, double>(rates);
     }
+
+    /// <summary>设置某形状的速率。仅供 <see cref="ProducerModule.UpdateRate"/> 调用 —— 规则住在那一层。</summary>
+    internal void SetRate(string shape, double rate) => _rates[shape] = rate;
 }
 
 public class ShapeProductionLine
@@ -23,8 +33,15 @@ public class ShapeProductionLine
     private readonly Vocabulary _vocabulary;
 
     public string Shape { get; }
-    public List<(string Name, double Rate)> Producers { get; } = new();
-    public double Accumulated { get; set; }
+
+    // 私有列表 + 只读视图（元素是值元组，因此只读视图就足够）。
+    private readonly List<(string Name, double Rate)> _producerList = new();
+
+    /// <summary>本线上参与产出的生产者及其速率（对外只读）。</summary>
+    public IReadOnlyList<(string Name, double Rate)> Producers => _producerList;
+
+    /// <summary>产出累加器（对外只读；只有本类的 <see cref="Tick"/> 会推进它）。</summary>
+    public double Accumulated { get; private set; }
 
     /// <param name="vocabulary">词表（S2）：本线产出的罐子按它校验形状；null 表示内置默认词表。</param>
     public ShapeProductionLine(string shape, Vocabulary? vocabulary = null)
@@ -36,17 +53,17 @@ public class ShapeProductionLine
     public void AddProducer(Producer p)
     {
         if (p.Rates.TryGetValue(Shape, out var rate))
-            Producers.Add((p.Name, rate));
+            _producerList.Add((p.Name, rate));
     }
 
     public void RemoveProducer(string name) =>
-        Producers.RemoveAll(p => p.Name == name);
+        _producerList.RemoveAll(p => p.Name == name);
 
     public void UpdateRate(string name, double rate)
     {
-        var idx = Producers.FindIndex(p => p.Name == name);
+        var idx = _producerList.FindIndex(p => p.Name == name);
         if (idx >= 0)
-            Producers[idx] = (name, rate);
+            _producerList[idx] = (name, rate);
     }
 
     public List<Jar> Tick()
@@ -145,7 +162,7 @@ public class ProducerModule
         if (double.IsNaN(rate) || double.IsInfinity(rate) || rate < 0 || rate > Constants.MAX_PRODUCER_RATE)
             throw new DomainValidationException($"速率必须是 0 到 {Constants.MAX_PRODUCER_RATE} 之间的有限数，收到: {rate}");
 
-        p.Rates[shape] = rate;
+        p.SetRate(shape, rate);
         _generators[shape].UpdateRate(name, rate);
     }
 

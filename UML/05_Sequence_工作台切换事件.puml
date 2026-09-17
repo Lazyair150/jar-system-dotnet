@@ -1,76 +1,81 @@
-@startuml 05_Sequence_工作台切换事件
+@startuml
 ' ============================================================
-'  工作台切换事件（SetMaster）时序 —— 依据实际代码：
-'    CommandDispatcher.case "setMaster"
-'      → WorkshopService.SetMaster
-'        → WorkshopSwitchEvent.Execute（快照 + ISwitchCase + ResourceTransferrer + 原子回滚）
-'        → EventHistory 追加 workshop_switch
-'      → 回包 workshopSwitched + state
-'      → 前端 animateWorkshopSwitch
-'  配套：重构报告/12_边界重审_核心与可分离模块.md（S1：SwitchCases / JarValuePolicy / ResourceTransferrer）
+'  工作台切换事件（setMaster）端到端时序
+'  2026-09-16 重写。两处更正：
+'   1 2026-09 抽出 MasterSwitchCoordinator，切换编排**已不在 WorkshopService**（旧图写错了）
+'   2 事件内部的分支细节（Case1/Case2、ResourceTransferrer、JarValuePolicy）另见
+'     04_Sequence_工作台切换，本图只画链路与对外契约
 ' ============================================================
-
 autonumber
 actor 玩家 as U
 participant "前端 app.js" as UI
 participant "CommandDispatcher" as Disp
-participant "WorkshopService" as WSvc
+participant "JarSystemService\n(串行闸门 Gate)" as Svc
+participant "JarSystem 门面" as Facade
+participant "MasterSwitchCoordinator" as Coord
 participant "WorkshopSwitchEvent" as Evt
-participant "ISwitchCase" as Case
-participant "ResourceTransferrer\n(+ JarValuePolicy)" as Xfer
+participant "ResourceTransferrer\n(+ ISwitchCase)" as Xfer
 participant "EventHistory\n(对外契约)" as Hist
 
 U -> UI: 点"设为主"(index)
 UI -> Disp: {type:"setMaster", data:{index}}
-Disp -> WSvc: SetMaster(index)
-WSvc -> WSvc: 越界校验（越界→{success:false, reason})
+Disp -> Svc: 进入串行闸门
+Svc -> Facade: SetMaster(index)
+Facade -> Coord: SetMaster(index)
+Coord -> Coord: 越界校验
+note right of Coord
+  越界直接返回 {success:false, reason}，不产生事件。
+  Face 在调用前会把 Now 刷成"本次意图的时间"（回放时不刷新）。
+end note
 
-alt 旧主台存在且有资源（罐子或液体）—— 切换不是免费的
-  WSvc -> Evt: Execute()
-  Evt -> Evt: 快照 OldMaster / NewMaster（备忘录）
-  Evt -> Case: ResolveCase（判据：**禁令是否相同**，不含标记）
-  note right
-    Case1 same_bans
-      · 旧台基础形状的空罐 ← 尽量灌入游离液体
-      · 目的：让新主台收到"已装满的罐子"作为额外液体容量
-    Case2 different_bans
-      · 旧台**临时**获得新台基础形状作为附加标记
-      · using var scope = WithTemporaryAdditionalMarks(...)
-        ⇒ 作用域结束（含异常）自动回收，不留脏状态
+alt 旧主台存在**且有资源**（罐子或液体）—— 切换不是免费的
+  Coord -> Evt: new WorkshopSwitchEvent(old, new).Execute()
+  activate Evt
+  Evt -> Evt: 快照两台 + ResolveCase + 分支执行 + ResourceTransferrer
+  note right of Evt
+    内部细节见 04_Sequence_工作台切换。
+    任一步抛异常 -> 两台快照回滚（切换**原子**）。
   end note
-  Case -> Case: 逐罐改形 / 倒液（一罐一操作仍成立）
-  Evt -> Xfer: TransferAll(old, new, log, caseType)
-  Xfer -> Xfer: 罐子按"对新主台的价值"升序转移；收不下 → 丢弃并记 discard_jar
-  Xfer -> Xfer: 液体按新主台禁令/容量转移或丢弃（discard_liquid）
-  note right
-    语义（不可改动）：旧台资源一律先移出；新台收不下即**丢弃不回收**
-    （仓库单向流动）；禁液令不影响满罐转移。
-  end note
+  Evt --> Coord: (success, error)
+  deactivate Evt
 
-  alt 任一步抛异常
-    Evt -> Evt: RestoreFromSnapshot(两台) —— 切换**原子**
-    Evt --> WSvc: (false, "切换事件失败: …")
-    WSvc --> Disp: {success:false, reason}
-  else 成功
-    Evt --> WSvc: (true, null)
-    WSvc -> Hist: 追加 workshop_switch\n{type, from, to, caseType, operations, timestamp}
+  alt 成功
+    Coord -> Hist: 追加 workshop_switch 记录
+    note right of Hist
+      键集合（对外契约）：
+      type = "workshop_switch" / from / to / caseType / operations / timestamp
+      eventHistory 定长 10 条，超出丢最旧。
+    end note
+  else 失败
+    Coord --> Facade: {success:false, reason:"切换事件失败: …"}
+    note right of Coord: CurrentMaster **不变**
   end
-
-else 旧主台无资源 / 未选主台
-  WSvc -> WSvc: 直接切换（不产生事件历史）
+else 旧主台无资源，或本来就没选主台
+  Coord -> Coord: 直接切换，**不产生事件历史**
 end
 
-WSvc -> WSvc: CurrentMaster = index
-WSvc -> WSvc: 若 CurrentSlave == index ⇒ 解除从台（slaveCleared = true）
-WSvc --> Disp: {success, switched, caseType, operations, slaveCleared?}
+Coord -> Coord: CurrentMaster = index
+Coord -> Coord: 若 CurrentSlave == index 则解除从台（slaveCleared = true）
+Coord --> Facade: {success, switched, caseType, operations, slaveCleared?, reason}
+Facade -> Svc: 回包
+Svc -> Disp: workshopSwitched + state
 Disp -> UI: {type:"workshopSwitched", data:{fromIndex, toIndex, caseType, operations}}
 Disp -> UI: {type:"state", data:…}
 UI -> UI: animateWorkshopSwitch
-note right
-  S4b-2（卡顿修复）：
-   · 动画期间**暂停** updateUI 整块重绘（否则卡片被 innerHTML 换掉、动画变"孤儿节点"）
-   · 圆点上限 8 个、动画时长封顶 1.5s（原实现按 operation 数线性开 setTimeout）
-   · 动画结束后补一次同步 updateUI
+note right of UI
+  **S4b-2（卡顿修复）**
+  · 动画期间**暂停**整块 updateUI 重绘（否则卡片被 innerHTML 换掉、动画变"孤儿节点"）
+  · 圆点上限 8 个、动画时长封顶 1.5 秒（原实现按 operation 数线性开 setTimeout）
+  · 动画结束后补一次同步 updateUI
 end note
 
+note over Coord
+  **返回键集合（对外契约，逐项来自源码）**
+  SetMaster: success / switched / caseType / operations / slaveCleared / reason
+  SetSlave:  success / reason
+
+  ⚠️ 旧版本图把这一步画成 WorkshopService.SetMaster —— 已过时。
+  现在 WorkshopService 只剩 CreateWorkshop / CreateRandomWorkshop /
+  UpdateWorkshopCapacity 三个成员（其类注释还写着 SetMaster/SetSlave，属过期注释）。
+end note
 @enduml

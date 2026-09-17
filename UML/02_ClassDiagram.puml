@@ -1,219 +1,590 @@
 @startuml
-!theme plain
-skinparam classFontSize 12
+title Jar System 核心类图（JarSystem.Core）
+' ============================================================
+'  2026-09-16 全量重写：逐个类型读源码核对，不采用任何历史结论。
+'  覆盖 Core 全部命名空间与类型；私有辅助成员从略（在 note 里点名）。
+'  契约键名用 (json: xxx) 标注 —— 括号里的就是对外 JSON 键，已按源码原样抄录。
+' ============================================================
+skinparam classAttributeIconSize 0
+skinparam classFontSize 11
+hide empty members
 
 package "Config" {
   class Constants {
-    {static} +SHAPES : String[]
-    {static} +LIQUIDS : String[]
-    {static} +DEFAULT_MAX_JARS : int = 20
-    {static} +DEFAULT_MAX_LIQUIDS : int = 30
-    {static} +WAREHOUSE_MAX_JARS : int = 200
-    {static} +WAREHOUSE_MAX_LIQUIDS : int = 200
+    {static} +SHAPES : IReadOnlyList 8 项
+    {static} +LIQUIDS : IReadOnlyList 2 项
+    {static} +DEFAULT_MAX_JARS = 20
+    {static} +DEFAULT_MAX_LIQUIDS = 30
+    {static} +WAREHOUSE_MAX_JARS = 200
+    {static} +WAREHOUSE_MAX_LIQUIDS = 200
+    {static} +MAX_ORDER_REQUIREMENTS = 10
+    {static} +MAX_PRODUCER_RATE = 100
+  }
+  class "Constants.OrderType" as CT_OrderType {
+    +A = "A"
+    +B = "B"
+  }
+  class "Constants.OrderStatus" as CT_OrderStatus {
+    +PENDING = "待执行"
+    +EXECUTING = "执行中"
+    +SUCCESS = "成功"
+    +FAILED = "失败"
+  }
+  class "Constants.OperationType" as CT_OpType {
+    +POUR_IN = "倒液"
+    +POUR_OUT = "倒出"
+    +RESHAPE_EMPTY = "改形(空罐)"
+    +RESHAPE_FULL = "改形(满罐)"
+    +TRANSFER = "转移"
+  }
+  class "Constants.OrderPhase" as CT_Phase {
+    +NONE = "none"
+    +MASTER = "master"
+    +SLAVE = "slave"
+  }
+  class "Constants.CheckMethod" as CT_CheckMethod {
+    +SINGLE_PHASE = "single_phase"
+    +SLAVE_ONLY = "slave_only"
+    +PARTITION = "partition"
+  }
+  class "Constants.SwitchCaseType" as CT_SwitchCase {
+    +SAME_BANS = "same_bans"
+    +DIFFERENT_BANS = "different_bans"
   }
 
-  class ShapeRules {
+  class ShapeRules <<static>> {
     {static} +GetPossibleTransforms(baseMarks, addMarks, shape) : List
   }
-
-  ' S2：形状/液体目录的唯一权威（默认 = 上面的常量）
-  class Vocabulary {
-    + Shapes : IReadOnlyList
-    + Liquids : IReadOnlyList
-    + IsValidShape(shape) : bool
-    + IsValidLiquid(liquid) : bool
-    {static} + Default : Vocabulary
+  class Rules <<static>> {
+    {static} +WORKSHOP_TEMPLATES : WorkshopTemplate 共 2 项
   }
-
-  ' S3：世界即数据（内容 + 参数），默认逐值等价于重构前的硬编码世界
+  class WorkshopTemplate {
+    +Name : string
+    +BaseMarks : IReadOnlyList
+    +AdditionalMarks : IReadOnlyList
+    +Ban : IReadOnlyList
+  }
+  class Vocabulary {
+    +Shapes : IReadOnlyList
+    +Liquids : IReadOnlyList
+    +IsValidShape(s) : bool
+    +IsValidLiquid(l) : bool
+    {static} +Default : Vocabulary
+  }
   class WorldOptions {
-    + Shapes / Liquids : List
-    + DefaultMaxJars / DefaultMaxLiquids : int
-    + Flow : FlowOptions
-    + InitialStock : Map
-    + Producers : List
-    + Workshops : List
-    + NamePools : NamePoolOptions
-    + BuildVocabulary() : Vocabulary
-    + Validate() : WorldValidationResult
-    {static} + Default : WorldOptions
+    +Shapes (json: shapes)
+    +Liquids (json: liquids)
+    +DefaultMaxJars (json: defaultMaxJars)
+    +DefaultMaxLiquids (json: defaultMaxLiquids)
+    +Flow (json: flow) : FlowOptions
+    +InitialStock (json: initialStock) : Map
+    +Producers (json: producers) : List
+    +Workshops (json: workshops) : List
+    +NamePools (json: namePools) : NamePoolOptions
+    +BuildVocabulary() : Vocabulary
+    +Validate() : WorldValidationResult
+    {static} +Default : WorldOptions
   }
   class FlowOptions {
-    + JarCount / LiquidAmount : int
-    + LiquidRate : Map
+    +JarCount (json: jarCount)
+    +LiquidAmount (json: liquidAmount)
+    +LiquidRate (json: liquidRate) : Map
   }
   class ProducerOptions {
-    + Name : String
-    + Rates : Map
+    +Name (json: name)
+    +Rates (json: rates) : Map
   }
   class WorkshopOptions {
-    + Name : String
-    + BaseMarks / AdditionalMarks / Ban : List
-    + MaxJars / MaxLiquids : int?
+    +Name (json: name)
+    +BaseMarks (json: baseMarks)
+    +AdditionalMarks (json: additionalMarks)
+    +Ban (json: ban)
+    +MaxJars (json: maxJars) : int?
+    +MaxLiquids (json: maxLiquids) : int?
   }
   class NamePoolOptions {
-    + Prefix / Suffix : List
+    +Prefix (json: prefix)
+    +Suffix (json: suffix)
   }
   class WorldValidationResult {
-    + Errors : List
-    + Warnings : List
-    + IsValid : bool
+    +Errors : List
+    +Warnings : List
+    +IsValid : bool
   }
-  class WorldOptionsJson {
+  class WorldOptionsJson <<static>> {
     {static} +FromJson(json) : WorldOptions
-    {static} +ToJson(world) : String
+    {static} +ToJson(world) : string
   }
 
-  WorkshopCapability ..> ShapeRules : delegates
-  WorldOptions ..> Vocabulary : BuildVocabulary()
+  Constants ..> CT_OrderType
+  Constants ..> CT_OrderStatus
+  Constants ..> CT_OpType
+  Constants ..> CT_Phase
+  Constants ..> CT_CheckMethod
+  Constants ..> CT_SwitchCase
+  Rules *-- WorkshopTemplate
   WorldOptions *-- FlowOptions
   WorldOptions *-- "0..*" ProducerOptions
   WorldOptions *-- "0..*" WorkshopOptions
   WorldOptions *-- NamePoolOptions
   WorldOptions ..> WorldValidationResult : Validate()
-  WorldOptionsJson ..> WorldOptions : 解析/导出（只处理字符串，不做 IO）
+  WorldOptions ..> Vocabulary : BuildVocabulary()
+  WorldOptions ..> Rules : Default 复用内置模板
+  WorldOptionsJson ..> WorldOptions
+  Vocabulary ..> Constants : Default 取自常量
 }
 
 package "Domain" {
   class Jar {
-    - Id : Integer?
-    - Shape : String
-    - Liquid : String?
-    - IsMarked : Boolean
-    {static} +NextId() : int
-    + IsEmpty() : Boolean
-    + IsFull() : Boolean
-    + GetDescription() : String
-    + Clone() : Jar
-    + Mark() : void
-    + ClearLiquid() : String?
-    + PourIn(liquid) : void
-    + Reshape(newShape) : void
+    +Id : int?  (internal set)
+    +Shape : string  (private set)
+    +Liquid : string?  (private set)
+    +IsMarked : bool  (private set)
+    +IsEmpty() : bool
+    +IsFull() : bool
+    +GetDescription() : string
+    ~Mark()
+    ~Unmark()
+    ~PourIn(liquid)
+    ~ClearLiquid() : string?
+    ~RestoreLiquid(liquid)
+    ~Reshape(newShape)
+    +DeepClone() : Jar
+    {static} +IsValidShape(shape) : bool
+    +IsValidShapeIn(shape) : bool
   }
-
   class Workshop {
-    - Name : String
-    - Capability : WorkshopCapability   ' S1：能力参数（标记/禁令）只有这一处存储
-    - MaxJars : int
-    - MaxLiquids : int
-    - Jars : List
-    - LiquidStorage : Map
-    - TemporaryAdditionalMarks : List  ' Case2 作用域内的运行时状态（不属于能力参数）
-    + BaseMarks / AdditionalMarks / Ban : IReadOnlyList  ' 只读委托视图（等价于 Capability.*）
-    + IsBanned(l) : bool
-    + IsBaseMarked(s) / IsAdditionalMarked(s) : bool
-    + HasJarCapacity() : bool
-    + AddJar(jar) : bool
-    + RemoveJar(jar) : Jar
-    + PourIn(jar, liquid) : Result
-    + PourOut(jar) : Result
-    + ReshapeEmpty(jar, to, cost) : Result
-    + ReshapeFull(jar, to) : Result
-    + CanTransform(from, to) : bool
-    + GetPossibleTransforms(shape) : List
-    ' S1：更换能力（换规则参数，不动罐子/液体；资源搬迁是 SetMaster 切换事件的职责）
-    + ReplaceCapability(capability) : void
-    + WithTemporaryAdditionalMarks(shapes) : IDisposable
-    + CreateSnapshot() : Snapshot
-    + RestoreFromSnapshot(s) : void
-    + TransferOut(jar) : Jar
-    + TransferIn(jar) : bool
+    +Name : string
+    +Capability : WorkshopCapability
+    +BaseMarks : IReadOnlyList
+    +AdditionalMarks : IReadOnlyList
+    +Ban : IReadOnlyList
+    +MaxJars : int  (private set)
+    +MaxLiquids : int  (private set)
+    +Jars : IReadOnlyList
+    +LiquidStorage : IReadOnlyDictionary
+    +ReplaceCapability(cap)
+    +WithTemporaryAdditionalMarks(shapes) : IDisposable
+    +IsBaseMarked(s) : bool
+    +IsAdditionalMarked(s) : bool
+    +IsBanned(l) : bool
+    +GetPossibleTransforms(s) : List
+    +CanTransform(from, to) : bool
+    +HasJarCapacity() : bool
+    +HasUsableLiquid(l) : bool
+    +AddLiquid(l, n) : bool
+    +RemoveLiquid(l, n) : bool
+    +TryReceiveLiquid(l, amt) : int
+    +DrainLiquid(l) : int
+    +ResizeJarCapacity(n) : int
+    +ResizeLiquidCapacity(n) : Map
+    +AddJar(j) : bool
+    +RemoveJar(j) : Jar?
+    +TransferOut(j) : Jar?
+    +TransferIn(j) : bool
+    +ClearMarks()
+    +PourIn(jar, liquid) : (bool, string?)
+    +PourOut(jar) : (bool, string?, string?)
+    +ReshapeEmpty(jar, to, cost) : (bool, string?)
+    +ReshapeFull(jar, to) : (bool, string?)
+    +CreateSnapshot() : WorkshopSnapshot
+    +RestoreFromSnapshot(snap)
+  }
+  class TemporaryMarksScope <<nested>> {
+    +Dispose()
+  }
+  class WorkshopCapability {
+    +BaseMarks : IReadOnlyList
+    +AdditionalMarks : IReadOnlyList
+    +Ban : IReadOnlyList
+    +IsBaseMarked(s) : bool
+    +IsAdditionalMarked(s) : bool
+    +IsBanned(liquid) : bool
+    +GetPossibleTransforms(shape, extraMarks) : List
+    +CanTransform(from, to, extraMarks) : bool
+  }
+  class WorkshopSnapshot {
+    +Name : string
+    +MaxJars : int
+    +MaxLiquids : int
+    +Capability : WorkshopCapability
+    +BaseMarks : IReadOnlyList
+    +AdditionalMarks : IReadOnlyList
+    +Ban : IReadOnlyList
+    +Jars : IReadOnlyList
+    +Liquids : IReadOnlyDictionary
+  }
+  class DomainValidationException {
+  }
+  class InvalidOperationException <<dotnet>> {
   }
 
-  ' S1：不可变能力参数 —— 配置 → 工作台 → 快照 → 求解器 共用同一份（零拷贝）
-  class WorkshopCapability {
-    + BaseMarks / AdditionalMarks / Ban : IReadOnlyList
-    + IsBaseMarked(s) / IsAdditionalMarked(s) : bool
-    + IsBanned(liquid) : bool
-    + GetPossibleTransforms(shape, extraAdditionalMarks) : List
-    + CanTransform(from, to, extraAdditionalMarks) : bool
-  }
-  Workshop *-- WorkshopCapability : holds
+  Workshop *-- "1" WorkshopCapability
+  Workshop o-- "0..*" Jar
+  Workshop ..> WorkshopSnapshot : CreateSnapshot / RestoreFromSnapshot
+  Workshop ..> TemporaryMarksScope : 创建
+  TemporaryMarksScope --> Workshop
+  WorkshopCapability ..> ShapeRules : delegates
+  WorkshopSnapshot *-- WorkshopCapability : 复用同一份
+  WorkshopSnapshot o-- "0..*" Jar
+  Workshop ..> IIdGenerator : AddJar 时分配 Id
+  Workshop ..> Vocabulary : 液体账目建键与键序
+  Jar ..> Vocabulary : 形状校验（随实例携带）
+  InvalidOperationException <|-- DomainValidationException
 }
 
 package "Orders" {
   class Order {
-    - Id : int
-    - Requirements : List
-    - Type : String
-    - Status : String
-    - FeasibilityResult : FRData
-    + IsSatisfiedBy(jars) : bool
-    - ValidateOrder() : void
+    +Id : int
+    +Requirements : IReadOnlyList
+    +Type : string
+    +Status : string  (private set)
+    +FeasibilityResult : FeasibilityResultData?  (private set)
+    +MarkSucceeded()
+    +MarkFailed()
+    +RecordFeasibility(result)
+    +IsSatisfiedBy(jars) : bool
   }
-
+  class Requirement {
+    +Shape : string  (init)
+    +Liquid : string?  (init)
+  }
+  class FeasibilityResultData {
+    +Feasible (json: feasible) : bool
+    +Undetermined (json: undetermined) : bool
+    +Blockage (json: blockage) : string?
+    +Reason (json: reason) : string?
+    +Timestamp (json: timestamp) : string?
+    +DirectCount (json: directCount) : int
+    +OperationCount (json: operationCount) : int
+    +SolverPath (json: solverPath) : List
+    +MasterPath (json: masterPath) : List
+    +CheckMethod (json: checkMethod) : string?
+    +TransferJarIds (json: transferJarIds) : List
+    +TransferLiquids (json: transferLiquids) : Map
+  }
+  class SolverStep {
+    +Step : int
+    +Requirement : Requirement?
+    +Operation : SolverOperation?
+    +Before : List
+    +After : List
+    +AfterLiquids : Map
+  }
+  class SolverOperation {
+    +Type : string?
+    +Description : string?
+    +JarIndex : int?
+    +TargetShape : string?
+    +TargetLiquid : string?
+    +CostLiquid : string?
+    +Consumed : Map
+    +FullReshape : bool
+  }
+  class JarState {
+    +Id : int?
+    +Shape : string
+    +Liquid : string?
+    +IsMarked : bool
+    +MasterOrigin : bool
+    {static} +From(jar) : JarState
+    {static} +Copy(src, masterOrigin) : JarState
+  }
   class OrderEvent {
-    - Order : Order
-    - Master : Workshop
-    - Slave : Workshop
-    - CurrentPhase : String
-    - TransferOccurred : bool
-    - ExecutionLog : List
-    + Warehouse : ProducerModule
-    + Start() : bool
-    + ExecuteCommand(cmd, ws) : Result
-    + AdvanceToSlavePhase() : Result
-    + Deliver() : Result
-    + Fail(reason) : Result
-    + RollbackSlaveToMaster() : void
+    +Order : Order
+    +Master : Workshop
+    +Slave : Workshop
+    +Status : string  (private set)
+    +MasterSnapshot : WorkshopSnapshot?  (private set)
+    +SlaveSnapshot : WorkshopSnapshot?  (private set)
+    +TransferOccurred : bool  (private set)
+    +CurrentPhase : string  (private set)
+    +ExecutionLog : IReadOnlyList
+    +Errors : IReadOnlyList
+    +DeliveredJars : IReadOnlyList
+    +TransferredJarIds : IReadOnlyCollection
+    +TransferredLiquids : IReadOnlyDictionary
+    +SlaveOriginalJarIds : IReadOnlyCollection
+    +Executor : CommandExecutor
+    ~AppendLog(entry)
+    ~AppendError(error)
+    +Start() : bool
+    +ExecuteCommand(cmd, ws) : CommandResult
+    +ExecuteBatch(cmds, ws) : (bool, int, string?)
+    +AdvanceToSlavePhase() : CommandResult
+    +RecordTransfer(jar)
+    +RecordLiquidTransfer(l, amt)
+    +CheckDelivery() : (bool, string)
+    +Deliver() : (bool, string?)
+    +Fail(reason) : (bool, string?)
+    +RollbackSlaveToMaster()
+    +GetReport() : Map
   }
-
-  ' 阶段 3-D：路径步骤由弱类型 Map 改为强类型 DTO（14 个 [JsonPropertyName] = 对外契约）
-  class SolverStepDto {
-    + Step : int
-    + Requirement / Operation / Type : String
-    + JarIndex / JarId : int?
-    + JarShape / JarLiquid : String
-    + TargetShape / TargetLiquid / CostLiquid / ReshapeMode : String
-    + Consumed : Map<String,int>
-    + JarsAfter : List<String>
+  class ExecutionLogEntry {
+    +Phase : string?
+    +Workshop : string?
+    +Command : string?
+    +Action : string?
+    +Description : string?
+    +Jar : string?
+    +Liquid : string?
+    +Amount : int?
+    +Reason : string?
   }
-
-  ' 批 P4-a：autoCheckResults 的元素（原先是 List<object> 里的匿名对象）
-  class AutoCheckResultDto {
-    + Index : int
-    + OrderId : int
-    + Result : FRData
+  class LogError {
+    +Phase : string?
+    +Command : string?
+    +Reason : string?
   }
-
-  class FeasibilityChecker {
-    - checks : IFeasibilityCheck[]
-    + Solver : ISolver
-    + Check(order, masterSnap, slaveSnap) : FRData
+  class SlaveRollback <<internal>> {
+    +Execute(master, slave, transferredJarIds, slaveOriginalJarIds, transferredLiquids, appendLog)
   }
-
   class WorkshopSwitchEvent {
-    - OldMaster : Workshop
-    - NewMaster : Workshop
-    - CaseType : String
-    - Operations : List
-    + Execute() : (bool, Error)
-    - ExecuteCase1() : void
-    - ExecuteCase2() : void
-    - TransferAll() : void
+    +OldMaster : Workshop
+    +NewMaster : Workshop
+    +CaseType : string
+    +Operations : IReadOnlyList
+    +Execute() : (bool, string?)
   }
+  class FeasibilityChecker {
+    +Solver : ISolver
+    +NodeBudget : int = 400000
+    +Check(order, masterSnap, slaveSnap) : FeasibilityResultData
+  }
+  class SolverStepDto {
+    +Step (json: step) : int
+    +Requirement (json: requirement) : string?
+    +Operation (json: operation) : string?
+    +Type (json: type) : string?
+    +JarIndex (json: jarIndex) : int?
+    +JarId (json: jarId) : int?
+    +JarShape (json: jarShape) : string?
+    +JarLiquid (json: jarLiquid) : string?
+    +TargetShape (json: targetShape) : string?
+    +TargetLiquid (json: targetLiquid) : string?
+    +CostLiquid (json: costLiquid) : string?
+    +ReshapeMode (json: reshapeMode) : string?
+    +Consumed (json: consumed) : Map
+    +JarsAfter (json: jarsAfter) : List
+  }
+  class AutoCheckResultDto {
+    +Index (json: index) : int
+    +OrderId (json: orderId) : int
+    +Result (json: result) : FeasibilityResultData?
+  }
+
+  Order *-- "0..*" Requirement
+  Order --> FeasibilityResultData
+  Order ..> JarMatcher : IsSatisfiedBy
+  FeasibilityResultData *-- "0..*" SolverStepDto : solverPath / masterPath
+  SolverStep --> SolverOperation
+  SolverStep --> "0..*" JarState
+  SolverStep --> Requirement
+  OrderEvent --> Order
+  OrderEvent --> "1" Workshop : master
+  OrderEvent --> "1" Workshop : slave
+  OrderEvent --> CommandExecutor : owns
+  OrderEvent *-- "0..*" ExecutionLogEntry
+  OrderEvent *-- "0..*" LogError
+  OrderEvent --> "0..*" Jar : DeliveredJars
+  OrderEvent ..> SlaveRollback : RollbackSlaveToMaster 一行委托
+  SlaveRollback --> Workshop
+  WorkshopSwitchEvent --> "2" Workshop
+  WorkshopSwitchEvent --> ISwitchCase
+  WorkshopSwitchEvent --> ResourceTransferrer
+  FeasibilityChecker --> IFeasibilityCheck
+  FeasibilityChecker --> ISolver
+  AutoCheckResultDto --> FeasibilityResultData
+}
+
+package "Orders.Feasibility" {
+  interface IFeasibilityCheck <<internal>> {
+    +Method : string
+    +TryCheck(ctx) : FeasibilityResultData?
+  }
+  class SinglePhaseCheck <<internal>> {
+    +Method = single_phase
+  }
+  class SlaveOnlyCheck <<internal>> {
+    +Method = slave_only
+  }
+  class PartitionCheck <<internal>> {
+    +Method = partition
+  }
+  class PartitionSearch {
+    +Search(req, lastBlockage, inconclusiveReason) : Outcome?
+  }
+  class PartitionSearchRequest {
+    +Requirements : List
+    +MasterInfo : WorkshopInfo
+    +SlaveInfo : WorkshopInfo
+    +MasterJars : List
+    +MasterLiquids : Map
+    +SlaveJars : List
+    +SlaveLiquids : Map
+  }
+  class PartitionSearchOutcome {
+    +MasterPath : List
+    +SlavePath : List
+    +TransferJarIds : List
+    +TransferLiquids : Map
+    +DirectCount : int
+    +OperationCount : int
+  }
+  class FeasibilityContext <<internal>> {
+    +Order : Order
+    +Master : WorkshopSnapshot
+    +Slave : WorkshopSnapshot
+    +Solver : ISolver
+    +Requirements : List
+    +MasterInfo : WorkshopInfo
+    +SlaveInfo : WorkshopInfo
+  }
+  class WorkshopInfoFactory <<internal>> {
+    {static} +From(snap) : WorkshopInfo
+  }
+  class FeasibilityResultFactory <<internal>> {
+    {static} +FromSolverResult(r, method) : FeasibilityResultData
+    {static} +FromPath(path, method) : FeasibilityResultData
+  }
+  class PathSummaryFormatter <<internal>> {
+    {static} +Summary(path) : List
+  }
+  class JarMatcher <<static>> {
+    {static} +Matches(jar, req) : bool
+    {static} +MatchAll(jars, reqs, matches) : int 数组
+  }
+  class LiquidRequirementCalculator <<static>> {
+    {static} +ComputeRequired(path, slaveLiquids) : Map
+  }
+  class RequirementOrdering <<static>> {
+    {static} +FullFirst(reqs) : List
+  }
+
+  SinglePhaseCheck ..|> IFeasibilityCheck
+  SlaveOnlyCheck ..|> IFeasibilityCheck
+  PartitionCheck ..|> IFeasibilityCheck
+  PartitionCheck --> PartitionSearch
+  PartitionSearch --> PartitionSearchRequest
+  PartitionSearch --> PartitionSearchOutcome
+  PartitionSearch --> ISolver
+  PartitionSearch ..> JarMatcher
+  PartitionSearch ..> LiquidRequirementCalculator
+  FeasibilityChecker --> FeasibilityContext
+  FeasibilityChecker --> FeasibilityResultFactory
+  FeasibilityContext ..> WorkshopInfoFactory
+  FeasibilityContext ..> RequirementOrdering
+  FeasibilityResultFactory --> FeasibilityResultData
+  FeasibilityResultFactory ..> PathSummaryFormatter
+  PathSummaryFormatter ..> SolverStepDto
+}
+
+package "Orders.Switching" {
+  class BanComparison <<internal>> {
+    {static} +Same(a, b) : bool
+  }
+  interface ISwitchCase <<internal>> {
+    +CaseType : string
+    +Applies(oldMaster, newMaster) : bool
+    +Execute(oldMaster, newMaster, log)
+  }
+  class SameBansCase <<internal>> {
+    +CaseType = same_bans
+  }
+  class DifferentBansCase <<internal>> {
+    +CaseType = different_bans
+  }
+  class ResourceTransferrer <<internal>> {
+    +TransferAll(oldMaster, newMaster, log, caseType)
+  }
+  class JarValuePolicy <<internal>> {
+    +ValueOf(jar) : int
+  }
+  class SwitchOperationLog <<internal>> {
+    +Entries : IReadOnlyList
+    +Add(action, description)
+    +Clear()
+  }
+  class SwitchLogEntry {
+    +Action : string
+    +Description : string
+  }
+
+  SameBansCase ..|> ISwitchCase
+  DifferentBansCase ..|> ISwitchCase
+  SameBansCase ..> BanComparison
+  DifferentBansCase ..> BanComparison
+  DifferentBansCase ..> Workshop : WithTemporaryAdditionalMarks
+  ResourceTransferrer --> JarValuePolicy
+  ResourceTransferrer ..> Workshop
+  ResourceTransferrer ..> SwitchOperationLog
+  SwitchOperationLog *-- "0..*" SwitchLogEntry
 }
 
 package "Solver" {
   class StateSpaceSolver {
-    - Stats : SolverStats
-    - BestPartialPath : List
-    + Solve(reqs, info, jars, liq) : SolverResult
-    - Bt(reqs, idx, state, path) : List
-    - GenOps(req, state) : List
-    - FullOps(shape, liquid, state, ops) : void
-    - EmptyOps(shape, state, ops) : void
-    - Apply(op, state) : bool
-    - Block(reqs, state) : String
+    +Stats : SolverStats
+    +BestPartialPath : List
+    +BudgetExceeded : bool
+    {static} +DefaultNodeBudget = 400000
+    +BeginCheck(nodeBudget)
+    +Solve(reqs, info, jars, liquids, transferBudget) : SolverResult
+  }
+  class SolverState <<internal>> {
+    +Jars : List
+    +Liquids : Map
+    +WorkshopInfo : WorkshopInfo
+    +TransferBudget : int
+    +TransferUsed : int
+    +Clone() : SolverState
+    +FindJarIndex(pred) : int
+    +LiquidCount(l) : int
+    +HasLiquid(l, a) : bool
+    +ConsumeLiquid(l, a) : bool
+    +AddLiquid(l, a)
+    +MarkJar(i)
+    +SetShape(i, s)
+    +SetLiquid(i, l)
+    +TakeLiquid(i) : string?
+    +IsEmpty(j) : bool
+    +IsBanned(l) : bool
+    +CanTransform(f, t) : bool
+    +AvailableCostLiquids(exclude) : List
+  }
+  class WorkshopInfo {
+    +Capability : WorkshopCapability
+    +MaxJars : int
+    +MaxLiquids : int
+    +GetPossibleTransforms(shape) : List
+  }
+  class SolverStats {
+    +NodesExplored : int
+    +SolutionsFound : int
+    +DeadEnds : int
+    +PourOuts : int
+    +MemoHits : int
+    +IsomorphicPruned : int
+  }
+  class SolverResult {
+    +Feasible : bool
+    +Path : List
+    +Blockage : string?
+    +Stats : SolverStats
+    +BudgetExceeded : bool
+    +FinalJars : List
+    +FinalLiquids : Map
   }
 
-  class WorkshopInfo {
-    - BaseMarks : List
-    - AdditionalMarks : List
-    - Ban : List
-    - MaxLiquids : int
-    + GetPossibleTransforms(shape) : List
-  }
+  StateSpaceSolver ..|> ISolver
+  StateSpaceSolver ..|> IWorkBudgetedSolver
+  StateSpaceSolver *-- SolverStats
+  StateSpaceSolver --> SolverResult
+  StateSpaceSolver ..> SolverState : 内部搜索态
+  SolverState --> WorkshopInfo
+  SolverState --> "0..*" JarState
+  SolverResult --> "0..*" SolverStep
+  SolverResult --> "0..*" JarState : FinalJars
+  WorkshopInfo *-- WorkshopCapability : 与域层同源
 }
 
 package "Executor" {
@@ -223,253 +594,518 @@ package "Executor" {
     RareShapeFirst
     Random
   }
-
   class OrderExecutor {
-    + SelectionStrategy : JarSelectionStrategy
-    + Execute(order, master, slave, event, path) : Result
-    - ExecuteTypeA() : Result
-    - ExecuteTypeB() : Result
-    - ExecuteViaSolverPath() : Result
+    +SelectionStrategy : JarSelectionStrategy
+    +Execute(order, master, slave, event, solverPath) : (bool, List, List, string?)
+  }
+  class SolverStepApplier <<internal>> {
+    +Apply(w, step, phase) : (bool, ExecutionLogEntry?, string?)
+  }
+  class GreedyPlanBuilder <<internal>> {
+    +ExecuteOn(w, reqs, loc, ev) : WorkshopStageResult
+  }
+  class JarSelector <<internal>> {
+    +Strategy : JarSelectionStrategy = FIFO
+    +Select(jars, predicate) : Jar?
+  }
+  class WorkshopStageResult <<internal>> {
+    +Ops : List
+    +Errs : List
   }
 
-  ' SolverPathAdapter 已于阶段 3-D 废弃并删除（其职责由 SolverStepDto 的强类型属性取代）
+  OrderExecutor --> SolverStepApplier
+  OrderExecutor --> GreedyPlanBuilder
+  OrderExecutor --> JarSelector
+  OrderExecutor ..> JarSelectionStrategy
+  OrderExecutor ..> OrderEvent
+  OrderExecutor ..> Order
+  GreedyPlanBuilder --> JarSelector
+  GreedyPlanBuilder ..> Workshop
+  GreedyPlanBuilder ..> OrderEvent
+  SolverStepApplier ..> SolverStepDto
+  SolverStepApplier ..> Workshop
+}
 
-  class SolverStepApplier {
-    + Apply(ws, step : SolverStepDto, phase) : Result
+package "Executor.Strategies" {
+  class FifoJarSelection <<internal>> {
+    +Name = "FIFO"
   }
-
-  class GreedyPlanBuilder {
-    + ExecuteOn(ws, reqs, loc, event) : WorkshopStageResult
-    - TryFull(req, ws, loc, event) : Result
-    - TryEmpty(req, ws, loc, event) : Result
+  class LifoJarSelection <<internal>> {
+    +Name = "LIFO"
   }
-
-  class JarSelector {
-    + Strategy : JarSelectionStrategy
-    + Select(jars, pred) : Jar
+  class RareShapeFirstJarSelection <<internal>> {
+    +Name = "RareShapeFirst"
   }
+  class RandomJarSelection <<internal>> {
+    +Name = "Random"
+  }
+  class FirstMatchJarSelection <<internal>> {
+    +Name = "FirstMatch"  (兜底)
+  }
+  FifoJarSelection ..|> IJarSelectionStrategy
+  LifoJarSelection ..|> IJarSelectionStrategy
+  RareShapeFirstJarSelection ..|> IJarSelectionStrategy
+  RandomJarSelection ..|> IJarSelectionStrategy
+  FirstMatchJarSelection ..|> IJarSelectionStrategy
+  JarSelector o-- "0..*" IJarSelectionStrategy
 }
 
 package "Commands" {
+  abstract class Command {
+    +Type : string
+    +Params : IReadOnlyDictionary
+    +Executed : bool
+    +Result : CommandResult?
+    +Timestamp : long?
+    +Execute(workshop, event) : CommandResult
+    +Undo(workshop, event) : CommandResult
+    +ToJson() : Map
+  }
+  class CommandResult {
+    +Success : bool
+    +Reason : string?
+  }
   class PourInCommand {
-    + Jar : Jar
-    + Liquid : String
+    +Jar : Jar
+    +Liquid : string
   }
   class ReshapeEmptyCommand {
-    + Jar : Jar
-    + TargetShape : String
-    + CostLiquid : String
-  }
-  class PourOutCommand {
-    + Jar : Jar
-    + Workshop : Workshop
+    +Jar : Jar
+    +TargetShape : string
+    +CostLiquid : string
+    +OriginalShape : string
   }
   class TransferCommand {
-    + Jar : Jar
-    + FromWS : Workshop
-    + ToWS : Workshop
+    +Jar : Jar
+    +From : Workshop
+    +To : Workshop
+  }
+  class PourOutCommand {
+    +Jar : Jar
+    +OwnerWorkshop : Workshop
+    +OriginalLiquid : string
   }
   class CommandExecutor {
-    + History : List
-    + Execute(cmd, ws, event) : CommandResult
-    + ExecuteBatch(cmds, ws, event) : (bool,int,Reason)
-    + Rollback(cmds, ws, event) : void
+    +History : IReadOnlyList
+    +Execute(cmd, ws, event) : CommandResult
+    +ExecuteBatch(cmds, ws, event) : (bool, int, string?)
+    +Rollback(cmds, ws, event)
+    +Clear()
+    +GetHistory() : List
   }
+
+  PourInCommand --|> Command
+  ReshapeEmptyCommand --|> Command
+  TransferCommand --|> Command
+  PourOutCommand --|> Command
+  Command --> CommandResult
+  CommandExecutor o-- "0..*" Command
+  CommandExecutor ..> ISystemLog
+  PourInCommand ..> Workshop
+  ReshapeEmptyCommand ..> Workshop
+  TransferCommand ..> Workshop
+  PourOutCommand ..> Workshop
 }
 
 package "Production" {
   class ProducerModule {
-    + Warehouse : List
-    + LiquidWarehouse : Map
-    + DiscardedJars : int
-    + DiscardedLiquids : Map
-    + Tick(count) : void
-    + ProduceLiquid(liquid, amount) : void
-    + FlowToMaster(ws, jarCount, liqAmount) : void
+    +Warehouse : Warehouse
+    +Generators : IReadOnlyDictionary
+    +Producers : IReadOnlyDictionary
+    +LiquidWarehouse : IReadOnlyDictionary  (兼容转发)
+    +RegisterProducer(name, rates) : Producer
+    +RemoveProducer(name)
+    +UpdateRate(name, shape, rate)
+    +Tick(count) : List
+  }
+  class Warehouse {
+    +Jars : IReadOnlyList
+    +LiquidWarehouse : IReadOnlyDictionary
+    +DiscardedLiquids : IReadOnlyDictionary
+    +JarCount : int
+    +DiscardedJars : int
+    +StoreJars(jars)
+    +ProduceLiquid(liquid, amount)
+    +CountDiscardedJars(count)
+    +CountDiscardedLiquids(liquid, count)
+    +LiquidCount(liquid) : int
+    +FlowToMaster(master, jarCount, liquidAmount) : (List, Map)
+  }
+  class Producer {
+    +Name : string
+    +Rates : IReadOnlyDictionary
+    ~SetRate(shape, rate)
+  }
+  class ShapeProductionLine {
+    +Shape : string
+    +Producers : IReadOnlyList
+    +Accumulated : double  (private set)
+    +AddProducer(p)
+    +RemoveProducer(name)
+    +UpdateRate(name, rate)
+    +Tick() : List
+    +GetTotalRate() : double
+  }
+
+  ProducerModule *-- Warehouse
+  ProducerModule *-- "0..*" Producer
+  ProducerModule *-- "0..*" ShapeProductionLine
+  ShapeProductionLine o-- "0..*" Producer
+  Warehouse ..> Workshop : FlowToMaster
+  Warehouse ..> Jar
+  ProducerModule ..> Vocabulary
+}
+
+package "Services" {
+  class StateSerializer <<internal>> {
+    {static} +Snapshot(system) : StateDto
+  }
+  class StateDto {
+    +Workshops (json: workshops) : List
+    +Orders (json: orders) : List
+    +Warehouse (json: warehouse) : WarehouseStateDto
+    +ProducerStatus (json: producerStatus) : ProducerStatusDto
+    +GlobalState (json: globalState) : GlobalStateDto
+    +EventHistory (json: eventHistory) : List
+  }
+  class WorkshopStateDto {
+    +Index (json: index) : int
+    +Name (json: name) : string
+    +BaseMarks (json: baseMarks)
+    +AdditionalMarks (json: additionalMarks)
+    +Ban (json: ban)
+    +MaxJars (json: maxJars) : int
+    +MaxLiquids (json: maxLiquids) : int
+    +Jars (json: jars) : List
+    +Liquids (json: liquids) : Map
+    +CanPourShapes (json: canPourShapes)
+    +IsMaster (json: isMaster) : bool
+    +IsSlave (json: isSlave) : bool
+  }
+  class JarStateDto {
+    +Id (json: id) : int?
+    +Shape (json: shape) : string
+    +Liquid (json: liquid) : string?
+    +IsMarked (json: isMarked) : bool
+    +Description (json: description) : string
+  }
+  class OrderStateDto {
+    +Index (json: index) : int
+    +Id (json: id) : int
+    +Type (json: type) : string
+    +Requirements (json: requirements) : List
+    +Status (json: status) : string
+    +FeasibilityResult (json: feasibilityResult) : FeasibilityResultData?
+    +Description (json: description) : string
+  }
+  class WarehouseStateDto {
+    +Jars (json: jars) : int
+    +Liquids (json: liquids) : Map
+    +DiscardedJars (json: discardedJars) : int
+    +DiscardedLiquids (json: discardedLiquids) : Map
+  }
+  class GlobalStateDto {
+    +AutoCheckEnabled (json: autoCheckEnabled) : bool
+    +CurrentMaster (json: currentMaster) : int?
+    +CurrentSlave (json: currentSlave) : int?
+    +MasterName (json: masterName) : string?
+    +SlaveName (json: slaveName) : string?
+  }
+  class ProducerStatusDto {
+    +Producers (json: producers) : List
+    +Generators (json: generators) : List
+    +Warehouse (json: warehouse) : ProducerWarehouseDto
+  }
+  class ProducerInfoDto {
+    +Name (json: name) : string
+    +Rates (json: rates) : Map
+  }
+  class GeneratorStatusDto {
+    +Shape (json: shape) : string
+    +Rate (json: rate) : double
+    +Accumulated (json: accumulated) : double
+    +Producers (json: producers) : int
+  }
+  class ProducerWarehouseDto {
+    +Jars (json: jars) : int
+    +Liquids (json: liquids) : Map
+  }
+  class WorldMetaDto {
+    +Shapes (json: shapes) : List
+    +Liquids (json: liquids) : List
+  }
+  class WorkshopService <<internal>> {
+    +CreateWorkshop(name, base, add, ban)
+    +CreateRandomWorkshop()
+    +UpdateWorkshopCapacity(index, maxJars, maxLiquids) : object?
+  }
+  class OrderService <<internal>> {
+    +CreateOrder(reqs, type) : (bool, string?)
+    +CreateRandomOrder() : (bool, string?)
+    +DeleteOrder(index) : object?
+    +CheckFeasibility(orderIndex) : FeasibilityResultData?
+    +CheckAllFeasibility() : List
+    +ExecuteOrder(orderIndex) : (bool, string?, Map, bool, List)
+  }
+  class ProductionService <<internal>> {
+    +Tick(count) : int
+    +UpdateProducerRate(name, shape, rate)
+    +UpdateLiquidProductionRate(liquid, rate)
+  }
+  class MasterSwitchCoordinator <<internal>> {
+    +SetMaster(index) : Map
+    +SetSlave(index) : Map
+  }
+  class SequentialIdGenerator {
+    +Next() : int
+  }
+  class DefaultIdGenerators <<static>> {
+    {static} +Jars : IIdGenerator
+    {static} +Orders : IIdGenerator
+  }
+  class ConsoleSystemLog {
+    {static} +Instance : ConsoleSystemLog
+    +Error(message, ex)
+    +Info(message)
+  }
+
+  StateSerializer --> StateDto
+  StateDto *-- "0..*" WorkshopStateDto
+  StateDto *-- "0..*" OrderStateDto
+  StateDto *-- WarehouseStateDto
+  StateDto *-- ProducerStatusDto
+  StateDto *-- GlobalStateDto
+  WorkshopStateDto *-- "0..*" JarStateDto
+  OrderStateDto --> FeasibilityResultData
+  ProducerStatusDto *-- "0..*" ProducerInfoDto
+  ProducerStatusDto *-- "0..*" GeneratorStatusDto
+  ProducerStatusDto *-- ProducerWarehouseDto
+  StateSerializer ..> ProducerModule
+  OrderService ..> AutoCheckResultDto
+  OrderService ..> FeasibilityChecker
+  OrderService ..> OrderExecutor
+  OrderService ..> OrderEvent
+  WorkshopService ..> WorkshopSwitchEvent
+  MasterSwitchCoordinator ..> WorkshopSwitchEvent
+  ProductionService ..> ProducerModule
+  WorkshopService ..> JarSystem
+  OrderService ..> JarSystem
+  ProductionService ..> JarSystem
+  MasterSwitchCoordinator ..> JarSystem
+  SequentialIdGenerator ..|> IIdGenerator
+  DefaultIdGenerators o-- "2" SequentialIdGenerator
+  ConsoleSystemLog ..|> ISystemLog
+}
+
+package "Sessions" {
+  class WorldCommand {
+    +Seq (json: seq) : int
+    +Op (json: op) : string
+    +Time (json: time) : string?
+    +Name (json: name) : string?
+    +OrderType (json: orderType) : string?
+    +Requirements (json: requirements) : List
+    +BaseMarks (json: baseMarks)
+    +AdditionalMarks (json: additionalMarks)
+    +Ban (json: ban)
+    +Workshop (json: workshop) : WorkshopPayload?
+    +IntA (json: intA) : int?
+    +IntB (json: intB) : int?
+    +IntC (json: intC) : int?
+    +DoubleA (json: doubleA) : double?
+    +Flag (json: flag) : bool?
+  }
+  class WorkshopPayload {
+    +Name (json: name)
+    +BaseMarks (json: baseMarks)
+    +AdditionalMarks (json: additionalMarks)
+    +Ban (json: ban)
+    +MaxJars (json: maxJars) : int
+    +MaxLiquids (json: maxLiquids) : int
+  }
+  class WorldOps <<static>> {
+    +Op 常量 共 25 个
+    +addWorkshop / createWorkshop / createRandomWorkshop
+    +updateWorkshopCapacity / setMaster / setSlave
+    +createOrder / createRandomOrder / deleteOrder / executeOrder
+    +checkFeasibility / checkAllFeasibility / tick / reset
+  }
+  class SessionReplay <<static>> {
+    {static} +Into(target, commands) : int
+  }
+  class WorldCommandJson <<static>> {
+    {static} +ToJson(commands) : string
+    {static} +FromJson(json) : List
+  }
+
+  WorldCommand *-- WorkshopPayload
+  WorldCommand ..> Requirement
+  SessionReplay ..> WorldCommand
+  SessionReplay ..> JarSystem : 只调用公开意图方法（无后门）
+  WorldCommandJson ..> WorldCommand
+  WorldOps ..> WorldCommand
+}
+
+package "Bootstrap" {
+  class SystemBootstrapper <<static>> {
+    {static} +Apply(world, vocabulary, producers, workshops, jarIds)
+  }
+  SystemBootstrapper ..> WorldOptions
+  SystemBootstrapper ..> ProducerModule
+  SystemBootstrapper ..> Workshop
+  SystemBootstrapper ..> Vocabulary
+}
+
+package "Abstractions" {
+  interface ISolver {
+    +Solve(reqs, info, jars, liquids, transferBudget) : SolverResult
+  }
+  interface IWorkBudgetedSolver {
+    +BeginCheck(nodeBudget)
+    +BudgetExceeded : bool
+  }
+  interface IIdGenerator {
+    +Next() : int
+  }
+  interface IJarSelectionStrategy {
+    +Name : string
+    +Select(jars, candidates) : Jar?
+  }
+  interface ISystemLog {
+    +Error(message, ex)
+    +Info(message)
   }
 }
 
 class JarSystem {
-  + Workshops : IReadOnlyList
-  + Orders : IReadOnlyList
-  + ProducerModule : ProducerModule
-  + CurrentMaster : Integer?
-  + CurrentSlave : Integer?
-  + AutoCheckEnabled : bool
-  + EventHistory : IReadOnlyList
-  + Log : ISystemLog
-  + Rng : Random  ' internal（批 T4：整条随机链共用，可复现）
-  + AddWorkshop(ws) : void
-  + ClearWorkshops() : void
-  + AddOrder(o) : void
-  + ClearOrders() : void
-  + SetMasterIndex(i) : void
-  + SetSlaveIndex(i) : void
-  + ResetProducerModule() : void
-  + SetLiquidProductionRate(l, r) : void
-  + SetFlowSettings(j, l) : void
-  + CreateWorkshop(name, base, add, ban) : void
-  + CreateOrder(reqs, type) : Result
-  + SetMaster(index) : Dictionary
-  + SetSlave(index) : Dictionary
-  + CheckFeasibility(orderIndex) : FRData
-  + ExecuteOrder(orderIndex) : Result
-  + Tick(count) : int
-  + UpdateWorkshopCapacity(index, jars, liq) : Object
-  + GetState() : StateDto
-  + Reset() : void
+  +CommandLog : IReadOnlyList
+  +RandomSeed : int?
+  +JarIds : IIdGenerator
+  +OrderIds : IIdGenerator
+  +Workshops : IReadOnlyList
+  +Orders : IReadOnlyList
+  +EventHistory : IReadOnlyList
+  +LiquidProductionRate : IReadOnlyDictionary
+  +ProducerModule : ProducerModule
+  +Checker : FeasibilityChecker
+  +Executor : OrderExecutor
+  +CurrentEvent : OrderEvent?
+  +CurrentMaster : int?
+  +CurrentSlave : int?
+  +FlowSettings : (int, int)
+  +AutoCheckEnabled : bool
+  +Log : ISystemLog
+  +Vocabulary : Vocabulary
+  +World : WorldOptions
+  +JarSystem(log, randomSeed, vocabulary, world, solver, jarIds, orderIds)
+  +GetState() : StateDto
+  +WorldMeta() : WorldMetaDto
+  +AddWorkshop(ws)
+  +ClearWorkshops()
+  +AddOrder(o)
+  +ClearOrders()
+  +SetMasterIndex(index)
+  +SetSlaveIndex(index)
+  +ResetProducerModule()
+  +SetLiquidProductionRate(l, r)
+  +SetFlowSettings(jars, liquids)
+  +SetMaster(index) : Map
+  +SetSlave(index) : Map
+  +CreateWorkshop(name, base, add, ban)
+  +CreateRandomWorkshop()
+  +UpdateWorkshopCapacity(index, jars, liquids) : object?
+  +CreateOrder(reqs, type) : (bool, string?)
+  +CreateRandomOrder() : (bool, string?)
+  +DeleteOrder(index) : object?
+  +CheckFeasibility(orderIndex) : FeasibilityResultData?
+  +CheckAllFeasibility() : List
+  +ExecuteOrder(orderIndex) : (bool, string?, Map, bool, List)
+  +Tick(count) : int
+  +UpdateProducerRate(name, shape, rate)
+  +UpdateLiquidProductionRate(liquid, rate)
+  +SetAutoCheck(enabled)
+  +Reset()
 }
 
-JarSystem --> "1" ProducerModule
-JarSystem --> "1" FeasibilityChecker
-JarSystem --> "1" OrderExecutor
-JarSystem --> "*" Workshop
-JarSystem --> "*" Order
-JarSystem ..> WorkshopSwitchEvent : creates
-
-FeasibilityChecker --> "1" StateSpaceSolver : ISolver
-Order --> FeasibilityResultData
-FeasibilityResultData *-- SolverStepDto : solverPath / masterPath
-OrderEvent --> Order
-OrderEvent --> Workshop
-OrderEvent --> CommandExecutor : owns
-OrderExecutor --> JarSelector : strategy
-JarSelector ..> JarSelectionStrategy : maps
-OrderExecutor --> SolverStepApplier
-OrderExecutor --> GreedyPlanBuilder
-GreedyPlanBuilder --> JarSelector
-SolverStepApplier ..> SolverStepDto : 直接读强类型属性
-Workshop --> "*" Jar
-
-Workshop ..> ShapeRules : delegates
-WorkshopInfo ..> ShapeRules : delegates
-
-' ============================================================
-' 2026-08 重构新增：接口（Abstractions）与服务（Services）
-' 说明：本块为阶段 1-3 重构引入的接口与协作者，便于对照实现类。
-' ============================================================
-package "Abstractions（接口：依赖倒置）" {
-  interface ISolver
-  interface IIdGenerator
-  interface IJarSelectionStrategy
-  interface ISystemLog
-  interface IWebSocketSink
-}
-
-package "Services（门面用例）" {
-  class WorkshopService
-  class OrderService
-  class ProductionService
-  class StateSerializer
-  class StateDto
-  class ConsoleSystemLog {
-    + Error(message, ex) : void
-    + Info(message) : void
-  }
-
-  ' 批 P4-a：producerStatus 由 Dictionary<string,object> 投影为强类型（前端 canvas.js/app.js 消费）
-  class ProducerStatusDto {
-    + Producers : List<ProducerInfoDto>
-    + Generators : List<GeneratorStatusDto>
-    + Warehouse : ProducerWarehouseDto
-  }
-  class ProducerInfoDto {
-    + Name : String
-    + Rates : Map<String,double>
-  }
-  class GeneratorStatusDto {
-    + Shape : String
-    + Rate / Accumulated : double
-    + Producers : int
-  }
-  class ProducerWarehouseDto {
-    + Jars : int
-    + Liquids : Map<String,int>
-  }
-}
-
-package "Feasibility（可行性内部协作）" {
-  interface IFeasibilityCheck
-  class SinglePhaseCheck
-  class SlaveOnlyCheck
-  class PartitionCheck
-  class PartitionSearch
-  class FeasibilityContext
-  class FeasibilityResultFactory
-  class PathSummaryFormatter
-}
-
-package "Switching（切换事件内部协作）" {
-  interface ISwitchCase
-  class SameBansCase
-  class DifferentBansCase
-  class JarValuePolicy
-  class ResourceTransferrer
-  class SwitchOperationLog
-}
-
-FeasibilityChecker --> IFeasibilityCheck : chain
-SinglePhaseCheck ..|> IFeasibilityCheck
-SlaveOnlyCheck ..|> IFeasibilityCheck
-PartitionCheck ..|> IFeasibilityCheck
-PartitionCheck --> PartitionSearch
-FeasibilityChecker --> FeasibilityContext
-FeasibilityChecker --> FeasibilityResultFactory
-FeasibilityResultFactory --> PathSummaryFormatter
-PathSummaryFormatter ..> SolverStepDto : 产出（阶段 3-D）
-PartitionSearch --> ISolver
-StateSpaceSolver ..|> ISolver
-WorkshopSwitchEvent --> ISwitchCase : selects
-SameBansCase ..|> ISwitchCase
-DifferentBansCase ..|> ISwitchCase
-WorkshopSwitchEvent --> ResourceTransferrer
-ResourceTransferrer --> JarValuePolicy
-Workshop ..> IIdGenerator : ids
-Order ..> IIdGenerator : ids
-OrderExecutor ..> IJarSelectionStrategy : uses
 JarSystem --> WorkshopService
 JarSystem --> OrderService
 JarSystem --> ProductionService
-JarSystem --> StateSerializer
-StateSerializer --> StateDto : projects
-ConsoleSystemLog ..|> ISystemLog
-JarSystem --> ISystemLog : Log（批 A 接线）
-CommandExecutor ..> ISystemLog : 回滚失败留痕
-
-' ---- 批 P4-a：命令/消息契约强类型化 ----
-StateDto *-- ProducerStatusDto : producerStatus
-ProducerStatusDto *-- "0..*" ProducerInfoDto : producers
-ProducerStatusDto *-- "0..*" GeneratorStatusDto : generators
-ProducerStatusDto *-- ProducerWarehouseDto : warehouse
-OrderService ..> AutoCheckResultDto : CheckAllFeasibility()
-AutoCheckResultDto --> FeasibilityResultData : result
-FeasibilityResultData *-- "0..*" SolverStepDto : solverPath / masterPath
-FeasibilityResultData --> "0..*" DirectMatch : directSatisfactions
-FeasibilityResultData --> "0..*" OperationNeed : operationsNeeded
-
-' 批 T4：随机源注入（随机策略/随机订单/随机工作台共用同一条可复现链）
-JarSystem ..> OrderExecutor : new OrderExecutor(Rng)
-OrderExecutor ..> JarSelector : new JarSelector(rng)
-JarSelector ..> RandomJarSelection : injects Random
-
-' ---- S1：能力参数只有一份（配置 → 工作台 → 快照 → 求解器 零拷贝）----
-WorkshopSnapshot *-- WorkshopCapability : holds
-WorkshopInfo --> WorkshopCapability : reuses（求解器与领域层同源）
-WorkshopInfoFactory ..> WorkshopInfo : From(snapshot)
-FeasibilityResultData ..> SolverStepDto
-
-' ---- S2：词表（形状/液体目录的唯一权威）----
-Jar ..> Vocabulary : 形状校验（构造/改形，随实例携带）
-Workshop ..> Vocabulary : 液体账目建键与键序
-ProducerModule ..> Vocabulary : 生产线建立 / Tick 遍历 / 罐子创建
-Order ..> Vocabulary : 需求校验
+JarSystem --> MasterSwitchCoordinator
+JarSystem *-- "0..*" Workshop
+JarSystem *-- "0..*" Order
+JarSystem o-- ProducerModule
+JarSystem --> FeasibilityChecker
+JarSystem --> Executor
+JarSystem --> "0..*" WorldCommand : CommandLog
+JarSystem --> ISystemLog : Log
 JarSystem --> Vocabulary
+JarSystem --> WorldOptions : World
+JarSystem ..> StateSerializer : GetState
+JarSystem ..> SystemBootstrapper : InitializeDefault
+JarSystem ..> SessionReplay
+JarSystem ..> OrderEvent : CurrentEvent
+JarSystem ..> FeasibilityResultData
 
-' ---- S3：世界即数据（默认 = 重构前的硬编码世界）----
-JarSystem --> WorldOptions : World（流入/速率/装配都来自它）
-SystemBootstrapper ..> WorldOptions : 按配置装配世界
-SystemBootstrapper ..> Vocabulary : 传入词表
-WorldOptions ..> Rules : Default 复用内置模板
-WorldOptionsJson ..> WorldOptions : 宿主负责读写文件（核心只做字符串解析）
+note as NJarSystem
+  **构造：7 个可注入参数（全部可选）**
+  log, randomSeed, vocabulary, world, solver, jarIds, orderIds
+  · solver 注入点 = 第 14 项开的"换算法"缝，S21 用替身求解器验证贯通
+  · GetState() 与 WorldMeta() 是**只读查询**，不写命令日志
+  · 其余公开方法都是**意图方法**，每次调用写 **1 条**命令日志
+    （靠内部 *Core 变体避免嵌套记录）
+end note
 
+note as NFeasibilityResult
+  **12 键；state 与消息共用同一个类型**（2026-09 契约统一）
+  已删除：path / stats（恒 null 无人读写）、
+  directSatisfactions / operationsNeeded（前端只用 length，
+  等价于 directCount / operationCount），以及支撑类型
+  DirectMatch / OperationNeed / OperationPlan。
+  undetermined = 未判定，不是不可行；此时前端仍允许执行。
+end note
+
+note as NSolverSearch
+  **搜索三件套（2026-09）**
+  1 失败状态记忆化：键 = 需求下标 + 转移预算/已用 + 罐子描述符多重集（排序）
+    + 液体账目（排序）。**不含罐子 Id，也不含规则指纹**。每次 Solve 清空。
+  2 同构剪枝：候选按 Descriptor 去重（POUR_OUT / 空罐改形 / 满罐改形 三处）。
+  3 节点预算：默认 40 万；Bt 第一行把剩余节点数减一，减到 0 即判耗尽，置 BudgetExceeded。
+  预算检查在记忆化查询**之前** ⇒ 一次记忆命中也会消耗一个节点。
+end note
+
+note as NOrderEvent
+  只有 RollbackSlaveToMaster 是一行委托到 SlaveRollback（2026-09 抽出）。
+  Deliver() 在 B 类时调用它；Fail() 无条件调用它。
+end note
+
+note as NAbstractions
+  **命名空间依赖（真实存在，值得注意）**
+  · Domain.Workshop 用 Services.DefaultIdGenerators ⇒ **Domain 依赖 Services**（向上依赖）
+  · Abstractions.ISolver 引用 Solver.SolverResult/WorkshopInfo 与 Orders.Requirement/JarState
+    ⇒ Abstractions 与 Solver/Orders 互相引用（同程序集内成环）
+  · Solver 引用 Orders.Requirement/SolverStep，Orders.Feasibility 又引用 ISolver ⇒ 同上
+  · Core **零外部依赖**：只用 .NET 基类库 + System.Text.Json
+end note
+
+note as NVisibilityLegend
+  **可见性 / 可变性记号（2026-09-16 封装收口后新增）**
+  · + = public。注意：**对属性而言"可见"不等于"可写"** —— 真正的写入级别看后面的括号标注。
+  · ~ = **internal**（仅本程序集可见）。罐子的 6 个状态变更方法
+    （Mark / Unmark / PourIn / ClearLiquid / RestoreLiquid / Reshape）、
+    事件日志的 AppendLog / AppendError、Producer.SetRate 都是这一类：
+    状态只能由本程序集内的规则路径改动。
+  · (private set) / (internal set) = 只有 getter 对外，写入点在本类（或本程序集）内。
+  · (init) = 只能经对象初始化器赋值，**构造后不可变**。
+    适用范围：Requirement 全字段；FeasibilityResultData 除 timestamp 外全部
+    （timestamp 由 internal SetTimestamp 写）；CommandResult / ExecutionLogEntry /
+    LogError / SwitchLogEntry。
+  · IReadOnlyList / IReadOnlyDictionary / IReadOnlyCollection = 对外只读视图
+    （类内是私有容器；元素类型再是 (init) 时，整条链路都无法被外部改写）。
+
+  **这套记号对应的收口范围**（一次性 15 类）：
+  域实体（Jar / Workshop / Order / OrderEvent / Producer / Warehouse /
+  CommandExecutor / Command）不再对外暴露可变内部；
+  DTO 与配置模型（WorldOptions / *Dto / SolverStep / JarState / SolverResult）
+  按 ISolver 扩展契约与 JSON 契约的需要保持可写。
+end note
 @enduml

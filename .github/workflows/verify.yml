@@ -6,13 +6,16 @@
 #   - 运行环境用 windows-latest（与开发机一致：cmd + GBK 控制台 + 中文路径都已验证可用）。
 #   - 若 .NET 10 在目标 runner 上仍是预览版，把 dotnet-quality 打开；本项目本地已在 net10.0 上全量验证通过。
 #
-# 当前的检查内容（全部来自 verify.bat 的 6 步）：
+# 当前的检查内容（全部来自 verify.bat 的 9 步）：
 #   1) dotnet build（0 错误）
-#   2) JarSystem.Test  → 0 bugs / 2000 random + 0 bugs / 3000 capacity + 20 deterministic
+#   2) JarSystem.Test  → 0 bugs / 2000 random + 0 bugs / 3000 capacity + 21 deterministic
 #   3) StrategyExperiment
 #   4) 契约快照（与基线逐字节一致）
-#   5) 契约 JSON Schema（9 类型，total loose=1）
+#   5) 契约 JSON Schema（10 类型，total loose=1）+ 前端类型 contract.d.ts（degraded 必须为 0）
 #   6) 从 config/world.json 装配的世界 == 内置世界（CONFIG-WORLD-MATCH）
+#   7) 协议守卫（命令名/消息名/载荷键/回包载荷键 + 脚本纯 ASCII）
+#   8) 求解器差分门（生产求解器 vs 独立参考实现，must be SOLVER-OK）
+#   9) 会话回放门（命令日志重放进全新系统，须逐字节一致）
 
 name: verify
 

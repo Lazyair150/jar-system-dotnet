@@ -1,110 +1,160 @@
-@startuml 04_Component_模块边界
+@startuml
+title 模块边界（contract-first）
 ' ============================================================
-'  模块边界图（contract-first）
-'  目的：把"系统中心"从 JarSystem 门面，改为"核心 + 契约产物 + 多宿主/多客户端"。
-'  依据：重构报告/10_模块边界与规范化升级路线.md（决策与出处）
-'  实线 = 已存在；虚线 = 规划中/未落地（见 10_*.md 的 P0–P6）
+'  2026-09-16 重写（第 2 版：改为**完全扁平**结构）
+'  上一版用了「嵌套组件」与「方括号别名」两种写法，本版已全部去掉。
+'  已全部去掉。现在只用：package / component / artifact / actor / cloud / 箭头 / note ... of 别名。
 ' ============================================================
-
-skinparam componentStyle rectangle
 skinparam shadowing false
 left to right direction
 
 actor "用户" as User
 
-package "陶罐系统（本仓库）" {
+package "JarSystem.Core 零外部依赖（只用 .NET BCL + System.Text.Json）" {
 
-  component "JarSystem.Core\n（零外部依赖）" as Core {
-    [Domain\nJar / Workshop / Order] as Domain
-    [Solver\nStateSpaceSolver\n(DFS + 2^N 划分)] as Solver
-    [Feasibility\n责任链 + PartitionSearch] as Feas
-    [Executor\nOrderExecutor + 策略] as Exec
-    [Services\n门面用例 + HTTP无关序列化] as Svc
-    Domain --> Solver
-    Feas --> Solver
-    Exec --> Domain
-    Svc --> Feas
-  }
-
-  artifact "contracts/\nstate.schema.json\n（9 类型 / JsonSchemaExporter 生成）" as Schema
-  artifact "_contract/state_keys.txt\n（165 行文本基线，含路径键）" as Snapshot
-
-  component "Web 宿主\n（ASP.NET Core minimal API\n+ 裸 WebSocket）" as Web
-  component "CLI / 实验宿主\nStrategyExperiment" as Cli
-  component "Godot 宿主\n（规划：直接引用 Core 程序集）" as Godot
-
-  component "浏览器客户端\n原生 JS（现）→ Vite + TS（P4-c）" as Browser
-  component "Godot 客户端\n（规划）" as GClient
-
-  component "验证模块" as Test {
-    [JarSystem.Test\n自定义 runner\n2000+3000+20] as T1
-    [契约快照 + Schema 导出] as T2
-    [xUnit v3 + FsCheck + Verify\n（P2/P3，规划）] as T3
-  }
-
-  artifact "config/world.json\n（S3b 已落地：形状/液体/容量/流入/\n生产者/库存/工作台清单/名字池）" as Rules
-  artifact "契约校验\nWorldOptions.Validate()\n（Errors ⇒ 宿主拒绝启动）" as WorldCheck
-
-  Cloud "Markdown 报告 / UML" as Docs
+  component "Config\n常量 / 词表 / 世界配置" as Cfg
+  component "Domain\nJar / Workshop / Capability / Snapshot" as Dom
+  component "Orders\nOrder / OrderEvent / SwitchEvent / FeasibilityChecker" as Ord
+  component "Orders.Feasibility\n三级责任链 + PartitionSearch" as Fea
+  component "Solver\n记忆化 DFS + 同构剪枝 + 节点预算" as Sol
+  component "Executor\nOrderExecutor + 5 个选择策略" as Exe
+  component "Commands\n4 个命令 + 事务回滚" as Cmd
+  component "Production\nProducerModule / Warehouse" as Pro
+  component "Services\n3 个用例服务 + StateSerializer + 10 个 DTO" as Svc
+  component "Sessions\nWorldCommand 日志 + SessionReplay" as Ses
+  component "门面 JarSystem" as Facade
 }
 
-' ---- 核心 → 契约（产物，而不是口头约定）----
-Core --> Schema : 生成（--dump-schema）
-Core --> Snapshot : 投影（--dump-contract）
-Core <.. Rules : 装配（S3b 已落地：宿主读文件 → WorldOptions → Validate）
-Rules ..> WorldCheck : 校验失败即拒绝启动
+artifact "契约 schema\nstate.schema.json\n10 类型 / total loose=1" as Schema
+artifact "契约快照\nstate_keys.txt\n223 行，含路径步骤键 + 空容器占位" as Snap
 
-' ---- 主机（宿主层才允许依赖框架与容器）----
-Web --> Core : 引用程序集
-Cli --> Core : 引用程序集
-Godot --> Core : 引用程序集
-Web --> Browser : 静态文件 + WS
-Godot --> GClient : 场景/信号
+component "Web 宿主\nASP.NET Core + 裸 WebSocket" as Web
+component "CLI 实验宿主\nStrategyExperiment" as Cli
+component "Godot 宿主 hosts/godot/Jar\n已落地：直引 Core 程序集 + 13 条 headless 自检" as Godot
+
+component "浏览器客户端\n原生 JS + contract.d.ts + jsconfig checkJs" as Browser
+component "Godot 客户端\nMain.tscn + 5 个 Overlay" as GClient
+
+package "验证模块" {
+  component "JarSystem.Test 自定义 runner\n2000 + 3000 + 21" as T1
+  component "契约快照 / Schema / contract.d.ts 导出" as T2
+  component "九步门 verify.bat\nVERDICT + 退出码" as T4
+  component "求解器差分门\n4003 次比对" as T5
+  component "会话回放门\n命令日志重放" as T6
+  component "xUnit v3 + FsCheck + Verify\n骨架已建，12 条 Fact 全绿，待在线装包" as T3
+}
+
+artifact "config/world.json\n形状 / 液体 / 容量 / 流入 / 生产者 / 库存 / 工作台 / 名字池" as Rules
+artifact "WorldOptions.Validate()\nErrors 则宿主拒绝启动" as WorldCheck
+
+cloud "Markdown 报告 / UML" as Docs
+
+' ---- Core 内部依赖 ----
+Cfg --> Dom
+Dom --> Sol
+Fea --> Sol
+Exe --> Dom
+Svc --> Fea
+Svc --> Ses
+
+' ---- 核心 到 契约产物 ----
+Facade --> Schema : 生成（dump-schema）
+Facade --> Snap : 投影（dump-contract）
+
+' ---- 世界配置 ----
+Facade --> Rules : 装配：读文件 到 WorldOptions 到 Validate
+Rules --> WorldCheck : 校验失败即拒绝启动
+
+' ---- 宿主层才允许依赖框架与容器 ----
+Web --> Facade : 引用程序集
+Cli --> Facade : 引用程序集
+Godot --> Facade : 引用程序集
+Web --> Browser : 静态文件 + WebSocket
+Godot --> GClient : 场景 / 信号
 
 ' ---- 客户端只通过契约耦合 ----
-Schema ..> Browser : 生成类型（P4-c）
-Schema ..> GClient : 生成类型（规划）
-Browser --> Web : {type,data} 消息（18 命令 / 9 消息）
-GClient ..> Godot : 同契约
+Schema --> Browser : 生成 contract.d.ts
+Schema --> GClient : 同契约
+Browser --> Web : type,data 消息 18 命令 / 10 消息
+GClient --> Godot : 同契约（Godot 侧不解析 JSON、不复制规则）
 
 ' ---- 验证模块消费同一份契约 ----
-Test --> Core
-Test --> Schema
-Test --> Snapshot
+T1 --> Facade
+T2 --> Schema
+T2 --> Snap
+T4 --> T1
+T5 --> Sol
+T6 --> Ses
 
 User --> Browser
 User --> Godot
+Docs --> Facade : 人工同步
 
-Docs ..> Core : 记录（人工同步；长期改为生成/校验）
-
-' ============================================================
-'  明确"不引入"的东西（决策有据，见 10_*.md §3.1/§3.5/§6）
-' ============================================================
-note bottom of Web
-  **不迁 SignalR**：官方 AOT 表 WebSockets ✔️ / SignalR partial；
-  卖点（降级传输/backplane/群组/IHubContext）在本场景为空集，
-  代价是 9 类消息全部重映射。
-  **缺口只需**：前端补断线重连（T1）。
+note as NWeb
+  **不迁 SignalR**
+  官方 AOT 表 WebSockets 可用 / SignalR partial；
+  卖点（降级传输 / backplane / 群组 / IHubContext）在本场景为空集，
+  代价是 10 类消息全部重映射。
+  前端**断线重连已做**（S4b），不需要再补。
 end note
 
-note bottom of Solver
-  **不用 OR-Tools / CP-SAT**：目标框架仅 net8.0、
-  非纯托管（runtime.* 原生库、无 win-arm64）、默认可多线程+时间预算
-  ⇒ 破坏确定性；路径还要自己回放。
-  **不用规则引擎**：规则=纯函数 + 规则表数据。
-  该补的是：置换表 + 迭代加深 + 固定转移顺序。
+note as NSolverChoice
+  **不用 OR-Tools / CP-SAT**
+  目标框架仅 net8.0、非纯托管（runtime 原生库、无 win-arm64）、
+  默认可多线程 + 时间预算，会破坏确定性；路径还要自己回放。
+  实际采取的加速是：失败状态记忆化 + 同构罐子剪枝 + 节点预算，
+  并配**求解器差分门**（独立 BFS 参考实现，4003 次比对）做验收。
 end note
 
-note top of Core
-  Core 只允许 .NET 基类库；
+note as NCoreNoDep
   **不引 Hosting / DI 容器 / IServiceProvider**
-  （保住"可直接被 Godot/Unity 引用"这一核心资产）。
+  保住"可直接被 Godot / Unity 引用"这一核心资产。
+  可注入点只有 7 个构造参数：
+  log / randomSeed / vocabulary / world / solver / jarIds / orderIds。
 end note
 
-note bottom of Test
-  **保留**旧 runner 作"基线守护"：
-  断言输出仍含
-  `0 bugs / 2000 random + 0 bugs / 3000 capacity + 20 deterministic`
+note as NBrowserDecision
+  **P4-c 决策已变更（重要）**
+  不再计划"原生 JS 迁 Vite + TS 打包器"。
+  改为后端生成 contract.d.ts（30 接口：DTO + 命令名/消息名联合
+  + 18 个载荷接口 + CommandPayloadMap），配 jsconfig.json 的 checkJs，
+  在编辑器或 tsc --noEmit 阶段就能发现字段名与消息名拼错，无需打包器。
+  仍待做：内联 onclick 改事件委托（实测 32 处）、给 JS 加自动化语法门
+  （verify.bat 九步完全不覆盖 JS）。
 end note
 
+note as NBaseline
+  旧 runner 保留作"基线守护"，断言输出仍须含
+  0 bugs / 2000 random + 0 bugs / 3000 capacity + 21 deterministic。
+  九步门 = build + 两测试 + 契约快照 + schema 与 d.ts
+  + 配置世界等价 + 协议守卫 + 求解器差分 + 会话回放，
+  末行 VERDICT=OK，失败返回退出码 1。
+end note
+
+note as NSnapshotWarn
+  **184 → 223 行（2026-09-16 实测）**
+  快照覆盖漏洞已修：`Flatten` 对空字典/空列表补 `<empty>` 占位行，
+  并追加了一条走 RESHAPE 的订单 ⇒ `consumed` 现在既有占位行、也有真实条目
+  （`solverPath[0].consumed.蜜 = 1`）。
+  ✅ **基线已于 2026-09-16 重建**（`copy /y state_keys.txt state_keys.baseline.txt`，
+  实测两份均为 223 行且内容一致）。
+  另外：verify.bat 只把 diff 写进 diff.txt，**并不据此判 FAIL**，
+  所以快照漂移不会让门变红。
+end note
+
+note as NGodotLanded
+  **已落地，不再是"规划"**
+  hosts/godot/Jar 通过 ProjectReference 直接引用 Core（不是第二份实现），
+  8 个脚本 + 13 条 headless 自检；功能面已与 Web 对齐
+  （工作台卡片 / 订单卡片 / 路径弹窗 / 新建订单 / 世界编辑器 / 存档读档）。
+  剩余主要是美术替换（罐子目前是占位 Label）。
+  宿主刻意不进 JarSystem.slnx，九步门的构建范围不受影响。
+end note
+
+note as NGgfDropped
+  **GGF 框架宿主已放弃（2026-09-16）**
+  原"第二切片"只跑通骨架、功能面未搬，现决定不再投入。
+  放弃成本为零：GGF 工程在仓库外，src / test / verify.bat / CI 一处都不依赖它
+  （全仓 grep 确认）。原记录保留在 重构报告/00_从这里继续.md 的 1.7 节，仅作留档。
+end note
 @enduml

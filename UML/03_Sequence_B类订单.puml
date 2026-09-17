@@ -1,81 +1,131 @@
 @startuml
+title B 类订单执行链路（端到端）
+' ============================================================
+'  2026-09-16 重写。
+'  可行性分析本身另见 08_Activity_B类可行性（本图不再重复 2^N 划分细节）。
+'  关键更正：交付由 OrderEvent.Deliver() 完成（旧图误画成 JarSystem 直接 RemoveJar）。
+' ============================================================
 autonumber
-actor User
-participant Frontend
-participant Server
-participant JarSystem
-participant FeasibilityChecker
-participant Solver
-participant Executor
-participant "Workshop Master" as Master
-participant "Workshop Slave" as Slave
+actor 玩家 as U
+participant "前端 app.js" as UI
+participant "CommandDispatcher" as Disp
+participant "JarSystemService\n(串行闸门 Gate)" as Svc
+participant "JarSystem 门面" as Facade
+participant "OrderService" as OS
+participant "OrderExecutor" as EX
+participant "SolverStepApplier" as Applier
+participant "GreedyPlanBuilder" as Greedy
+participant "OrderEvent" as Evt
+participant "CommandExecutor" as CmdEx
+participant "主台 Workshop" as M
+participant "从台 Workshop" as S
 
-User -> Frontend: 点击执行订单
-Frontend -> Server: WS executeOrder {orderId}
-Server -> JarSystem: ExecuteOrder(index)
+U -> UI: 点"执行"
+UI -> Disp: {type:"executeOrder", data:…}
+Disp -> Svc: 进入串行闸门
+Svc -> Facade: ExecuteOrder(orderIndex)
+Facade -> OS: ExecuteOrder(orderIndex)
 
-JarSystem -> FeasibilityChecker: Check(order, masterSnap, slaveSnap)
-activate FeasibilityChecker
+note right of OS
+  **五个早退守卫**（都不写 eventHistory）
+  1 索引越界
+  2 未选择主工作台
+  3 参数无效
+  4 B 类订单需要选择从台
+  5 **订单已是终态，不能重复执行**（2026-09 修复）
+  ⚠️ 这五条与"无论成败都会追加一条记录"的说法不符，
+  只有真正执行到末尾的两条路径才写 eventHistory。
+end note
 
-FeasibilityChecker -> Solver: Solve(slaveInfo, slaveJars, slaveLiq)
-Solver --> FeasibilityChecker: slave_only result
+OS -> OS: 取 order.FeasibilityResult（**用已存结果，不重算**）
+OS -> Evt: new OrderEvent(order, master, slave)
+OS -> Evt: Start()
+Evt -> M: CreateSnapshot
+Evt -> S: CreateSnapshot
+Evt -> M: ClearMarks
+Evt -> S: ClearMarks
+Evt -> Evt: Status = 执行中，CurrentPhase = master
 
-alt slave_only 不可行
-  loop mask in 0 .. 2^N-1 (需求子集划分)
-    note right: 每条路径计算选择性转移清单\n(交付罐 + 从台使用的主台罐子)\n受从台罐位预算约束
-    FeasibilityChecker -> Solver: Solve(masterInfo, masterReqs, masterJars, masterLiq)
-    Solver --> FeasibilityChecker: 主台子集结果
-    alt 主台子集可行
-      FeasibilityChecker -> FeasibilityChecker: 取真实终态(AfterLiquids) 合并从台
-      FeasibilityChecker -> Solver: Solve(slaveInfo, slaveReqs, combinedJars, combinedLiq)
-      Solver --> FeasibilityChecker: 从台子集结果
-      alt 从台子集可行
-        FeasibilityChecker --> JarSystem: partition 可行 (MasterPath + SolverPath)
-      end
-    end
+OS -> EX: Execute(order, master, slave, evt, solverPath)
+activate EX
+
+== 主台阶段 ==
+alt FeasibilityResult.MasterPath 非空
+  loop 逐步
+    EX -> Applier: Apply(master, step, "master_path")
+    Applier -> M: 按 jarId 定位罐子 + 状态预检
+    Applier -> M: PourIn / PourOut / ReshapeEmpty / ReshapeFull / Mark
   end
-end
-FeasibilityChecker --> JarSystem: 不可行 (lastBlockage)
-deactivate FeasibilityChecker
-
-JarSystem -> Executor: Execute(order, master, slave, event, solverPath)
-activate Executor
-
-== Phase 1: Master ==
-alt MasterPath 存在
-  Executor -> Master: SolverStepApplier.Apply(SolverStepDto, 按 jarId 定位 + 状态预检)
-  note right: 阶段 3-D：步骤为强类型 SolverStepDto\n（旧 SolverPathAdapter 已删除）
-else slave_only / partition 主台为空
-  note right: 不运行贪心主台操作\n保持路径依赖的初始状态
-else 无可行性结果
-  Executor -> Master: ExecOnWs(master, requirements)
+  note right of Applier
+    按 jarId 首选定位、失败退回 jarIndex（转移后顺序会变，Id 才稳定）。
+    应用前校验真实罐子与步骤预期状态一致，不符即判失败。
+    RESHAPE 按 reshapeMode 分派空罐/满罐改形。
+  end note
+else checkMethod 是 slave_only 或 partition
+  note right of EX: 主台不跑贪心，保持路径依赖的初始状态
+else 没有可行性结果
+  EX -> Greedy: ExecuteOn(master, requirements, "master", evt)
 end
 
-== Phase 2: Transfer (选择性) ==
-Executor -> Master: 按 TransferJarIds 清单转移交付罐 + 工具罐
-Executor -> Slave: TransferIn(每个转移罐子)
-note right: 其余主台罐子留在主台\n转移失败即终止，不再进入从台阶段
-Executor -> Master: 按 TransferLiquids 只转移从台需要的液体
-Executor -> Slave: clear isMarked on all jars
-
-== Phase 3: Slave ==
-alt solverPath 存在且转移成功
-  Executor -> Slave: ExecuteViaSolverPath(slave, jarId + 状态校验)
-else fallback
-  Executor -> Slave: ExecOnWs(slave, requirements)
+== 选择性转移 ==
+EX -> Evt: ExecuteBatch(TransferCommand 清单, master)
+Evt -> CmdEx: ExecuteBatch（事务 + 失败回滚）
+loop 每个转移罐
+  CmdEx -> M: TransferOut(jar)
+  CmdEx -> S: TransferIn(jar)
 end
-Executor --> JarSystem: success + operations + errors
-deactivate Executor
+note right of CmdEx
+  只转移**可行性路径记录**的罐子：
+  交付罐 + 从台计划实际使用的工具罐。
+  其余主台罐子留在主台。
+  从台放不下时 TransferCommand 自己把罐子放回原台（不悬空丢失），
+  整批随即回滚 -> 执行以"从台容量不足"终止。
+end note
+EX -> M: 每种液体 RemoveLiquid(accepted)
+EX -> S: TryReceiveLiquid(liquid, amount)
+EX -> Evt: RecordLiquidTransfer(liquid, accepted)
+EX -> Evt: AdvanceToSlavePhase()
+EX -> S: ClearMarks()
 
-== Phase 4: Deliver / Rollback ==
-JarSystem -> Slave: IsSatisfiedBy(jars)
-alt satisfied
-  JarSystem -> Slave: RemoveJar(delivered jars)
-  JarSystem -> OrderEvent: RollbackSlaveToMaster(剩余转移资源回流主台)
-else not satisfied
-  JarSystem -> OrderEvent: Fail + RollbackSlaveToMaster(溢出回流中央仓库)
+== 从台阶段 ==
+alt solverPath 非空
+  EX -> Applier: Apply(slave, step, "solver_path")
+else 路径执行失败或无路径
+  EX -> Evt: 记 fallback 日志（path_failed_fallback）
+  EX -> Greedy: ExecuteOn(slave, requirements, "slave", evt)
+end
+EX -> S: IsSatisfiedBy(从台罐子)
+
+alt 需求全部满足
+  EX --> OS: 成功
+  OS -> OS: order.MarkSucceeded()
+  OS -> Evt: Deliver()
+  Evt -> Evt: CheckDelivery()
+  Evt -> S: RemoveJar(每个匹配需求的罐子)
+  note right of Evt
+    这就是**罐子守恒的出口**：罐子只会经交付或溢出丢弃离开系统。
+    B 类在 Deliver() 内还会调用 RollbackSlaveToMaster 把剩余转移资源回流主台。
+  end note
+else 未满足
+  EX --> OS: 失败 + reason
+  OS -> OS: order.MarkFailed()
+  OS -> Evt: Fail(reason)
+  Evt -> Evt: RollbackSlaveToMaster()（一行委托到 SlaveRollback）
+  note right of Evt
+    ⚠️ **只回滚跨台转移**。
+    主台已发生的操作（改形消耗的液体、形状变换）**一律保留** ——
+    「试探有代价」是规则定案，失败本身会改变世界。
+  end note
 end
 
-Server --> Frontend: orderExecuted + state
-Frontend -> User: UI refresh + log display
+OS -> Facade: AddEvent(eventHistory 记录)
+note right of Facade
+  成功路径键集：order / master / slave / success / timestamp / operations
+  失败路径键集：order / master / slave / success / reason / timestamp / operations
+  键集合是对外契约；eventHistory 定长 10 条（超出丢最旧）。
+end note
+Facade -> Svc: 回包
+Svc -> Disp: orderExecuted + state
+Disp -> UI: {type:"orderExecuted"} 与 {type:"state"}
+UI -> U: 刷新卡片与日志
 @enduml

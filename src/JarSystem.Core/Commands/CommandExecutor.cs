@@ -24,14 +24,19 @@ public class CommandExecutor
         _log = log ?? ConsoleSystemLog.Instance;
     }
 
-    public List<Command> History { get; } = new();
+    // 私有列表 + 只读视图：原先 public List<Command> 会让调用方
+    // Add/Clear 掉历史（而历史是审计与回滚的依据）。
+    private readonly List<Command> _history = new();
+
+    /// <summary>已成功执行的命令历史（对外只读）。</summary>
+    public IReadOnlyList<Command> History => _history;
 
     // 执行单条命令
     public CommandResult Execute(Command command, Workshop workshop, OrderEvent? event_)
     {
         var result = command.Execute(workshop, event_);
         if (result.Success)
-            History.Add(command);
+            _history.Add(command);
         return result;
     }
 
@@ -65,7 +70,7 @@ public class CommandExecutor
             catch (Exception ex)
             {
                 // 契约留痕：保持原样（event_ 为 null 时本行无效果，故下一行补日志出口）
-                event_?.Errors.Add(new LogError
+                event_?.AppendError(new LogError
                 {
                     Phase = "rollback",
                     Command = commands[i].Type,
@@ -79,11 +84,11 @@ public class CommandExecutor
     // 清空历史
     public void Clear()
     {
-        History.Clear();
+        _history.Clear();
     }
 
     public List<Dictionary<string, object?>> GetHistory()
     {
-        return History.ConvertAll(cmd => cmd.ToJson());
+        return _history.ConvertAll(cmd => cmd.ToJson());
     }
 }

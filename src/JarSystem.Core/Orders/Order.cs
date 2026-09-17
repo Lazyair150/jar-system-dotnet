@@ -12,7 +12,8 @@ namespace JarSystem.Core.Orders;
 public class Order
 {
     public int Id { get; }
-    public List<Requirement> Requirements { get; }
+    /// <summary>需求列表（对外只读；构造时已做**私有副本**）。</summary>
+    public IReadOnlyList<Requirement> Requirements { get; }
     public string Type { get; }
 
     /// <summary>订单状态。只能经 <see cref="MarkSucceeded"/> / <see cref="MarkFailed"/> 迁移。</summary>
@@ -25,7 +26,10 @@ public class Order
         Vocabulary? vocabulary = null)
     {
         Id = (ids ?? DefaultIdGenerators.Orders).Next();
-        Requirements = requirements;
+        // 私有副本：若直接保存调用方传进来的 List，调用方在构造之后仍能
+        // order 之外的引用 Add/Remove，从而绕过 ValidateOrder() 的全部约定
+        // （A/B 类型、需求数上限、"空罐在前、满罐在后"）。
+        Requirements = new List<Requirement>(requirements);
         Type = type;
         Status = Config.Constants.OrderStatus.PENDING;
         _vocabulary = vocabulary ?? Vocabulary.Default;
@@ -87,8 +91,12 @@ public class Order
 
 public class Requirement
 {
-    public string Shape { get; set; } = "";
-    public string? Liquid { get; set; }
+    // ⚠️ init：需求一旦构造即不可变。
+    // Order.Requirements 已改成只读列表；但若元素仍可写，`order.Requirements[0].Shape = "x"`
+    // 依然能编译并通过 —— ValidateOrder() 的约定（A/B 类型、需求数上限、空罐在前满罐在后）
+    // 就被绕开了。全仓 35 处构造**全部**用对象初始化器、且零处构造后赋值，故 init 零破坏。
+    public string Shape { get; init; } = "";
+    public string? Liquid { get; init; }
 }
 
 /// <summary>
@@ -101,7 +109,12 @@ public class Requirement
 /// </summary>
 public class FeasibilityResultData
 {
-    [JsonPropertyName("feasible")] public bool Feasible { get; set; }
+    // ⚠️ 除 timestamp 外**全部 init**：本类型会经 Order.FeasibilityResult（private set）
+    // 与 OrderStateDto 交出去，若属性可写，`order.FeasibilityResult!.Feasible = true`
+    // 就能编译并通过 —— "private set" 会被可变对象击穿（分析结论可被任意改写）。
+    // timestamp 单独走 internal SetTimestamp（它的值是"分析耗时"，必须在检查结束后才知道）。
+    // init 不影响 JSON：schema / 快照 / contract.d.ts 都只看属性类型，不看 setter。
+    [JsonPropertyName("feasible")] public bool Feasible { get; init; }
 
     /// <summary>
     /// **未判定**（2026-09 新增键）：搜索因超出工作预算而提前中止 ⇒ 既不能说"可行"、也不能说"不可行"。
@@ -109,22 +122,25 @@ public class FeasibilityResultData
     /// 也只有那种情况受"不可行 ⇒ 执行必失败"这条不变量的约束。
     /// 前端据此显示"⚠ 未判定"，并且**仍然允许执行**（执行由贪心兜底，不受预测承诺约束）。
     /// </summary>
-    [JsonPropertyName("undetermined")] public bool Undetermined { get; set; }
+    [JsonPropertyName("undetermined")] public bool Undetermined { get; init; }
 
-    [JsonPropertyName("blockage")] public string? Blockage { get; set; }
-    [JsonPropertyName("reason")] public string? Reason { get; set; }
-    [JsonPropertyName("timestamp")] public string? Timestamp { get; set; }
-    [JsonPropertyName("directCount")] public int DirectCount { get; set; }
-    [JsonPropertyName("operationCount")] public int OperationCount { get; set; }
-    [JsonPropertyName("solverPath")] public List<SolverStepDto>? SolverPath { get; set; }
-    [JsonPropertyName("masterPath")] public List<SolverStepDto>? MasterPath { get; set; }
-    [JsonPropertyName("checkMethod")] public string? CheckMethod { get; set; }
+    [JsonPropertyName("blockage")] public string? Blockage { get; init; }
+    [JsonPropertyName("reason")] public string? Reason { get; init; }
+    [JsonPropertyName("timestamp")] public string? Timestamp { get; private set; }
+    [JsonPropertyName("directCount")] public int DirectCount { get; init; }
+    [JsonPropertyName("operationCount")] public int OperationCount { get; init; }
+    [JsonPropertyName("solverPath")] public List<SolverStepDto>? SolverPath { get; init; }
+    [JsonPropertyName("masterPath")] public List<SolverStepDto>? MasterPath { get; init; }
+    [JsonPropertyName("checkMethod")] public string? CheckMethod { get; init; }
 
     // 选择性转移记录（B 类）：本次可行性路径需要从主台转移到从台的罐子 Id 清单
-    [JsonPropertyName("transferJarIds")] public List<int>? TransferJarIds { get; set; }
+    [JsonPropertyName("transferJarIds")] public List<int>? TransferJarIds { get; init; }
 
     // 需要从主台转移到从台的游离液体量（每种），其余留在主台
-    [JsonPropertyName("transferLiquids")] public Dictionary<string, int>? TransferLiquids { get; set; }
+    [JsonPropertyName("transferLiquids")] public Dictionary<string, int>? TransferLiquids { get; init; }
+
+    /// <summary>记录本次分析的耗时（毫秒，字符串形态）。只允许可行性检查链调用。</summary>
+    internal void SetTimestamp(string? value) => Timestamp = value;
 }
 
 // 2026-09 契约统一时删除：DirectMatch / OperationNeed / OperationPlan。

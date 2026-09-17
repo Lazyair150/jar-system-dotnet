@@ -171,7 +171,7 @@ public class OrderExecutor
             if (pathResult.Success) { ops.AddRange(pathResult.Operations); errs.AddRange(pathResult.Errors); }
             else
             {
-                ev.ExecutionLog.Add(new ExecutionLogEntry { Phase = "fallback", Action = "path_failed_fallback", Description = "路径执行失败，使用默认策略" });
+                ev.AppendLog(new ExecutionLogEntry { Phase = "fallback", Action = "path_failed_fallback", Description = "路径执行失败，使用默认策略" });
                 var fb = _greedy.ExecuteOn(slave, order.Requirements, "slave", ev);
                 ops.AddRange(fb.Ops); errs.AddRange(fb.Errs);
             }

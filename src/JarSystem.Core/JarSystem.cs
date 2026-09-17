@@ -200,7 +200,7 @@ public class JarSystem
     // ============================================================
 
     private void Record(string op, string? name = null, string? orderType = null,
-        List<Requirement>? requirements = null, List<string>? baseMarks = null,
+        IReadOnlyList<Requirement>? requirements = null, List<string>? baseMarks = null,
         List<string>? additionalMarks = null, List<string>? ban = null, WorkshopPayload? workshop = null,
         int? intA = null, int? intB = null, int? intC = null, double? doubleA = null, bool? flag = null)
     {

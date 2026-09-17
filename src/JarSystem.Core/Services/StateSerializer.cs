@@ -91,7 +91,9 @@ internal static class StateSerializer
             Index = index,
             Id = order.Id,
             Type = order.Type,
-            Requirements = order.Requirements,
+            // 显式复制：域实体的 Requirements 现在是只读视图，不直接交进对外投影。
+            // DTO 侧仍是 List<T>（契约键 requirements 的 CLR 类型不变，宿主读的也是这个 DTO）。
+            Requirements = new List<Requirement>(order.Requirements),
             Status = order.Status,
             // 契约统一（2026-09）：直接投影同一个类型，不再做"另一份投影" —— 两种形状的根源就没了。
             FeasibilityResult = order.FeasibilityResult,

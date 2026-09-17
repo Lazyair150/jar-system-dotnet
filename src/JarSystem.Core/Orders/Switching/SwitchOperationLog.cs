@@ -3,10 +3,11 @@ using System.Collections.Generic;
 namespace JarSystem.Core.Orders;
 
 /// <summary>一次工作台切换事件中的单条操作记录（对外事件历史与前端动画数据源）。</summary>
+/// <summary>切换日志的一条记录。**init**：日志是审计数据，构造后不得再改。</summary>
 public class SwitchLogEntry
 {
-    public string Action { get; set; } = "";
-    public string Description { get; set; } = "";
+    public string Action { get; init; } = "";
+    public string Description { get; init; } = "";
 }
 
 /// <summary>

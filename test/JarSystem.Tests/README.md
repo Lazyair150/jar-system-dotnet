@@ -68,4 +68,4 @@ Verify 33.x 起是**赞助门槛软件**：`SponsorCheck` 会让构建直接失�
 | `FeasibilityAndExecution_AreConsistentInBothDirections` | 判定可行⇒执行成功、判定不可行⇒执行失败 |
 
 后续按文件尾部注释里的两个模式补：FsCheck 性质测试（失败会自动收缩出最小反例 + 可重放种子）、
-Verify 快照测试（`GetState()` 的 JSON 审批基线，与现有 165 行文本快照互补）。
+Verify 快照测试（`GetState()` 的 JSON 审批基线，与现有 **223 行**文本快照互补）。

@@ -63,7 +63,7 @@ public class FeasibilityChecker
         // 理论不可达：A 类由 SinglePhaseCheck 兜底，其余类型由 PartitionCheck 兜底
         result ??= new FeasibilityResultData { Feasible = false, Reason = "无适用的可行性检查" };
 
-        result.Timestamp = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startTime).ToString();
+        result.SetTimestamp((DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startTime).ToString());
         return result;
     }
 }

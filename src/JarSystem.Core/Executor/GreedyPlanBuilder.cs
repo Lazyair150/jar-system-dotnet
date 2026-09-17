@@ -25,7 +25,7 @@ internal sealed class GreedyPlanBuilder
         _selector = selector;
     }
 
-    public WorkshopStageResult ExecuteOn(Workshop w, List<Requirement> reqs, string loc, OrderEvent ev)
+    public WorkshopStageResult ExecuteOn(Workshop w, IReadOnlyList<Requirement> reqs, string loc, OrderEvent ev)
     {
         var sorted = RequirementOrdering.FullFirst(reqs);
         var ops = new List<ExecutionLogEntry>();

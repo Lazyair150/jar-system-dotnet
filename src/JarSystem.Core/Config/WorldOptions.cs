@@ -75,7 +75,7 @@ public sealed class WorldOptions
         // 求解器/执行器/切换/可行性里仍有 10 处按内置液体名遍历（且遍历顺序会影响选出的路径），
         // 因此这里**显式拒绝**与内置不一致的液体名，避免"配置改了但没人理它"这种静默不一致。
         // 将来要支持改名，得先把词表穿到那 10 处，并保持顺序 —— 见 13_全局审视 §7。
-        for (int i = 0; i < Liquids.Count && i < Constants.LIQUIDS.Length; i++)
+        for (int i = 0; i < Liquids.Count && i < Constants.LIQUIDS.Count; i++)
         {
             if (Liquids[i] != Constants.LIQUIDS[i])
             {
@@ -194,7 +194,15 @@ public sealed class WorldOptions
     // ============================================================
     // 内置默认世界 —— **逐值等于重构前的硬编码世界**（不读配置时的行为基准）
     // ============================================================
-    public static WorldOptions Default { get; } = CreateDefault();
+    /// <summary>
+    /// 内置默认世界（每次访问返回**全新实例**）。
+    ///
+    /// 原先写成 static 只读**单例**，但 WorldOptions 是可变 POCO（所有属性都有 setter），
+    /// 于是成了"全局可变单例"：任何代码改了 WorldOptions.Default.Liquids[0]，
+    /// 全进程后续的默认世界都跟着变。改为每次构造一份，读写都不再共享状态。
+    /// （注意：JarSystem.World 仍是对**该实例**的引用，主动改它只影响那一个系统。）
+    /// </summary>
+    public static WorldOptions Default => CreateDefault();
 
     private static WorldOptions CreateDefault()
     {

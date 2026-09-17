@@ -77,7 +77,7 @@ echo [4/9] contract snapshot >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-contract >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%
 
-echo [5/9] contract schema   (expect: StateDto + 8 part types, 0 FAILED, total loose=1, types dts: OK)
+echo [5/9] contract schema   (expect: StateDto + 9 part types, 0 FAILED, total loose=1, types dts: OK)
 echo [5/9] contract schema >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-schema >> "%LOG%" 2>&1
 echo     exit=%ERRORLEVEL%

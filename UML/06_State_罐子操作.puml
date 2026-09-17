@@ -1,31 +1,80 @@
-﻿@startuml
-[*] --> EmptyFree : producer output
+@startuml
+title 罐子状态机 —— 空罐 / 满罐 × 未标记 / 已标记
 
-state "Empty Jar (isMarked=false)" as EmptyFree
-state "Full Jar (isMarked=false)" as FullFree
-state "Empty Jar (isMarked=true)" as EmptyLocked
-state "Full Jar (isMarked=true)" as FullLocked
+' ============================================================
+'  依据：Solver/StateSpaceSolver.cs 的 Apply（四种操作的真实状态效果）
+'    MATCH    需要未标记罐子；完成后 MarkJar，不动液体、不改形状
+'    POUR_IN  需要空罐；消耗工作台液体 1 单位；置入液体；MarkJar
+'    RESHAPE  空罐 -> 消耗 1 单位成本液体；满罐 -> 消耗自身液体；改形状；MarkJar
+'    POUR_OUT 需要满罐；液体回池 +1；罐子变空；MarkJar
+'  ⚠️ 四种操作**全都**会把罐子标记 —— 这就是「一罐一操作」的实现方式。
+' ============================================================
 
-EmptyFree --> FullFree : POUR_IN
-EmptyFree --> EmptyLocked : RESHAPE
-EmptyFree --> EmptyLocked : MATCH
+state "空罐 · 未标记" as EmptyFree
+state "满罐 · 未标记" as FullFree
+state "空罐 · 已标记" as EmptyLocked
+state "满罐 · 已标记" as FullLocked
 
-FullFree --> EmptyLocked : POUR_OUT
-FullFree --> FullLocked : MATCH
-FullFree --> EmptyLocked : RESHAPE_FULL
+[*] --> EmptyFree : 生产者产出 / 仓库流入\n新罐必为空罐
 
-EmptyLocked --> [*] : round end
-FullLocked --> [*] : round end
+EmptyFree --> FullFree : POUR_IN 倒入液体
+EmptyFree --> EmptyLocked : RESHAPE 空罐改形\n消耗 1 成本液体
+EmptyFree --> EmptyLocked : MATCH 命中空罐需求
+
+FullFree --> EmptyLocked : POUR_OUT 液体回池 +1
+FullFree --> FullLocked : MATCH 命中满罐需求
+FullFree --> EmptyLocked : RESHAPE 满罐改形\n自身液体被自耗
+
+EmptyLocked --> [*] : 交付 Deliver 移除
+FullLocked --> [*] : 交付 Deliver 移除
+
+' 标记不是永久的：阶段边界会清标记
+EmptyLocked --> EmptyFree : ClearMarks
+FullLocked --> FullFree : ClearMarks
 
 note right of EmptyFree
-  POUR_IN: shape in base marks
-  RESHAPE: can transform to target
-  MATCH: matches order requirement
+  **POUR_IN 的适用条件**（三条同时成立）
+  · 目标形状是该工作台的**基础标记**
+  · 该液体未被本工作台禁止
+  · 本工作台该液体库存 大于等于 1
+
+  ⚠️ 不对称之处：**附加标记**的形状不能倒液。
+  改形只要求目标落在转换可达集合里，
+  倒液却要求目标必须是基础标记 ——
+  即「改形比倒液宽，倒液比改形严」。
 end note
 
-note bottom of FullFree
-  POUR_OUT: liquid not banned
-  RESHAPE_FULL: can transform, liquid OK
-  MATCH: matches order requirement
+note right of FullFree
+  **POUR_OUT 的适用条件**
+  · 罐内液体未被禁止
+  · 本工作台该液体未达液位上限
+
+  效果：罐子变空、液体回工作台池 +1、罐子被标记。
+  注意它落到的是**已标记的空罐**，不是 EmptyFree。
+end note
+
+note right of EmptyLocked
+  **「已标记」= 本阶段不可再用，不是销毁**
+  · 求解器靠它保证同一个罐子不会被两条需求重复使用
+  · 也是「判定可行 则 执行必成功」这条不变量的前提之一
+  · 阶段边界由 ClearMarks 统一清除
+    （OrderEvent 与 OrderExecutor 在阶段切换处调用）
+end note
+
+note right of FullLocked
+  **两个正交维度**（不属于状态，但决定可用性）
+  · MasterOrigin —— B 类从主台转移到从台的罐子。
+    它不是标记，只受**转移预算**约束
+    （预算 = 从台罐位 − 从台原有罐子 − 交付罐数）。
+  · Liquid —— 每个罐子**最多**装一种液体（空 / 酒 / 蜜）。
+end note
+
+note right of EmptyFree
+  **两处对旧图的更正**
+  · 旧索引写「空罐/满罐 × isMarked 六态」，实际只有 **4 态**：
+    罐子要么空要么满、液体最多一种，不存在中间态。
+  · 罐子离开系统的路有两条，只有一条算交付：
+    1 交付 Deliver 逐个 RemoveJar -> 计入 DeliveredJars
+    2 容量溢出 -> **直接丢弃不回收** -> 计入 discardedJars
 end note
 @enduml

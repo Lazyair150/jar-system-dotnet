@@ -1,11 +1,19 @@
+using System;
 using System.Collections.Generic;
 
 namespace JarSystem.Core.Config;
 
 public static class Constants
 {
-    public static readonly string[] SHAPES = ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"];
-    public static readonly string[] LIQUIDS = ["酒", "蜜"];
+    // 私有后备数组 + 只读包装。
+    // 原先写成 public static readonly string[] —— 元素是**可写**的：
+    // 任何调用方都能 Constants.SHAPES[0] = "x" 就地改掉全局词表，
+    // 而这个数组实例还与 Vocabulary.Default 共享，等于污染整个进程的词表。
+    private static readonly string[] _shapes = ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"];
+    private static readonly string[] _liquids = ["酒", "蜜"];
+
+    public static readonly IReadOnlyList<string> SHAPES = Array.AsReadOnly(_shapes);
+    public static readonly IReadOnlyList<string> LIQUIDS = Array.AsReadOnly(_liquids);
     public const int DEFAULT_MAX_JARS = 20;
     public const int DEFAULT_MAX_LIQUIDS = 30;
     public const int WAREHOUSE_MAX_JARS = 200;

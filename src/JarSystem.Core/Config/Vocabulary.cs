@@ -22,18 +22,24 @@ public sealed class Vocabulary
 {
     private readonly List<string> _shapes;
     private readonly List<string> _liquids;
+    // 对外只给 ReadOnlyCollection 包装：直接把 List 当 IReadOnlyList 交出去，
+    // 调用方可以向下转型回 List<string> 并就地改动词表（Vocabulary.Default 是全局单例）。
+    private readonly IReadOnlyList<string> _shapesView;
+    private readonly IReadOnlyList<string> _liquidsView;
 
     public Vocabulary(IEnumerable<string> shapes, IEnumerable<string> liquids)
     {
         _shapes = new List<string>(shapes);
         _liquids = new List<string>(liquids);
+        _shapesView = _shapes.AsReadOnly();
+        _liquidsView = _liquids.AsReadOnly();
     }
 
     /// <summary>形状目录（顺序 = 契约快照里形状相关键的出现顺序）。</summary>
-    public IReadOnlyList<string> Shapes => _shapes;
+    public IReadOnlyList<string> Shapes => _shapesView;
 
     /// <summary>液体目录（恰好两种；顺序 = 契约快照里 `liquids` 的键序）。</summary>
-    public IReadOnlyList<string> Liquids => _liquids;
+    public IReadOnlyList<string> Liquids => _liquidsView;
 
     public bool IsValidShape(string shape) => _shapes.Contains(shape);
 

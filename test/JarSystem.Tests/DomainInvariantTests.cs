@@ -41,8 +41,8 @@ public class DomainInvariantTests
     {
         var vocab = Vocabulary.Default;
 
-        Assert.Equal(Constants.SHAPES.Length, vocab.Shapes.Count);
-        Assert.Equal(Constants.LIQUIDS.Length, vocab.Liquids.Count);
+        Assert.Equal(Constants.SHAPES.Count, vocab.Shapes.Count);
+        Assert.Equal(Constants.LIQUIDS.Count, vocab.Liquids.Count);
         foreach (var s in Constants.SHAPES) Assert.True(vocab.IsValidShape(s));
         foreach (var l in Constants.LIQUIDS) Assert.True(vocab.IsValidLiquid(l));
         Assert.False(vocab.IsValidShape("不存在的形状"));
@@ -96,7 +96,7 @@ public class DomainInvariantTests
     //      public void JarsAreConserved(Scenario s) => ...
     //
     // ② 快照测试（Verify）：把 <c>GetState()</c> 的 JSON 直接做审批基线 ——
-    //    与现有 165 行文本快照互补（那份靠 fc，这份靠 *.verified.json + scrubber 处理 timestamp）。
+    //    与现有 **223 行**文本快照互补（那份靠 fc，这份靠 *.verified.json + scrubber 处理 timestamp）。
     //      [UsesVerify]
     //      public Task State_MatchesApprovedSnapshot() => Verify(state);
     // ============================================================

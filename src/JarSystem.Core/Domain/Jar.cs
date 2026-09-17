@@ -60,23 +60,34 @@ public class Jar
 
     // ============================================================
     // 状态变更（唯一入口）
+    //
+    // ⚠️ 这些方法一律 internal，**不是** public。
+    // 理由：罐子状态只能由本程序集内的规则路径改动 ——
+    //   · Workshop 的意图方法（PourIn / PourOut / ReshapeEmpty / ReshapeFull）
+    //   · Commands 的撤销（Unmark / RestoreLiquid / Reshape 回原形状）
+    //   · 执行器按已判定路径施加步骤（SolverStepApplier / GreedyPlanBuilder）
+    //   · 切换事件重排资源（ResourceTransferrer）
+    // 若把入口开放给外部，任何人都能 jar.Reshape("圆罐") / jar.PourIn("酒")，
+    // 直接绕过 Workshop 的禁令、基础标记、一罐一操作等全部校验。
+    // 收为 internal 后，Workshop.Jars / Warehouse.Jars / WorkshopSnapshot.Jars
+    // 这三个"只读视图"在**元素层**才真正只读。
     // ============================================================
 
     /// <summary>标记为本次执行周期内已操作。</summary>
-    public void Mark() { IsMarked = true; }
+    internal void Mark() { IsMarked = true; }
 
     /// <summary>清除操作标记。</summary>
-    public void Unmark() { IsMarked = false; }
+    internal void Unmark() { IsMarked = false; }
 
     /// <summary>倒入液体（仅允许空罐）。</summary>
-    public void PourIn(string liquid)
+    internal void PourIn(string liquid)
     {
         if (!IsEmpty()) throw new InvalidOperationException("罐子不为空");
         Liquid = liquid;
     }
 
     /// <summary>清空罐内液体并返回它（返回 null 表示本来就是空罐）。</summary>
-    public string? ClearLiquid()
+    internal string? ClearLiquid()
     {
         var l = Liquid;
         Liquid = null;
@@ -84,10 +95,10 @@ public class Jar
     }
 
     /// <summary>恢复罐内液体（撤销倒入/倒出时使用；null 表示恢复为空罐）。</summary>
-    public void RestoreLiquid(string? liquid) { Liquid = liquid; }
+    internal void RestoreLiquid(string? liquid) { Liquid = liquid; }
 
     /// <summary>改形（形状必须在**本罐子所属词表**内合法）。</summary>
-    public void Reshape(string newShape)
+    internal void Reshape(string newShape)
     {
         if (!_vocabulary.IsValidShape(newShape))
             throw new ArgumentException($"无效形状: {newShape}");
