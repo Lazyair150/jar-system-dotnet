@@ -141,8 +141,11 @@ public sealed class WebSocketHub : IWebSocketSink
         }
     }
 
-    /// <summary>来源校验：空 Origin（非浏览器客户端）或回环主机（127.0.0.1 / localhost / [::1]）放行。</summary>
-    private static bool IsAllowedOrigin(string origin)
+    /// <summary>
+    /// 来源校验：空 Origin（非浏览器客户端）或回环主机（127.0.0.1 / localhost / [::1]）放行。
+    /// **两条入口共用**（`/ws` 的连接握手 与 `/api/state`）—— 同一份状态不该有两个不同的口径。
+    /// </summary>
+    internal static bool IsAllowedOrigin(string origin)
     {
         if (string.IsNullOrWhiteSpace(origin)) return true;
         if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;

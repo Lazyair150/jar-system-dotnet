@@ -58,7 +58,9 @@ internal static class StateSerializer
             MasterName = system.CurrentMaster.HasValue ? system.Workshops[system.CurrentMaster.Value]?.Name : null,
             SlaveName = system.CurrentSlave.HasValue ? system.Workshops[system.CurrentSlave.Value]?.Name : null
         },
-        EventHistory = system.EventHistory.TakeLast(10).ToList()
+        // 与内部保留窗口**同一个常量**（JarSystem.MaxEventHistory）—— 原先这里写死 `10`：
+        // 两处独立的值一旦只改一处，对外 JSON 的条数就静默改变（快照立刻漂移，却看不出是有意还是漏改）。
+        EventHistory = system.EventHistory.TakeLast(JarSystem.MaxEventHistory).ToList()
     };
 
     private static WorkshopStateDto SerializeWorkshop(JarSystem system, Workshop ws, int index) => new()

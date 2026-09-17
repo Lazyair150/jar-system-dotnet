@@ -54,10 +54,16 @@ public partial class GameManager : Node
     private double _autoCheckAccumulator;
     private bool _demoDone;
 
+    /// <summary>存档格式版本。**缺失该字段的老存档视为 0（= v1）**，仍然可读。</summary>
+    private const int SaveFormatVersion = 1;
+
     private static readonly JsonSerializerOptions SaveJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false
+        // 信封（seed/world/commands/version）**故意保持宽松**：将来加字段时，
+        // 老版本客户端读到未知键不该直接失败；真正决定世界状态的两段（world / commands）
+        // 由 WorldOptionsJson / WorldCommandJson 各自严格把关。
     };
 
     public override void _Ready()
@@ -258,9 +264,10 @@ public partial class GameManager : Node
     // 好处是存档极小、天然版本友好（记的是意图不是结果），并且将来做"观战/回放/多端同步"是同一套东西。
     // ============================================================
 
-    /// <summary>导出存档文本（种子 + 世界配置 + 命令日志）。</summary>
+    /// <summary>导出存档文本（格式版本 + 种子 + 世界配置 + 命令日志）。</summary>
     public string ExportSave() => JsonSerializer.Serialize(new SaveFile
     {
+        Version = SaveFormatVersion,
         Seed = _seed,
         World = WorldOptionsJson.ToJson(System.World),
         Commands = new List<WorldCommand>(System.CommandLog)
@@ -274,7 +281,22 @@ public partial class GameManager : Node
             var save = JsonSerializer.Deserialize<SaveFile>(json, SaveJson);
             if (save == null) { Log("读档失败：存档内容为空"); return false; }
 
+            // 版本门：老存档没有本字段 ⇒ 0，按 v1 读；**未来格式**则明确拒绝，
+            // 而不是拿老字段拼出一个"看起来能跑"的半对世界。
+            if (save.Version > SaveFormatVersion)
+                throw new InvalidOperationException(
+                    $"存档格式版本 {save.Version} 高于本版本支持的 {SaveFormatVersion}，请先升级游戏");
+
             var world = WorldOptionsJson.FromJson(save.World);
+
+            // 与 Web 宿主同一条策略（JarSystemService.LoadWorldOrNull）：**配置坏了就拒绝读档**。
+            // 原先这里漏了 Validate()：同一份 world.json，网页端会拒绝启动，Godot 里却默默跑起来
+            // （4 位专家独立指出）。存档里的世界是**外部输入**，比配置文件更该校验。
+            var worldReport = world.Validate();
+            if (!worldReport.IsValid)
+                throw new InvalidOperationException(
+                    "存档里的世界配置校验失败：" + string.Join("; ", worldReport.Errors));
+
             var restored = new CoreSystem(randomSeed: save.Seed, world: world,
                 jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
             int applied = SessionReplay.Into(restored, save.Commands);
@@ -326,9 +348,11 @@ public partial class GameManager : Node
         return ImportSave(file.GetAsText());
     }
 
-    /// <summary>存档文件结构（v1）：种子 + 世界配置 JSON + 命令日志。</summary>
+    /// <summary>存档文件结构（v1）：格式版本 + 种子 + 世界配置 JSON + 命令日志。</summary>
     private sealed class SaveFile
     {
+        /// <summary>格式版本（**缺失视为 0** ⇒ 本改动之前写出的存档仍可读）。</summary>
+        public int Version { get; set; }
         public int Seed { get; set; }
         public string World { get; set; } = "";
         public List<WorldCommand> Commands { get; set; } = new();

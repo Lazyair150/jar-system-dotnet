@@ -603,8 +603,85 @@ Run("S21-求解器注入缝贯通(策略模式可替换)", () =>
     return (ok, $"替身被调用={spy.Calls} 可行={fr?.Feasible} 执行={exec.Success} 主台剩余罐={master.Jars.Count}");
 });
 
+// 2026-09-16（15 位专家审查 P0）：**A 类的"未判定"必须有反例**。
+// 此前只有 B 类会置 Undetermined，A 类漏了预算检查 ⇒ 预算耗尽被误报成"不可行"，
+// 而差分门只统计"已被置位的 Undetermined"，结构上看不见这个缺口。
+// 本用例把 NodeBudget 压到 1，强制 A 类搜索耗尽预算，断言必须回**未判定**（不是不可行）。
+Run("S22-A类预算耗尽必须回未判定", () =>
+{
+    var sys = new JarSystem.Core.JarSystem(randomSeed: 11);
+    sys.SetMasterIndex(0);
+    sys.Workshops[0].AddJar(new Jar("圆罐"));
+    sys.CreateOrder(new() { new Requirement { Shape = "圆罐", Liquid = "酒" } }, "A");
+
+    sys.Checker.NodeBudget = 1;              // 1 个节点 ⇒ A 类搜索必然耗尽预算
+    var fr = sys.CheckFeasibility(0);
+
+    bool ok = fr != null && fr.Undetermined && !fr.Feasible
+              && fr.Reason != null && fr.Reason.Contains("超出预算");
+    return (ok, $"未判定={fr?.Undetermined} 可行={fr?.Feasible} reason={fr?.Reason}");
+});
+
 Console.WriteLine($"=== {bugs} bugs / {tests} random + {capBugs} bugs / {capTests} capacity + {detCount} deterministic ===");
 foreach (var b in bugReports) Console.WriteLine(b);
+
+// 文档口径守卫：放在这里是因为 `detCount` 此刻才最终确定；也刻意**不新增 verify 的步数**
+// （否则全仓"九步"口径又要跟着改一轮 —— 这正是要被守住的漂移）。
+CheckDocs();
+
+// ============================================================
+// 文档口径守卫（2026-09-16）：把本会话的"手工对账"变成机器检查
+//
+// 起因很具体：同一个基线串（`+ N deterministic`）在 9 个载体里各自写死，
+// 本会话实测漏改过 `.github/workflows/verify.yml`（非 .md 的载体）与 `05_扩展指南.md`，
+// 只能靠人工全仓 grep 兜 —— 而"文档承诺 vs 实际能力"正是本项目的头号债务。
+//
+// **范围刻意收窄**：只守"通篇都该是当前值"的那几个载体（见 carriers）。
+// 历史报告（各阶段报告 / 板块报告 / `00_从这里继续.md` 的批次记录 / `问题/`）
+// **必须保留当时的旧数字**，扫它们必然误报 ⇒ 一律不扫。
+//
+// 失败表现：打印 `DOC-*` 标记并置退出码 1 ⇒ verify.bat 会打 `STEP-FAILED step2` ⇒ VERDICT=FAIL
+// （即使主测试全过，文档过期也不再能"绿着过"）。
+// ============================================================
+void CheckDocs()
+{
+    string[] carriers =
+    [
+        Path.Combine("重构报告", "verify.bat"),
+        Path.Combine(".github", "workflows", "verify.yml"),
+        Path.Combine("重构报告", "_审查上下文.md"),
+        Path.Combine("重构报告", "05_扩展指南.md"),
+        Path.Combine("重构报告", "11_数据驱动评估与模块状态.md"),
+        Path.Combine("重构报告", "12_边界重审_核心与可分离模块.md"),
+        Path.Combine("重构报告", "13_全局审视_合理性评估.md"),
+        Path.Combine("UML", "04_Component_模块边界.puml"),
+        Path.Combine("test", "JarSystem.Tests", "README.md")
+    ];
+
+    var bad = 0;
+    var checkedCarriers = 0;
+    foreach (var path in carriers)
+    {
+        if (!File.Exists(path)) { Console.WriteLine("DOC-MISSING " + path); bad++; continue; }
+
+        var found = System.Text.RegularExpressions.Regex.Matches(
+            File.ReadAllText(path), @"\+ (\d+) deterministic");
+        if (found.Count == 0) { Console.WriteLine("DOC-NO-BASELINE " + path); bad++; continue; }
+
+        checkedCarriers++;
+        foreach (System.Text.RegularExpressions.Match m in found)
+        {
+            if (m.Groups[1].Value == detCount.ToString()) continue;
+            Console.WriteLine($"DOC-BASELINE-STALE {path} (says {m.Groups[1].Value}, actual {detCount})");
+            bad++;
+        }
+    }
+
+    if (bad == 0)
+        Console.WriteLine($"docs baseline: OK ({checkedCarriers} carriers say {detCount})");
+    else
+        Environment.ExitCode = 1;
+}
 
 // ============================================================
 // 工具函数
@@ -849,7 +926,11 @@ void CheckSolverDifferential()
         Console.WriteLine("  参考-从台路径: " + DescribePath(b.SolverPath));
     }
 
-    string DescribePath(List<JarSystem.Core.Orders.SolverStepDto>? path)
+    // 参数类型跟随 `FeasibilityResultData.SolverPath/MasterPath`（已收紧为 IReadOnlyList）：
+    // 这两个实参就是 `CheckFeasibility()` 的返回对象（`a`/`b` 都是 FeasibilityResultData，
+    // 只是 b 的系统注入的是 ReferenceSolver）。本函数只读，因此用接口即可 ——
+    // 若仍写 `List<...>`，整个测试工程（= 九步门的驱动）会 CS1503 编不过。
+    string DescribePath(IReadOnlyList<JarSystem.Core.Orders.SolverStepDto>? path)
     {
         if (path == null || path.Count == 0) return "(空)";
         return string.Join(" → ", path.Select(s =>
@@ -1014,9 +1095,20 @@ void CheckProtocol()
 
     var dispatcher = ReadSource(Path.Combine("src", "JarSystem.Web", "CommandDispatcher.cs"));
     var hub = ReadSource(Path.Combine("src", "JarSystem.Web", "WebSocketHub.cs"));
+    // 2026-09-16（**本仓自检查出的门缺口**，不是审查条目）：服务端共有 **4 处**发送方，
+    // 而此前只扫上面两处 —— TickBackgroundService（`state`）与 AutoCheckBackgroundService
+    // （`autoCheckResults`）改了消息名，门**看不见**（也没有别的东西读这两个文件）。
+    // 补进来不会改变结论：`Matches()` 会 `Distinct()`、`Compare()` 按集合比对，
+    // 而这两个名字本来就在 ProtocolMessages 里（CommandDispatcher 也在发它们）。
+    var tickService = ReadSource(Path.Combine("src", "JarSystem.Web", "TickBackgroundService.cs"));
+    var autoCheckService = ReadSource(Path.Combine("src", "JarSystem.Web", "AutoCheckBackgroundService.cs"));
 
     var commands = Matches(dispatcher, "case \"([A-Za-z]+)\":");
-    var messages = Matches(dispatcher, "type = \"([A-Za-z]+)\"").Concat(Matches(hub, "type = \"([A-Za-z]+)\"")).ToList();
+    var messages = Matches(dispatcher, "type = \"([A-Za-z]+)\"")
+        .Concat(Matches(hub, "type = \"([A-Za-z]+)\""))
+        .Concat(Matches(tickService, "type = \"([A-Za-z]+)\""))
+        .Concat(Matches(autoCheckService, "type = \"([A-Za-z]+)\""))
+        .ToList();
 
     int failures = 0;
     failures += Compare("command", expectedCommands, commands);

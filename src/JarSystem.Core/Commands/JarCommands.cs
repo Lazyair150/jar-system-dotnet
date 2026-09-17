@@ -75,10 +75,20 @@ public class ReshapeEmptyCommand : Command
         if (!Executed) return new CommandResult { Success = false };
         // 撤销改形
         Jar.Reshape(OriginalShape);
-        // 返还成本液体
-        workshop.AddLiquid(CostLiquid, 1);
+        // 返还成本液体：**必须看返回值**（2026-09-16 修）。
+        // AddLiquid 在"液体被禁"或"液体仓已满"时返回 false，原实现丢弃返回值却仍报 Success=true
+        // ⇒ 这 1 单位液体**静默蒸发**，且当时 CommandExecutor.Rollback 也只看异常 ⇒ 连痕迹都没有。
+        // 注：实际不可达 —— 能付出成本就说明该液体未被禁（HasUsableLiquid 含禁令判定），
+        // 而改形刚刚释放了 1 格容量；这里只是把不变量写成代码，别让"沉默的失败"重新长回来。
+        var refunded = workshop.AddLiquid(CostLiquid, 1);
         Jar.Unmark();
-        return new CommandResult { Success = true };
+        return refunded
+            ? new CommandResult { Success = true }
+            : new CommandResult
+            {
+                Success = false,
+                Reason = "返还成本液体 " + CostLiquid + " 被工作台拒绝（液体被禁或液体仓已满）"
+            };
     }
 }
 

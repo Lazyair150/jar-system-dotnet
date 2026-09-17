@@ -19,23 +19,38 @@ namespace JarSystem.Core.Domain;
 /// </summary>
 public sealed class WorkshopCapability
 {
+    // 私有 List + ReadOnlyCollection 包装（与 <c>Vocabulary</c> 同一手法，2026-09-16 补）。
+    // 原先直接把 `new List<string>(...)` 交给 IReadOnlyList 属性：**可以向下转型就地改写**
+    // （`((List<string>)cap.Ban).Add("酒")`），而本对象被 工作台 / 快照(Solver.WorkshopInfo) **共用** ——
+    // 改一处等于同时改三处的规则。原注释声称"不可变值对象"，只有把包装补上这句话才成立。
+    private readonly List<string> _baseMarks;
+    private readonly List<string> _additionalMarks;
+    private readonly List<string> _ban;
+
+    private readonly IReadOnlyList<string> _baseMarksView;
+    private readonly IReadOnlyList<string> _additionalMarksView;
+    private readonly IReadOnlyList<string> _banView;
+
     /// <summary>基础标记（只读）。</summary>
-    public IReadOnlyList<string> BaseMarks { get; }
+    public IReadOnlyList<string> BaseMarks => _baseMarksView;
 
     /// <summary>附加标记（只读；不含 Case2 作用域内的临时标记——那属于 <see cref="Workshop"/> 的运行时状态）。</summary>
-    public IReadOnlyList<string> AdditionalMarks { get; }
+    public IReadOnlyList<string> AdditionalMarks => _additionalMarksView;
 
     /// <summary>禁令（只读；构造时已规范化为裸液体名）。</summary>
-    public IReadOnlyList<string> Ban { get; }
+    public IReadOnlyList<string> Ban => _banView;
 
     public WorkshopCapability(
         IEnumerable<string>? baseMarks = null,
         IEnumerable<string>? additionalMarks = null,
         IEnumerable<string>? ban = null)
     {
-        BaseMarks = new List<string>(baseMarks ?? []);
-        AdditionalMarks = new List<string>(additionalMarks ?? []);
-        Ban = NormalizeBan(ban);
+        _baseMarks = new List<string>(baseMarks ?? []);
+        _additionalMarks = new List<string>(additionalMarks ?? []);
+        _ban = NormalizeBan(ban);
+        _baseMarksView = _baseMarks.AsReadOnly();
+        _additionalMarksView = _additionalMarks.AsReadOnly();
+        _banView = _ban.AsReadOnly();
     }
 
     public bool IsBaseMarked(string shape) => BaseMarks.Contains(shape);

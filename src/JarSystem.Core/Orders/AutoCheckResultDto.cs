@@ -20,6 +20,13 @@ public sealed class AutoCheckResultDto
     /// <summary>订单 ID（稳定标识，前端用它选订单）。</summary>
     [JsonPropertyName("orderId")] public int OrderId { get; init; }
 
-    /// <summary>本次可行性分析结果；订单下标非法等情况下为 null。</summary>
+    /// <summary>
+    /// 本次可行性分析结果。**实际恒非 null**（2026-09-16 更正）：本消息由
+    /// <c>OrderService.CheckAllFeasibility</c> 产出，它只对**合法下标**调用 <c>CheckFeasibility</c>，
+    /// 而那个方法连非法下标都会返回一个带 <c>reason="无效订单索引"</c> 的结果对象，从不返回 null。
+    ///
+    /// 类型**保留可空**是刻意的：它已经落进契约产物（`state.schema.json` 的 `"type":["object","null"]`
+    /// 与 `contract.d.ts` 的 `| null`），去掉问号会改契约产物 —— 这属于"需要单独批准的契约变更"。
+    /// </summary>
     [JsonPropertyName("result")] public FeasibilityResultData? Result { get; init; }
 }

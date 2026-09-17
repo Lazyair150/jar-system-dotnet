@@ -90,7 +90,11 @@ public partial class PathOverlay : Control
         return sb.ToString();
     }
 
-    private static void AppendStage(StringBuilder sb, string label, List<JarSystem.Core.Orders.SolverStepDto>? path)
+    // `IReadOnlyList` 而不是 `List`（2026-09-16）：`FeasibilityResultData.MasterPath/SolverPath` 已收紧为
+    // 只读集合（执行器照着这些路径干活，交出可变 List 等于让外部改执行承诺）—— 本方法**只读**它，
+    // 因此跟随接口类型；否则 Godot 工程会因为"没有从 IReadOnlyList 到 List 的隐式转换"而编不过
+    // （本工程不在九步门里，门看不见这种断裂）。
+    private static void AppendStage(StringBuilder sb, string label, IReadOnlyList<JarSystem.Core.Orders.SolverStepDto>? path)
     {
         sb.Append($"\n── {label} ──\n");
         if (path == null || path.Count == 0)

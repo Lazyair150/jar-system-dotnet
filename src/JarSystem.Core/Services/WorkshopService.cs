@@ -23,7 +23,10 @@ internal sealed class WorkshopService
 
     public void CreateWorkshop(string name, List<string> baseMarks, List<string>? additionalMarks = null, List<string>? ban = null)
     {
-        // 规则住在核心：没有基础标记的工作台永远无法倒液/改形（"卡死台"），与 world.json 校验口径一致。
+        // 规则住在核心：没有基础标记的工作台永远无法倒液/改形（"卡死台"）。
+        // **两条入口同一条判据**（2026-09-16 对齐）：这里拒绝 + `WorldOptions.Validate()` 也拒绝
+        // （原先只有这里检查，配置里写 `"baseMarks": []` 就能绕过 —— 原注释声称"与 world.json 校验口径一致"，
+        // 当时其实**不一致**）。
         if (baseMarks == null || baseMarks.Count == 0)
             throw new DomainValidationException("工作台至少需要 1 个基础标记");
         _system.WorkshopList.Add(new Workshop(name, baseMarks, additionalMarks, ban,
@@ -37,7 +40,13 @@ internal sealed class WorkshopService
         var shapes = _system.Vocabulary.Shapes;
         var liquids = _system.Vocabulary.Liquids;
         var name = _system.World.NamePools;
-        var fullName = name.Prefix[rand.Next(name.Prefix.Count)] + name.Suffix[rand.Next(name.Suffix.Count)];
+        // 名字池为空时**不能**写 `Prefix[rand.Next(0)]`：那会抛 ArgumentOutOfRangeException，
+        // 而 `Validate()` 对空池只给 **Warning**（不是 Error）⇒ 宿主完全可以带着空池启动，
+        // 用户一点「随机工作台」就崩（2026-09-16 修）。
+        // 注意：守卫**不消耗随机数**，因此非空池的随机序列与修前逐次相同（回放/快照不受影响）。
+        var fullName = name.Prefix.Count > 0 && name.Suffix.Count > 0
+            ? name.Prefix[rand.Next(name.Prefix.Count)] + name.Suffix[rand.Next(name.Suffix.Count)]
+            : "随机台" + (_system.Workshops.Count + 1);
         // 三个随机数量都必须**夹在"可用不重复项"之内**：原实现是 `while (list.Count < count)` 抽取不重复项，
         // 一旦 count 超过可用项数就会**无限循环**（默认词表 8 形状 / 2 液体时侥幸安全，
         // 但词汇表是可注入的 —— 例如 2 个形状的自定义词表 + count=3 就会卡死宿主）。

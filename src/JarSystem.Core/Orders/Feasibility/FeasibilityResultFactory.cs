@@ -22,7 +22,8 @@ internal static class FeasibilityResultFactory
             return new FeasibilityResultData
             {
                 Feasible = false,
-                SolverPath = [],
+                // 显式 `new List<...>`（而不是集合表达式 `[]`）：目标类型现为 IReadOnlyList，写法上不赌语法细节
+                SolverPath = new List<SolverStepDto>(),
                 DirectCount = 0,
                 OperationCount = 0,
                 Blockage = solverResult.Blockage,

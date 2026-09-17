@@ -132,6 +132,13 @@ public sealed class WorldOptions
             else if (workshopNames.Contains(w.Name)) r.Errors.Add("工作台名重复: " + w.Name);
             else workshopNames.Add(w.Name);
 
+            // 2026-09-16 补：**没有基础标记 = "卡死台"**（`GetPossibleTransforms` 只会给出"基础标记 + 附加标记"，
+            // 两个都空 ⇒ 该台既不能改形，也不能倒液）。这条规则原本**只在**宿主命令
+            // `WorkshopService.CreateWorkshop` 里 —— 而配置这条路（`world.json`）没有 ⇒ 同一份"世界"经两条
+            // 入口进来口径不一致，写一个 `"baseMarks": []` 就能造出卡死台。现在两条入口同一条判据。
+            if (w.BaseMarks.Count == 0)
+                r.Errors.Add("工作台 " + w.Name + " 没有任何基础标记 ⇒ 该台既不能倒液也不能改形（卡死台）");
+
             foreach (var s in w.BaseMarks) if (!Shapes.Contains(s)) r.Errors.Add("工作台 " + w.Name + " 的基础标记含未知形状: " + s);
             foreach (var s in w.AdditionalMarks) if (!Shapes.Contains(s)) r.Errors.Add("工作台 " + w.Name + " 的附加标记含未知形状: " + s);
             foreach (var s in w.BaseMarks) if (w.AdditionalMarks.Contains(s)) r.Errors.Add("工作台 " + w.Name + " 的形状 " + s + " 同时是基础标记与附加标记");

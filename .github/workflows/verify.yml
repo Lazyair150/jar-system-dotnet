@@ -8,7 +8,7 @@
 #
 # 当前的检查内容（全部来自 verify.bat 的 9 步）：
 #   1) dotnet build（0 错误）
-#   2) JarSystem.Test  → 0 bugs / 2000 random + 0 bugs / 3000 capacity + 21 deterministic
+#   2) JarSystem.Test  → 0 bugs / 2000 random + 0 bugs / 3000 capacity + 22 deterministic
 #   3) StrategyExperiment
 #   4) 契约快照（与基线逐字节一致）
 #   5) 契约 JSON Schema（10 类型，total loose=1）+ 前端类型 contract.d.ts（degraded 必须为 0）

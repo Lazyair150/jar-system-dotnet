@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
@@ -9,13 +10,23 @@ namespace JarSystem.Core.Domain;
 
 /// <summary>
 /// 工作台：规则容器（基础/附加标记、禁令）+ 资源容器（罐子、游离液体）+ 资源操作入口。
-/// 资源状态只能经本类的意图方法变更，对外只暴露只读视图（阶段 1：消除 §2.3 的跨模块直接改写）。
+/// 资源状态只能经本类的意图方法变更，对外只**以只读接口**暴露（阶段 1：消除 §2.3 的跨模块直接改写）。
+///
+/// **"只读"的精确含义（2026-09-16 收紧）**：`Jars` / `LiquidStorage` 不只是"属性类型是只读接口"，
+/// 底层容器外面**包了真正的只读包装**（<see cref="ReadOnlyCollection{T}"/> / <see cref="ReadOnlyDictionary{TKey,TValue}"/>）
+/// ⇒ 连向下转型（`((List&lt;Jar&gt;)ws.Jars).Clear()`）也改不动，与 <c>Vocabulary</c> /
+/// <see cref="WorkshopCapability"/> 同一手法。（原注释只写了"只暴露只读视图"，而当时交出去的
+/// 就是私有 `List`/`Dictionary` 本身 —— 那句话比实际保证更强。）
 /// </summary>
 public class Workshop
 {
     private readonly List<Jar> _jars = new();
     private readonly Dictionary<string, int> _liquidStorage = new();
     private readonly IIdGenerator _ids;
+
+    // 只读包装（构造时建立一次，是**活视图**：底层容器后续变化照样反映）。
+    private readonly IReadOnlyList<Jar> _jarsView;
+    private readonly IReadOnlyDictionary<string, int> _liquidStorageView;
 
     // 能力参数（基础/附加标记、禁令）——S1：抽成不可变值对象 <see cref="WorkshopCapability"/>，
     // 于是「配置 → 工作台 → 快照 → 求解器」共用同一份，不再三处各存一份标记表。
@@ -45,11 +56,11 @@ public class Workshop
     /// <summary>液体上限（变更只能经 <see cref="ResizeLiquidCapacity"/>）。</summary>
     public int MaxLiquids { get; private set; }
 
-    /// <summary>罐子只读视图。增删只能经 AddJar / RemoveJar / TransferOut / TransferIn / ResizeJarCapacity。</summary>
-    public IReadOnlyList<Jar> Jars => _jars;
+    /// <summary>罐子只读视图（真只读包装）。增删只能经 AddJar / RemoveJar / TransferOut / TransferIn / ResizeJarCapacity。</summary>
+    public IReadOnlyList<Jar> Jars => _jarsView;
 
-    /// <summary>游离液体只读视图。变更只能经 AddLiquid / RemoveLiquid / DrainLiquid / TryReceiveLiquid / ResizeLiquidCapacity。</summary>
-    public IReadOnlyDictionary<string, int> LiquidStorage => _liquidStorage;
+    /// <summary>游离液体只读视图（真只读包装）。变更只能经 AddLiquid / RemoveLiquid / DrainLiquid / TryReceiveLiquid / ResizeLiquidCapacity。</summary>
+    public IReadOnlyDictionary<string, int> LiquidStorage => _liquidStorageView;
 
     /// <param name="vocabulary">词表（S2）：只用于初始化液体账目的键与顺序；null 表示内置默认词表。</param>
     public Workshop(string name, List<string>? baseMarks = null, List<string>? additionalMarks = null,
@@ -63,6 +74,9 @@ public class Workshop
         _ids = ids ?? DefaultIdGenerators.Jars;
         // 液体账目按**词表**建键（顺序 = 词表顺序 ⇒ 契约快照里 liquids 的键序）
         foreach (var l in (vocabulary ?? Vocabulary.Default).Liquids) _liquidStorage[l] = 0;
+        // 只读包装放在最后：包装是活视图，但"先建好账目再交出去"读起来更直白
+        _jarsView = _jars.AsReadOnly();
+        _liquidStorageView = new ReadOnlyDictionary<string, int>(_liquidStorage);
     }
 
     /// <summary>
@@ -299,16 +313,39 @@ public class Workshop
         MaxLiquids = MaxLiquids,
         // S1：能力参数不可变 ⇒ 直接共享同一份，不再拷三份列表
         Capability = _capability,
-        Jars = _jars.Select(j => j.DeepClone()).ToList(),
-        Liquids = _liquidStorage.ToDictionary(kv => kv.Key, kv => kv.Value)
+        // 2026-09-16：快照的两个集合也包真只读（只给接口类型时，`((List<Jar>)snap.Jars).Clear()`
+        // 能抹掉这份回滚依据）。仍是**深拷贝**出来的独立副本，只是对外不可变。
+        Jars = _jars.Select(j => j.DeepClone()).ToList().AsReadOnly(),
+        Liquids = new ReadOnlyDictionary<string, int>(
+            _liquidStorage.ToDictionary(kv => kv.Key, kv => kv.Value))
     };
 
+    /// <summary>
+    /// 从快照还原**完整**状态：罐子、液体账目、容量、能力参数（标记/禁令）。
+    ///
+    /// ⚠️ **2026-09-16 补齐（原为只还原罐子与液体）**：<see cref="CreateSnapshot"/> 是把容量与能力
+    /// 一起存进快照的，而还原只回罐子与液体 ⇒ "快照—还原"不对称。唯一的调用方
+    /// （<c>WorkshopSwitchEvent</c>）的契约写的是"失败时两个工作台已回滚到**执行前状态**"，
+    /// 一旦切换过程中改过容量或标记，回滚后就会留下一个与快照不一致的工作台（三态分歧）。
+    ///
+    /// **为什么这次敢改**（原注释说"未擅自改变行为"，其顾虑正是行为变化）：
+    /// 本仓库里切换流程**不可能**改这两样 —— 各分支只用 <c>WithTemporaryAdditionalMarks</c>
+    /// （作用域自动回收，且临时标记不属于能力参数），而 <c>ReplaceCapability</c> /
+    /// <c>Resize*Capacity</c> 在 <c>Orders/</c> 里**零调用点**。因此补齐还原在所有可达路径上
+    /// **行为完全不变**（`REPLAY` 字节不受影响），只是把注释里的承诺变成真的。
+    ///
+    /// 注：`Name` 只读且从不变化，无需还原。
+    /// </summary>
     public void RestoreFromSnapshot(WorkshopSnapshot s)
     {
         _jars.Clear();
         _jars.AddRange(s.Jars.Select(j => j.DeepClone()));
         _liquidStorage.Clear();
         foreach (var kv in s.Liquids) _liquidStorage[kv.Key] = kv.Value;
+        // 与 CreateSnapshot 对称：容量与能力参数一并还原（快照持有的能力对象是不可变的 ⇒ 直接共享引用）
+        MaxJars = s.MaxJars;
+        MaxLiquids = s.MaxLiquids;
+        _capability = s.Capability;
     }
 }
 
@@ -317,11 +354,14 @@ public class Workshop
 ///
 /// **隔离性**：<see cref="Workshop.CreateSnapshot"/> 对罐子逐个 DeepClone、液体账目另建字典，
 /// 因此快照与源工作台互不影响；`init` 也锁住了属性赋值。
-/// **但严格说它不是"不可变对象"**：Jars/Liquids 仍是可变的 List/Dictionary，
-/// 只是程序集外拿不到 <see cref="Jar"/> 的变更方法（它们是 internal），所以外部只读。
+/// **且两个集合现在是"真只读"**（2026-09-16）：深拷贝之后还包了 `ReadOnlyCollection`/`ReadOnlyDictionary`
+/// ⇒ 连向下转型（`((List&lt;Jar&gt;)snap.Jars).Clear()`）也抹不掉这份回滚依据。
+/// （原注释写的是"严格说它不是不可变对象，Jars/Liquids 仍是可变的 List/Dictionary"——那已过期。）
 ///
-/// 注意：按当前实现只恢复罐子与液体，规则/容量字段为诊断信息保留
-///（审计 §2.10 记录该不一致，未擅自改变行为）。
+/// 注意：**原实现只恢复罐子与液体**，规则/容量字段只作诊断信息保留（审计 §2.10 记录该不一致）。
+/// ✅ **2026-09-16 已补齐**：<see cref="Workshop.RestoreFromSnapshot"/> 现在把容量与能力参数一并还原
+/// （与 <see cref="Workshop.CreateSnapshot"/> 对称）。该改动在全部可达路径上**行为中性**——切换流程
+/// 不会改容量/标记，论证见该方法的注释；因此不再有"快照与还原不一致"这回事。
 /// </summary>
 public class WorkshopSnapshot
 {
@@ -341,6 +381,10 @@ public class WorkshopSnapshot
     /// <summary>禁令（只读视图；已规范化为裸液体名）。</summary>
     public IReadOnlyList<string> Ban => Capability.Ban;
 
-    public IReadOnlyList<Jar> Jars { get; init; } = [];
-    public IReadOnlyDictionary<string, int> Liquids { get; init; } = new Dictionary<string, int>();
+    /// <summary>罐子（对外只读；由 <see cref="Workshop.CreateSnapshot"/> 深拷贝后包真只读）。</summary>
+    public IReadOnlyList<Jar> Jars { get; init; } = System.Array.Empty<Jar>();
+
+    /// <summary>液体账目（对外只读；同上）。</summary>
+    public IReadOnlyDictionary<string, int> Liquids { get; init; } =
+        new ReadOnlyDictionary<string, int>(new Dictionary<string, int>());
 }

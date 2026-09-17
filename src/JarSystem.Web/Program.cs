@@ -23,11 +23,24 @@ var app = builder.Build();
 // 立刻解析组合根：让"世界配置校验失败"发生在**启动时**，而不是第一个请求进来时才炸
 _ = app.Services.GetRequiredService<JarSystemService>();
 
-// 状态查询端点：与 WebSocket 命令、定时器共用同一串行闸门
-app.MapGet("/api/state", async (JarSystemService svc) =>
+// 状态查询端点：与 WebSocket 命令、定时器共用同一串行闸门。
+// **来源校验与 /ws 同一条**（2026-09-16 补）：原先只有 WebSocket 那条入口做了 CSWSH 防护，
+// HTTP 这条没有 —— 同一份状态、两个入口，对"谁能访问"的口径应当一致（本壳只绑回环）。
+// 注：只拒绝**浏览器跨源**请求；无 Origin 的客户端（curl / 测试脚本 / 非浏览器宿主）照常放行，
+// 因此文档里的 `curl /api/state` 冒烟方式不受影响。
+app.MapGet("/api/state", async (HttpContext ctx, JarSystemService svc) =>
 {
+    if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
+    {
+        Console.Error.WriteLine("[api] 拒绝来自非本机来源的 /api/state: " + ctx.Request.Headers.Origin);
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
     await svc.Gate.WaitAsync();
-    try { return svc.System.GetState(); }
+    // 两种返回都走 IResult（否则 lambda 的返回类型无法统一：StateDto 与 IResult 没有公共隐式转换）
+    // **并复用 WS 的序列化策略**（`JsonArgs.Options`）：本项目自己的 T2 条目指出"两条路径各自序列化同一 DTO，
+    // 将来必分叉"。这里让两条路径**字面上共用同一个选项实例** ⇒ 分叉在结构上不可能，
+    // 而不是靠"两边都记得同步"。键名输出不变（契约 DTO 全部由 [JsonPropertyName] 钉死，命名策略只作用于未标注成员）。
+    try { return Results.Json(svc.System.GetState(), JsonArgs.Options); }
     finally { svc.Gate.Release(); }
 });
 

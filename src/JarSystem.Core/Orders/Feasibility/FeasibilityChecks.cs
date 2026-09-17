@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Orders;
@@ -30,6 +31,23 @@ internal sealed class SinglePhaseCheck : IFeasibilityCheck
         var jars = ctx.Master.Jars.Select(JarState.From).ToList();
         var liquids = ctx.Master.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value);
         var solverResult = ctx.Solver.Solve(ctx.Requirements, ctx.MasterInfo, jars, liquids);
+
+        // 2026-09-16 修复（15 位专家审查 P0）：**A 类原先漏了预算检查**。
+        // IWorkBudgetedSolver 的契约写明"预算耗尽时 Feasible=false 表示**未判定**，不是不可行"，
+        // B 类两处（PartitionSearch.cs:109/177）都查了，只有 A 类漏 ⇒ 会把"未判定"误报成
+        // "不可行"，直接打穿"判定不可行 ⇒ 执行必失败"这条承重墙。
+        // 差分门结构上看不见这个缺口（它只统计"已被置位的 Undetermined"），
+        // 因此补了确定性反例 S22（test/JarSystem.Test）——它把 NodeBudget 压到 1。
+        if (ctx.Solver is IWorkBudgetedSolver budgeted && budgeted.BudgetExceeded)
+            return new FeasibilityResultData
+            {
+                Feasible = false,
+                Undetermined = true,
+                Reason = "分析超出预算（订单 " + ctx.Requirements.Count + " 个需求）",
+                Blockage = null,
+                CheckMethod = Method
+            };
+
         return FeasibilityResultFactory.FromSolverResult(solverResult, Method);
     }
 }

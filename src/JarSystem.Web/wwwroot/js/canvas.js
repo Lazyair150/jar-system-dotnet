@@ -6,22 +6,43 @@ class CanvasRenderer {
     this.producerStatus = null;
     this.particles = [];
     this.dirty = true;   // S4b-2：脏标记（数据/尺寸变化才重绘）
-    this.resize();
+    // 表现层修复（2026-09-16）：区分**显示尺寸**与**背板尺寸**。
+    //   · 显示尺寸由 CSS 决定（`#main-canvas` 是 `flex: 1`）——我们**只读**它，不再自己写 CSS 尺寸；
+    //   · 背板尺寸 = 显示尺寸 × devicePixelRatio，绘制坐标系再按 dpr 缩放回 CSS 像素。
+    // 修前把背板直接设成 `父宽-30`，浏览器还要把位图**拉伸**到 flex 算出的显示尺寸 ⇒ 网格与文字发虚。
+    this.dpr = 1;
+    this.cssW = 1;
+    this.cssH = 1;
+    this.syncSize();
     window.addEventListener('resize', () => this.resize());
     this.animate();
   }
 
-  resize() {
-    const p = this.canvas.parentElement;
-    this.canvas.width = p.clientWidth - 30;
-    this.canvas.height = p.clientHeight - 280;
+  /** 把背板对齐到"显示尺寸 × dpr"；尺寸没变时**什么都不做**（否则每次都会清空画布）。 */
+  syncSize() {
+    // 上限 3：再高的比例（4K@200% 以上）会让背板像素数按比例平方增长，不值得。
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+    const cssW = Math.max(1, this.canvas.clientWidth);
+    const cssH = Math.max(1, this.canvas.clientHeight);
+    if (cssW === this.cssW && cssH === this.cssH && dpr === this.dpr) return false;
+    this.dpr = dpr;
+    this.cssW = cssW;
+    this.cssH = cssH;
+    this.canvas.width = Math.round(cssW * dpr);
+    this.canvas.height = Math.round(cssH * dpr);
     this.dirty = true;
+    return true;
   }
+
+  resize() { this.syncSize(); }
 
   setData(workshops, warehouse, producerStatus) {
     this.workshops = workshops;
     this.warehouse = warehouse;
     this.producerStatus = producerStatus;
+    // 布局也可能随数据变化（换行/滚动条）⇒ 顺便对齐背板。**不放在 animate 里**：
+    // 读 clientWidth 会强制同步布局，每帧读一次正是 S4b-2 要避免的开销。
+    this.syncSize();
     this.dirty = true;   // 数据变了才需要重绘
   }
 
@@ -36,7 +57,9 @@ class CanvasRenderer {
   }
 
   render() {
-    const ctx = this.ctx, w = this.canvas.width, h = this.canvas.height;
+    const ctx = this.ctx, w = this.cssW, h = this.cssH;
+    // 绘制坐标系缩放回 CSS 像素 ⇒ 下面所有坐标与字号与修前**逐字相同**，只是背板更密（不糊）。
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = '#0a0a1a';
     ctx.fillRect(0, 0, w, h);
 
@@ -160,7 +183,9 @@ class CanvasRenderer {
   }
 
   triggerTransfer(fromIdx, toIdx) {
-    const w = this.canvas.width, h = this.canvas.height;
+    // 必须用 **CSS 像素**的布局尺寸（与 render 同一坐标系），不能用背板像素：
+    // 否则粒子会按 dpr 倍偏移。
+    const w = this.cssW, h = this.cssH;
     const cx = w / 2, cy = h / 2 + 30, r = Math.min(w, h) * 0.32;
     const fa = (fromIdx / this.workshops.length) * Math.PI * 2 - Math.PI / 2;
     const ta = (toIdx / this.workshops.length) * Math.PI * 2 - Math.PI / 2;

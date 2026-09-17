@@ -107,7 +107,10 @@ internal sealed class OrderService
 
     /// <summary>
     /// 执行订单。返回五元组：成功 / 原因 / 事件报告 / 是否发生转移 / 操作日志。
-    /// 无论成败都会向 <c>EventHistory</c> 追加一条记录（键集合是对外契约）。
+    ///
+    /// 关于 <c>EventHistory</c>：**进入执行之后**无论成败都会追加一条（键集合是对外契约）；
+    /// 但**前置校验拒绝的 5 条路径不追加任何记录** —— 非法下标 / 未选主台 / 无效参数 /
+    /// B 类未选从台 / 订单已是终态（原注释写的"无论成败都会追加"漏掉了这 5 条，2026-09-16 更正）。
     /// </summary>
     public (bool Success, string? Reason, Dictionary<string, object?>? Event, bool TransferOccurred, List<ExecutionLogEntry>? Operations)
         ExecuteOrder(int orderIndex)
@@ -136,8 +139,10 @@ internal sealed class OrderService
         event_.Start();
 
         List<SolverStepDto>? solverPath = null;
+        // **拷贝**而不是直接交出引用：执行器拿到的必须是它自己的一份路径
+        // （DTO 的集合同伴已改为只读，这里再显式分离一次，执行期间不再共享可变状态）。
         if (order.FeasibilityResult != null && order.FeasibilityResult.Feasible && order.FeasibilityResult.SolverPath != null)
-            solverPath = order.FeasibilityResult.SolverPath;
+            solverPath = new List<SolverStepDto>(order.FeasibilityResult.SolverPath);
 
         var execResult = _system.Executor.Execute(order, master, effectiveSlave, event_, solverPath);
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
@@ -15,13 +16,18 @@ public class Producer
     // UpdateRate 的第 2 条规则专门在防这件事，而公开可变字典让那道防线形同虚设。
     private readonly Dictionary<string, double> _rates;
 
+    // 真只读包装（2026-09-16）：Rates 经 producerStatus.producers[].rates **进对外契约**，
+    // 交出裸 Dictionary 时外部可以就地改速率（连 UpdateRate 的校验一起绕过）。
+    private readonly IReadOnlyDictionary<string, double> _ratesView;
+
     /// <summary>各形状的产出速率（对外只读）。</summary>
-    public IReadOnlyDictionary<string, double> Rates => _rates;
+    public IReadOnlyDictionary<string, double> Rates => _ratesView;
 
     public Producer(string name, Dictionary<string, double> rates)
     {
         Name = name;
         _rates = new Dictionary<string, double>(rates);
+        _ratesView = new ReadOnlyDictionary<string, double>(_rates);
     }
 
     /// <summary>设置某形状的速率。仅供 <see cref="ProducerModule.UpdateRate"/> 调用 —— 规则住在那一层。</summary>
@@ -34,11 +40,13 @@ public class ShapeProductionLine
 
     public string Shape { get; }
 
-    // 私有列表 + 只读视图（元素是值元组，因此只读视图就足够）。
+    // 私有列表 + 只读视图（元素是值元组，因此"真只读包装"足够）。
     private readonly List<(string Name, double Rate)> _producerList = new();
 
+    private readonly IReadOnlyList<(string Name, double Rate)> _producerListView;
+
     /// <summary>本线上参与产出的生产者及其速率（对外只读）。</summary>
-    public IReadOnlyList<(string Name, double Rate)> Producers => _producerList;
+    public IReadOnlyList<(string Name, double Rate)> Producers => _producerListView;
 
     /// <summary>产出累加器（对外只读；只有本类的 <see cref="Tick"/> 会推进它）。</summary>
     public double Accumulated { get; private set; }
@@ -48,6 +56,7 @@ public class ShapeProductionLine
     {
         Shape = shape;
         _vocabulary = vocabulary ?? Vocabulary.Default;
+        _producerListView = _producerList.AsReadOnly();
     }
 
     public void AddProducer(Producer p)
@@ -97,11 +106,15 @@ public class ProducerModule
     /// </summary>
     public Warehouse Warehouse { get; }
 
+    // 真只读包装（2026-09-16）：这两张表都进对外契约（producerStatus 的 producers/generators）。
+    private readonly IReadOnlyDictionary<string, ShapeProductionLine> _generatorsView;
+    private readonly IReadOnlyDictionary<string, Producer> _producersView;
+
     /// <summary>各形状的生产线（只读视图）。</summary>
-    public IReadOnlyDictionary<string, ShapeProductionLine> Generators => _generators;
+    public IReadOnlyDictionary<string, ShapeProductionLine> Generators => _generatorsView;
 
     /// <summary>已注册的生产者（只读视图）。</summary>
-    public IReadOnlyDictionary<string, Producer> Producers => _producers;
+    public IReadOnlyDictionary<string, Producer> Producers => _producersView;
 
     /// <summary>
     /// 兼容转发：仓库液体库存。保留它是因为 `test/JarSystem.Tests`（xUnit）直接用了这个成员，
@@ -114,6 +127,9 @@ public class ProducerModule
     public ProducerModule(Vocabulary? vocabulary = null)
     {
         _vocabulary = vocabulary ?? Vocabulary.Default;
+        // 只读包装最先建立（活视图 ⇒ 后续注册的生产者/生产线照样反映）
+        _generatorsView = new ReadOnlyDictionary<string, ShapeProductionLine>(_generators);
+        _producersView = new ReadOnlyDictionary<string, Producer>(_producers);
         foreach (var s in _vocabulary.Shapes)
             _generators[s] = new ShapeProductionLine(s, _vocabulary);
         Warehouse = new Warehouse(_vocabulary);
@@ -128,6 +144,20 @@ public class ProducerModule
     {
         if (_producers.ContainsKey(name))
             throw new DomainValidationException("生产者已存在: " + name + "（改速率请用 UpdateRate）");
+
+        // **注册时也校验速率**（2026-09-16 补）：原先只跳过"没有对应生产线"的形状，
+        // 却把垃圾键留在 Producer.Rates 里 —— 而 Rates 会经 producerStatus.producers[].rates
+        // 进入**对外契约**（与 UpdateRate 第 2 条规则是同一件事，只是入口不同）。
+        // 值域规则也照抄 UpdateRate：否则一个 NaN/超限速率就能把产出循环打爆。
+        foreach (var kv in rates)
+        {
+            if (!_generators.ContainsKey(kv.Key))
+                throw new DomainValidationException("没有这个形状: " + kv.Key);
+            if (double.IsNaN(kv.Value) || double.IsInfinity(kv.Value)
+                || kv.Value < 0 || kv.Value > Constants.MAX_PRODUCER_RATE)
+                throw new DomainValidationException(
+                    $"速率必须是 0 到 {Constants.MAX_PRODUCER_RATE} 之间的有限数，收到: {kv.Value}");
+        }
 
         var p = new Producer(name, rates);
         _producers[name] = p;

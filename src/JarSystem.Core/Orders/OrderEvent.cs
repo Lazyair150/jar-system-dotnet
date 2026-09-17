@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Commands;
@@ -31,17 +32,36 @@ public class OrderEvent
     private readonly Dictionary<string, int> _transferredLiquids = new();
     private readonly HashSet<int> _slaveOriginalJarIds = new();
 
+    // 真只读包装（2026-09-16 全量只读化）：这些是**审计与回滚的依据**，交出裸 List/Dictionary 时
+    // 外部可以 `((List<Jar>)ev.DeliveredJars).Clear()` 把回滚依据抹掉（而接口类型本身挡不住向下转型）。
+    private readonly IReadOnlyList<ExecutionLogEntry> _executionLogView;
+    private readonly IReadOnlyList<LogError> _errorsView;
+    private readonly IReadOnlyList<Jar> _deliveredJarsView;
+    private readonly IReadOnlyDictionary<string, int> _transferredLiquidsView;
+
     public string Status { get; private set; }
     public WorkshopSnapshot? MasterSnapshot { get; private set; }
     public WorkshopSnapshot? SlaveSnapshot { get; private set; }
     public bool TransferOccurred { get; private set; }
     public string CurrentPhase { get; private set; } = Constants.OrderPhase.NONE;
 
-    public IReadOnlyList<ExecutionLogEntry> ExecutionLog => _executionLog;
-    public IReadOnlyList<LogError> Errors => _errors;
-    public IReadOnlyList<Jar> DeliveredJars => _deliveredJars;
+    public IReadOnlyList<ExecutionLogEntry> ExecutionLog => _executionLogView;
+    public IReadOnlyList<LogError> Errors => _errorsView;
+    public IReadOnlyList<Jar> DeliveredJars => _deliveredJarsView;
+
+    /// <summary>
+    /// 已转移罐子 Id（只读）。
+    /// ⚠️ **这一对（与本类的 <see cref="SlaveOriginalJarIds"/>）只能停在"声明类型是只读接口"**：
+    /// 它们由 <see cref="HashSet{T}"/> 承载，而 BCL 里没有"集合的活只读包装"
+    /// （`ReadOnlyCollection` 要 `IList`，`HashSet` 不是；`IReadOnlySet` 的实现对象仍是 `HashSet` ⇒ 照样可转型）。
+    /// 真要包就得换成 `List` + `AsReadOnly()`（代价：`Contains` 从 O(1) 变 O(n)，且改动回滚核心的数据结构）——
+    /// 收益不足，故**如实留在这里**（仓内零处向下转型，见全仓 grep）。其余四个已包真只读。
+    /// </summary>
     public IReadOnlyCollection<int> TransferredJarIds => _transferredJarIds;
-    public IReadOnlyDictionary<string, int> TransferredLiquids => _transferredLiquids;
+
+    public IReadOnlyDictionary<string, int> TransferredLiquids => _transferredLiquidsView;
+
+    /// <inheritdoc cref="TransferredJarIds"/>
     public IReadOnlyCollection<int> SlaveOriginalJarIds => _slaveOriginalJarIds;
     public CommandExecutor Executor { get; }
 
@@ -54,6 +74,12 @@ public class OrderEvent
     /// <param name="log">可观测性出口（阶段 3-A）：透传给本事件的命令执行器，用于回滚失败留痕；null 用默认控制台日志。</param>
     public OrderEvent(Order order, Workshop masterWorkshop, Workshop slaveWorkshop, ISystemLog? log = null)
     {
+        // 只读包装最先建立（活视图）——构造期间/之后读公开视图都不会拿到 null
+        _executionLogView = _executionLog.AsReadOnly();
+        _errorsView = _errors.AsReadOnly();
+        _deliveredJarsView = _deliveredJars.AsReadOnly();
+        _transferredLiquidsView = new ReadOnlyDictionary<string, int>(_transferredLiquids);
+
         Order = order;
         Master = masterWorkshop;
         Slave = slaveWorkshop;

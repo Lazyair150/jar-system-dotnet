@@ -34,6 +34,9 @@ public partial class Main : Control
     private VBoxContainer _workshopsList = null!;
     private VBoxContainer _ordersList = null!;
 
+    /// <summary>日志面板保留的最大行数（超出后从最旧的段落开始丢；见 <see cref="AppendLog"/>）。</summary>
+    private const int MaxLogLines = 200;
+
     private readonly List<WorkshopCardView> _workshopCards = new();
     private readonly List<OrderCardView> _orderCards = new();
     private PathOverlay _pathOverlay = null!;
@@ -92,6 +95,12 @@ public partial class Main : Control
     private void AppendLog(string line)
     {
         _logLabel.AppendText(line + "\n");
+        // 上限（2026-09-16 补）：原先只增不减 —— 长时间自动推进会把行数推到数千条，
+        // 绘制与滚动随之变慢，并会把 SummaryColumn 顶破（表现层反馈的 "Label 碰撞"）。
+        // 终止性论证：`GetLineCount() > 上限` ⇒ 至少有一个段落（0 段落必然 0 行）⇒ 每轮都能删掉一个，
+        // 不会空转。刻意只用本文件已在用的 GetLineCount，不去赌 get_paragraph_count 是否存在。
+        while (_logLabel.GetLineCount() > MaxLogLines)
+            _logLabel.RemoveParagraph(0);
     }
 
     /// <summary>把一份状态快照铺到界面（等价于 Web 端 app.js 的 render* 系列）。</summary>

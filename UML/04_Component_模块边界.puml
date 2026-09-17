@@ -125,7 +125,7 @@ end note
 
 note as NBaseline
   旧 runner 保留作"基线守护"，断言输出仍须含
-  0 bugs / 2000 random + 0 bugs / 3000 capacity + 21 deterministic。
+  0 bugs / 2000 random + 0 bugs / 3000 capacity + 22 deterministic。
   九步门 = build + 两测试 + 契约快照 + schema 与 d.ts
   + 配置世界等价 + 协议守卫 + 求解器差分 + 会话回放，
   末行 VERDICT=OK，失败返回退出码 1。

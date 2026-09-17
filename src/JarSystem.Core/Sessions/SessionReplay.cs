@@ -96,7 +96,11 @@ public static class WorldCommandJson
     {
         WriteIndented = false,
         ReadCommentHandling = JsonCommentHandling.Disallow,
-        AllowTrailingCommas = false
+        AllowTrailingCommas = false,
+        // 存档是**外部输入**（手改过的存档 / 旧版本的字段）：键名拼错必须报错，
+        // 否则那条命令会带着"全是默认值"的载荷被重放 —— 静默重放出一个错的世界，
+        // 比读档失败危险得多。与 WorldOptionsJson 同一条策略（见那里的注释）。
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
     /// <summary>导出为 JSON 文本（**存档格式**：字段名即 <see cref="JsonPropertyNameAttribute"/>）。</summary>

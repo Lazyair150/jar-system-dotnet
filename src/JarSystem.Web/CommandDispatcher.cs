@@ -31,6 +31,16 @@ public sealed class CommandDispatcher
             // 适配层只负责"呈现"，规则本身住在核心 ⇒ Web / Godot / 脚本三个宿主自动继承同一条约束。
             await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = ex.Message } }));
         }
+        catch (Exception ex)
+        {
+            // **兜底**（2026-09-16 补）：上面只接领域异常，任何别的异常（上游解析越界、意外的空引用…）
+            // 以前会一路冒到 `WebSocketHub` 的会话级 catch ⇒ 客户端"莫名断线"、服务端只留一行 Console.Error。
+            // 现在统一转成 error 回包 + 经 ISystemLog 留痕，于是 Hub 那句
+            // "非法/非预期形状的报文只回一条 error，绝不断开连接" 对**所有**畸形输入都成立。
+            // 注：`IWebSocketSink.SendAsync` 内部自吞发送异常（连接已断也不会抛），故这里无需再包一层。
+            svc.System.Log.Error("命令 " + type + " 处理失败: " + ex.Message, ex);
+            await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "命令处理失败: " + ex.Message } }));
+        }
         finally { svc.Gate.Release(); }
     }
 
@@ -208,7 +218,12 @@ public sealed class CommandDispatcher
         var sys = svc.System;
         if (d.TryGetProperty("orderId", out var idEl) && idEl.ValueKind == JsonValueKind.Number)
         {
-            var id = idEl.GetInt32();
+            // 用 `TryGetInt32` 而不是 `GetInt32()`：后者对**超出 Int32 的合法 JSON 数字**
+            // （例如 99999999999999999999）会抛异常，而那不是 DomainValidationException
+            // ⇒ 越过下面的 catch 冒到 WS 会话级 catch ⇒ 客户端直接掉线，
+            // 与 `WebSocketHub` 自己的承诺（"非法形状的报文只回一条 error，绝不断开连接"）相矛盾（2026-09-16 修）。
+            // 超范围 ⇒ 一律当作"找不到"，调用方按既有的"无效订单索引"回报。
+            if (!idEl.TryGetInt32(out var id)) return -1;
             // 批 E 后 Orders 是 IReadOnlyList（没有 List.FindIndex），改为等价的线性查找：找不到返回 -1
             for (int i = 0; i < sys.Orders.Count; i++)
                 if (sys.Orders[i].Id == id) return i;

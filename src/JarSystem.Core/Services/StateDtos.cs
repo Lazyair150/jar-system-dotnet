@@ -63,7 +63,9 @@ public sealed class OrderStateDto
     [JsonPropertyName("status")] public string Status { get; init; } = "";
     /// <summary>
     /// 最近一次可行性分析结果。**与消息里的 `feasibilityResult` 是同一个类型**（2026-09 契约统一）——
-    /// 此前这里是一份 10 键投影、消息里是 16 键本体，前端被迫写"两种形状都兼容"的代码。
+    /// 此前这里是一份 10 键投影、消息里是本体，前端被迫写"两种形状都兼容"的代码。
+    /// ⚠️ 当时的记录把本体写成"16 键"（另有"15 键"的写法），**两个数字都不对**：
+    /// 本体是 **12 键**，"15 键"其实是 `autoCheckResults` 的**载荷**（3 + 12）。见 `00_从这里继续.md` §9 勘误 #8。
     /// </summary>
     [JsonPropertyName("feasibilityResult")] public FeasibilityResultData? FeasibilityResult { get; init; }
     [JsonPropertyName("description")] public string Description { get; init; } = "";

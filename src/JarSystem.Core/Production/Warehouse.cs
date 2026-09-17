@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
@@ -24,14 +25,19 @@ public sealed class Warehouse
     private readonly Dictionary<string, int> _liquidWarehouse = new();
     private readonly Dictionary<string, int> _discardedLiquids = new();
 
+    // 真只读包装（2026-09-16 全量只读化）：只给接口类型是可以被 `((List<Jar>)w.Jars).Clear()` 绕过的。
+    private readonly IReadOnlyList<Jar> _jarsView;
+    private readonly IReadOnlyDictionary<string, int> _liquidWarehouseView;
+    private readonly IReadOnlyDictionary<string, int> _discardedLiquidsView;
+
     /// <summary>仓库中的罐子（只读视图；增删只能经 <see cref="StoreJars"/> / <see cref="FlowToMaster"/>）。</summary>
-    public IReadOnlyList<Jar> Jars => _jars;
+    public IReadOnlyList<Jar> Jars => _jarsView;
 
     /// <summary>仓库液体库存（只读视图；变更只能经 <see cref="ProduceLiquid"/> / <see cref="FlowToMaster"/>）。</summary>
-    public IReadOnlyDictionary<string, int> LiquidWarehouse => _liquidWarehouse;
+    public IReadOnlyDictionary<string, int> LiquidWarehouse => _liquidWarehouseView;
 
     /// <summary>因仓库上限而丢弃的液体计数（只读视图）。</summary>
-    public IReadOnlyDictionary<string, int> DiscardedLiquids => _discardedLiquids;
+    public IReadOnlyDictionary<string, int> DiscardedLiquids => _discardedLiquidsView;
 
     /// <summary>仓库中的罐子数量。</summary>
     public int JarCount => _jars.Count;
@@ -42,6 +48,11 @@ public sealed class Warehouse
     /// <param name="vocabulary">词表（S2）：液体账目按它的名字与**顺序**建键 —— 契约快照里 `liquids` 的键序依赖它。</param>
     public Warehouse(Vocabulary? vocabulary = null)
     {
+        // 只读包装最先建立（活视图）——构造期间若有代码读公开视图也不会拿到 null
+        _jarsView = _jars.AsReadOnly();
+        _liquidWarehouseView = new ReadOnlyDictionary<string, int>(_liquidWarehouse);
+        _discardedLiquidsView = new ReadOnlyDictionary<string, int>(_discardedLiquids);
+
         // 逐项赋值而不是集合初始化器：保证键的插入顺序 = 词表顺序
         foreach (var liquid in (vocabulary ?? Vocabulary.Default).Liquids)
         {

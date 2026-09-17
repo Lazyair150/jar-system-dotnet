@@ -19,7 +19,25 @@ public class Order
     /// <summary>订单状态。只能经 <see cref="MarkSucceeded"/> / <see cref="MarkFailed"/> 迁移。</summary>
     public string Status { get; private set; }
 
-    /// <summary>最近一次可行性分析结果。只能经 <see cref="RecordFeasibility"/> 写入。</summary>
+    /// <summary>
+    /// **最近一次**可行性分析结果。只能经 <see cref="RecordFeasibility"/> 写入。
+    ///
+    /// ⚠️ 语义边界（2026-09-16 复核后写明）：它是"最近一次分析"，**不是对执行的承诺** ——
+    /// 宿主开着自动检测时，每 5 秒的 <c>CheckAllFeasibility</c> 会把它**整体覆盖**，
+    /// 而执行器读的正是它（`OrderService.ExecuteOrder` → `OrderExecutor`）。
+    ///
+    /// 为什么这个"覆盖"不是缺陷（审查提过，逐条查过）：
+    /// <list type="number">
+    /// <item>执行器**不盲信**它：主台路径任何一步失败就明确报"状态与可行性分析不一致"并终止，
+    /// 不会带着错误继续（见 <c>OrderExecutor</c> 的 masterPathErrored 分支）；</item>
+    /// <item>预算**按次重置**（<c>FeasibilityChecker.Check</c> → <c>BeginCheck</c>），
+    /// 所以自动检测不会把预算耗尽"传染"给后续分析（否则跑一会儿就会全是"未判定"）；</item>
+    /// <item>覆盖发生在**闸门内**，与命令执行、Tick 互斥 ⇒ 不会在执行的半途中被换掉。</item>
+    /// </list>
+    /// 残留的真实缺口是**新鲜度不可见**：UI 看到的那份结果可能来自更早的世界状态，
+    /// 而 `timestamp` 装的是"分析耗时毫秒"、不是时间点，无法据此判断。要补需要**新增契约键**
+    /// （例如"分析时的 tick 序号"）⇒ 属需批准的契约变更，未擅自加。
+    /// </summary>
     public FeasibilityResultData? FeasibilityResult { get; private set; }
 
     public Order(List<Requirement> requirements, string type = Constants.OrderType.A, IIdGenerator? ids = null,
@@ -129,14 +147,28 @@ public class FeasibilityResultData
     [JsonPropertyName("timestamp")] public string? Timestamp { get; private set; }
     [JsonPropertyName("directCount")] public int DirectCount { get; init; }
     [JsonPropertyName("operationCount")] public int OperationCount { get; init; }
-    [JsonPropertyName("solverPath")] public List<SolverStepDto>? SolverPath { get; init; }
-    [JsonPropertyName("masterPath")] public List<SolverStepDto>? MasterPath { get; init; }
+    // 四个集合一律 **IReadOnly***（2026-09-16 修）：它们会随 FeasibilityResult 一起交出去，
+    // 而执行器**照着 solverPath/masterPath/transferJarIds 干活** —— 交出可变的 List/Dictionary
+    // 等于让外部能改写"可行性分析对执行的承诺"（`fr.SolverPath!.Add(...)` 就能注入步骤）。
+    // 只读视图不影响 JSON：schema / 快照 / contract.d.ts 只看元素类型，不看集合是 List 还是 IReadOnlyList。
+    // （构造端无需改动：List/Dictionary → 只读接口是隐式转换。）
+    [JsonPropertyName("solverPath")] public IReadOnlyList<SolverStepDto>? SolverPath { get; init; }
+    [JsonPropertyName("masterPath")] public IReadOnlyList<SolverStepDto>? MasterPath { get; init; }
     [JsonPropertyName("checkMethod")] public string? CheckMethod { get; init; }
 
     // 选择性转移记录（B 类）：本次可行性路径需要从主台转移到从台的罐子 Id 清单
-    [JsonPropertyName("transferJarIds")] public List<int>? TransferJarIds { get; init; }
+    [JsonPropertyName("transferJarIds")] public IReadOnlyList<int>? TransferJarIds { get; init; }
 
     // 需要从主台转移到从台的游离液体量（每种），其余留在主台
+    //
+    // ⚠️ **这一个故意保留 `Dictionary`**（与上面三个集合不同）：本仓库里 `IReadOnlyList` 有
+    // "已进 schema 导出且 degraded=0" 的先例（`WorkshopStateDto.BaseMarks`），而
+    // `IReadOnlyDictionary` **没有** —— 而 `schema total loose=1` 是被文档钉住的期望值
+    // （JsonSchemaExporter 若把它当成无法描述的节点，会多出一个 loose）。
+    // 且它在**用法上是惰性的**：执行器只按内置液体名逐个查询（`GetValueOrDefault`），
+    // 外部塞进来的额外键读不到，与"注入可执行步骤"的 solverPath 不同风险等级。
+    // 要一并收紧的前提是：先确认导出器对 `IReadOnlyDictionary<string,int>` 仍产出
+    // `additionalProperties: {"type":"integer"}`（那时再改，并同步文档里的 loose 口径）。
     [JsonPropertyName("transferLiquids")] public Dictionary<string, int>? TransferLiquids { get; init; }
 
     /// <summary>记录本次分析的耗时（毫秒，字符串形态）。只允许可行性检查链调用。</summary>

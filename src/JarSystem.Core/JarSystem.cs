@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
@@ -35,6 +36,17 @@ public class JarSystem
     private readonly List<Dictionary<string, object?>> _eventHistory = new();
     private readonly Dictionary<string, int> _liquidProductionRate;
 
+    // ---- 真只读包装（2026-09-16 全量只读化）----
+    // 只把私有容器以 IReadOnly* 接口交出去是**不够**的：调用方可以 `((List<Workshop>)sys.Workshops).Clear()`
+    // 就地改世界，绕过全部意图方法。这里给每个对外视图包一层 ReadOnly 包装（活视图，构造时建立一次），
+    // 与 `Vocabulary` / `WorkshopCapability` / `Workshop.Jars` 同一手法。
+    // 注：程序集内的 `WorkshopList`/`OrderList` 仍是**裸可变视图**（Services/Bootstrap 靠它们改世界）✓。
+    private readonly IReadOnlyList<Workshop> _workshopsView;
+    private readonly IReadOnlyList<Order> _ordersView;
+    private readonly IReadOnlyList<Dictionary<string, object?>> _eventHistoryView;
+    private readonly IReadOnlyList<WorldCommand> _commandLogView;
+    private readonly IReadOnlyDictionary<string, int> _liquidProductionRateView;
+
     // ---- 会话日志（Event Sourcing 切片）：每次"改世界"的意图都追加一条 ----
     private readonly List<WorldCommand> _commandLog = new();
     private int _logSeq;
@@ -45,7 +57,7 @@ public class JarSystem
     /// 可以用 <see cref="SessionReplay.Into"/> 重建出**同样的世界**。
     /// 读操作（GetState/可行性分析的结果写入除外）不记录。
     /// </summary>
-    public IReadOnlyList<WorldCommand> CommandLog => _commandLog;
+    public IReadOnlyList<WorldCommand> CommandLog => _commandLogView;
 
     /// <summary>构造时使用的随机种子；null 表示不固定（那样**无法**保证回放一致）。</summary>
     public int? RandomSeed { get; }
@@ -68,13 +80,14 @@ public class JarSystem
     /// <summary>订单 ID 源（注入点，同上）。</summary>
     public IIdGenerator OrderIds { get; }
 
-    // ---- 对外只读视图（契约：内容与重构前逐项一致） ----
-    public IReadOnlyList<Workshop> Workshops => _workshops;
-    public IReadOnlyList<Order> Orders => _orders;
-    public IReadOnlyList<Dictionary<string, object?>> EventHistory => _eventHistory;
+    // ---- 对外只读视图（契约：内容与重构前逐项一致）----
+    // 2026-09-16：**真只读包装**（连向下转型也改不动），不是"声明类型恰好是只读接口"。
+    public IReadOnlyList<Workshop> Workshops => _workshopsView;
+    public IReadOnlyList<Order> Orders => _ordersView;
+    public IReadOnlyList<Dictionary<string, object?>> EventHistory => _eventHistoryView;
 
     /// <summary>每 tick 的液体产出速率（酒/蜜）。**不参与 JSON 契约**；修改请用 <see cref="SetLiquidProductionRate"/>。</summary>
-    public IReadOnlyDictionary<string, int> LiquidProductionRate => _liquidProductionRate;
+    public IReadOnlyDictionary<string, int> LiquidProductionRate => _liquidProductionRateView;
 
     // ---- 程序集内可变视图（仅供 Services/Bootstrap 使用；外部看不到） ----
     internal List<Workshop> WorkshopList => _workshops;
@@ -85,7 +98,11 @@ public class JarSystem
     /// 但内部列表此前是无限增长的（实测 500 次主从切换后内部已有 500 条）—— 长跑宿主会持续泄漏。
     /// 保留窗口 = 下发窗口 ⇒ 对外 JSON 逐字节不变，只是不再无界。
     /// </summary>
-    private const int MaxEventHistory = 10;
+    // 2026-09-16：由 `private` 改 `internal`，并把"两处 10"收敛成一处 —— 下发窗口由
+    // StateSerializer **引用本常量**（原先它自己写死 `TakeLast(10)`）。两处各写一个 10 时，
+    // 只改一处就会让"保留窗口 = 下发窗口 ⇒ 对外 JSON 逐字节不变"这条论据**静默失效**
+    // （对外条数变了，而没人知道是漏改还是故意的）。
+    internal const int MaxEventHistory = 10;
 
     /// <summary>追加一条事件历史并维持长度上限（写入事件历史的**唯一入口**）。</summary>
     internal void AddEvent(Dictionary<string, object?> entry)
@@ -164,6 +181,12 @@ public class JarSystem
         WorldOptions? world = null, ISolver? solver = null,
         IIdGenerator? jarIds = null, IIdGenerator? orderIds = null)
     {
+        // 只读包装**最先建立**：构造期间任何一处（服务/装配器）若读公开视图，都不会拿到 null。
+        _workshopsView = _workshops.AsReadOnly();
+        _ordersView = _orders.AsReadOnly();
+        _eventHistoryView = _eventHistory.AsReadOnly();
+        _commandLogView = _commandLog.AsReadOnly();
+
         Log = log ?? ConsoleSystemLog.Instance;
         World = world ?? WorldOptions.Default;
         Vocabulary = vocabulary ?? World.BuildVocabulary();
@@ -172,6 +195,8 @@ public class JarSystem
         OrderIds = orderIds ?? DefaultIdGenerators.Orders;
         FlowSettings = (World.Flow.JarCount, World.Flow.LiquidAmount);
         _liquidProductionRate = DefaultLiquidRates();
+        // 速率视图必须**在字段赋值之后**建（readonly 字段的确定性赋值；提前读它编译不过）
+        _liquidProductionRateView = new ReadOnlyDictionary<string, int>(_liquidProductionRate);
         Rng = randomSeed.HasValue ? new Random(randomSeed.Value) : new Random();
         ProducerModule = new ProducerModule(Vocabulary);
         Checker = new FeasibilityChecker(solver ?? new StateSpaceSolver());
@@ -318,7 +343,10 @@ public class JarSystem
         ProducerModule = new ProducerModule(Vocabulary);
     }
 
-    /// <summary>设置某液体的每 tick 产出速率（不参与 JSON 契约）。</summary>
+    /// <summary>
+    /// 设置某液体的每 tick 产出速率（不参与 JSON 契约）。
+    /// **未知液体与负数会被拒绝** —— 校验住在唯一写入口，见 <see cref="SetLiquidProductionRateCore"/>。
+    /// </summary>
     public void SetLiquidProductionRate(string liquid, int rate)
     {
         SetLiquidProductionRateCore(liquid, rate);
@@ -329,12 +357,31 @@ public class JarSystem
     /// 只改数据、**不写会话日志**的内部入口：给"服务内部转发"用。
     /// 会话日志必须**一次宿主意图只记一条** —— 否则存档里会出现重复条目、回放会把日志越滚越长
     /// （实测踩过：`UpdateLiquidProductionRate` 内部调 `SetLiquidProductionRate`，同一次意图被记两条）。
+    ///
+    /// **校验也住在这一层（2026-09-16 修）**：这是"液体速率"唯一的写入口 —— 公开的
+    /// <see cref="SetLiquidProductionRate"/> 与服务的 <c>UpdateLiquidProductionRate</c> 都汇到这里，
+    /// 规则只有一份才不会被绕过。原实现是 <c>_liquidProductionRate[liquid] = rate</c>（字典索引器），
+    /// 未知液体名会被**插入成幻影液体**：它随后进入产出循环，而回放/存档的输入是**外部数据**
+    /// ⇒ 能够造出一个手工不可达的世界（审查中 4 位专家独立指出）。
     /// </summary>
-    internal void SetLiquidProductionRateCore(string liquid, int rate) => _liquidProductionRate[liquid] = rate;
+    internal void SetLiquidProductionRateCore(string liquid, int rate)
+    {
+        if (!_liquidProductionRate.ContainsKey(liquid))
+            throw new DomainValidationException("没有这个液体: " + liquid);
+        if (rate < 0)
+            throw new DomainValidationException("液体产出速率不能为负: " + rate);
+        _liquidProductionRate[liquid] = rate;
+    }
 
-    /// <summary>设置主台流入参数（每次流入的罐子数与液体量）。</summary>
+    /// <summary>
+    /// 设置主台流入参数（每次流入的罐子数与液体量）。
+    /// **负数在这里被拒绝**：回放会把存档里的 <c>intA/intB</c> 原样送进来，
+    /// 若放行负数，读档就能造出 UI 永远做不到的世界（判据与 <c>WorldOptions.Validate</c> 一致）。
+    /// </summary>
     public void SetFlowSettings(int jarCount, int liquidAmount)
     {
+        if (jarCount < 0) throw new DomainValidationException("流入罐子数不能为负: " + jarCount);
+        if (liquidAmount < 0) throw new DomainValidationException("流入液体量不能为负: " + liquidAmount);
         FlowSettings = (jarCount, liquidAmount);
         Record(WorldOps.SetFlowSettings, intA: jarCount, intB: liquidAmount);
     }

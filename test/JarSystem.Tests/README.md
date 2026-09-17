@@ -55,7 +55,7 @@ Verify 33.x 起是**赞助门槛软件**：`SponsorCheck` 会让构建直接失�
 
 * 本工程是**增量**：旧 runner（`test/JarSystem.Test`，2000 随机 + 3000 容量 + 20 确定性）继续作为
   **基线守护**留在 `verify.bat` 第 2 步，其输出字符串**不变**；
-* 因此测试基线 `0 bugs / 2000 random + 0 bugs / 3000 capacity + 21 deterministic` 不受影响；
+* 因此测试基线 `0 bugs / 2000 random + 0 bugs / 3000 capacity + 22 deterministic` 不受影响；
 * 七步门里的 build 只构建 `JarSystem.slnx`，**不会**编译本工程 —— 所以本工程里的编译错误只有运行它时才会暴露。
 
 ## 已包含的测试（首版 4 条 `[Fact]`）

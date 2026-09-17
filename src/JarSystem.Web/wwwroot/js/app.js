@@ -23,6 +23,8 @@ let worldMeta = { shapes: [], liquids: [] };
 //  · MAX_SWITCH_DOTS —— 圆点动画的节点上限（原实现按 operation 数量线性开 setTimeout）
 let uiScheduled = false;
 let switchAnimating = false;
+// 切换动画的**代次**：只有"最新一次动画"的定时器有权解除 switchAnimating（见 animateWorkshopSwitch）
+let switchAnimSeq = 0;
 const MAX_SWITCH_DOTS = 8;
 
 /**
@@ -174,6 +176,12 @@ function updateUI() {
   // 变成"孤儿节点"，回调仍在野节点上跑（表现为明显卡顿/闪断）。动画结束会补一次同步。
   if (switchAnimating) return;
   if (!currentState) return;
+
+  // 表现层修复（2026-09-16）：容量编辑框在**全量 innerHTML 重建**里会被换成新节点 ⇒
+  // 焦点与光标位置随之丢失（草稿值因存在 capacityDraft 里而不会丢，但每来一次 state
+  // ——约 1 次/秒——就只能再敲一个字符）。这里在重建前后把焦点与光标接回去。
+  const focus = captureCapacityFocus();
+
   renderGlobalState();
   renderWorkshops();
   renderOrders();
@@ -181,6 +189,31 @@ function updateUI() {
   renderProducers();
   if (renderer) {
     renderer.setData(currentState.workshops, currentState.warehouse, currentState.producerStatus);
+  }
+
+  restoreCapacityFocus(focus);
+}
+
+/** 记下"正在编辑哪个容量输入框、光标在第几位"。`type=number` 上读 selectionStart 会抛 ⇒ 全程包 try。 */
+function captureCapacityFocus() {
+  // `activeElement` 的静态类型是 Element，而 dataset/selectionStart 在 HTMLInputElement 上 ⇒ 按本文件惯例断言
+  const el = /** @type {HTMLInputElement|null} */ (document.activeElement);
+  if (!el || !el.dataset || !el.dataset.capField) return null;
+  let pos = null;
+  try { pos = typeof el.selectionStart === 'number' ? el.selectionStart : null; } catch (e) { pos = null; }
+  return { index: el.dataset.capIndex, field: el.dataset.capField, pos: pos };
+}
+
+/** 重建之后把焦点与光标放回去；找不到目标就什么都不做（编辑可能已经结束）。 */
+function restoreCapacityFocus(focus) {
+  if (!focus) return;
+  const el = /** @type {HTMLInputElement|null} */ (
+    document.querySelector('[data-cap-index="' + focus.index + '"][data-cap-field="' + focus.field + '"]'));
+  if (!el) return;
+  try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+  if (focus.pos !== null) {
+    // number 型输入框不支持光标定位（setSelectionRange 会抛）⇒ 忽略即可；焦点已经接回来了
+    try { el.setSelectionRange(focus.pos, focus.pos); } catch (e) { /* 预期内 */ }
   }
 }
 
@@ -211,7 +244,7 @@ function renderWorkshops() {
         <span class="workshop-name">${esc(w.name)} ${rt}</span>
         <div class="workshop-capacity">
           ${i === editingCapacityIndex && capacityDraft
-            ? `<span style="font-size:0.75em;color:#888;">📦 <input type="number" value="${esc(capacityDraft.jars)}" oninput="updateCapacityDraft('jars', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> | 🍷 <input type="number" value="${esc(capacityDraft.liquids)}" oninput="updateCapacityDraft('liquids', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> <button style="background:#0f3460;color:#fff;border:none;padding:0 6px;border-radius:2px;cursor:pointer;" onclick="event.stopPropagation();editCapacity(${i})">✔</button></span>`
+            ? `<span style="font-size:0.75em;color:#888;">📦 <input type="number" value="${esc(capacityDraft.jars)}" data-cap-index="${i}" data-cap-field="jars" oninput="updateCapacityDraft('jars', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> | 🍷 <input type="number" value="${esc(capacityDraft.liquids)}" data-cap-index="${i}" data-cap-field="liquids" oninput="updateCapacityDraft('liquids', this.value)" style="width:40px;background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:1px 3px;border-radius:2px;"> <button style="background:#0f3460;color:#fff;border:none;padding:0 6px;border-radius:2px;cursor:pointer;" onclick="event.stopPropagation();editCapacity(${i})">✔</button></span>`
             : `<span style="font-size:0.75em;color:#888;cursor:pointer" onclick="event.stopPropagation();editCapacity(${i})">
             📦 ${w.jars.length}/${w.maxJars||20} | 🍷${(w.liquids && w.liquids['酒'])||0}/${w.maxLiquids||30}
           </span>`}
@@ -558,8 +591,17 @@ function animateWorkshopSwitch(fromIdx, toIdx, operations) {
   // S4b-2（卡顿修复）：
   //  ① 动画期间暂停整块重绘（见 updateUI 的守卫），并在动画结束后补一次同步；
   //  ② 圆点数量设上限 —— 原实现按 operation 数量线性开 setTimeout，操作多时成倍放大。
+  // 表现层修复（2026-09-16）：守卫改用**代次**而不是纯布尔。重叠触发两次切换时，
+  // 先到的定时器属于**旧**动画，若无条件清守卫，就会在新动画进行到一半时重建 DOM
+  // （正是守卫要防的"孤儿节点/闪断"）。只有最新那次动画的定时器能解除守卫；
+  // 它必然在 1.5s 内触发，因此也不存在永久卡死。
+  var seq = ++switchAnimSeq;
   switchAnimating = true;
-  setTimeout(function() { switchAnimating = false; updateUI(); }, Math.min(ops.length * 150 + 600, 1500));
+  setTimeout(function() {
+    if (seq !== switchAnimSeq) return;
+    switchAnimating = false;
+    updateUI();
+  }, Math.min(ops.length * 150 + 600, 1500));
 
   var oldCard = document.querySelector('.workshop-card[data-index="' + fromIdx + '"]');
   var newCard = document.querySelector('.workshop-card[data-index="' + toIdx + '"]');

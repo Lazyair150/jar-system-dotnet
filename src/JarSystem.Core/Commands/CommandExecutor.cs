@@ -18,18 +18,22 @@ public class CommandExecutor
 {
     private readonly ISystemLog _log;
 
-    /// <summary>默认装配控制台日志（宿主可注入自己的实现）。</summary>
-    public CommandExecutor(ISystemLog? log = null)
-    {
-        _log = log ?? ConsoleSystemLog.Instance;
-    }
-
     // 私有列表 + 只读视图：原先 public List<Command> 会让调用方
     // Add/Clear 掉历史（而历史是审计与回滚的依据）。
     private readonly List<Command> _history = new();
 
+    // 真只读包装（2026-09-16 全量只读化）：接口类型挡不住 `((List<Command>)exec.History).Clear()`。
+    private readonly IReadOnlyList<Command> _historyView;
+
+    /// <summary>默认装配控制台日志（宿主可注入自己的实现）。</summary>
+    public CommandExecutor(ISystemLog? log = null)
+    {
+        _log = log ?? ConsoleSystemLog.Instance;
+        _historyView = _history.AsReadOnly();
+    }
+
     /// <summary>已成功执行的命令历史（对外只读）。</summary>
-    public IReadOnlyList<Command> History => _history;
+    public IReadOnlyList<Command> History => _historyView;
 
     // 执行单条命令
     public CommandResult Execute(Command command, Workshop workshop, OrderEvent? event_)
@@ -66,7 +70,26 @@ public class CommandExecutor
         // 逆序回滚
         for (int i = commands.Count - 1; i >= 0; i--)
         {
-            try { commands[i].Undo(workshop, event_); }
+            try
+            {
+                var undone = commands[i].Undo(workshop, event_);
+
+                // ⚠️ **撤销失败有两条通路**：抛异常，或者**返回 Success=false**
+                // （`TransferCommand` / `PourOutCommand` / `ReshapeEmptyCommand` 都用返回值表示失败）。
+                // 原实现只看异常，返回值直接丢掉 ⇒ 那三种命令的失败**连一行痕迹都没有**，
+                // 而本类注释却声称"回滚失败时经 ISystemLog 留痕"（2026-09-16 修：返回值现在也留痕）。
+                if (!undone.Success)
+                {
+                    var why = string.IsNullOrEmpty(undone.Reason) ? "撤销未成功（未给出原因）" : undone.Reason!;
+                    event_?.AppendError(new LogError
+                    {
+                        Phase = "rollback",
+                        Command = commands[i].Type,
+                        Reason = "回滚失败: " + why
+                    });
+                    _log.Error("回滚失败: 命令 " + commands[i].Type + " 撤销返回失败 - " + why);
+                }
+            }
             catch (Exception ex)
             {
                 // 契约留痕：保持原样（event_ 为 null 时本行无效果，故下一行补日志出口）
