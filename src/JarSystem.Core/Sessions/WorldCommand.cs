@@ -103,6 +103,12 @@ public static class WorldOps
     public const string CheckFeasibility = "checkFeasibility";
     public const string CheckAllFeasibility = "checkAllFeasibility";
     public const string ExecuteOrder = "executeOrder";
+
+    /// <summary>**异步轨**：把订单执行起成一个由 tick 驱动的过程（P2b 新增；同步轨仍是 <see cref="ExecuteOrder"/>）。</summary>
+    public const string StartOrder = "startOrder";
+
+    /// <summary>取消一个进行中的过程（P4 新增；已完成的部分不回滚）。</summary>
+    public const string CancelProcess = "cancelProcess";
     public const string Tick = "tick";
     public const string UpdateProducerRate = "updateProducerRate";
     public const string UpdateLiquidProductionRate = "updateLiquidProductionRate";

@@ -1,0 +1,56 @@
+@startuml
+' ============================================================
+'  P5 收口后新增（2026-10-16）：过程系统的一等公民 —— 过程实例的状态机。
+'  与代码逐条对齐：ProcessInstance 的意图方法 + ProcessRun 的生命周期写入 +
+'  ProcessSystem.AdvanceActive 的守卫/宽限/时限判定。
+'  命名规则：状态与 reason 取值都是**契约取值**（ProcessContract），改名 = 改契约。
+'  PlantUML 约定（见 UML.txt）：起始标记保持裸形式（不带图名）；状态图只用 note left/right/over；成员一行一个。
+' ============================================================
+
+title 过程生命周期（ProcessInstance）
+
+[*] --> Created : ProcessSystem.Begin(定义)
+Created --> Ready : MarkReady
+Ready --> Running : Start(tick)（首个单位/首个阻断前惰性触发）
+
+state Running {
+  [*] --> Check
+  Check --> Apply : 守卫成立
+  Apply --> Commit : 原子操作成功
+  Commit --> Check : 下一单位（或收尾）
+}
+
+Running --> Blocked : 守卫不成立（Blocked 分支）
+Blocked --> Running : 守卫恢复（Resumed；本 tick 到点即续推）
+Blocked --> Failed : 宽限窗口耗尽（GraceTicks）
+
+Running --> Succeeded : 工作完成（OnFinished 收尾后 Finish(true)）
+Running --> Failed : 工作失败 / 时限已到（DeadlineTick）
+Running --> Aborted : Cancel（取消；已完成部分不回滚）
+Blocked --> Aborted : Cancel
+
+note right of Blocked
+  **守卫**（每条都可解释、都可恢复）：
+  · 订单已不在世界里 → Fatal（直接失败，不等待）
+  · 主台/从台不再被选中 → Blocked
+  · 计划还要用的器物已不在工作台 → Blocked
+  · 下一步被"临时禁令"抑制（Suppress）→ Blocked
+  · 内容侧给的前置条件不成立（Require + WorldQuery）→ Blocked
+end note
+
+note right of Failed
+  **失败也留下代价**：
+  · 跨工作台转移回滚（SlaveRollback）
+  · 主台上已发生的操作**不回滚**（规则.txt 的设计定案）
+  · 过程以 failed 结尾，原因写进过程日志与事件历史
+end note
+
+note right of Succeeded
+  **收尾一次**：工作体的 OnFinished 调 OrderService.CompleteOrderExecution
+  （交付 / 失败落账 / 事件历史 / 订单状态），幂等。
+end note
+
+Failed --> [*]
+Succeeded --> [*]
+Aborted --> [*]
+@enduml

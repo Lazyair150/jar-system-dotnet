@@ -11,29 +11,51 @@
 /// </summary>
 public sealed class TickBackgroundService : BackgroundService
 {
-    /// <summary>推进间隔（与原定时器一致）。</summary>
+    /// <summary>推进间隔的**默认值**（与原定时器一致：2 秒）。</summary>
     public static readonly TimeSpan Interval = TimeSpan.FromSeconds(2);
+
+    /// <summary>配置键（宿主侧时间参数，见 appsettings.json 的 <c>JarSystem:TickIntervalMs</c>）。</summary>
+    public const string IntervalConfigKey = "JarSystem:TickIntervalMs";
 
     private readonly JarSystemService _svc;
     private readonly IWebSocketSink _sink;
 
-    public TickBackgroundService(JarSystemService svc, IWebSocketSink sink)
+    /// <summary>
+    /// 推进间隔可由**宿主配置**调整（P5 第一片：把"墙钟 ↔ 逻辑 tick"的映射参数化）。
+    ///
+    /// 为什么放在宿主侧：核心只认逻辑 tick（判定必须与墙钟无关）；"多久推进一次"纯属表现层的时间参数，
+    /// 因此它属于宿主而不是内核。下限 100ms 是防呆：把间隔调成 0 会让推进变成忙循环。
+    /// </summary>
+    public TickBackgroundService(JarSystemService svc, IWebSocketSink sink, Microsoft.Extensions.Configuration.IConfiguration? config = null)
     {
         _svc = svc;
         _sink = sink;
+        var raw = config?[IntervalConfigKey];
+        var ms = int.TryParse(raw, out var parsed) ? parsed : (int)Interval.TotalMilliseconds;
+        if (ms < 100) ms = 100;
+        _svc.TickIntervalMs = ms;
+        if (ms != (int)Interval.TotalMilliseconds)
+            Console.WriteLine("[tick] 推进间隔来自配置 " + IntervalConfigKey + " = " + ms + " ms");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(Interval);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        // 每轮读一次间隔：于是配置与客户端都能随时改节奏（倍速）。
+        // "不重入"由顺序 await 保证（上一轮没跑完不会叠加），与原先的 PeriodicTimer 等价。
+        while (!stoppingToken.IsCancellationRequested)
         {
+            var interval = CurrentInterval();
+            try { await Task.Delay(interval, stoppingToken); }
+            catch (OperationCanceledException) { break; }
             if (!_svc.IsRunning) continue;
             var before = DateTimeOffset.UtcNow;
             await TickOnceAsync(stoppingToken);
-            ReportIfStalled(before);
+            ReportIfStalled(before, CurrentInterval());
         }
     }
+
+    /// <summary>当前推进间隔（下限 100ms 防呆：调成 0 会让推进变成忙循环）。</summary>
+    private TimeSpan CurrentInterval() => TimeSpan.FromMilliseconds(Math.Max(100, _svc.TickIntervalMs));
 
     /// <summary>
     /// 诊断（2026-09-16）：一次 Tick 从"进入"到"完成"若超过一个周期，说明**闸门被别的长任务占住**了
@@ -45,12 +67,12 @@ public sealed class TickBackgroundService : BackgroundService
     /// "回放能复现同一份分析结果"这条承重不变量（分析结果进契约、且被记进日志，
     /// 见 <c>JarSystem.CheckFeasibility</c> 的注释），因此**不做**，只让它可见。
     /// </summary>
-    private static void ReportIfStalled(DateTimeOffset before)
+    private static void ReportIfStalled(DateTimeOffset before, TimeSpan interval)
     {
         var held = DateTimeOffset.UtcNow - before;
-        if (held <= Interval) return;
+        if (held <= interval) return;
         Console.Error.WriteLine(
-            $"[tick] 闸门被占用 {held.TotalMilliseconds:F0} ms（周期 {Interval.TotalMilliseconds:F0} ms）"
+            $"[tick] 闸门被占用 {held.TotalMilliseconds:F0} ms（周期 {interval.TotalMilliseconds:F0} ms）"
             + " — 期间的推进被跳过且不补算");
     }
 

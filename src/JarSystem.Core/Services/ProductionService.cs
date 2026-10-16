@@ -8,6 +8,12 @@ namespace JarSystem.Core.Services;
 ///
 /// 语义（不可改动）：每次推进 = 生产者累积产罐 → 按速率产液体 → 向当前主台流入（3 罐 2 液，基础形状优先）。
 /// 属性一律从门面实时读取（<c>Reset()</c> 会重建 <c>ProducerModule</c> 与液体速率）。
+///
+/// **2026-10（P2）拆分**：原先只有一个 <c>Tick(count)</c>，现在拆成
+/// <see cref="TickStep"/>（一个世界步进的产出）+ <see cref="FlushFlow"/>（流入一次），
+/// 由门面按"每个 tick 一次 TickStep、每次宿主 Tick 调用一次 FlushFlow"组合。
+/// 拆分的目的是把**逻辑时钟与 tick 管线**插到"每个世界步进"这一层（见 <c>Process.TickPipeline</c>），
+/// 而状态结果与拆分前逐项相同（生产者逐 tick 入库 ≡ 批量入库；液体原本就是逐 tick 循环；流入仍是一次）。
 /// </summary>
 internal sealed class ProductionService
 {
@@ -18,29 +24,36 @@ internal sealed class ProductionService
         _system = system;
     }
 
-    /// <summary>推进 count 次；返回值恒为 0（保持对外签名与行为）。</summary>
-    public int Tick(int count = 1)
+    /// <summary>推进**一个世界步进的产出部分**：生产者累积产罐 + 按速率产液体（不含流入）。</summary>
+    internal void TickStep()
     {
-        _system.ProducerModule.Tick(count);
-        for (int i = 0; i < count; i++)
+        _system.ProducerModule.Tick(1);
+        // S0（数据驱动）：按**词表**产出，不再写死 酒/蜜 两个名字。
+        // 液体仍然固定为 2 种（这是语义），这里去掉的只是"名字重复出现在逻辑里"。
+        // 顺序仍是词表顺序（酒 → 蜜），因此行为与重构前逐次相同。
+        foreach (var liquid in _system.Vocabulary.Liquids)
         {
-            // S0（数据驱动）：按**词表**产出，不再写死 酒/蜜 两个名字。
-            // 液体仍然固定为 2 种（这是语义），这里去掉的只是"名字重复出现在逻辑里"。
-            // 顺序仍是词表顺序（酒 → 蜜），因此行为与重构前逐次相同。
-            foreach (var liquid in _system.Vocabulary.Liquids)
-            {
-                var rate = _system.LiquidProductionRate.GetValueOrDefault(liquid);
-                if (rate > 0) _system.ProducerModule.Warehouse.ProduceLiquid(liquid, rate);
-            }
+            // P3b：强度修饰器可折减产出速率（整数千分比；无修饰器时恒等 ⇒ 行为不变）
+            var rate = _system.Modifiers.ApplyIntensity(
+                "liquid:" + liquid, _system.LiquidProductionRate.GetValueOrDefault(liquid));
+            if (rate > 0) _system.ProducerModule.Warehouse.ProduceLiquid(liquid, rate);
         }
-        if (_system.CurrentMaster.HasValue)
-        {
-            var master = _system.Workshops[_system.CurrentMaster.Value];
-            if (master != null)
-                _system.ProducerModule.Warehouse.FlowToMaster(
-                    master, _system.FlowSettings.JarCount, _system.FlowSettings.LiquidAmount);
-        }
-        return 0;
+    }
+
+    /// <summary>
+    /// 向当前主台流入一次。**每次宿主 <c>Tick(count)</c> 调用一次**（不是每个 tick 一次）——
+    /// 这是既有语义（"每次流入"的批量口径），P2 刻意保持不变，改它需要单独裁决。
+    /// </summary>
+    internal void FlushFlow()
+    {
+        if (!_system.CurrentMaster.HasValue) return;
+        var master = _system.Workshops[_system.CurrentMaster.Value];
+        if (master == null) return;
+        // P4d：流入参数也可被强度修饰器折算（整数千分比；无匹配 ⇒ 恒等）
+        // 目标名：`flow:jars`（每次流入的罐子数）、`flow:liquid`（每次流入的液体量）。
+        var jars = _system.Modifiers.ApplyIntensity("flow:jars", _system.FlowSettings.JarCount);
+        var liquid = _system.Modifiers.ApplyIntensity("flow:liquid", _system.FlowSettings.LiquidAmount);
+        _system.ProducerModule.Warehouse.FlowToMaster(master, jars, liquid);
     }
 
     /// <summary>

@@ -1,0 +1,79 @@
+@startuml
+' ============================================================
+'  P5 收口后新增（2026-10-16）：一个世界 tick 的固定处理顺序。
+'  与代码对齐：ProcessSystem.AdvanceActive（时限 → 阻断复查 → 守卫 → 推进/收尾）
+'  与 TickPipeline.AdvanceOneTick（①②③）+ ProductionService（④）。
+'  为什么顺序写死：确定性要求"同一状态 + 同一输入 ⇒ 同一结果"；
+'  事件与过程推进若次序不定，回放就会出现两种结果。
+'  PlantUML 约定：活动图里 note 必须紧跟一条活动语句（先写 :语句; 再写 note right ... end note）。
+' ============================================================
+
+title 一个 tick 的推进管线（事件 → 修饰器 → 过程 → 产出）
+
+start
+:逻辑时钟 +1（LogicalClock.Advance）;
+:① 事件注入（IWorldEventSource.DrainForTick）;
+note right
+  事件只改世界：改资源走既有意图方法；
+  到点发生的临时规则由场景数据给出（ScenarioBinder）
+end note
+:② ModifierStack.Expire(tick);
+note right
+  区间到点的修饰器在这里被摘掉（临时禁令自动解除）；
+  同时刷新栈认识的 _now，于是 From 也才真正"到点才生效"
+end note
+:③ 过程推进 AdvanceActive（按 Priority 排序，每过程至多一个单位）;
+:时限检查（tick 是否已超过 DeadlineTick）;
+if (超时) then (是)
+  :FailBlocked（原因：时限已到）;
+  :OnFinished 收尾 + 过程 Finish(false);
+  stop
+else (否)
+endif
+if (过程处于 Blocked) then (是)
+  :复查守卫 CheckGuard;
+  if (守卫恢复) then (是)
+    :NoteResumed（过程日志 resumed）;
+  else (否)
+    if (宽限耗尽或 Fatal) then (是)
+      :FailBlocked（grace_expired / 原因）;
+      :OnFinished 收尾 + 过程 Finish(false);
+      stop
+    else (否)
+      :本 tick 不推进（继续等待）;
+      stop
+    endif
+  endif
+else (否)
+endif
+if (已到点：tick 不小于 NextUnitTick) then (否)
+  :本 tick 不推进（还在步间隔里）;
+  stop
+else (是)
+endif
+:守卫检查（订单在场 / 主从未变 / 器物仍在 / 未被抑制 / 条件成立）;
+if (守卫成立) then (否)
+  :NoteBlocked（过程日志 blocked；观察者到 processBlocked）;
+  stop
+else (是)
+endif
+:工作体推进一个单位（AdvanceOneUnit）;
+note right
+  计划步骤按 jarId 定位 + 执行前状态校验；
+  路径步骤失败也继续其余步骤（与同步轨逐条一致）
+end note
+if (还有后续单位) then (是)
+  :记录进度（NoteUnitAdvanced；观察者到 processProgressed）;
+  stop
+else (否)
+  :OnFinished 收尾（交付 / 失败落账 / 事件历史）;
+  :过程 Finish（观察者到 processFinished）;
+endif
+:④ 世界产出（ProducerModule.TickStep + FlushFlow，可被强度修饰器折算）;
+note right
+  **整段在同一个串行闸门内**（JarSystemService.Gate）
+  ⇒ 可中断与确定性同时成立；
+  同步轨（executeOrder）不走这里：它在一个调用里把单位跑完，世界不变。
+end note
+stop
+@enduml

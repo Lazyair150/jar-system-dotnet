@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using JarSystem.Core.Abstractions;
 using JarSystem.Core.Commands;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
@@ -14,7 +15,7 @@ namespace JarSystem.Core.Executor;
 /// 协作者：<see cref="SolverStepDto"/>（路径步骤强类型模型）、<see cref="SolverStepApplier"/>（单步应用与状态预检）、
 /// <see cref="GreedyPlanBuilder"/>（贪心回退）、<see cref="JarSelector"/>（罐子选择策略）。
 /// </summary>
-public class OrderExecutor
+public class OrderExecutor : IProcessStepPrimitives
 {
     private readonly JarSelector _selector;
     private readonly SolverStepApplier _applier = new();
@@ -34,155 +35,90 @@ public class OrderExecutor
         set => _selector.Strategy = value;
     }
 
+    /// <param name="recorder">
+    /// 过程记账器：每应用一步就报告一次（写进过程日志）。null = 不记账（既有行为不变）。
+    /// <para>
+    /// P2b 起**编排已迁到 <see cref="Process.OrderExecutionSession"/>**：本类退化为
+    /// "单步执行体 + 会话工厂"，同步 drain 与异步 tick 驱动**共用同一个会话**（语义只有一份）。
+    /// </para>
+    /// </param>
     public (bool Success, List<ExecutionLogEntry> Operations, List<string> Errors, string? Reason)
-        Execute(Order order, Workshop master, Workshop slave, OrderEvent event_, List<SolverStepDto>? solverPath)
+        Execute(Order order, Workshop master, Workshop slave, OrderEvent event_, List<SolverStepDto>? solverPath,
+            IProcessRecorder? recorder = null)
     {
-        if (solverPath != null && solverPath.Count > 0 && order.Type == Constants.OrderType.A)
-        {
-            var pathResult = ExecuteViaSolverPath(order, master, slave, event_, solverPath);
-            if (pathResult.Success) return pathResult;
-        }
-        if (order.Type == Constants.OrderType.A) return ExecuteTypeA(order, master, event_);
-        return ExecuteTypeB(order, master, slave, event_, solverPath);
+        var session = BeginSession(order, master, slave, event_, solverPath);
+        // 同步轨（既有 executeOrder 的语义）：一个调用里把单位跑到完，不等待刻。
+        while (session.AdvanceOneUnit(recorder)) { }
+        return (session.Succeeded, session.Operations, session.Errors, session.Reason);
     }
 
-    private (bool Success, List<ExecutionLogEntry> Operations, List<string> Errors, string? Reason) ExecuteViaSolverPath(
-        Order order, Workshop master, Workshop slave, OrderEvent event_, List<SolverStepDto> solverPath)
+    /// <summary>
+    /// 建立一次执行的**分步会话**（同步轨与异步轨共用；本方法**不改世界**）：
+    /// 把计划拆成"主台步骤 / 从台步骤 + 是否求解器方案"，世界的变更交给会话的每次推进。
+    /// </summary>
+    internal Process.OrderExecutionSession BeginSession(Order order, Workshop master, Workshop slave,
+        OrderEvent event_, List<SolverStepDto>? solverPath, IProcessRecorder? recorder = null)
     {
-        var ops = new List<ExecutionLogEntry>();
-        var errs = new List<string>();
-        var w = order.Type == Constants.OrderType.A ? master : slave;
-
-        // B 类订单路径只能在从台阶段执行（转移成功后才允许）
-        if (order.Type == Constants.OrderType.B && event_.CurrentPhase != Constants.OrderPhase.SLAVE)
-            return (false, ops, errs, "当前不在从台阶段");
-
-        for (int si = 0; si < solverPath.Count; si++)
-        {
-            var r = _applier.Apply(w, solverPath[si], "solver_path");
-            if (!r.Ok) { errs.Add("步骤" + si + ": " + r.Error); continue; }
-            ops.Add(r.Entry!);
-        }
-        if (errs.Count > 0) return (false, ops, errs, "路径执行部分失败");
-        return order.IsSatisfiedBy(w.Jars) ? (true, ops, errs, null) : (false, ops, errs, "路径执行后未满足");
-    }
-
-    private (bool Success, List<ExecutionLogEntry> Operations, List<string> Errors, string? Reason) ExecuteTypeA(
-        Order order, Workshop master, OrderEvent ev)
-    {
-        var ops = new List<ExecutionLogEntry>();
-        var errs = new List<string>();
-        var mr = _greedy.ExecuteOn(master, order.Requirements, "master", ev);
-        ops.AddRange(mr.Ops); errs.AddRange(mr.Errs);
-        if (order.IsSatisfiedBy(master.Jars)) return (true, ops, errs, null);
-        return (false, ops, errs, "主台资源不足");
-    }
-
-    private (bool Success, List<ExecutionLogEntry> Operations, List<string> Errors, string? Reason) ExecuteTypeB(
-        Order order, Workshop master, Workshop slave, OrderEvent ev, List<SolverStepDto>? solverPath)
-    {
-        var ops = new List<ExecutionLogEntry>();
-        var errs = new List<string>();
-        // Try solver master path on master workshop, fallback to greedy
-        WorkshopStageResult mr;
-        bool masterPathErrored = false;
+        var masterSteps = order.Type == Constants.OrderType.A
+            ? new List<SolverStepDto>(solverPath ?? new List<SolverStepDto>())
+            : new List<SolverStepDto>(order.FeasibilityResult?.MasterPath ?? new List<SolverStepDto>());
+        var slaveSteps = order.Type == Constants.OrderType.B && solverPath != null
+            ? new List<SolverStepDto>(solverPath)
+            : new List<SolverStepDto>();
         var checkMethod = order.FeasibilityResult?.CheckMethod;
         bool solverBasedMethod = checkMethod is Constants.CheckMethod.SLAVE_ONLY or Constants.CheckMethod.PARTITION;
-        if (order.FeasibilityResult?.MasterPath != null && order.FeasibilityResult.MasterPath.Count > 0)
-        {
-            var masterOps = new List<ExecutionLogEntry>();
-            var masterErrs = new List<string>();
-            foreach (var step in order.FeasibilityResult.MasterPath)
-            {
-                var r = _applier.Apply(master, step, "master_path");
-                if (r.Ok) masterOps.Add(r.Entry!);
-                else masterErrs.Add(r.Error ?? "步骤失败");
-            }
-            mr = new WorkshopStageResult { Ops = masterOps, Errs = masterErrs };
-            masterPathErrored = masterErrs.Count > 0;
-        }
-        else if (solverBasedMethod)
-        {
-            // 求解器方案已定义主台阶段做什么（slave_only / partition 可能为空），
-            // 不再运行贪心主台操作，避免改变路径依赖的初始状态。
-            mr = new WorkshopStageResult();
-        }
-        else
-        {
-            mr = _greedy.ExecuteOn(master, order.Requirements, "master", ev);
-        }
-        ops.AddRange(mr.Ops); errs.AddRange(mr.Errs);
+        return new Process.OrderExecutionSession(order, master, slave, event_, this,
+            masterSteps, slaveSteps, solverBasedMethod, recorder);
+    }
 
-        // 主台路径是可行性分析的执行承诺：任何一步失败都意味着主台状态已偏离模拟，
-        // 转移清单与从台路径都不再可靠，必须明确失败而非带着错误继续/静默成功。
-        if (masterPathErrored)
-            return (false, ops, errs, "主台路径执行失败，状态与可行性分析不一致");
+    /// <summary>应用一个**计划步骤**（会话用；含过程日志记账）。</summary>
+    public (bool Ok, ExecutionLogEntry? Entry, string? Error) ApplyPlannedStep(
+        Workshop workshop, SolverStepDto step, string phase, IProcessRecorder? recorder)
+    {
+        var r = _applier.Apply(workshop, step, phase);
+        if (r.Ok) Record(r.Entry, recorder);
+        return r;
+    }
 
-        // 选择性转移：只转移可行性路径记录的罐子清单（交付罐 + 从台计划使用的工具罐），
-        // 其余罐子留在主台。无可行性结果（直接执行）时退回全量转移。
-        List<Command> xfer;
-        if (order.FeasibilityResult?.TransferJarIds != null)
-        {
-            xfer = order.FeasibilityResult.TransferJarIds
-                .Select(id => master.Jars.FirstOrDefault(j => j.Id == id))
-                .Where(j => j != null)
-                .Select(j => (Command)new TransferCommand(j!, master, slave))
-                .ToList();
-        }
-        else
-        {
-            xfer = master.Jars.Select(j => new TransferCommand(j, master, slave)).Cast<Command>().ToList();
-        }
-        var tr = ev.ExecuteBatch(xfer, master);
-        if (!tr.Success)
-        {
-            // 转移失败即终止：可行性分析以「选择性转移清单」为前提，不允许部分转移后继续
-            return (false, ops, errs, "从台容量不足，无法接收转移清单中的全部罐子");
-        }
-        ops.Add(new ExecutionLogEntry { Phase = "transfer", Action = "transfer", Description = $"转移 {xfer.Count} 个罐子与所需液体到从台" });
-        var transferLiq = order.FeasibilityResult?.TransferLiquids;
-        foreach (var l in Constants.LIQUIDS)
-        {
-            var available = master.LiquidStorage.GetValueOrDefault(l);
-            var need = transferLiq != null ? transferLiq.GetValueOrDefault(l, 0) : available;
-            if (need <= 0) continue;
-            if (slave.IsBanned(l)) continue; // 从台禁液：留在主台，不转移
-            var amt = Math.Min(need, available);
-            if (amt <= 0) continue;
-            // 容量感知的部分填充：与可行性分析的截断语义一致，溢出部分留在主台
-            var accepted = slave.TryReceiveLiquid(l, amt);
-            if (accepted <= 0)
-            {
-                ops.Add(new ExecutionLogEntry { Phase = "transfer", Action = "transfer_liquid_failed", Description = $"从台容量不足，{l}×{need} 留在主台" });
-                continue;
-            }
-            master.RemoveLiquid(l, accepted);
-            ev.RecordLiquidTransfer(l, accepted);
-            if (accepted < need)
-                ops.Add(new ExecutionLogEntry { Phase = "transfer", Action = "transfer_liquid_failed", Description = $"从台容量不足，{l}×{need - accepted} 留在主台" });
-        }
-        ev.AdvanceToSlavePhase();
-        slave.ClearMarks();
+    /// <summary>跑一个**贪心阶段**（会话里的一个批次单位；含过程日志记账）。</summary>
+    (IReadOnlyList<ExecutionLogEntry> Ops, IReadOnlyList<string> Errs) IProcessStepPrimitives.RunGreedyStage(Workshop workshop, IReadOnlyList<Requirement> requirements,
+        string phase, OrderEvent ev, IProcessRecorder? recorder)
+    {
+        var result = _greedy.ExecuteOn(workshop, requirements, phase, ev);
+        RecordAll(result.Ops, recorder);
+        return (result.Ops, result.Errs);
+    }
 
-        // 阶段3: 从台优先使用求解器路径，失败时降级到贪心执行
-        if (solverPath != null && solverPath.Count > 0)
-        {
-            var pathResult = ExecuteViaSolverPath(order, master, slave, ev, solverPath);
-            if (pathResult.Success) { ops.AddRange(pathResult.Operations); errs.AddRange(pathResult.Errors); }
-            else
-            {
-                ev.AppendLog(new ExecutionLogEntry { Phase = "fallback", Action = "path_failed_fallback", Description = "路径执行失败，使用默认策略" });
-                var fb = _greedy.ExecuteOn(slave, order.Requirements, "slave", ev);
-                ops.AddRange(fb.Ops); errs.AddRange(fb.Errs);
-            }
-        }
-        else
-        {
-            var sr = _greedy.ExecuteOn(slave, order.Requirements, "slave", ev);
-            ops.AddRange(sr.Ops); errs.AddRange(sr.Errs);
-        }
+    // ============================================================
+    // P1：过程记账（写进过程日志的"步"与"阶段里程碑"）
+    //
+    // 三条约定的理由：
+    //   · **recorder 为 null 时空操作** ⇒ 既有调用点与测试完全不受影响（等价性的第一道保障）；
+    //   · 词汇沿用既有执行日志（ExecutionLogEntry.Action）⇒ 不为同一件事发明第二套名字；
+    //   · 只记"已成功应用"的步（失败的步由过程结尾的 failed 条目承载）⇒ 日志不被失败噪声淹没。
+    // ============================================================
 
-        if (order.IsSatisfiedBy(slave.Jars)) return (true, ops, errs, null);
-        return (false, ops, errs, "从台资源不足");
+    private static void Record(ExecutionLogEntry? entry, IProcessRecorder? recorder)
+    {
+        if (entry == null || recorder == null) return;
+        recorder.StepApplied(entry.Action ?? entry.Command ?? "step", null, Summarize(entry));
+    }
+
+    private static void RecordAll(IEnumerable<ExecutionLogEntry> entries, IProcessRecorder? recorder)
+    {
+        if (recorder == null) return;
+        foreach (var e in entries) Record(e, recorder);
+    }
+
+    /// <summary>把一条执行日志渲染成"世界语言摘要"（诊断用；不参与任何判定）。</summary>
+    private static string Summarize(ExecutionLogEntry e)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(e.Action)) parts.Add(e.Action!);
+        if (!string.IsNullOrEmpty(e.Jar)) parts.Add(e.Jar!);
+        if (!string.IsNullOrEmpty(e.Liquid)) parts.Add(e.Liquid!);
+        if (e.Amount.HasValue) parts.Add("×" + e.Amount.Value);
+        if (!string.IsNullOrEmpty(e.Description)) parts.Add(e.Description!);
+        return parts.Count == 0 ? "step" : string.Join(" ", parts);
     }
 }

@@ -70,6 +70,8 @@ public static class SessionReplay
             case WorldOps.CheckFeasibility: s.CheckFeasibility(c.IntA ?? 0); break;
             case WorldOps.CheckAllFeasibility: s.CheckAllFeasibility(); break;
             case WorldOps.ExecuteOrder: s.ExecuteOrder(c.IntA ?? 0); break;
+            case WorldOps.StartOrder: s.StartOrder(c.IntA ?? 0); break;
+            case WorldOps.CancelProcess: s.CancelProcess(c.IntA ?? 0); break;
             case WorldOps.Tick: s.Tick(c.IntA ?? 1); break;
             case WorldOps.UpdateProducerRate:
                 s.UpdateProducerRate(c.Name ?? "", c.BaseMarks is { Count: > 0 } ? c.BaseMarks[0] : "", c.DoubleA ?? 0);

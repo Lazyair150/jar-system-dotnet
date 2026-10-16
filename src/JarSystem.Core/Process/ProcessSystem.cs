@@ -1,0 +1,248 @@
+using JarSystem.Core.Rules;
+namespace JarSystem.Core.Process;
+
+/// <summary>
+/// **过程系统**（宿主唯一入口 / 门面）：创建过程、把实例登记在册、并在终结后收进"最近过程"。
+///
+/// P1 的边界（刻意的）：
+/// <list type="bullet">
+/// <item>只有"瞬时模式"——过程的全部步骤在同一次宿主意图内完成（<see cref="ProcessRun"/> 不发时间）；</item>
+/// <item>不投影进 <c>GetState()</c>（活动过程在瞬时模式下恒为空，投影没有信息量，留到 P2/P4）；</item>
+/// <item>不做修饰器与守护（P3）。</item>
+/// </list>
+///
+/// 线程模型：与内核一致——**非线程安全**，由宿主的串行闸门（<c>JarSystemService.Gate</c>）保证互斥。
+/// </summary>
+public sealed class ProcessSystem
+{
+    /// <summary>最近过程保留条数（有界，避免长跑宿主无界增长；默认值集中在 <see cref="ProcessDefaults"/>）。</summary>
+    public const int RecentCapacity = ProcessDefaults.RecentCapacity;
+
+    private readonly ProcessJournal _journal = new();
+    private readonly Func<int> _worldRevision;
+    private readonly LogicalClock _clock = new();
+    private readonly ModifierStack _modifiers;
+    private readonly List<ProcessInstance> _active = new();
+    private readonly List<ProcessInstance> _recent = new();
+    private readonly IReadOnlyList<ProcessInstance> _activeView;
+    private readonly IReadOnlyList<ProcessInstance> _recentView;
+    private readonly Dictionary<int, (ProcessRun Run, IProcessAdvancer Advancer)> _work = new();
+    private int _nextId;
+
+    /// <param name="worldRevision">世界修订号提供者（P1 = 宿主世界意图的序号；见 <see cref="JournalEntry.WorldRevision"/>）。</param>
+    /// <param name="allocator">步间隔分配器；null = 用默认（2 刻/步，见裁决 2026-10-16）。</param>
+    /// <param name="modifiers">世界的修饰器栈（与工作台共用同一实例）；null = 自建一个空栈。</param>
+    public ProcessSystem(Func<int> worldRevision, StepAllocator? allocator = null, ModifierStack? modifiers = null)
+    {
+        _worldRevision = worldRevision;
+        _modifiers = modifiers ?? new ModifierStack();
+        Allocator = allocator ?? new StepAllocator();
+        Pipeline = new TickPipeline(_clock, _modifiers, DrainEvents, AdvanceActive);
+        _activeView = _active.AsReadOnly();
+        _recentView = _recent.AsReadOnly();
+    }
+
+    /// <summary>逻辑时钟（世界推进的唯一权威）。</summary>
+    public LogicalClock Clock => _clock;
+
+    /// <summary>tick 管线（宿主每推进一个 tick 调一次；见 <see cref="TickPipeline.AdvanceOneTick"/>）。</summary>
+    public TickPipeline Pipeline { get; }
+
+    /// <summary>步间隔分配器（默认 2 刻/步；可按过程种类或单次过程覆盖）。</summary>
+    public StepAllocator Allocator { get; }
+
+    /// <summary>世界的修饰器栈（与工作台共用同一实例）。</summary>
+    public ModifierStack Modifiers => _modifiers;
+
+    /// <summary>
+    /// **世界事件源**（可选）：宿主接上它，事件就会在每个 tick 的"过程推进之前"被执行。
+    /// null（默认）= 没有事件源 ⇒ 该步是空操作，行为与今天一致。
+    /// </summary>
+    public IWorldEventSource? EventSource { get; set; }
+
+    /// <summary>
+    /// **过程观察者**（可选）：宿主接它来驱动表现层（进度条/动画/日志）。
+    /// null（默认）= 不通知，行为与今天一致。实现方不得抛异常、不得反向调用系统。
+    /// </summary>
+    public IProcessObserver? Observer { get; set; }
+
+    /// <summary>管线第 ① 步：取出本 tick 的事件并执行（事件只改世界，不改过程状态）。</summary>
+    internal void DrainEvents()
+    {
+        var source = EventSource;
+        if (source == null) return;
+        foreach (var e in source.DrainForTick(_clock.Tick))
+            e.Effect?.Invoke();
+    }
+
+    /// <summary>过程日志（只读视图）。</summary>
+    public ProcessJournal Journal => _journal;
+
+    /// <summary>活动过程（P1 瞬时模式下通常为空——过程在同一 tick 内就结束了）。</summary>
+    public IReadOnlyList<ProcessInstance> ActiveProcesses => _activeView;
+
+    /// <summary>最近终结的过程（最近的在前，最多 <see cref="RecentCapacity"/> 条）。</summary>
+    public IReadOnlyList<ProcessInstance> RecentProcesses => _recentView;
+
+    /// <summary>累计创建过的过程数（含已终结）。</summary>
+    public int TotalCreated { get; private set; }
+
+    /// <summary>
+    /// 创建一个过程并返回其执行句柄（此时实例处于 <c>Ready</c>：已建立，但还没有开始推进）。
+    /// </summary>
+    public ProcessRun Begin(ProcessDefinition definition)
+    {
+        // 步间隔在这里解析（过程定义可覆盖分配器）——解析后写进实例与过程日志，
+        // 于是"这个过程按什么节奏走"在日志里可查，而不是散在配置里。
+        // 优先级：单次过程的显式覆盖 > 修饰器改拍（Retime）> 分配器默认
+        int ticksPerStep = definition.TicksPerStep
+            ?? _modifiers.TicksPerStepOverride(definition.Kind)
+            ?? Allocator.For(definition.Kind);
+        var instance = new ProcessInstance(++_nextId, definition, _clock.Tick, ticksPerStep);
+        instance.MarkReady();
+        _active.Add(instance);
+        TotalCreated++;
+        return new ProcessRun(instance, _journal, _worldRevision, tickSource: () => _clock.Tick,
+            onClosed: Close, notify: (inst, reason, tick) => Observer?.OnChanged(inst, reason, tick));
+    }
+
+    /// <summary>把工作体挂到过程上（异步轨；<see cref="TickPipeline"/> 每个到达间隔的 tick 推它一个单位）。</summary>
+    internal void AttachAdvancer(ProcessRun run, IProcessAdvancer advancer) =>
+        _work[run.Instance.Id] = (run, advancer);
+
+    /// <summary>
+    /// **同步轨（drain）**：一个调用里把工作跑到完（不等待刻），随后收尾并结束过程。
+    /// 与异步轨共用同一个工作体，因此"计划怎么走、失败怎么算"只有一份定义。
+    /// </summary>
+    internal void AdvanceToCompletion(ProcessRun run, IProcessAdvancer advancer)
+    {
+        while (advancer.AdvanceOneUnit(run)) { }
+        advancer.OnFinished();
+        run.Finish(advancer.Succeeded, advancer.FailureReason);
+    }
+
+    /// <summary>
+    /// **异步轨**：每个到达步间隔的 tick 推进一个单位；单位用尽即收尾（交付 / 落账）并结束过程。
+    /// 每个单位执行前先过**守卫**（世界是否还容得下这个计划）；守卫不成立则进 `Blocked` 并等宽限窗口。
+    /// 遍历前先取键快照：推进可能使过程终结并从册上移除（改集合不能在遍历中进行）。
+    /// </summary>
+    private void AdvanceActive()
+    {
+        if (_work.Count == 0) return;
+        var tick = _clock.Tick;
+        // 同 tick 内的推进顺序按 Priority 升序（同优先级再按创建顺序）—— 这是 ProcessDefinition.Priority 的语义。
+        // 此前它被声明却从未被读取（审查时实测发现），而"谁先推进"在同 tick 内是可观测的顺序。
+        var ordered = _work.Keys.ToList();
+        ordered.Sort((a, b) =>
+        {
+            var pa = _work[a].Run.Instance.Priority;
+            var pb = _work[b].Run.Instance.Priority;
+            return pa != pb ? pa.CompareTo(pb) : a.CompareTo(b);
+        });
+        foreach (var id in ordered)
+        {
+            var (run, advancer) = _work[id];
+            var instance = run.Instance;
+            if (instance.IsTerminal) { _work.Remove(id); continue; }
+
+            // 时限：超过 deadline 即失败（闭区间：tick == deadline 仍算及时）。
+            // 此前 DeadlineTick 只被投影给客户端、从不参与判定（审查时实测发现）。
+            if (instance.DeadlineTick.HasValue && tick > instance.DeadlineTick.Value)
+            {
+                FailBlocked(run, advancer, "时限已到（未能在 " + instance.DeadlineTick.Value + " 刻前完成）", id);
+                continue;
+            }
+
+            // 已阻断：每 tick 都重新问一次守卫（可能恢复，也可能熬到宽限耗尽）
+            if (instance.State == ProcessState.Blocked)
+            {
+                var recheck = advancer.CheckGuard();
+                if (recheck.Status == GuardStatus.Ok)
+                {
+                    run.NoteResumed();
+                    // 恢复即继续：若本 tick 已到点就顺手推一个单位（不必再等一个间隔）
+                    if (tick >= instance.NextUnitTick) AdvanceUnit(run, advancer, instance, tick, id);
+                    continue;
+                }
+                bool expired = instance.BlockedAtTick.HasValue
+                    && tick - instance.BlockedAtTick.Value >= instance.GraceTicks;
+                if (recheck.Status == GuardStatus.Fatal || expired)
+                {
+                    var reason = recheck.Reason ?? instance.BlockedReason ?? "前置条件不再成立";
+                    if (expired) run.NoteGraceExpired(reason);
+                    FailBlocked(run, advancer, reason, id);
+                }
+                continue;
+            }
+
+            if (tick < instance.NextUnitTick) continue;
+
+            var guard = advancer.CheckGuard();
+            if (guard.Status != GuardStatus.Ok)
+            {
+                if (guard.Status == GuardStatus.Fatal)
+                {
+                    FailBlocked(run, advancer, guard.Reason ?? "前置条件永久不成立", id);
+                    continue;
+                }
+                run.NoteBlocked(guard.Reason ?? "前置条件不成立");
+                continue;
+            }
+
+            AdvanceUnit(run, advancer, instance, tick, id);
+        }
+    }
+
+    /// <summary>推进一个单位；单位用尽时收尾并结束过程（含"交付 / 落账"）。</summary>
+    private void AdvanceUnit(ProcessRun run, IProcessAdvancer advancer, ProcessInstance instance, int tick, int id)
+    {
+        bool more = advancer.AdvanceOneUnit(run);
+        instance.NoteUnitAdvanced(tick);
+        Observer?.OnChanged(instance, ProcessObserverReasons.Progressed, tick);
+        if (more) return;
+        advancer.OnFinished();
+        run.Finish(advancer.Succeeded, advancer.FailureReason);
+        _work.Remove(id);
+    }
+
+    /// <summary>守卫判定失败：按失败路径收尾（已完成的部分不回滚 —— "失败要付代价"）。</summary>
+    private void FailBlocked(ProcessRun run, IProcessAdvancer advancer, string reason, int id)
+    {
+        advancer.MarkFailed(reason);
+        advancer.OnFinished();
+        run.Finish(false, reason);
+        _work.Remove(id);
+    }
+
+    /// <summary>
+    /// **取消一个进行中的过程**（P4）：已完成的部分不回滚（"失败要付代价"）；
+    /// 过程以 aborted 结尾，而它承载的工作（例：订单）按**失败**收尾（由工作体的 OnFinished 负责）。
+    /// </summary>
+    public (bool Cancelled, string? Error) Cancel(int processId, string reason)
+    {
+        if (!_work.TryGetValue(processId, out var work)) return (false, "没有这个进行中的过程");
+        var (run, advancer) = work;
+        advancer.MarkFailed(reason);
+        advancer.OnFinished();
+        run.Abort(reason);
+        _work.Remove(processId);
+        return (true, null);
+    }
+
+    /// <summary>清空（仅供世界重来这类入口调用；正常流程不调用）。</summary>
+    public void Clear()
+    {
+        _work.Clear();
+        _active.Clear();
+        _recent.Clear();
+        _journal.Clear();
+    }
+
+    private void Close(ProcessRun run)
+    {
+        if (!_active.Remove(run.Instance)) return;
+        _recent.Insert(0, run.Instance);
+        if (_recent.Count > RecentCapacity)
+            _recent.RemoveRange(RecentCapacity, _recent.Count - RecentCapacity);
+    }
+}

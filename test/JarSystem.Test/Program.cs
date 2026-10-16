@@ -1,8 +1,10 @@
+using JarSystem.Core.Rules;
 using JarSystem.Core;
 using JarSystem.Core.Commands;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Process;
 using JarSystem.Core.Sessions;
 using JarSystem.Core.Services;
 using JarSystem.Test;   // ReferenceSolver（差分测试用的独立参考实现）
@@ -25,13 +27,22 @@ string[] ProtocolCommands =
     "getState", "createOrder", "createRandomOrder", "createWorkshop", "createRandomWorkshop",
     "updateWorkshopCapacity", "setMaster", "setSlave", "executeOrder", "deleteOrder",
     "checkFeasibility", "checkAllFeasibility", "manualTick", "reset", "updateProducerRate",
-    "startTick", "stopTick", "setAutoCheck"
+    "startTick", "stopTick", "setAutoCheck",
+    // P4：过程的两条命令（异步轨的开始 / 取消）
+    "startOrder", "cancelProcess",
+    // P5：宿主侧时间参数（推进节奏）
+    "setTickInterval"
 ];
 
 string[] ProtocolMessages =
 [
     "init", "state", "orderExecuted", "workshopSwitched", "feasibilityResult",
-    "allFeasibilityResults", "autoCheckResults", "autoCheckChanged", "error", "world"
+    "allFeasibilityResults", "autoCheckResults", "autoCheckChanged", "error", "world",
+    // P4：过程的五条消息（由 Web 壳的 ProcessObserver 发出；见 过程系统/00_Phase0_接口规格.md §3.3）
+    "processStarted", "processProgressed", "processBlocked", "processResumed", "processFinished"
+,
+    // P5：推进节奏变更回包
+    "tickIntervalChanged"
 ];
 
 // ============================================================
@@ -50,7 +61,15 @@ string[] ProtocolMessages =
     ("workshopSwitched", ["fromIndex", "toIndex", "caseType", "operations"]),
     ("feasibilityResult", ["orderId", "result"]),
     ("autoCheckChanged", ["enabled"]),
-    ("error", ["message"])
+    ("error", ["message"]),
+    // P4：过程消息（由 ProcessObserver.cs 发出；键集合见 过程系统/00_Phase0_接口规格.md §3.3）
+    ("processStarted", ["id", "kind", "subject", "totalSteps", "deadlineTick"]),
+    ("processProgressed", ["id", "currentStep", "totalSteps", "tick"]),
+    ("processBlocked", ["id", "currentStep", "reason", "graceTicks"]),
+    ("processResumed", ["id", "currentStep", "tick"]),
+    ("processFinished", ["id", "outcome", "currentStep", "reason"])
+    ,
+    ("tickIntervalChanged", ["intervalMs"])
 ];
 
 // ============================================================
@@ -67,6 +86,9 @@ string[] ProtocolMessages =
     ("setMaster", "SetMasterPayload", [("index", "number")]),
     ("setSlave", "SetSlavePayload", [("index", "number")]),
     ("executeOrder", "ExecuteOrderPayload", [("orderId", "number"), ("orderIndex", "number")]),
+    ("startOrder", "StartOrderPayload", [("orderId", "number"), ("orderIndex", "number")]),
+    ("cancelProcess", "CancelProcessPayload", [("processId", "number")]),
+    ("setTickInterval", "SetTickIntervalPayload", [("intervalMs", "number")]),
     ("checkFeasibility", "CheckFeasibilityPayload", [("orderId", "number"), ("orderIndex", "number")]),
     ("deleteOrder", "DeleteOrderPayload", [("orderId", "number"), ("orderIndex", "number")]),
     ("updateProducerRate", "UpdateProducerRatePayload", [("producerName", "string"), ("shape", "string"), ("rate", "number")]),
@@ -133,6 +155,28 @@ if (args.Length > 0 && args[0] == "--check-solver")
 if (args.Length > 0 && args[0] == "--check-replay")
 {
     CheckSessionReplay();
+    return;
+}
+
+// 过程日志导出（P1：过程系统）：
+//   dotnet run --project test\JarSystem.Test -c Release -- --dump-journal
+// 跑一段确定性脚本会话 → 把**过程日志**（每一步 + 每个里程碑）导出到
+//   过程系统/_journal/phase1_journal.json
+// 并做三项自检（读回 / 终结幂等 / 进度与日志一致），打印 ASCII 标记供人工核对：
+//   JOURNAL-OK (processes=…, entries=…, steps=…, phases=…)
+// 说明：本模式**暂不进九步门**（P1 阶段它只是新产物）；等 P2 把过程纳入回放门后再升级为硬门。
+if (args.Length > 0 && args[0] == "--dump-journal")
+{
+    DumpJournal();
+    return;
+}
+
+// 场景数据校验（P5：给"世界事件注入"的 JSON 做个校验工具 / 编辑器后端）：
+//   dotnet run --project test\JarSystem.Test -c Release -- --validate-scenario config\scenario.sample.json
+// 输出标记保持 ASCII：SCENARIO-OK (events=…, initialModifiers=…) / SCENARIO-INVALID (n)
+if (args.Length > 0 && args[0] == "--validate-scenario")
+{
+    ValidateScenario(args.Length > 1 ? args[1] : Path.Combine("config", "scenario.sample.json"));
     return;
 }
 
@@ -622,6 +666,357 @@ Run("S22-A类预算耗尽必须回未判定", () =>
     return (ok, $"未判定={fr?.Undetermined} 可行={fr?.Feasible} reason={fr?.Reason}");
 });
 
+// ============================================================
+// P3a：守卫与阻断（异步轨）
+//
+// 两条用例合起来把"过程被异化"这件事钉住：
+//   S23：单位执行前守卫不成立 ⇒ Blocked ⇒ 宽限窗口耗尽 ⇒ Failed，**已完成单位不回滚**；
+//   S24：同一局面但窗口内恢复 ⇒ Resumed ⇒ 正常完成。
+// 事故刻意选"把主台取消选择"——它是**可恢复**的（玩家能选回来），因此能同时覆盖两条路径；
+// 而"订单被删除"这类不可恢复的情形走 Fatal（直接失败、不等待）。
+// ============================================================
+Run("S23-异步过程被阻断且宽限耗尽即失败(已完成单位不回滚)", () =>
+{
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("高罐"));       // 交付罐本来就该是高罐（满罐需求不能靠改形满足）
+    master.AddLiquid("酒", 3);
+    var slave = new Workshop("S", new() { "高罐" }, new(), new(), 20, 30);
+    var sys = NewSystem(master, slave, new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+    sys.CheckFeasibility(0);
+    var started = sys.StartOrder(0);
+    sys.Tick(1);                          // tick 1：第一个单位 = 选择性转移（器物 + 液体）
+    sys.SetMasterIndex(null);             // 事故：主台被取消选择 ⇒ 守卫不成立
+    for (int i = 0; i < 8; i++) sys.Tick();   // 宽限窗口（4 刻）耗尽 ⇒ 失败
+
+    // 断言三件事：① 过程被命令起成；② 订单以失败收尾；
+    // ③ 失败收尾走的是**既有语义** —— 跨工作台转移被回滚（器物与液体回主台），
+    //    而主台上已发生的操作不回滚（"失败要付代价"，其覆盖在既有 S 系列）。
+    var kinds = sys.Journal.Entries.Select(e => e.Kind).ToList();
+    int iBlocked = kinds.IndexOf(JournalKinds.Blocked);
+    int iExpired = kinds.IndexOf(JournalKinds.GraceExpired);
+    int iFailed = kinds.IndexOf(JournalKinds.Failed);
+    bool sequenceOk = iBlocked >= 0 && iExpired > iBlocked && iFailed > iExpired;
+    bool rolledBack = master.Jars.Count == 1 && slave.Jars.Count == 0;
+    bool ok = started.Started && sys.Orders[0].Status == Constants.OrderStatus.FAILED && sequenceOk && rolledBack;
+    return (ok, $"started={started.Started} status={sys.Orders[0].Status} 里程碑序列={sequenceOk} 转移回滚={rolledBack}"
+        + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
+});
+
+Run("S24-异步过程被阻断后可在宽限窗口内恢复", () =>
+{
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("高罐"));
+    master.AddLiquid("酒", 3);
+    var slave = new Workshop("S", new() { "高罐" }, new(), new(), 20, 30);
+    var sys = NewSystem(master, slave, new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+    sys.CheckFeasibility(0);
+    var started = sys.StartOrder(0);
+    sys.Tick(1);                          // 第一单位：转移（tick 1）
+    sys.SetMasterIndex(null);             // 事故
+    sys.Tick(2);                          // tick 3：到点 ⇒ 守卫失败 ⇒ Blocked
+    sys.SetMasterIndex(0);                // 窗口内恢复 ⇒ Resumed
+    // 推进到过程结束。注意：订单状态在**收尾之前**一直是"待执行"（EXECUTING 记在 OrderEvent 上，
+    // 不写回 Order.Status），所以循环条件必须看"有没有活动过程"，不能看订单状态。
+    for (int i = 0; i < 6 && sys.Processes.ActiveProcesses.Count > 0; i++) sys.Tick();
+
+    var kinds = sys.Journal.Entries.Select(e => e.Kind).ToList();
+    int iBlocked = kinds.IndexOf(JournalKinds.Blocked);
+    int iResumed = kinds.IndexOf(JournalKinds.Resumed);
+    int iSucceeded = kinds.IndexOf(JournalKinds.Succeeded);
+    bool sequenceOk = iBlocked >= 0 && iResumed > iBlocked && iSucceeded > iResumed;
+    bool ok = started.Started && sys.Orders[0].Status == Constants.OrderStatus.SUCCESS && sequenceOk;
+    return (ok, $"started={started.Started} status={sys.Orders[0].Status} 里程碑序列={sequenceOk}"
+        + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
+});
+
+// ============================================================
+// P3b：修饰器（临时规则）
+//
+// S25：区间性的"抑制"让某一步被 ban ⇒ 过程 Blocked ⇒ 区间到期自动解除 ⇒ Resumed ⇒ 成功。
+// S26：区间性的"改拍"只改变完成时刻，不改变结果（同一局面跑两遍对照）。
+// 两条都刻意用**同一个套路**：修饰器通过作用域入栈（异常也会回收），区间到期由 tick 管线摘掉。
+// ============================================================
+Run("S25-修饰器抑制某一步时可阻断并在区间到期后恢复", () =>
+{
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("高罐"));
+    master.AddLiquid("酒", 3);
+    var slave = new Workshop("S", new() { "高罐" }, new(), new(), 20, 30);
+    var sys = NewSystem(master, slave, new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+    sys.CheckFeasibility(0);
+
+    // 临时禁令：第 0~3 刻内不得灌注（正是从台那一步要做的操作）。
+    using var scope = sys.Modifiers.Push(new SuppressModifier
+    {
+        Operation = "POUR_IN",
+        Reason = "忌律：此刻不得灌注",
+        Window = (0, 3)
+    });
+
+    var started = sys.StartOrder(0);
+    for (int i = 0; i < 10 && sys.Processes.ActiveProcesses.Count > 0; i++) sys.Tick();
+
+    var kinds = sys.Journal.Entries.Select(e => e.Kind).ToList();
+    int iBlocked = kinds.IndexOf(JournalKinds.Blocked);
+    int iResumed = kinds.IndexOf(JournalKinds.Resumed);
+    int iSucceeded = kinds.IndexOf(JournalKinds.Succeeded);
+    bool sequenceOk = iBlocked >= 0 && iResumed > iBlocked && iSucceeded > iResumed;
+    bool ok = started.Started && sys.Orders[0].Status == Constants.OrderStatus.SUCCESS && sequenceOk;
+    return (ok, $"started={started.Started} status={sys.Orders[0].Status} 里程碑序列={sequenceOk}"
+        + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
+});
+
+Run("S26-修饰器改拍只改变完成时刻而不改变结果", () =>
+{
+    // 同一局面跑两遍：普通节奏 vs 4 刻/步的改拍修饰器。
+    (string Status, int DoneTick) RunOnce(RetimeModifier? retime)
+    {
+        var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+        master.AddJar(new Jar("高罐"));
+        master.AddLiquid("酒", 3);
+        var slave = new Workshop("S", new() { "高罐" }, new(), new(), 20, 30);
+        var sys = NewSystem(master, slave, new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+        sys.CheckFeasibility(0);
+        using var scope = retime == null ? null : sys.Modifiers.Push(retime);
+        sys.StartOrder(0);
+        for (int i = 0; i < 20 && sys.Processes.ActiveProcesses.Count > 0; i++) sys.Tick();
+        int done = sys.Journal.Entries.Last(e => e.Kind == JournalKinds.Succeeded).Tick;
+        return (sys.Orders[0].Status, done);
+    }
+
+    var plain = RunOnce(null);
+    var slowed = RunOnce(new RetimeModifier { ProcessKind = "order_execution", TicksPerStep = 4 });
+    bool ok = plain.Status == Constants.OrderStatus.SUCCESS && slowed.Status == Constants.OrderStatus.SUCCESS
+        && slowed.DoneTick > plain.DoneTick;
+    return (ok, $"普通: status={plain.Status} done=t{plain.DoneTick} / 改拍: status={slowed.Status} done=t{slowed.DoneTick}");
+});
+
+// ============================================================
+// P3b 后半：事件注入 / 强度 / 装饰器 / 新增前置条件
+//
+// S27：世界事件在过程中改世界（这里改的是"强度"）—— 事件源接上后产出随之变化。
+// S28：求解器**无法表达**的修饰器规则 ⇒ 勘验如实回"未判定"，绝不误报"不可行"。
+// S29：内容侧给的"新增前置条件"不成立 ⇒ Blocked；条件成立后 Resumed 并完成。
+// ============================================================
+Run("S27-事件注入与强度修饰器改变产出", () =>
+{
+    Workshop NewMaster() => new("M", new() { "圆罐" }, new(), new(), 20, 30);
+    int WarehouseWine(JarSystem.Core.JarSystem sys) =>
+        sys.ProducerModule.Warehouse.LiquidWarehouse.GetValueOrDefault("酒");
+
+    // 对照组：不带事件源
+    var plain = NewSystem(NewMaster(), new Workshop("S", new() { "方罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "圆罐" } }, "A"));
+    for (int i = 0; i < 6; i++) plain.Tick();
+
+    // 实验组：第 2 刻发生"井流倍增"，把酒产出强度折成 2000 千分比（= 翻倍）
+    var boosted = NewSystem(NewMaster(), new Workshop("S", new() { "方罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "圆罐" } }, "A"));
+    int fired = 0;
+    ModifierScope? scope = null;
+    boosted.Processes.EventSource = new TestEventSource(tick => tick == 2
+        ? new[]
+        {
+            new WorldEvent
+            {
+                Name = "井流倍增",
+                Description = "本源之井在这一刻涌流更盛",
+                Effect = () =>
+                {
+                    fired++;
+                    scope ??= boosted.Modifiers.Push(new IntensityModifier
+                    {
+                        Target = "liquid:酒",
+                        FactorPerMille = 2000,
+                        Source = "事件"
+                    });
+                }
+            }
+        }
+        : Array.Empty<WorldEvent>());
+    for (int i = 0; i < 6; i++) boosted.Tick();
+    scope?.Dispose();
+
+    // 第三个系统：**生产者强度**归零（在同一段里验证第二个消费者）
+    var halted = NewSystem(NewMaster(), new Workshop("S", new() { "方罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "圆罐" } }, "A"));
+    using (halted.Modifiers.Push(new IntensityModifier { Target = "producer:圆罐", FactorPerMille = 0, Source = "事件" }))
+    {
+        for (int i = 0; i < 6; i++) halted.Tick();
+    }
+
+    // 同一段再验一个消费者（P4c）：强度修饰器也能折减**生产者速率**（`producer:形状` 目标）。
+    // 这里让"圆罐"的生产者速率归零，断言它一个都不产出，而对照组照常产出。
+    // 注意：仓库会向主台流入（3 罐/次），所以罐子可能已经在主台上 —— 统计要**两处都算**。
+    int JarsOf(JarSystem.Core.JarSystem sys, string shape) =>
+        sys.ProducerModule.Warehouse.Jars.Count(j => j.Shape == shape)
+        + sys.Workshops.Sum(w => w.Jars.Count(j => j.Shape == shape));
+    bool producersOk = JarsOf(plain, "圆罐") > 0 && JarsOf(halted, "圆罐") == 0;
+
+    bool ok = fired == 1 && WarehouseWine(boosted) > WarehouseWine(plain) && producersOk;
+    return (ok, $"事件触发={fired} 酒库存 对照={WarehouseWine(plain)} 实验={WarehouseWine(boosted)}"
+        + $" | 生产者强度: 圆罐 对照={JarsOf(plain, "圆罐")} 停摆={JarsOf(halted, "圆罐")}");
+});
+
+Run("S28-修饰器规则的可判定性(可表达的精确/不可表达的未判定)", () =>
+{
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("圆罐"));
+    var sys = NewSystem(master, new Workshop("S", new() { "方罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "圆罐" } }, "A"));
+
+    var none = sys.CheckFeasibility(0);          // 无修饰器：这是真·可行的局面
+
+    // ① 不可表达（"往某形状里倒液"：基础求解器只认"液体禁令"，没有"操作禁令"）⇒ 只能回未判定
+    (bool? Feasible, bool? Undetermined, string? Reason) inexpressible;
+    using (sys.Modifiers.Push(new SuppressModifier { Operation = "POUR_IN", Shape = "圆罐", Reason = "忌律" }))
+    {
+        var r = sys.CheckFeasibility(0);
+        inexpressible = (r?.Feasible, r?.Undetermined, r?.Reason);
+    }
+
+    // ② 可表达（**整个形状被禁**，不限操作）：等价于"该形状的罐子不在池子里" ⇒ 精确判定为不可行
+    (bool? Feasible, bool? Undetermined) expressible;
+    using (sys.Modifiers.Push(new SuppressModifier { Shape = "圆罐", Reason = "忌律：此刻不得用圆罐" }))
+    {
+        var r = sys.CheckFeasibility(0);
+        expressible = (r?.Feasible, r?.Undetermined);
+    }
+
+    bool ok = none?.Feasible == true
+        && inexpressible.Feasible == false && inexpressible.Undetermined == true
+        && expressible.Feasible == false && expressible.Undetermined == false;
+    return (ok, $"无修饰器 feasible={none?.Feasible}"
+        + $" / 操作抑制(不可表达) feasible={inexpressible.Feasible} undetermined={inexpressible.Undetermined} reason={inexpressible.Reason}"
+        + $" / 整形状抑制(可表达) feasible={expressible.Feasible} undetermined={expressible.Undetermined}");
+});
+
+Run("S29-新增前置条件不成立时阻断并可在条件成立后完成", () =>
+{
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("高罐"));
+    master.AddLiquid("酒", 3);
+    var sys = NewSystem(master, new Workshop("S", new() { "高罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+    sys.CheckFeasibility(0);
+
+    bool ready = false;
+    using var scope = sys.Modifiers.Push(new RequireModifier
+    {
+        Text = "待命条件",
+        Violation = () => ready ? null : "条件不成立：工匠尚未待命"
+    });
+
+    var started = sys.StartOrder(0);
+    sys.Tick(2);                                 // 到点：条件不成立 ⇒ Blocked
+    ready = true;                                // 条件成立 ⇒ 可恢复
+    for (int i = 0; i < 8 && sys.Processes.ActiveProcesses.Count > 0; i++) sys.Tick();
+
+    var kinds = sys.Journal.Entries.Select(e => e.Kind).ToList();
+    int iBlocked = kinds.IndexOf(JournalKinds.Blocked);
+    int iResumed = kinds.IndexOf(JournalKinds.Resumed);
+    int iSucceeded = kinds.IndexOf(JournalKinds.Succeeded);
+    bool sequenceOk = iBlocked >= 0 && iResumed > iBlocked && iSucceeded > iResumed;
+    bool ok = started.Started && sys.Orders[0].Status == Constants.OrderStatus.SUCCESS && sequenceOk;
+    return (ok, $"started={started.Started} status={sys.Orders[0].Status} 里程碑序列={sequenceOk}"
+        + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
+});
+
+Run("S30-取消进行中的过程(已完成步不回滚且订单失败)", () =>
+{
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("高罐"));
+    master.AddLiquid("酒", 3);
+    var sys = NewSystem(master, new Workshop("S", new() { "高罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+    sys.CheckFeasibility(0);
+    var started = sys.StartOrder(0);
+    sys.Tick(1);                                   // 第一单位：选择性转移
+    var cancelled = sys.CancelProcess(started.ProcessId!.Value, "玩家取消");
+
+    var kinds = sys.Journal.Entries.Select(e => e.Kind).ToList();
+    bool ok = started.Started && cancelled.Cancelled
+        && sys.Orders[0].Status == Constants.OrderStatus.FAILED
+        && sys.Processes.ActiveProcesses.Count == 0
+        && kinds.IndexOf(JournalKinds.Aborted) > kinds.IndexOf(JournalKinds.Started);
+    return (ok, $"started={started.Started} cancelled={cancelled.Cancelled} status={sys.Orders[0].Status}"
+        + $" active={sys.Processes.ActiveProcesses.Count}"
+        + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
+});
+
+Run("S31-场景数据驱动修饰器与事件(区间到点自动解除)", () =>
+{
+    // 数据（关卡/剧本侧）描述"第 2 刻起 2 刻内禁止倒液"；代码侧一行都不写规则。
+    const string scenarioJson = """
+    {
+      "name": "演示场景",
+      "events": [
+        { "atTick": 2, "name": "忌律生效", "description": "此刻起两刻内不得灌注",
+          "modifiers": [ { "kind": "suppress", "operation": "POUR_IN", "from": 2, "to": 3, "reason": "忌律：此刻不得灌注" } ] }
+      ]
+    }
+    """;
+    var scenario = ScenarioJson.FromJson(scenarioJson);
+    var report = scenario.Validate();
+
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("高罐"));
+    master.AddLiquid("酒", 3);
+    var sys = NewSystem(master, new Workshop("S", new() { "高罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+    foreach (var m in ScenarioBinder.BindInitial(scenario)) sys.Modifiers.Push(m);
+    sys.Processes.EventSource = ScenarioBinder.CreateEventSource(scenario, sys.Modifiers);
+
+    sys.Tick(1);
+    bool beforeEvent = sys.Modifiers.SuppressionReason("POUR_IN", null, null) == null;   // 事件尚未发生
+    sys.Tick(1);                                                                        // tick 2：事件触发
+    bool duringWindow = sys.Modifiers.SuppressionReason("POUR_IN", null, null) != null;
+    sys.Tick(1);                                                                        // tick 3：仍在区间内
+    bool stillInWindow = sys.Modifiers.SuppressionReason("POUR_IN", null, null) != null;
+    sys.Tick(1);                                                                        // tick 4：区间已过 ⇒ 自动解除
+    bool expired = sys.Modifiers.SuppressionReason("POUR_IN", null, null) == null;
+
+    // 再验"**区间起点 From 也被尊重**"：一条 from=3 的抑制，在第 1~2 刻不得生效（审查时发现 From 此前从未被读取）。
+    var early = NewSystem(new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30),
+        new Workshop("S", new() { "方罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "圆罐" } }, "A"));
+    var late = ScenarioBinder.Bind(new ModifierData
+    {
+        Kind = "suppress", Operation = "POUR_IN", Shape = "圆罐", From = 3, To = 9, Reason = "第三刻起"
+    });
+    using (early.Modifiers.Push(late))
+    {
+        early.Tick(2);
+        bool notYet = early.Modifiers.SuppressionReason("POUR_IN", "圆罐", null) == null;   // tick 2 < from 3
+        early.Tick(1);
+        bool nowActive = early.Modifiers.SuppressionReason("POUR_IN", "圆罐", null) != null; // tick 3 ≥ from 3
+        bool ok2 = report.IsValid && beforeEvent && duringWindow && stillInWindow && expired && notYet && nowActive;
+        return (ok2, $"validate={report.IsValid} 事件前={beforeEvent} 窗口内={duringWindow} 仍窗口={stillInWindow}"
+            + $" 到期解除={expired} | From 未到不生效={notYet} From 到点生效={nowActive}"
+            + $" | 活跃={string.Join(",", sys.Modifiers.Active.Select(m => m.Name))}");
+    }
+});
+
+Run("S32-异步过程的时限到点即失败", () =>
+{
+    // 时限（deadlineTicks）此前只被投影给客户端、从不参与判定（审查时发现）。
+    // 这里起一个 1 刻时限的 B 类订单：它需要两个单位（转移 + 从台灌注），必然超时。
+    var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
+    master.AddJar(new Jar("高罐"));
+    master.AddLiquid("酒", 3);
+    var sys = NewSystem(master, new Workshop("S", new() { "高罐" }, new(), new(), 20, 30),
+        new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
+    sys.CheckFeasibility(0);
+    var started = sys.StartOrder(0, deadlineTicks: 1);
+    for (int i = 0; i < 6 && sys.Processes.ActiveProcesses.Count > 0; i++) sys.Tick();
+
+    var kinds = sys.Journal.Entries.Select(e => e.Kind).ToList();
+    bool failed = kinds.IndexOf(JournalKinds.Failed) >= 0;
+    bool ok = started.Started && sys.Orders[0].Status == Constants.OrderStatus.FAILED && failed;
+    return (ok, $"started={started.Started} status={sys.Orders[0].Status} 过程失败={failed}"
+        + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
+});
+
 Console.WriteLine($"=== {bugs} bugs / {tests} random + {capBugs} bugs / {capTests} capacity + {detCount} deterministic ===");
 foreach (var b in bugReports) Console.WriteLine(b);
 
@@ -724,8 +1119,11 @@ JarSystem.Core.JarSystem NewSwitchSystem(params Workshop[] workshops)
 // 会话回放检查（--check-replay）
 //
 // 判据（**逐字节**）：同一份世界配置 + 同一个种子 + 全新 ID 源 ⇒
-// 「跑一遍会话」与「把命令日志 JSON 读回来后重放」必须得到**完全相同的 GetState() JSON**，
-// 并且重放系统自己记录出来的日志也要与原日志逐条相同（回放走的是同一套意图方法，不绕后门）。
+// 「跑一遍会话」与「把命令日志 JSON 读回来后重放」必须得到**完全相同的三份账**：
+//   ① GetState() JSON（对外状态）
+//   ② WorldCommand 日志（世界级意图）
+//   ③ 过程日志（P2 新增：意图内部的步进 —— 时间、进度、里程碑）
+// 前两者证明"世界回去了"，第三份证明"过程也回去了"。
 //
 // 输出标记保持 ASCII：`REPLAY-OK (…)` / `REPLAY-MISMATCH`。
 // ============================================================
@@ -745,6 +1143,7 @@ void CheckSessionReplay()
 
     string stateJsonA = NormalizeState(System.Text.Json.JsonSerializer.Serialize(original.GetState(), jsonOptions));
     string logJsonA = WorldCommandJson.ToJson(original.CommandLog);
+    string journalJsonA = JournalCodec.ToJson(original.Journal.Entries);
 
     // ---- ② 日志落盘/读回（真正的"存档"路径）----
     var commands = WorldCommandJson.FromJson(logJsonA);
@@ -755,15 +1154,18 @@ void CheckSessionReplay()
 
     string stateJsonB = NormalizeState(System.Text.Json.JsonSerializer.Serialize(replay.GetState(), jsonOptions));
     string logJsonB = WorldCommandJson.ToJson(replay.CommandLog);
+    string journalJsonB = JournalCodec.ToJson(replay.Journal.Entries);
 
     bool stateEqual = stateJsonA == stateJsonB;
     bool logEqual = logJsonA == logJsonB;
-    Console.WriteLine(stateEqual && logEqual
-        ? $"REPLAY-OK (commands={applied}, stateBytes={stateJsonA.Length}, logBytes={logJsonA.Length})"
-        : $"REPLAY-MISMATCH (stateEqual={stateEqual}, logEqual={logEqual}, commands={applied})");
+    bool journalEqual = journalJsonA == journalJsonB;
+    Console.WriteLine(stateEqual && logEqual && journalEqual
+        ? $"REPLAY-OK (commands={applied}, stateBytes={stateJsonA.Length}, logBytes={logJsonA.Length}, journalBytes={journalJsonA.Length})"
+        : $"REPLAY-MISMATCH (stateEqual={stateEqual}, logEqual={logEqual}, journalEqual={journalEqual}, commands={applied})");
     if (!stateEqual) Console.WriteLine("  state diff at: " + FirstDifference(stateJsonA, stateJsonB));
     if (!logEqual) Console.WriteLine("  log   diff at: " + FirstDifference(logJsonA, logJsonB));
-    if (!stateEqual || !logEqual) Environment.ExitCode = 1;
+    if (!journalEqual) Console.WriteLine("  journal diff at: " + FirstDifference(journalJsonA, journalJsonB));
+    if (!stateEqual || !logEqual || !journalEqual) Environment.ExitCode = 1;
 
     string FirstDifference(string a, string b)
     {
@@ -780,6 +1182,152 @@ void CheckSessionReplay()
     // 已由"命令日志带时间"（WorldCommand.Time）保证可复现，仍然逐字节比对。
     string NormalizeState(string json) =>
         System.Text.RegularExpressions.Regex.Replace(json, "\"timestamp\":\"\\d+\"", "\"timestamp\":\"<volatile>\"");
+}
+
+// ============================================================
+// 过程日志导出与自检（--dump-journal）
+//
+// 三项自检的判据（都对应设计规格 §7 的不变量）：
+//   ① 读回：日志能按存档路径解码（未知键/格式错误会当场抛，而不是静默丢字段）；
+//   ② 终结幂等：已终结的过程再推一步、再终结一次 ⇒ **安全忽略**（不抛、不新增条目）；
+//   ③ 进度一致：每个过程的"已应用步数" == 它在日志里的 step_applied 条数（进度与账对得上）。
+// ============================================================
+void DumpJournal()
+{
+    const int seed = 20260916;
+    var sys = new JarSystem.Core.JarSystem(
+        randomSeed: seed, world: WorldOptions.Default,
+        jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
+    RunScriptedSession(sys);
+
+    // ---- 追加一段"必定成功、且覆盖转移与液体转移"的确定性场景 ----
+    // 为什么需要它：脚本会话里的**随机**订单常常直接失败（只覆盖得到 failed 条目），
+    // 而 P1 的产物要能证明 step_applied 与 phase 两类路径真的在记账。
+    // 局面刻意构造成"必须借主台的器物**与**液体"，从而覆盖 transfer / transfer_liquid 两类里程碑：
+    //   · 主台：基础标记只有圆罐（⇒ 改形到不了高罐、也不能往高罐里灌注），罐子只有一个**空高罐**，另有游离酒×3；
+    //   · 从台：基础标记高罐，但自己既没有罐子、也没有液体；
+    //   ⇒ 划分搜索会选"全部交给从台"：把空高罐与所需酒转过去，从台灌注完成。
+    //
+    // 构造这段时踩了两个真实的规则边界（都记下来，避免下次再撞）：
+    //   ① 让主台"禁酒"是个陷阱 —— AddLiquid("酒",3) 会被禁令拒绝（禁液不得**游离存储**），池子其实是空的 ⇒ 判成不可行。
+    //   ② 满罐需求**不能靠改形满足**（设计定案：一罐一操作 ⇒ 改形只服务空罐需求）
+    //      ⇒ 工具罐必须**本来就是**交付形状（这里是高罐），不能指望"圆罐改形再灌注"。
+    sys.ClearWorkshops();
+    sys.ClearOrders();
+    var demoMaster = new Workshop("主台", new() { "圆罐" }, new(), new(), 20, 30,
+        sys.JarIds, sys.Vocabulary);
+    demoMaster.AddJar(new Jar("高罐", null, null, sys.Vocabulary));   // 待转移的交付罐（本来就是高罐）
+    demoMaster.AddLiquid("酒", 3);                                    // 待转移的液体
+    var demoSlave = new Workshop("从台", new() { "高罐" }, new(), new(), 20, 30,
+        sys.JarIds, sys.Vocabulary);
+    sys.AddWorkshop(demoMaster);
+    sys.AddWorkshop(demoSlave);
+    sys.SetMasterIndex(0);
+    sys.SetSlaveIndex(1);
+    sys.CreateOrder(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B");
+    sys.CheckFeasibility(0);
+    // 诊断输出（刻意保留）：这一段的价值就在于"勘验结论 → 执行路径"的因果可读，
+    // 一旦将来勘验链或执行编排变了，这一行能直接指出是哪一环变了。
+    var demoFr = sys.Orders[0].FeasibilityResult;
+    Console.WriteLine("demo feasibility: " + (demoFr == null ? "(null)"
+        : $"feasible={demoFr.Feasible} undetermined={demoFr.Undetermined} method={demoFr.CheckMethod}"
+          + $" pathSteps={demoFr.SolverPath?.Count ?? -1} masterSteps={demoFr.MasterPath?.Count ?? -1}"
+          + $" transferJars={demoFr.TransferJarIds?.Count ?? -1} blockage={demoFr.Blockage} reason={demoFr.Reason}"));
+    sys.ExecuteOrder(0);
+
+    // ---- 再追加一段"异步轨"演示：startOrder + tick 驱动（P2b 的新能力）----
+    // 用与上一段相同的局面（主台：空高罐 + 游离酒×3；从台：只有高罐基础标记），
+    // 但这次**不等待**：StartOrder 立即返回，随后每 Tick 一次（每 2 刻一个单位）由管线推进。
+    // 这一段的价值在于：过程日志里的条目前缀 tick 会**各不相同** —— 时间真的在走。
+    var asyncMaster = new Workshop("主台", new() { "圆罐" }, new(), new(), 20, 30, sys.JarIds, sys.Vocabulary);
+    asyncMaster.AddJar(new Jar("高罐", null, null, sys.Vocabulary));
+    asyncMaster.AddLiquid("酒", 3);
+    var asyncSlave = new Workshop("从台", new() { "高罐" }, new(), new(), 20, 30, sys.JarIds, sys.Vocabulary);
+    sys.ClearWorkshops();
+    sys.ClearOrders();
+    sys.AddWorkshop(asyncMaster);
+    sys.AddWorkshop(asyncSlave);
+    sys.SetMasterIndex(0);
+    sys.SetSlaveIndex(1);
+    sys.CreateOrder(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B");
+    sys.CheckFeasibility(0);
+    var started = sys.StartOrder(0);
+    Console.WriteLine($"startOrder: started={started.Started} processId={started.ProcessId} error={started.Error ?? "-"}");
+    int ticks = 0;
+    for (int i = 0; i < 8 && sys.Processes.ActiveProcesses.Count > 0; i++) { sys.Tick(); ticks++; }
+    Console.WriteLine($"async: ticksUsed={ticks} activeRemaining={sys.Processes.ActiveProcesses.Count} "
+        + $"orderStatus={sys.Orders[0].Status}");
+
+    string json = JournalCodec.ToJson(sys.Journal.Entries);
+    var dir = Path.Combine("过程系统", "_journal");
+    Directory.CreateDirectory(dir);
+    var file = Path.Combine(dir, "phase1_journal.json");
+    File.WriteAllText(file, json, new System.Text.UTF8Encoding(false));
+
+    // ① 读回（走存档解码路径）
+    var doc = JournalCodec.FromJson(json);
+    bool roundTrip = doc.JournalVersion == 1 && doc.Entries.Count == sys.Journal.Count;
+
+    // ② 终结幂等（新增一个自检过程，因此放在导出之后，避免污染产物）
+    var probe = sys.Processes.Begin(new ProcessDefinition(ProcessKinds.OrderExecution, "自检过程"));
+    probe.StepApplied("probe");
+    probe.Finish(true, null);
+    int afterFinish = sys.Journal.Count;
+    probe.StepApplied("probe-after-finish");
+    probe.Finish(false, "重复终结");
+    probe.Abort("终态后取消");
+    bool idempotent = sys.Journal.Count == afterFinish;
+
+    // ③ 进度与日志一致（对**导出时**的那些过程检查：自检过程在导出之后创建，故排除）
+    bool progressConsistent = sys.Processes.RecentProcesses
+        .Where(p => p.Subject != "自检过程")
+        .All(p => p.AppliedSteps == sys.Journal.Entries.Count(e =>
+            e.ProcessId == p.Id && e.Kind == JournalKinds.StepApplied));
+
+    int steps = sys.Journal.Entries.Count(e => e.Kind == JournalKinds.StepApplied);
+    int phases = sys.Journal.Entries.Count(e => e.Kind == JournalKinds.Phase);
+
+    Console.WriteLine(roundTrip && idempotent && progressConsistent
+        ? $"JOURNAL-OK (processes={sys.Processes.TotalCreated}, entries={sys.Journal.Count}, steps={steps}, phases={phases})"
+        : $"JOURNAL-MISMATCH (roundTrip={roundTrip}, idempotent={idempotent}, progress={progressConsistent})");
+    Console.WriteLine("journal file: " + Path.GetFullPath(file));
+    Console.WriteLine("kinds: " + string.Join(", ", sys.Journal.Entries
+        .GroupBy(e => e.Kind).OrderBy(g => g.Key).Select(g => g.Key + "=" + g.Count())));
+
+    if (!(roundTrip && idempotent && progressConsistent)) Environment.ExitCode = 1;
+}
+
+// 场景数据校验（P5）：加载 → Validate() → 打印结论。这是"世界事件注入"数据形态的可执行规格
+// —— 关卡作者改完 JSON 跑一次即可（编辑器也只需调用同一个模式）。
+void ValidateScenario(string path)
+{
+    if (!File.Exists(path))
+    {
+        Console.WriteLine("SCENARIO-INVALID (file not found: " + path + ")");
+        Environment.ExitCode = 1;
+        return;
+    }
+    try
+    {
+        var scenario = ScenarioJson.FromJson(File.ReadAllText(path));
+        var report = scenario.Validate();
+        foreach (var w in report.Warnings) Console.WriteLine("scenario warning: " + w);
+        foreach (var e in report.Errors) Console.WriteLine("scenario error: " + e);
+        if (report.IsValid)
+            Console.WriteLine($"SCENARIO-OK (name={scenario.Name}, events={scenario.Events.Count}, "
+                + $"initialModifiers={scenario.InitialModifiers.Count}, warnings={report.Warnings.Count})");
+        else
+        {
+            Console.WriteLine($"SCENARIO-INVALID ({report.Errors.Count})");
+            Environment.ExitCode = 1;
+        }
+    }
+    catch (Exception ex)
+    {
+        // 解析失败（未知键 / 非法 JSON）同样算数据错误：如实报，并由退出码暴露
+        Console.WriteLine("SCENARIO-INVALID (parse: " + ex.Message + ")");
+        Environment.ExitCode = 1;
+    }
 }
 
 // 一段覆盖尽可能多意图方法的确定性会话。注意两处**宿主约定**：
@@ -819,6 +1367,14 @@ void RunScriptedSession(JarSystem.Core.JarSystem sys)
     sys.Reset();                                     // 重置世界（日志继续累积）
     sys.SetMasterIndex(0);
     sys.Tick(1);
+
+    // P2b：把**异步轨**也纳入回放门 —— 起一个由 tick 驱动的订单过程，再用几次 Tick 推它。
+    // 这样"同步轨（executeOrder）"与"异步轨（startOrder）"的记录都由同一个门逐字节验证：
+    // 过程日志里带着 tick 与步间隔，回放若在时间上漂了，这里立刻会红。
+    sys.ClearOrders();
+    sys.CreateOrder(new() { new Requirement { Shape = "圆罐" } }, "A");
+    sys.StartOrder(0);
+    sys.Tick(4);
 }
 
 void CheckSolverDifferential()
@@ -891,6 +1447,123 @@ void CheckSolverDifferential()
             ? $"SOLVER-MISMATCH ({mismatches})"
             : $"SOLVER-MISMATCH ({undetermined} undetermined: 预算异常或求解器违约)");
     if (mismatches > 0 || undetermined > 0) Environment.ExitCode = 1;
+
+    // ============================================================
+    // **修饰器差分门**（P4c：把"后来的新规则"也纳入差分验收）
+    //
+    // 判据三条（对应 ModifierAwareSolver 的三条 sound 语义）：
+    //   ① 无修饰器 ⇒ 装饰器与基础求解器**结果一致**（直通）；
+    //   ② 可表达的规则（抑制某种液体）⇒ 与"把该液体写进禁令表"的等价基础世界**判定一致**；
+    //   ③ 不可表达的规则（抑制某个形状）⇒ 必须回**未判定**（BudgetExceeded），绝不能说自己"不可行"。
+    // 输出标记保持 ASCII：MODDIFF-OK (…) / MODDIFF-MISMATCH (…)
+    // ============================================================
+    var modRand = new Random(20261016);
+    int modCompared = 0, modOk = 0, modMismatch = 0;
+    for (int t = 0; t < 400; t++)
+    {
+        var shapeA = Constants.SHAPES[modRand.Next(Constants.SHAPES.Count)];
+        var shapeB = Constants.SHAPES[modRand.Next(Constants.SHAPES.Count)];
+        var info = new JarSystem.Core.Solver.WorkshopInfo
+        {
+            Capability = new WorkshopCapability(new[] { shapeA, shapeB }, Array.Empty<string>(), Array.Empty<string>()),
+            MaxJars = 20,
+            MaxLiquids = 30
+        };
+        var jars = new List<JarState>();
+        int jarCount = modRand.Next(1, 5);
+        for (int i = 0; i < jarCount; i++)
+            jars.Add(new JarState
+            {
+                Id = i + 1,
+                Shape = modRand.Next(2) == 0 ? shapeA : shapeB,
+                Liquid = modRand.Next(3) == 0 ? Constants.LIQUIDS[0] : null
+            });
+        var liquids = new Dictionary<string, int>
+        {
+            [Constants.LIQUIDS[0]] = modRand.Next(0, 3),
+            [Constants.LIQUIDS[1]] = modRand.Next(0, 3)
+        };
+        var reqs = new List<Requirement>();
+        int reqCount = modRand.Next(1, 3);
+        for (int i = 0; i < reqCount; i++)
+            reqs.Add(modRand.Next(2) == 0
+                ? new Requirement { Shape = modRand.Next(2) == 0 ? shapeA : shapeB }
+                : new Requirement { Shape = modRand.Next(2) == 0 ? shapeA : shapeB, Liquid = Constants.LIQUIDS[modRand.Next(2)] });
+
+        // ① 无修饰器 ⇒ 直通（结果与基础求解器一致）
+        var empty = new ModifierStack();
+        var passthrough = new ModifierAwareSolver(new JarSystem.Core.Solver.StateSpaceSolver(), empty)
+            .Solve(reqs, info, jars, liquids);
+        var baseline = new JarSystem.Core.Solver.StateSpaceSolver().Solve(reqs, info, jars, liquids);
+        if (passthrough.Feasible == baseline.Feasible && (passthrough.Path?.Count ?? -1) == (baseline.Path?.Count ?? -1))
+            modOk++;
+        else
+        {
+            modMismatch++;
+            if (modMismatch <= 3) Console.WriteLine($"mismatch detail: passthrough t={t} feasible {passthrough.Feasible}/{baseline.Feasible}");
+        }
+
+        // ② 抑制某种液体 ⇒ 与"该液体被禁"的等价基础世界判定一致
+        var banStack = new ModifierStack();
+        using (banStack.Push(new SuppressModifier { Liquid = Constants.LIQUIDS[0], Reason = "差分" }))
+        {
+            var suppressed = new ModifierAwareSolver(new JarSystem.Core.Solver.StateSpaceSolver(), banStack)
+                .Solve(reqs, info, jars, liquids);
+            var bannedInfo = new JarSystem.Core.Solver.WorkshopInfo
+            {
+                Capability = new WorkshopCapability(new[] { shapeA, shapeB }, Array.Empty<string>(), new[] { Constants.LIQUIDS[0] }),
+                MaxJars = info.MaxJars,
+                MaxLiquids = info.MaxLiquids
+            };
+            var bannedWorld = new JarSystem.Core.Solver.StateSpaceSolver().Solve(reqs, bannedInfo, jars, liquids);
+            if (suppressed.Feasible == bannedWorld.Feasible) modOk++;
+            else
+            {
+                modMismatch++;
+                if (modMismatch <= 3) Console.WriteLine($"mismatch detail: liquid-suppress t={t} {suppressed.Feasible}/{bannedWorld.Feasible}");
+            }
+        }
+
+        // ③ 抑制"往某形状里倒液"（**本层无法表达**：基础求解器只认"液体禁令"，没有"操作禁令"）
+        //    ⇒ 必须回未判定，绝不能说"不可行"。
+        var shapeStack = new ModifierStack();
+        using (shapeStack.Push(new SuppressModifier { Operation = "POUR_IN", Shape = shapeA, Reason = "差分" }))
+        {
+            var decorator = new ModifierAwareSolver(new JarSystem.Core.Solver.StateSpaceSolver(), shapeStack);
+            decorator.BeginCheck(400_000);
+            var result = decorator.Solve(reqs, info, jars, liquids);
+            bool isUndetermined = !result.Feasible && decorator.BudgetExceeded && decorator.InconclusiveReason != null;
+            if (isUndetermined) modOk++;
+            else
+            {
+                modMismatch++;
+                if (modMismatch <= 3) Console.WriteLine($"mismatch detail: op-suppress t={t} must be undetermined");
+            }
+        }
+
+        // ④（P4d 升级）**整个形状被禁**（不限操作）⇒ 与"把这些罐子从池子里拿掉"的等价世界**精确一致**
+        var wholeShapeStack = new ModifierStack();
+        using (wholeShapeStack.Push(new SuppressModifier { Operation = null, Shape = shapeA, Reason = "差分" }))
+        {
+            var decorator = new ModifierAwareSolver(new JarSystem.Core.Solver.StateSpaceSolver(), wholeShapeStack);
+            var projectedVerdict = decorator.Solve(reqs, info, jars, liquids);
+            var poolWithout = jars.Where(j => j.Shape != shapeA).ToList();
+            var reference = new JarSystem.Core.Solver.StateSpaceSolver().Solve(reqs, info, poolWithout, liquids);
+            if (projectedVerdict.Feasible == reference.Feasible) modOk++;
+            else
+            {
+                modMismatch++;
+                if (modMismatch <= 3)
+                    Console.WriteLine($"mismatch detail: whole-shape-suppress t={t} {projectedVerdict.Feasible}/{reference.Feasible}");
+            }
+        }
+        modCompared++;
+    }
+
+    Console.WriteLine(modMismatch == 0
+        ? $"MODDIFF-OK (scenarios={modCompared}, checks={modOk}, passthrough=1, liquid=1, inexpressible=1, wholeShape=1)"
+        : $"MODDIFF-MISMATCH ({modMismatch})");
+    if (modMismatch > 0) Environment.ExitCode = 1;
 
     void Compare(string kind, int index, Workshop master, Workshop slave, OrderSpec spec)
     {
@@ -1102,12 +1775,16 @@ void CheckProtocol()
     // 而这两个名字本来就在 ProtocolMessages 里（CommandDispatcher 也在发它们）。
     var tickService = ReadSource(Path.Combine("src", "JarSystem.Web", "TickBackgroundService.cs"));
     var autoCheckService = ReadSource(Path.Combine("src", "JarSystem.Web", "AutoCheckBackgroundService.cs"));
+    // P4：过程观察者也发消息（5 条过程消息）⇒ 把它的源码一并纳入名字与载荷键的扫描范围，
+    // 否则"新消息名只活在它自己的文件里"就会绕开守卫（这正是守卫要防的漂移）。
+    var processObserver = ReadSource(Path.Combine("src", "JarSystem.Web", "ProcessObserver.cs"));
 
     var commands = Matches(dispatcher, "case \"([A-Za-z]+)\":");
     var messages = Matches(dispatcher, "type = \"([A-Za-z]+)\"")
         .Concat(Matches(hub, "type = \"([A-Za-z]+)\""))
         .Concat(Matches(tickService, "type = \"([A-Za-z]+)\""))
         .Concat(Matches(autoCheckService, "type = \"([A-Za-z]+)\""))
+        .Concat(Matches(processObserver, "type = \"([A-Za-z]+)\""))
         .ToList();
 
     int failures = 0;
@@ -1119,7 +1796,7 @@ void CheckProtocol()
     //   · JsonArgs.cs：通过 ParseReqs/JS/JI… 间接读的键（requirements 就在 ParseReqs 里）
     // 注意：错误信息保持**纯 ASCII** —— 它们会进日志并被 findstr 回显到 GBK 控制台，
     // 含中文会导致 findstr "写入错误"（真实踩过）。
-    var payloadSources = dispatcher + ReadSource(Path.Combine("src", "JarSystem.Web", "JsonArgs.cs"));
+    var payloadSources = dispatcher + ReadSource(Path.Combine("src", "JarSystem.Web", "JsonArgs.cs")) + processObserver;
     var payloadKeys = CommandPayloads.SelectMany(c => c.Fields.Select(f => f.Key)).Distinct().ToList();
     var unknownPayloadKeys = payloadKeys.Where(k => !payloadSources.Contains("\"" + k + "\"")).ToList();
     foreach (var k in unknownPayloadKeys)
@@ -1143,7 +1820,8 @@ void CheckProtocol()
     foreach (var (message, expectedKeys) in MessagePayloads)
     {
         replyKeyTotal += expectedKeys.Length;
-        var actualKeys = ExtractPayloadKeys(dispatcher, message);
+        // P4：载荷键的提取源是**全部会发消息的文件**（不再只有 CommandDispatcher —— 过程消息在 ProcessObserver）
+        var actualKeys = ExtractPayloadKeys(payloadSources, message);
         if (actualKeys == null)
         {
             Console.WriteLine("protocol reply-payload: NOT-FOUND " + message);
@@ -1341,7 +2019,9 @@ void DumpSchema()
         ("GlobalStateDto", typeof(JarSystem.Core.Services.GlobalStateDto)),
         ("SolverStepDto", typeof(JarSystem.Core.Orders.SolverStepDto)),
         ("AutoCheckResultDto", typeof(JarSystem.Core.Orders.AutoCheckResultDto)),
-        ("WorldMetaDto", typeof(JarSystem.Core.Services.WorldMetaDto))
+        ("WorldMetaDto", typeof(JarSystem.Core.Services.WorldMetaDto)),
+        // P4：活动过程的投影（13 键，见 StateDtos.ProcessStateDto）
+        ("ProcessStateDto", typeof(JarSystem.Core.Services.ProcessStateDto))
     };
 
     var types = new System.Text.Json.Nodes.JsonObject();
@@ -1730,4 +2410,17 @@ sealed class CountingSolver : JarSystem.Core.Abstractions.ISolver
         Calls++;
         return _inner.Solve(requirements, workshopInfo, jars, liquids, transferBudget);
     }
+}
+
+/// <summary>
+/// 事件源替身（S27）：把"tick 到事件集"的规则用 lambda 传进来。
+/// 只用于测试 —— 生产里事件源由宿主提供（见 <c>ProcessSystem.EventSource</c>）。
+/// </summary>
+sealed class TestEventSource : JarSystem.Core.Rules.IWorldEventSource
+{
+    private readonly Func<int, IReadOnlyList<JarSystem.Core.Rules.WorldEvent>> _rule;
+
+    public TestEventSource(Func<int, IReadOnlyList<JarSystem.Core.Rules.WorldEvent>> rule) => _rule = rule;
+
+    public IReadOnlyList<JarSystem.Core.Rules.WorldEvent> DrainForTick(int tick) => _rule(tick);
 }

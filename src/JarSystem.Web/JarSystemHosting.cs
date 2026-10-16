@@ -25,6 +25,8 @@ public static class JarSystemHosting
         services.AddSingleton<WebSocketHub>();
         services.AddSingleton<IWebSocketSink>(sp => sp.GetRequiredService<WebSocketHub>());
         services.AddSingleton<CommandDispatcher>();
+        // P4：过程观察者（把核心的过程变化翻成对外消息），由组合根挂到系统上
+        services.AddSingleton<ProcessObserver>();
 
         // P5：两个周期性任务改为托管服务（PeriodicTimer，不重入，随宿主优雅停止）
         services.AddHostedService<TickBackgroundService>();

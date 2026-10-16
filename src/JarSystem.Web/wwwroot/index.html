@@ -12,6 +12,7 @@
       <h1>🏺 陶罐生产与订单系统</h1>
       <div class="controls">
         <button id="btn-auto" onclick="toggleAuto()">⏸ 暂停推进</button>
+        <button id="btn-speed" onclick="cycleSpeed()">⏩ 1×</button>
         <button onclick="manualTick()">⏭ 手动推进</button>
         <button onclick="showCreateWorkshop()">🏭 新建工作台</button>
         <button onclick="showCreateOrder()">📋 新建订单</button>
@@ -19,6 +20,7 @@
         <button onclick="createRandomOrder()">🎲 随机订单</button>
         <button id="btn-auto-check" onclick="toggleAutoCheck()">🔍 自动检测</button>
         <button onclick="resetSystem()">🔄 重置</button>
+        <button onclick="openScenarioEditor()">🧪 场景</button>
       </div>
     </header>
 
@@ -102,7 +104,27 @@
       <div class="modal-actions">
         <button onclick="checkFeasibility()">🔍 检查可行性</button>
         <button onclick="submitExecute()">⚡ 执行</button>
+        <button onclick="submitStart()">⏱ 分步执行</button>
         <button onclick="closeModal('modal-execute')">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-scenario">
+    <div class="modal-content" style="max-width:760px;">
+      <h3>🧪 场景编辑器（config/scenario.json）</h3>
+      <div style="font-size:0.8em;color:#aaa;margin-bottom:6px;">
+        场景数据描述"什么规则、什么时候"：事件到点后把带区间的修饰器压进规则栈（到期自动解除）。
+        <b>保存后需重启服务生效</b>；不保存文件时，世界行为与今天完全一致。
+      </div>
+      <textarea id="scenario-text" spellcheck="false"
+        style="width:100%;height:340px;background:#0d0d18;color:#ddd;border:1px solid #333;border-radius:4px;padding:8px;font-family:Consolas,monospace;font-size:12px;"></textarea>
+      <div id="scenario-result" style="margin-top:8px;font-size:0.85em;min-height:1.2em;"></div>
+      <div class="modal-actions">
+        <button onclick="loadScenarioSample()">载入示例</button>
+        <button onclick="validateScenarioText()">✅ 校验</button>
+        <button onclick="saveScenario()">💾 保存</button>
+        <button onclick="closeModal('modal-scenario')">关闭</button>
       </div>
     </div>
   </div>

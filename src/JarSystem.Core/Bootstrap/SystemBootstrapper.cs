@@ -1,3 +1,4 @@
+using JarSystem.Core.Rules;
 using System.Collections.Generic;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
@@ -25,7 +26,7 @@ public static class SystemBootstrapper
     /// 否则进程级共享计数器会让"重建出的世界"与原次的 ID 不同（见 Sessions.WorldCommand 的边界说明）。
     /// </param>
     public static void Apply(WorldOptions world, Vocabulary vocabulary, ProducerModule producers,
-        List<Workshop> workshops, IIdGenerator? jarIds = null)
+        List<Workshop> workshops, IIdGenerator? jarIds = null, ModifierStack? modifiers = null)
     {
         foreach (var p in world.Producers)
             producers.RegisterProducer(p.Name, new Dictionary<string, double>(p.Rates));
@@ -42,6 +43,7 @@ public static class SystemBootstrapper
                 w.MaxJars ?? world.DefaultMaxJars,
                 w.MaxLiquids ?? world.DefaultMaxLiquids,
                 jarIds,
-                vocabulary: vocabulary));
+                vocabulary: vocabulary,
+                modifiers: modifiers));
     }
 }

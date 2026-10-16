@@ -1,4 +1,4 @@
-UML/ 目录 —— 10 张图（均可用 PlantUML 渲染）
+UML/ 目录 —— 14 张图（均已渲染验证）
 
 ════════════════════════════════════════════════════════════
  文件清单
@@ -72,7 +72,8 @@ UML/ 目录 —— 10 张图（均可用 PlantUML 渲染）
  · Core 内部真实依赖方向，含两处向上/成环（Domain 依赖 Services；Abstractions 与
    Solver/Orders 互相引用）
 
-⚠️ 渲染验证状态（2026-09-16 更新）：已由用户在 plantuml.com 实测，回报了 4 处错误，
+⚠️ 渲染验证状态（2026-10-16 更新）：用户在本机 VS Code（PlantUML 插件 + JVM）逐张预览，
+   **14 张全部正常显示**（含过程系统的 09/10/11/12）。此前 2026-09-16 在 plantuml.com 实测，回报了 4 处错误，
    现已全部修完。下面两条规则是这轮踩出来的 —— **改图前必读**。
 
 ════════════════════════════════════════════════════════════
@@ -81,12 +82,27 @@ UML/ 目录 —— 10 张图（均可用 PlantUML 渲染）
 
 规则 1：note 的位置词**分图型**，用错就是 Syntax Error
   · 类图 / 组件图：note top of X、note bottom of X、note left/right of X 都认
-  · 序列图 / 状态图：**只有 note left of X、note right of X、note over X**
+  · 序列图：note left of X、note right of X、note over X（note over 可跨多个参与者）
     写 note bottom of X / note top of X 会报 "Syntax Error?"
-    （实测：05_Sequence 第 72 行 note bottom of Coord、05_State 的 note bottom of Failed）
+    （实测：05_Sequence 第 72 行 note bottom of Coord）
+  · 状态图：**只有 note left of X、note right of X**；
+    单状态写 `note over X` 会报 Syntax Error?（2026-10-16 用 PlantUML 1.2026.9beta4 在线实测，
+    09_State_过程生命周期 第 48 行 note over Succeeded）⇒ 一律用 **note right of X**
+    （旧的 05_State 报错也同样是 note 位置词问题：note bottom of Failed）
   · 活动图：note 必须**紧跟一条活动语句**（先写 :语句; 再写 note right … end note）。
-    **不能**写没有目标的 note bottom / note top（实测：08 第 88 行）
+    **不能**写没有目标的 note bottom / note top（实测：08 第 88 行）；
+    **也不能写悬浮的 `note as X … end note`**——活动图不支持（2026-10-16 在线实测，
+    11_Activity_过程推进管线 第 75 行）⇒ 老老实实写在最后一条活动语句后面，用 `note right`
   · 最省事的通用写法：**note right of X**（四类图都认）
+
+在线验证语法（2026-10-16 新增，本机没有 Java/PlantUML 时用）
+  · GET + 十六进制编码：把整份文本按 UTF-8 逐字节转十六进制（小写、无分隔），
+    拼到 `https://www.plantuml.com/plantuml/txt/~h<hex>`。
+    返回 **HTTP 200 且正文不含 "Syntax Error"** 才算过；报错时正文会给出
+    `[From string (line N) ]` + 出错行源码 + `Syntax Error?`，据此直接定位。
+  · 注意：**HTTP 400/500 不等于语法错**——长文本的 ~h URL 过长、或公共服务器限流都会给 4xx/5xx；
+    这种情况只能算"未验证"，不要当成通过（我自己踩过：把 400 当成了通过）。
+  · 更稳的方式是 POST（无 URL 长度限制），但服务端会 **302**，需要跟随重定向（curl 加 -L）。
 
 规则 2：note ... of <短名> 需要"名字解析"，而 PlantUML 允许先引用后声明
   实测病因（02_ClassDiagram，报 "Not known: ISolver"）：

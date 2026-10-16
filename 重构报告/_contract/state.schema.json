@@ -424,6 +424,75 @@
           "items": {
             "type": "object"
           }
+        },
+        "worldRevision": {
+          "type": "integer"
+        },
+        "processes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "subjectId": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "currentStep": {
+                "type": "integer"
+              },
+              "totalSteps": {
+                "type": "integer"
+              },
+              "startedAtTick": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "deadlineTick": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "remainingTicks": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "blockedReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastJournalSeq": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false
@@ -1252,6 +1321,69 @@
           "items": {
             "type": "string"
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProcessStateDto": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "subjectId": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "currentStep": {
+          "type": "integer"
+        },
+        "totalSteps": {
+          "type": "integer"
+        },
+        "startedAtTick": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "deadlineTick": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "remainingTicks": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "blockedReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastJournalSeq": {
+          "type": "integer"
         }
       },
       "additionalProperties": false

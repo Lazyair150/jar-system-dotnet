@@ -1,3 +1,4 @@
+using JarSystem.Core.Rules;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -32,14 +33,17 @@ public class Workshop
     // 于是「配置 → 工作台 → 快照 → 求解器」共用同一份，不再三处各存一份标记表。
     private WorkshopCapability _capability;
 
-    // 「临时附加标记」：Case2 期间（旧台临时获得新台基础形状）使用，作用域结束即回收
-    // （属于**运行时状态**，不属于能力参数，因此留在本类里）
-    private readonly List<string> _temporaryAdditionalMarks = new();
+    // 规则读取入口（基础能力 + 活跃修饰器）。P3b 起"临时附加标记"也走这里
+    // —— 它就是 GrantModifier 的一个实例，于是"临时放宽"只有一套机制。
+    private RuleContext _rules;
 
     public string Name { get; }
 
     /// <summary>能力参数（标记/禁令）。整体更换请用 <see cref="ReplaceCapability"/>。</summary>
     public WorkshopCapability Capability => _capability;
+
+    /// <summary>规则读取入口（基础能力 + 活跃修饰器）。默认空栈 ⇒ 与改造前的判定逐项相同。</summary>
+    internal RuleContext Rules => _rules;
 
     /// <summary>基础标记（只读视图；等价于 <c>Capability.BaseMarks</c>）。</summary>
     public IReadOnlyList<string> BaseMarks => _capability.BaseMarks;
@@ -63,12 +67,17 @@ public class Workshop
     public IReadOnlyDictionary<string, int> LiquidStorage => _liquidStorageView;
 
     /// <param name="vocabulary">词表（S2）：只用于初始化液体账目的键与顺序；null 表示内置默认词表。</param>
+    /// <param name="modifiers">
+    /// 世界的修饰器栈（P3b）：传同一个实例即可让"一处入栈，处处生效"；
+    /// null 表示本工作台自带一个空栈（独立使用/测试场景，行为与改造前相同）。
+    /// </param>
     public Workshop(string name, List<string>? baseMarks = null, List<string>? additionalMarks = null,
         List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null,
-        Vocabulary? vocabulary = null)
+        Vocabulary? vocabulary = null, ModifierStack? modifiers = null)
     {
         Name = name;
         _capability = new WorkshopCapability(baseMarks, additionalMarks, ban);
+        _rules = new RuleContext(_capability, modifiers ?? new ModifierStack());
         MaxJars = maxJars ?? Constants.DEFAULT_MAX_JARS;
         MaxLiquids = maxLiquids ?? Constants.DEFAULT_MAX_LIQUIDS;
         _ids = ids ?? DefaultIdGenerators.Jars;
@@ -90,7 +99,15 @@ public class Workshop
     /// <item>进行中的 Case2 临时附加标记作用域不受影响（临时标记叠在新能力之上，作用域结束照常回收）。</item>
     /// </list>
     /// </summary>
-    public void ReplaceCapability(WorkshopCapability capability) => _capability = capability;
+    public void ReplaceCapability(WorkshopCapability capability)
+    {
+        _capability = capability;
+        // 换的是**能力参数**，修饰器栈照旧（栈属世界，不属这一次替换）
+        _rules = new RuleContext(capability, _rules.Stack);
+    }
+
+    /// <summary>绑定到世界的修饰器栈（宿主把外部构造的工作台纳入世界时调用）。</summary>
+    internal void AttachRuleStack(ModifierStack stack) => _rules = new RuleContext(_capability, stack);
 
     // ============================================================
     // 规则查询
@@ -99,17 +116,13 @@ public class Workshop
     public bool IsBaseMarked(string s) => _capability.IsBaseMarked(s);
 
     /// <summary>是否属于附加标记（含 Case2 期间的临时附加标记）。</summary>
-    public bool IsAdditionalMarked(string s) => _capability.IsAdditionalMarked(s) || _temporaryAdditionalMarks.Contains(s);
+    public bool IsAdditionalMarked(string s) => _rules.IsAdditionalMarked(s);
 
-    public bool IsBanned(string l) => _capability.IsBanned(l);
+    public bool IsBanned(string l) => _rules.IsBanned(l);
 
-    public List<string> GetPossibleTransforms(string s) => _capability.GetPossibleTransforms(s, TemporaryMarksOrNull());
+    public List<string> GetPossibleTransforms(string s) => _rules.GetPossibleTransforms(s);
 
     public bool CanTransform(string f, string t) => GetPossibleTransforms(f).Contains(t);
-
-    /// <summary>临时附加标记（无则为 null，省一次合并分配）。</summary>
-    private IReadOnlyList<string>? TemporaryMarksOrNull() =>
-        _temporaryAdditionalMarks.Count == 0 ? null : _temporaryAdditionalMarks;
 
     /// <summary>
     /// 在作用域内临时获得若干附加标记（切换事件 Case2 用：旧台临时获得新台基础形状）。
@@ -117,30 +130,27 @@ public class Workshop
     /// </summary>
     public IDisposable WithTemporaryAdditionalMarks(IEnumerable<string> shapes)
     {
-        var added = new List<string>();
+        var scopes = new List<IDisposable>();
         foreach (var s in shapes)
         {
-            if (_capability.IsBaseMarked(s) || _capability.IsAdditionalMarked(s) || _temporaryAdditionalMarks.Contains(s)) continue;
-            _temporaryAdditionalMarks.Add(s);
-            added.Add(s);
+            // 已是基础/附加标记，或已被别的 Grant 授予 ⇒ 不重复入栈（与改造前的判重语义一致）
+            if (_capability.IsBaseMarked(s) || _capability.IsAdditionalMarked(s)) continue;
+            if (_rules.Stack.GrantedShapes().Contains(s)) continue;
+            scopes.Add(_rules.Stack.Push(new GrantModifier { Shape = s, Source = "切换事件" }));
         }
-        return new TemporaryMarksScope(this, added);
+        return new ScopeGroup(scopes);
     }
 
-    private sealed class TemporaryMarksScope : IDisposable
+    /// <summary>把多个作用域当一个用（内部用；<see cref="ModifierScope.Dispose"/> 幂等）。</summary>
+    private sealed class ScopeGroup : IDisposable
     {
-        private readonly Workshop _workshop;
-        private readonly List<string> _added;
+        private readonly List<IDisposable> _scopes;
 
-        public TemporaryMarksScope(Workshop workshop, List<string> added)
-        {
-            _workshop = workshop;
-            _added = added;
-        }
+        public ScopeGroup(List<IDisposable> scopes) => _scopes = scopes;
 
         public void Dispose()
         {
-            foreach (var s in _added) _workshop._temporaryAdditionalMarks.Remove(s);
+            foreach (var s in _scopes) s.Dispose();
         }
     }
 
@@ -269,6 +279,7 @@ public class Workshop
         if (!j.IsEmpty()) return (false, "罐子不为空");
         if (!_capability.IsBaseMarked(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
         if (IsBanned(l)) return (false, "工作台禁" + l);
+        if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
         if (!RemoveLiquid(l)) return (false, "液体" + l + "不足");
         j.PourIn(l); j.Mark(); return (true, null);
     }
@@ -279,6 +290,7 @@ public class Workshop
         if (j.IsEmpty()) return (false, "罐子为空", null);
         var l = j.Liquid!;
         if (IsBanned(l)) return (false, "工作台禁" + l, null);
+        if (_rules.SuppressionReason("POUR_OUT", j.Shape, l) is { } suppressed) return (false, suppressed, null);
         if (_liquidStorage.GetValueOrDefault(l) >= MaxLiquids) return (false, "液体" + l + "存储已满", null);
         j.ClearLiquid(); AddLiquid(l); j.Mark(); return (true, null, l);
     }
@@ -288,6 +300,7 @@ public class Workshop
         if (j.IsMarked) return (false, "罐子已被操作");
         if (!j.IsEmpty()) return (false, "必须为空罐");
         if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
+        if (_rules.SuppressionReason("RESHAPE", j.Shape, cost) is { } suppressed) return (false, suppressed);
         if (!TryPayReshapeCost(cost)) return (false, "无法支付液体" + cost);
         j.Reshape(to); j.Mark(); return (true, null);
     }
@@ -297,6 +310,7 @@ public class Workshop
         if (j.IsMarked) return (false, "罐子已被操作");
         if (j.IsEmpty()) return (false, "必须为满罐");
         if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
+        if (_rules.SuppressionReason("RESHAPE", j.Shape, j.Liquid) is { } suppressed) return (false, suppressed);
         var l = j.ClearLiquid();
         if (IsBanned(l!)) { j.PourIn(l!); return (false, "工作台禁" + l); }
         j.Reshape(to); j.Mark(); return (true, null);

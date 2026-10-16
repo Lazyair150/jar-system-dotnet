@@ -169,8 +169,10 @@ for (int si = 0; si < strategies.Length; si++)
 
 sb_.AppendLine();
 sb_.AppendLine("### 结论（统计修正版）");
-sb_.AppendLine("- 多种子（每策略每模式 90 单）下，FIFO 成功率 44.96%，显著高于 LIFO（40.26%，+4.7pp）、RareShapeFirst（27.13%）、Random（23.31%）；配对符号检验 p 值均 < 0.001。");
-sb_.AppendLine("- 每模式聚合后 FIFO 在 711 个模式中的 520 个上最优，LIFO 170 个，RareShapeFirst / Random 各 0 个。");
+sb_.AppendLine("- 多种子（每策略每模式 90 单）下，FIFO 成功率 44.78%，显著高于 LIFO（40.20%，+4.6pp）、RareShapeFirst（27.13%）、Random（23.27%）；配对符号检验 p 值均 < 0.001。");
+sb_.AppendLine("- 每模式聚合后 FIFO 在 711 个模式中的 515 个上最优，LIFO 178 个，RareShapeFirst / Random 各 0 个。");
+sb_.AppendLine("- 口径变更（2026-10，P2c 产出定点化）：产出累加由 double 改为整数定点，修正了浮点漂移（契约里曾出现 0.8999999999999999 之类的值）。"
+    + "因此本表数值与上一版记录（FIFO 44.96% / LIFO 40.26% / Random 23.31%；模式最优 520 / 170）相比有 0.1–0.2pp 位移；**排序与显著性结论不变**。");
 sb_.AppendLine("- 修正后的结论：在执行器贪心路径口径下，**FIFO 是最优默认策略且差异显著**；原单次运行记录中「差异很小（0.1–0.3pp）」的表述被多种子重跑推翻。");
 sb_.AppendLine("- 口径说明：本重跑指标为实际执行成功率（不调用可行性分析），与原记录的绝对成功率不可直接比较；策略间的相对排序与显著性是本重跑要回答的问题。");
 

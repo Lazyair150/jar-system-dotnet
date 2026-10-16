@@ -1,0 +1,66 @@
+{
+  "name": "示例场景：忌律与涌流",
+  "initialModifiers": [
+    {
+      "kind": "intensity",
+      "target": "flow:liquid",
+      "factorPerMille": 1000,
+      "from": 1,
+      "to": 999999,
+      "source": "关卡",
+      "reason": "本场景的流入液体量基线"
+    }
+  ],
+  "events": [
+    {
+      "atTick": 4,
+      "name": "忌律生效",
+      "description": "此刻起三刻之内，不得往罐中灌注",
+      "modifiers": [
+        {
+          "kind": "suppress",
+          "operation": "POUR_IN",
+          "from": 4,
+          "to": 6,
+          "reason": "忌律：此刻不得灌注"
+        }
+      ]
+    },
+    {
+      "atTick": 8,
+      "name": "井流减半",
+      "description": "本源之井的涌流减半，持续四刻",
+      "modifiers": [
+        {
+          "kind": "intensity",
+          "target": "liquid:酒",
+          "factorPerMille": 500,
+          "from": 8,
+          "to": 11,
+          "reason": "井流不济"
+        }
+      ]
+    },
+    {
+      "atTick": 12,
+      "name": "契约条款：工匠待命",
+      "description": "主台必须常备 2 个空圆罐，否则委托暂停",
+      "modifiers": [
+        {
+          "kind": "require",
+          "from": 12,
+          "to": 20,
+          "reason": "契约：主台需常备空圆罐",
+          "condition": {
+            "workshop": "master",
+            "what": "jars",
+            "shape": "圆罐",
+            "empty": true,
+            "op": ">=",
+            "value": 2
+          }
+        }
+      ]
+    }
+  ]
+}

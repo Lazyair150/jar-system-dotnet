@@ -30,7 +30,7 @@ internal sealed class WorkshopService
         if (baseMarks == null || baseMarks.Count == 0)
             throw new DomainValidationException("工作台至少需要 1 个基础标记");
         _system.WorkshopList.Add(new Workshop(name, baseMarks, additionalMarks, ban,
-            ids: _system.JarIds, vocabulary: _system.Vocabulary));
+            ids: _system.JarIds, vocabulary: _system.Vocabulary, modifiers: _system.Modifiers));
     }
 
     public void CreateRandomWorkshop()
@@ -60,7 +60,7 @@ internal sealed class WorkshopService
         count = Math.Min(rand.Next(0, 3), liquids.Count);
         while (ban.Count < count) { var l = liquids[rand.Next(liquids.Count)]; if (!ban.Contains(l)) ban.Add(l); }
         _system.WorkshopList.Add(new Workshop(fullName, baseMarks, additionalMarks, ban,
-            ids: _system.JarIds, vocabulary: _system.Vocabulary));
+            ids: _system.JarIds, vocabulary: _system.Vocabulary, modifiers: _system.Modifiers));
     }
 
     /// <summary>调整工作台容量；溢出资源直接丢弃并计数（仓库单向流动，不回流中央仓库）。</summary>

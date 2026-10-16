@@ -37,6 +37,7 @@ public class Producer
 public class ShapeProductionLine
 {
     private readonly Vocabulary _vocabulary;
+    private readonly Abstractions.IIntensitySource? _intensity;
 
     public string Shape { get; }
 
@@ -48,14 +49,32 @@ public class ShapeProductionLine
     /// <summary>本线上参与产出的生产者及其速率（对外只读）。</summary>
     public IReadOnlyList<(string Name, double Rate)> Producers => _producerListView;
 
-    /// <summary>产出累加器（对外只读；只有本类的 <see cref="Tick"/> 会推进它）。</summary>
-    public double Accumulated { get; private set; }
+    /// <summary>
+    /// 产出累加器（对外只读；**契约字段** <c>producerStatus.generators[].accumulated</c> 读它）。
+    ///
+    /// 2026-10（P2c）加固：内部改为**整数定点**（千分之一）累加，这里换算回小数输出。
+    /// 动机是**实测到的浮点漂移** —— 修前该字段的实测值是
+    /// <c>0.20000000000000018</c> / <c>0.8999999999999999</c> / <c>0.7999999999999999</c>（本该是 0.2 / 0.9 / 0.8），
+    /// 而 <see cref="Tick"/> 用 <c>Math.Floor</c> 取整产出 ⇒ 累加值一旦落在整数**下方**
+    /// （例如 6.999999999999999）就会**少产一个罐子**，且结果随运行时/平台可能不同（确定性风险）。
+    /// 定点化后：只在注册边界上取整一次，之后全是整数运算 ⇒ 逐 tick 结果与平台无关。
+    /// 对外契约只改了这 3 个**数值**（键名与形状不变）；基线已于 2026-10-16 **有意重建**（见 `过程系统/03_*.md`）。
+    /// </summary>
+    public double Accumulated => _accumulatedMilli / (double)MilliUnit;
+
+    /// <summary>定点累加器（千分之一为单位；只有本类的 <see cref="Tick"/> 会推进它）。</summary>
+    private int _accumulatedMilli;
+
+    /// <summary>定点单位：速率的千分之一（0.4 ⇒ 400）。</summary>
+    private const int MilliUnit = 1000;
 
     /// <param name="vocabulary">词表（S2）：本线产出的罐子按它校验形状；null 表示内置默认词表。</param>
-    public ShapeProductionLine(string shape, Vocabulary? vocabulary = null)
+    /// <param name="intensity">强度折算出口（可选）：`producer:形状` 目标可折减本线产出。</param>
+    public ShapeProductionLine(string shape, Vocabulary? vocabulary = null, Abstractions.IIntensitySource? intensity = null)
     {
         Shape = shape;
         _vocabulary = vocabulary ?? Vocabulary.Default;
+        _intensity = intensity;
         _producerListView = _producerList.AsReadOnly();
     }
 
@@ -77,10 +96,13 @@ public class ShapeProductionLine
 
     public List<Jar> Tick()
     {
-        var total = Producers.Sum(p => p.Rate);
-        Accumulated += total;
-        var n = (int)Math.Floor(Accumulated);
-        Accumulated -= n;
+        var totalMilli = Producers.Sum(p => Milli(p.Rate));
+        // P4c：强度修饰器可折减某形状的生产者速率（整数千分比；无匹配 ⇒ 恒等）
+        if (_intensity != null) totalMilli = _intensity.Apply("producer:" + Shape, totalMilli);
+        _accumulatedMilli += totalMilli;
+        // 整数整除 = 原 Math.Floor 的语义（速率恒非负 ⇒ 累加恒非负，截断与下取整等价）
+        var n = _accumulatedMilli / MilliUnit;
+        _accumulatedMilli -= n * MilliUnit;
         var jars = new List<Jar>();
         for (int i = 0; i < n; i++)
             jars.Add(new Jar(Shape, null, null, _vocabulary));
@@ -88,6 +110,12 @@ public class ShapeProductionLine
     }
 
     public double GetTotalRate() => Producers.Sum(p => p.Rate);
+
+    /// <summary>
+    /// 速率 → 定点整数（千分之一）。**只在注册/改速率的边界上取整一次**，
+    /// 之后累加全程是整数（这就是"确定性"的来源）。
+    /// </summary>
+    private static int Milli(double rate) => (int)Math.Round(rate * MilliUnit, MidpointRounding.AwayFromZero);
 
 }
 
@@ -99,6 +127,9 @@ public class ProducerModule
     // S2：词表（形状/液体目录）——生产线的建立、Tick 的遍历、罐子创建都按它来；
     // 因此"换一份词表 = 多/少一种形状的生产线"，不需要改生产模块的代码。
     private readonly Vocabulary _vocabulary;
+
+    /// <summary>强度折算出口（可选）：透传给各条生产线（目标名 `producer:形状`）。</summary>
+    private readonly Abstractions.IIntensitySource? _intensity;
 
     /// <summary>
     /// **中央仓库**（2026-09 从本类抽出）：罐子/液体库存、容量与丢弃计数、仓库→主台的流入规则。
@@ -124,14 +155,15 @@ public class ProducerModule
     public IReadOnlyDictionary<string, int> LiquidWarehouse => Warehouse.LiquidWarehouse;
 
     /// <param name="vocabulary">词表（S2）；null 表示内置默认词表（行为与重构前一致）。</param>
-    public ProducerModule(Vocabulary? vocabulary = null)
+    public ProducerModule(Vocabulary? vocabulary = null, Abstractions.IIntensitySource? intensity = null)
     {
         _vocabulary = vocabulary ?? Vocabulary.Default;
+        _intensity = intensity;
         // 只读包装最先建立（活视图 ⇒ 后续注册的生产者/生产线照样反映）
         _generatorsView = new ReadOnlyDictionary<string, ShapeProductionLine>(_generators);
         _producersView = new ReadOnlyDictionary<string, Producer>(_producers);
         foreach (var s in _vocabulary.Shapes)
-            _generators[s] = new ShapeProductionLine(s, _vocabulary);
+            _generators[s] = new ShapeProductionLine(s, _vocabulary, _intensity);
         Warehouse = new Warehouse(_vocabulary);
     }
 

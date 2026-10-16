@@ -44,6 +44,77 @@ app.MapGet("/api/state", async (HttpContext ctx, JarSystemService svc) =>
     finally { svc.Gate.Release(); }
 });
 
+// ============================================================
+// 场景编辑器后端（P5）：载入 / 校验 / 保存 `config/scenario.json`
+//
+// 为什么要这三个端点：场景数据（`Rules.ScenarioOptions`）是"世界事件注入"的数据形态，
+// 而作者需要一个能立刻拿到**校验结论**的地方 —— 于是把核心的 `Validate()` 暴露成 HTTP。
+// 边界：只在本机回环壳里提供（来源校验与 `/api/state` 同一判据）；保存前**必须先校验通过**；
+// 目标路径固定为 `config/scenario.json`（不接受任意路径）。
+// ============================================================
+const string SCENARIO_RELATIVE = "config/scenario.json";
+const string SCENARIO_SAMPLE_RELATIVE = "config/scenario.sample.json";
+
+app.MapGet("/api/scenario", (HttpContext ctx) =>
+{
+    if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+    // 用与世界配置**同一套向上查找**（服务的当前目录是 src\JarSystem.Web，不是仓库根）
+    var currentPath = JarSystemService.ResolveConfigPath(SCENARIO_RELATIVE);
+    var samplePath = JarSystemService.ResolveConfigPath(SCENARIO_SAMPLE_RELATIVE);
+    var current = currentPath != null ? File.ReadAllText(currentPath) : "";
+    var sample = samplePath != null ? File.ReadAllText(samplePath) : "";
+    return Results.Json(new { exists = current.Length > 0, source = current, sample });
+});
+
+app.MapPost("/api/scenario/validate", async (HttpContext ctx) =>
+{
+    if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    using var reader = new StreamReader(ctx.Request.Body);
+    var text = await reader.ReadToEndAsync();
+    var report = ValidateScenarioText(text);
+    // 注意：**不要**直接返回元组 —— System.Text.Json 不序列化 ValueTuple 的字段（实测返回 `{}`）
+    return Results.Json(new { valid = report.Valid, errors = report.Errors, warnings = report.Warnings });
+});
+
+app.MapPost("/api/scenario", async (HttpContext ctx) =>
+{
+    if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    using var reader = new StreamReader(ctx.Request.Body);
+    var text = await reader.ReadToEndAsync();
+    var report = ValidateScenarioText(text);
+    if (!report.Valid)
+        return Results.Json(new { saved = false, errors = report.Errors, warnings = report.Warnings });
+    // 保存目标**可能还不存在** ⇒ 用"配置目录"解析（不能复用 ResolveConfigPath —— 它只找已存在的文件）
+    var savePath = Path.Combine(JarSystemService.ResolveConfigDir(), "scenario.json");
+    try
+    {
+        File.WriteAllText(savePath, text);
+        Console.WriteLine("[scenario] saved: " + Path.GetFullPath(savePath) + "（重启后生效）");
+        return Results.Json(new { saved = true, path = Path.GetFullPath(savePath), warnings = report.Warnings });
+    }
+    catch (Exception ex)
+    {
+        // 写文件是副作用：IO 失败要如实回报，不能让端点 500
+        return Results.Json(new { saved = false, errors = new List<string> { "写入失败: " + ex.Message }, warnings = report.Warnings });
+    }
+});
+
+static (bool Valid, List<string> Errors, List<string> Warnings) ValidateScenarioText(string text)
+{
+    try
+    {
+        // 解析与校验都住在核心（Rules），这里只做"搬运 + 呈现"
+        var scenario = JarSystem.Core.Rules.ScenarioJson.FromJson(text);
+        var report = scenario.Validate();
+        return (report.IsValid, report.Errors, report.Warnings);
+    }
+    catch (Exception ex) { return (false, new List<string> { "解析失败: " + ex.Message }, new List<string>()); }
+}
+
 app.UseWebSockets();
 app.UseDefaultFiles();
 app.UseStaticFiles();

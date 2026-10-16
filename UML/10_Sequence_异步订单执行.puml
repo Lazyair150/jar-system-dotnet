@@ -1,0 +1,73 @@
+@startuml
+' ============================================================
+'  P5 收口后新增（2026-10-16）：异步轨端到端 —— startOrder 起过程，tick 负责推进。
+'  与代码对齐：CommandDispatcher(startOrder) → JarSystem.StartOrder →
+'  OrderService.BeginOrderExecution → OrderExecutor.BeginSession → ProcessSystem.Begin →
+'  ProcessSystem.AdvanceActive（守卫 → 工作体 → 观察者）→ OrderService.CompleteOrderExecution。
+'  PlantUML 约定：序列图只用 note left/right/over；一行一个成员。
+' ============================================================
+
+title 异步轨：startOrder + tick 推进（对照同步轨 executeOrder）
+
+actor "玩家" as P
+participant "CommandDispatcher" as D
+participant "JarSystem" as S
+participant "OrderService" as O
+participant "OrderExecutor" as X
+participant "ProcessSystem" as PS
+participant "ProcessRun" as R
+participant "TickPipeline" as TP
+participant "ProcessObserver" as OB
+
+P -> D : WS startOrder（orderId / orderIndex）
+D -> S : StartOrder(index, deadlineTicks)
+S -> S : Processes.Begin（建过程：Created 到 Ready）
+S -> O : BeginOrderExecution（前置校验 + 事件 + 解析计划 + 建会话）
+O -> X : BeginSession（主台/从台步骤 + 是否求解器方案）
+S -> S : AttachAdvancer（挂守卫 + 工作体）
+S -> D : WS state（含 processes 投影）
+D -> P : 回包（过程已登记，世界还没动）
+
+note over S
+  同步轨在这里直接 drain：一个调用把单位跑完、不等待刻；
+  异步轨的推进发生在下面的每个世界 tick
+end note
+
+loop 每个世界 tick（宿主 TickBackgroundService；间隔可配 / 可倍速）
+  P -> D : manualTick（或宿主定时器）
+  D -> S : Tick(1)
+  S -> TP : AdvanceOneTick
+  TP -> TP : ① 事件注入（ScenarioBinder 到点事件 → 压修饰器）
+  TP -> TP : ② ModifierStack.Expire(tick)（区间到点自动摘除）
+  TP -> PS : ③ AdvanceActive（按 Priority 排序，每个过程至多一个单位）
+  PS -> PS : 时限检查（超过 DeadlineTick ⇒ 失败）
+  PS -> PS : 守卫检查 CheckGuard（世界是否还容得下这个计划）
+  alt 守卫不成立
+    PS -> R : NoteBlocked（过程日志 blocked）
+    R -> OB : OnChanged(instance, blocked, tick)
+    OB -> P : WS processBlocked
+  else 守卫成立且到点
+    PS -> R : AdvanceOneUnit（工作体推进一个单位）
+    R -> X : 计划步骤按 jarId 定位并应用（失败也继续其余步骤）
+    R -> R : 提交过程日志（step_applied / phase 里程碑，含 tick）
+    R -> OB : OnChanged(instance, started/progressed/resumed, tick)
+    OB -> P : WS processStarted / processProgressed / processResumed
+  end
+  TP -> S : ④ 世界产出（生产者 / 液体 / 流入，可被强度修饰器折算）
+  opt 工作体已用尽
+    PS -> O : OnFinished 到 CompleteOrderExecution（交付 / 失败落账 / 事件历史）
+    R -> OB : OnChanged(instance, finished, tick)
+    OB -> P : WS processFinished（outcome / currentStep / reason）
+  end
+end
+
+note over PS,OB
+  **取消**：cancelProcess(processId) 到 ProcessSystem.Cancel：
+  工作体标失败到收尾落账到过程以 aborted 结尾（已完成部分不回滚）
+end note
+
+note over R
+  **过程日志**是这一轨的可验证产物：每条带 seq / tick / worldRevision；
+  回放门（--check-replay）把它与命令日志、状态一起逐字节比对
+end note
+@enduml

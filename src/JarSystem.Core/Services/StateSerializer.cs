@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Process;
 
 namespace JarSystem.Core.Services;
 
@@ -60,7 +61,29 @@ internal static class StateSerializer
         },
         // 与内部保留窗口**同一个常量**（JarSystem.MaxEventHistory）—— 原先这里写死 `10`：
         // 两处独立的值一旦只改一处，对外 JSON 的条数就静默改变（快照立刻漂移，却看不出是有意还是漏改）。
-        EventHistory = system.EventHistory.TakeLast(JarSystem.MaxEventHistory).ToList()
+        EventHistory = system.EventHistory.TakeLast(JarSystem.MaxEventHistory).ToList(),
+
+        // P4：世界修订号 + 活动过程（进行中的过程才有内容；同步轨通常为空）
+        WorldRevision = system.WorldRevision,
+        Processes = system.Processes.ActiveProcesses.Select(p => new ProcessStateDto
+        {
+            Id = p.Id,
+            Kind = p.Kind,
+            Subject = p.Subject,
+            SubjectId = p.SubjectId,
+            State = ProcessContract.Of(p.State),
+            Outcome = p.Outcome.HasValue ? ProcessContract.Of(p.Outcome.Value) : null,
+            CurrentStep = p.AppliedSteps,
+            TotalSteps = p.DeclaredSteps,
+            StartedAtTick = p.StartedAtTick,
+            DeadlineTick = p.DeadlineTick,
+            // 剩余刻数**服务端算好**（客户端不知道 tick 速率，自己算必错）
+            RemainingTicks = p.DeadlineTick.HasValue
+                ? Math.Max(0, p.DeadlineTick.Value - system.Processes.Clock.Tick)
+                : null,
+            BlockedReason = p.BlockedReason,
+            LastJournalSeq = p.LastJournalSeq
+        }).ToList()
     };
 
     private static WorkshopStateDto SerializeWorkshop(JarSystem system, Workshop ws, int index) => new()

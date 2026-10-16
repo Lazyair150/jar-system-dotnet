@@ -23,10 +23,12 @@ package "JarSystem.Core 零外部依赖（只用 .NET BCL + System.Text.Json）"
   component "Services\n3 个用例服务 + StateSerializer + 10 个 DTO" as Svc
   component "Sessions\nWorldCommand 日志 + SessionReplay" as Ses
   component "门面 JarSystem" as Facade
+  component "Rules\n世界规则：修饰器栈 / 结构化查询 / 场景数据" as RulesLayer
+  component "Process\n过程系统：时钟 / 管线 / 状态机 / 过程日志" as ProcLayer
 }
 
-artifact "契约 schema\nstate.schema.json\n10 类型 / total loose=1" as Schema
-artifact "契约快照\nstate_keys.txt\n223 行，含路径步骤键 + 空容器占位" as Snap
+artifact "契约 schema\nstate.schema.json\n11 类型 / total loose=1" as Schema
+artifact "契约快照\nstate_keys.txt\n225 行（含 worldRevision / processes）" as Snap
 
 component "Web 宿主\nASP.NET Core + 裸 WebSocket" as Web
 component "CLI 实验宿主\nStrategyExperiment" as Cli
@@ -39,12 +41,15 @@ package "验证模块" {
   component "JarSystem.Test 自定义 runner\n2000 + 3000 + 21" as T1
   component "契约快照 / Schema / contract.d.ts 导出" as T2
   component "九步门 verify.bat\nVERDICT + 退出码" as T4
+  component "修饰器差分门\nMODDIFF：1600 次比对" as T7
+  component "场景数据门\nSCENARIO：第 7 步子检查" as T8
   component "求解器差分门\n4003 次比对" as T5
   component "会话回放门\n命令日志重放" as T6
   component "xUnit v3 + FsCheck + Verify\n骨架已建，12 条 Fact 全绿，待在线装包" as T3
 }
 
 artifact "config/world.json\n形状 / 液体 / 容量 / 流入 / 生产者 / 库存 / 工作台 / 名字池" as Rules
+artifact "config/scenario.sample.json\n事件 / 临时修饰器 / 条件（结构化查询）" as Scenario
 artifact "WorldOptions.Validate()\nErrors 则宿主拒绝启动" as WorldCheck
 
 cloud "Markdown 报告 / UML" as Docs
@@ -63,10 +68,13 @@ Facade --> Snap : 投影（dump-contract）
 
 ' ---- 世界配置 ----
 Facade --> Rules : 装配：读文件 到 WorldOptions 到 Validate
+Facade --> RulesLayer : 规则读取（RuleContext）/ 修饰器栈
+Facade --> ProcLayer : 过程系统（StartOrder / CancelProcess / 投影）
 Rules --> WorldCheck : 校验失败即拒绝启动
 
 ' ---- 宿主层才允许依赖框架与容器 ----
 Web --> Facade : 引用程序集
+Web --> Scenario : 场景编辑器：载入 / 校验 / 保存（3 端点）
 Cli --> Facade : 引用程序集
 Godot --> Facade : 引用程序集
 Web --> Browser : 静态文件 + WebSocket
@@ -75,7 +83,7 @@ Godot --> GClient : 场景 / 信号
 ' ---- 客户端只通过契约耦合 ----
 Schema --> Browser : 生成 contract.d.ts
 Schema --> GClient : 同契约
-Browser --> Web : type,data 消息 18 命令 / 10 消息
+Browser --> Web : type,data 消息 21 命令 / 16 消息（含过程与倍速）
 GClient --> Godot : 同契约（Godot 侧不解析 JSON、不复制规则）
 
 ' ---- 验证模块消费同一份契约 ----
@@ -125,7 +133,7 @@ end note
 
 note as NBaseline
   旧 runner 保留作"基线守护"，断言输出仍须含
-  0 bugs / 2000 random + 0 bugs / 3000 capacity + 22 deterministic。
+  0 bugs / 2000 random + 0 bugs / 3000 capacity + 32 deterministic。
   九步门 = build + 两测试 + 契约快照 + schema 与 d.ts
   + 配置世界等价 + 协议守卫 + 求解器差分 + 会话回放，
   末行 VERDICT=OK，失败返回退出码 1。

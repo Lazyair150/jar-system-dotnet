@@ -9,6 +9,92 @@ let reconnectDelayMs = 1000;
 let currentState = /** @type {StateDto|null} */ (null);
 let selectedOrderId = null;
 let autoCheckEnabled = false;
+/** P5：推进间隔（毫秒）——与宿主同步的显示值；默认 2000（与宿主默认一致）。 */
+let tickIntervalMs = 2000;
+/** 可选倍速档（1× / 2× / 4×，基准 2000ms）。 */
+const SPEED_STEPS_MS = [2000, 1000, 500];
+
+/** 按当前间隔刷新倍速按钮文案。 */
+function updateSpeedButton() {
+  const btn = document.getElementById('btn-speed');
+  if (!btn) return;
+  const factor = 2000 / tickIntervalMs;
+  btn.textContent = Number.isFinite(factor) && factor > 0 ? `⏩ ${factor}×` : `⏩ ${tickIntervalMs}ms`;
+}
+
+/** 循环切换倍速（1× → 2× → 4× → 1×）。 */
+function cycleSpeed() {
+  const idx = SPEED_STEPS_MS.indexOf(tickIntervalMs);
+  const next = SPEED_STEPS_MS[(idx + 1) % SPEED_STEPS_MS.length];
+  send('setTickInterval', { intervalMs: next });
+}
+
+// ============================================================
+// P5：场景编辑器（三个后端端点：载入 / 校验 / 保存）
+// 校验逻辑住在核心（Rules.ScenarioOptions.Validate），这里只负责呈现。
+// ============================================================
+
+/** 打开编辑器并载入当前场景（没有则载入示例）。 */
+async function openScenarioEditor() {
+  openModal('modal-scenario');
+  try {
+    const r = await fetch('/api/scenario');
+    const data = await r.json();
+    document.getElementById('scenario-text').value = data.exists ? data.source : data.sample;
+    setScenarioResult(data.exists ? '已载入 config/scenario.json' : '当前没有生效的场景，已载入示例', 'info');
+  } catch (e) {
+    setScenarioResult('载入失败: ' + e, 'fail');
+  }
+}
+
+/** 载入仓库里的示例场景（不改文件）。 */
+async function loadScenarioSample() {
+  try {
+    const r = await fetch('/api/scenario');
+    const data = await r.json();
+    document.getElementById('scenario-text').value = data.sample;
+    setScenarioResult('已载入示例（尚未保存）', 'info');
+  } catch (e) {
+    setScenarioResult('载入示例失败: ' + e, 'fail');
+  }
+}
+
+/** 校验当前文本（调后端，走核心的 Validate）。 */
+async function validateScenarioText() {
+  const text = document.getElementById('scenario-text').value;
+  try {
+    const r = await fetch('/api/scenario/validate', { method: 'POST', body: text });
+    const data = await r.json();
+    if (data.valid) {
+      setScenarioResult('✅ 校验通过' + (data.warnings.length ? '（警告 ' + data.warnings.length + ' 条）' : ''), 'success');
+      data.warnings.forEach(w => log('场景警告: ' + w, 'fail'));
+    } else {
+      setScenarioResult('❌ 校验失败（' + data.errors.length + ' 条）\n' + data.errors.join('\n'), 'fail');
+    }
+  } catch (e) {
+    setScenarioResult('校验请求失败: ' + e, 'fail');
+  }
+}
+
+/** 保存到 config/scenario.json（后端先校验，未通过不落盘）。 */
+async function saveScenario() {
+  const text = document.getElementById('scenario-text').value;
+  try {
+    const r = await fetch('/api/scenario', { method: 'POST', body: text });
+    const data = await r.json();
+    if (data.saved) setScenarioResult('💾 已保存：' + data.path + '（重启服务后生效）', 'success');
+    else setScenarioResult('未保存（校验未通过）：\n' + (data.errors || []).join('\n'), 'fail');
+  } catch (e) {
+    setScenarioResult('保存请求失败: ' + e, 'fail');
+  }
+}
+
+/** 编辑器结果区（不写进主日志，避免刷屏）。 */
+function setScenarioResult(text, kind) {
+  const el = document.getElementById('scenario-result');
+  el.textContent = text;
+  el.style.color = kind === 'success' ? '#4caf50' : kind === 'fail' ? '#ff6b6b' : '#aaa';
+}
 let editingCapacityIndex = null;   // 正在编辑容量的工作台索引（避免被 state 重绘打断）
 let capacityDraft = null;          // 编辑中的草稿值 { jars: string, liquids: string }
 
@@ -158,6 +244,35 @@ function handleMessage(event) {
       autoCheckEnabled = data.enabled;
       document.getElementById('btn-auto-check').textContent = autoCheckEnabled ? '⏹ 停止自检' : '🔍 自动检测';
       break;
+    // P4：过程消息（异步轨的生命周期）。数据本身已在 state.processes 里，
+    // 这里只需"记一笔 + 让界面刷新"——消息的价值是**时机**（比每 2 秒一次的 state 更及时）。
+    case 'processStarted':
+      log(`⏱ 过程 #${data.id} 开始：${data.subject}`, 'info');
+      scheduleUI();
+      break;
+    case 'processProgressed':
+      log(`⚙ 过程 #${data.id} 推进：${data.currentStep}/${data.totalSteps}（第 ${data.tick} 刻）`, 'info');
+      scheduleUI();
+      break;
+    case 'processBlocked':
+      log(`⛔ 过程 #${data.id} 被阻断：${data.reason}`, 'fail');
+      scheduleUI();
+      break;
+    case 'processResumed':
+      log(`▶ 过程 #${data.id} 恢复（第 ${data.tick} 刻）`, 'success');
+      scheduleUI();
+      break;
+    case 'processFinished':
+      log(`🏁 过程 #${data.id} 结束：${data.outcome}${data.reason ? '（' + data.reason + '）' : ''}`,
+        data.outcome === 'succeeded' ? 'success' : 'fail');
+      scheduleUI();
+      break;
+    // P5：推进节奏（宿主侧时间参数）——只改"多久推一次"，不影响任何判定。
+    case 'tickIntervalChanged':
+      tickIntervalMs = data.intervalMs;
+      updateSpeedButton();
+      log(`⏩ 推进间隔：${data.intervalMs} ms`, 'info');
+      break;
     case 'world':
       // S4：后端下发的世界元数据（形状/液体词表）——前端不再自带副本
       worldMeta = {
@@ -287,6 +402,17 @@ function renderOrders() {
         feasibilityHtml = `<div class="feasibility-tag fail">❌ 不可行: ${esc(fr.blockage || fr.reason || "未知原因")}</div>`;
       }
     }
+    // P4：进行中的过程（异步轨）——按 subjectId 关联到订单，显示进度/阻断，并给一个取消入口。
+    const proc = (currentState.processes || []).find(p => p.subjectId === order.id);
+    let processHtml = '';
+    if (proc) {
+      const step = `${proc.currentStep || 0}/${proc.totalSteps || 0}`;
+      const left = (proc.remainingTicks === null || proc.remainingTicks === undefined) ? '' : ` · 尚余 ${proc.remainingTicks} 刻`;
+      const cancelBtn = `<button onclick="event.stopPropagation();cancelProcess(${proc.id})" style="background:none;border:none;color:#ff4444;cursor:pointer;padding:0 4px;" title="取消这个过程">✕</button>`;
+      processHtml = proc.blockedReason
+        ? `<div class="process-tag" style="background:#3a1f00;color:#ffb347;">⛔ 阻断中：${esc(proc.blockedReason)}（${step}）${cancelBtn}</div>`
+        : `<div class="process-tag" style="background:#12303a;color:#7fe3ff;">⚙ 进行中 ${step}${left}${cancelBtn}</div>`;
+    }
     const statusClass = order.status === '待执行' ? 'pending' : order.status === '成功' ? 'success' : 'failed';
     const feasibleClass = order.feasibilityResult && order.feasibilityResult.feasible ? ' feasible' : '';
     const hasPath = order.feasibilityResult && order.feasibilityResult.solverPath && order.feasibilityResult.solverPath.length > 0;
@@ -299,6 +425,7 @@ function renderOrders() {
         ${order.requirements.map(r => r.liquid ? `<span class="req-item req-full">🍶${esc(r.shape)}+${esc(r.liquid)}</span>` : `<span class="req-item">🏺${esc(r.shape)}</span>`).join("")}
       </div>
       ${feasibilityHtml}
+      ${processHtml}
       <div style="margin-top:6px;font-size:0.8em;color:#aaa;">状态: ${esc(order.status)}</div>
       <div style="display:flex;gap:4px;margin-top:8px;">
         ${order.status === "待执行" ? `<button onclick="event.stopPropagation();quickCheckFeasibility(${i})" style="flex:1;background:#0f3460;border:none;color:#fff;padding:6px;border-radius:4px;font-size:0.8em;cursor:pointer;">🔍 可行性分析</button>` : ""}
@@ -418,6 +545,20 @@ function showFeasibilityResult(result) {
 function submitExecute() {
   closeModal('modal-execute');
   send('executeOrder', { orderId: selectedOrderId });
+}
+
+/**
+ * P4：**分步执行**（异步轨）——只"开始"，随后由世界 tick 驱动；
+ * 进度 / 阻断 / 结束会以 process* 消息推来，`state.processes` 里也有投影。
+ */
+function submitStart() {
+  closeModal('modal-execute');
+  send('startOrder', { orderId: selectedOrderId });
+}
+
+/** P4：取消一个进行中的过程（已完成的部分不回滚）。 */
+function cancelProcess(processId) {
+  send('cancelProcess', { processId });
 }
 
 function toggleAutoCheck() {

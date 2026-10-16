@@ -1,3 +1,4 @@
+using JarSystem.Core.Rules;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using JarSystem.Core.Abstractions;
@@ -5,6 +6,7 @@ using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Executor;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Process;
 using JarSystem.Core.Production;
 using JarSystem.Core.Sessions;
 using JarSystem.Core.Services;
@@ -24,7 +26,7 @@ namespace JarSystem.Core;
 /// 变更一律经**命名的意图方法**（`AddWorkshop`/`ClearWorkshops`/`SetMasterIndex`…）或服务层（程序集内 `internal` 可变视图）。
 /// 这样"改世界"这件事在代码里可被 grep，外部也无法再用 `Workshops.Clear()` + 遗留索引把系统搞成非法状态。
 /// </summary>
-public class JarSystem
+public class JarSystem : Rules.IWorldFacts
 {
     private readonly WorkshopService _workshopService;
     private readonly OrderService _orderService;
@@ -166,6 +168,36 @@ public class JarSystem
     /// </summary>
     public WorldOptions World { get; }
 
+    /// <summary>
+    /// **过程系统**（P1：过程骨架 + 过程日志）。
+    ///
+    /// 为什么由门面持有：门面是核心的组合根（它已经持有 <c>Checker</c>/`Executor`/`ProductionModule`），
+    /// 而过程系统的职责是"观察并记账一次意图内部的步进"，它需要与门面同一生命周期。
+    /// 依赖方向：门面可依赖 <c>Process</c>；但 <c>Domain</c>/<c>Orders</c>/<c>Executor</c>/<c>Services</c>
+    /// **只依赖 <c>Abstractions.IProcessRecorder</c>**（依赖倒置），不认识 Process 包。
+    /// </summary>
+    public ProcessSystem Processes { get; }
+
+    /// <summary>过程日志（只读视图；P1 不投影进 <c>GetState()</c>）。</summary>
+    public ProcessJournal Journal => Processes.Journal;
+
+    /// <summary>
+    /// **世界的修饰器栈**（P3b）：区间性的临时规则（抑制 / 放宽 / 改拍 / 新增前置条件）。
+    ///
+    /// 用法（**必须用作用域**，异常路径也要回收）：
+    /// <code>
+    /// using var scope = sys.Modifiers.Push(new SuppressModifier { Operation = "POUR_IN", Reason = "忌律：此刻不得灌注" });
+    /// </code>
+    /// 它与工作台、过程系统**共用同一个实例** ⇒ 一处入栈，处处生效；区间到期的修饰器由每个 tick 自动摘掉。
+    /// </summary>
+    public ModifierStack Modifiers { get; }
+
+    /// <summary>
+    /// 世界修订号（= 宿主"改世界意图"的序号，与命令日志同一计数）。
+    /// 过程日志用它标记"这一步观察到的是哪一版世界"；P1 里同一次 <c>ExecuteOrder</c> 的所有步骤共享它。
+    /// </summary>
+    public int WorldRevision => _logSeq;
+
     /// <param name="log">日志出口；null 时使用默认控制台日志（<see cref="ConsoleSystemLog"/>）。</param>
     /// <param name="randomSeed">随机种子；null 时使用不固定种子（保持"每次运行都不一样"的默认行为）。</param>
     /// <param name="vocabulary">世界词汇表；null 时由 <paramref name="world"/> 的词表字段构造。</param>
@@ -198,13 +230,17 @@ public class JarSystem
         // 速率视图必须**在字段赋值之后**建（readonly 字段的确定性赋值；提前读它编译不过）
         _liquidProductionRateView = new ReadOnlyDictionary<string, int>(_liquidProductionRate);
         Rng = randomSeed.HasValue ? new Random(randomSeed.Value) : new Random();
-        ProducerModule = new ProducerModule(Vocabulary);
-        Checker = new FeasibilityChecker(solver ?? new StateSpaceSolver());
+        Modifiers = new ModifierStack();
+        ProducerModule = new ProducerModule(Vocabulary, Modifiers);
+        // P3b 设计裁决：求解器实现**一行不改**，把"修饰器带来的新规则"统一收在这一层装饰器里。
+        // 无活跃修饰器时它是直通（逐字节等于原实现）；无法表达的限制如实回"未判定"，绝不误报"不可行"。
+        Checker = new FeasibilityChecker(new ModifierAwareSolver(solver ?? new StateSpaceSolver(), Modifiers));
         Executor = new OrderExecutor(Rng);
         _workshopService = new WorkshopService(this);
         _orderService = new OrderService(this);
         _productionService = new ProductionService(this);
         _masterSwitch = new MasterSwitchCoordinator(this);
+        Processes = new ProcessSystem(() => _logSeq, modifiers: Modifiers);
         InitializeDefault();
     }
 
@@ -218,7 +254,7 @@ public class JarSystem
     /// 宿主想换世界请用构造参数 <see cref="WorldOptions"/>，想重来请用 <see cref="Reset"/>。
     /// </summary>
     internal void InitializeDefault() =>
-        Bootstrap.SystemBootstrapper.Apply(World, Vocabulary, ProducerModule, WorkshopList, JarIds);
+        Bootstrap.SystemBootstrapper.Apply(World, Vocabulary, ProducerModule, WorkshopList, JarIds, Modifiers);
 
     // ============================================================
     // 会话日志（唯一的写入口：本类所有"改世界"的意图方法都调它）
@@ -262,6 +298,7 @@ public class JarSystem
     /// <summary>追加一个工作台（不做额外校验，与旧 `Workshops.Add` 等价）。</summary>
     public void AddWorkshop(Workshop workshop)
     {
+        workshop.AttachRuleStack(Modifiers);   // 纳入世界 ⇒ 绑到世界的修饰器栈（P3b）
         _workshops.Add(workshop);
         Record(WorldOps.AddWorkshop, workshop: new WorkshopPayload
         {
@@ -340,7 +377,7 @@ public class JarSystem
     /// <summary>只改状态、不写日志（内部转发用）。</summary>
     internal void ResetProducerModuleCore()
     {
-        ProducerModule = new ProducerModule(Vocabulary);
+        ProducerModule = new ProducerModule(Vocabulary, Modifiers);
     }
 
     /// <summary>
@@ -481,9 +518,121 @@ public class JarSystem
     {
         // 订单执行同样会写事件历史（带时间戳）
         if (!Replaying) Now = DateTimeOffset.UtcNow;
-        var result = _orderService.ExecuteOrder(orderIndex);
+
+        // ============================================================
+        // P2b：订单执行 = 一个**过程**（同步轨：建立 → 在一个调用里把单位跑完 → 收尾）
+        //
+        // 语义边界（与既有行为逐条对齐）：
+        //   · 只在订单下标合法时建过程 —— 与"前置校验拒绝的 5 条路径不写事件历史"同一口径；
+        //   · 前置校验（未选主台 / B 类缺从台 / 终态）失败时，过程以失败结尾且**不改世界**；
+        //   · 执行编排、交付、事件历史走与异步轨**同一个会话**（语义只有一份，不会漂移）。
+        // ============================================================
+        var order = orderIndex >= 0 && orderIndex < _orders.Count ? _orders[orderIndex] : null;
+        var (run, session, error) = BeginOrderProcess(orderIndex, order);
+        if (session == null)
+        {
+            run?.Finish(false, error);
+            Record(WorldOps.ExecuteOrder, intA: orderIndex);
+            return (false, error, null, false, null);
+        }
+
+        var advancer = new OrderProcessAdvancer(_orderService, session);
+        Processes.AdvanceToCompletion(run!, advancer);   // 同步 drain（含结束过程与一次性收尾）
+
         // 失败也记：按设计"失败的尝试也留下代价"，它**改变过**世界
         Record(WorldOps.ExecuteOrder, intA: orderIndex);
+        return advancer.Result ?? (advancer.Succeeded, advancer.FailureReason, null, false, null);
+    }
+
+    /// <summary>
+    /// **异步轨（P2b，裁决选项 (c)）**：把订单执行起成一个**由 tick 驱动**的过程 ——
+    /// 立即返回、**不推进世界**；随后每个世界 tick（每 <c>TicksPerStep</c> 刻）推进一个单位，
+    /// 单位用尽时自动交付 / 落账 / 结束过程。
+    ///
+    /// 为什么两条轨并存（而不是改写同步轨）：本项目的回归资产（5000 用例 + 回放门 + 契约快照）
+    /// 全部建立在"<c>executeOrder</c> 即时返回成败"之上；异步轨是**新增能力**，
+    /// 让新宿主能拿到真实的时间感，而不必让旧宿主与全部回归一起改口。
+    /// 两者共用同一个会话与工作体，因此语义只有一份（差别只在**谁驱动**）。
+    /// </summary>
+    /// <param name="deadlineTicks">相对时限（刻）：null = 无时限；超时未完成即失败（由 tick 管线判定）。</param>
+    public (bool Started, string? Error, int? ProcessId) StartOrder(int orderIndex, int? deadlineTicks = null)
+    {
+        if (!Replaying) Now = DateTimeOffset.UtcNow;
+        var order = orderIndex >= 0 && orderIndex < _orders.Count ? _orders[orderIndex] : null;
+        var (run, session, error) = BeginOrderProcess(orderIndex, order, deadlineTicks);
+        if (session == null)
+        {
+            run?.Finish(false, error);
+            Record(WorldOps.StartOrder, intA: orderIndex);
+            return (false, error, run?.Instance.Id);
+        }
+
+        // 异步轨挂上**守卫**：每个单位执行前检查"世界是否还容得下这个计划"。
+        // 同步轨（ExecuteOrder）刻意不挂 —— 它在一个调用里跑完，世界不会中途变化。
+        Processes.AttachAdvancer(run!, new OrderProcessAdvancer(_orderService, session, () => CheckOrderGuard(session)));
+        Record(WorldOps.StartOrder, intA: orderIndex);
+        return (true, null, run!.Instance.Id);
+    }
+
+    /// <summary>
+    /// **订单过程的守卫**（异步轨每个单位执行前、以及被阻断后的每个 tick 调用）：
+    /// 回答"世界是否还容得下这个计划"。三条判据都刻意做成**可解释、可恢复**的：
+    /// <list type="number">
+    /// <item>订单还在世界里（被删除 ⇒ 永久不成立）；</item>
+    /// <item>计划涉及的工作台仍被选中（主台/从台被换掉或取消选择 ⇒ 暂时不成立，玩家可以选回来）；</item>
+    /// <item>计划还要用到的器物仍在工作台里（改容量把罐子裁掉、切换主台把资源搬走 ⇒ 暂时不成立）。</item>
+    /// </list>
+    /// 只读检查，不改世界；原因用世界语言（可直接显示给玩家）。
+    /// </summary>
+    private GuardResult CheckOrderGuard(OrderExecutionSession session)
+    {
+        if (!_orders.Contains(session.Order)) return GuardResult.Fatal("订单已不在世界里");
+
+        if (!CurrentMaster.HasValue || _workshops[CurrentMaster.Value] != session.Master)
+            return GuardResult.Blocked("主台已变更");
+        if (session.Order.Type == Constants.OrderType.B
+            && (!CurrentSlave.HasValue || _workshops[CurrentSlave.Value] != session.Slave))
+            return GuardResult.Blocked("从台已变更");
+
+        // 修饰器（P3b）：即将执行的那一步是否被"临时禁令"抑制？
+        // 抑制 ⇒ 阻断等待（区间过去即恢复），而不是执行到一半才失败。
+        var (op, shape, liquid) = session.NextUnitTarget();
+        if (Modifiers.SuppressionReason(op, shape, liquid) is { } suppressed)
+            return GuardResult.Blocked(suppressed);
+
+        // 修饰器（P3b）：内容侧给的"新增前置条件"是否此刻不成立？（成立则返回 null ⇒ 不影响）
+        if (Modifiers.RequiredViolation() is { } required)
+            return GuardResult.Blocked(required);
+
+        foreach (var jarId in session.RemainingJarIds())
+        {
+            bool alive = session.Master.Jars.Any(j => j.Id == jarId) || session.Slave.Jars.Any(j => j.Id == jarId);
+            if (!alive) return GuardResult.Blocked("计划所需的器物已不在工作台");
+        }
+
+        return GuardResult.Ok();
+    }
+
+    /// <summary>建过程（下标非法时**不建**）并准备执行会话；返回 (过程句柄, 会话, 错误)。</summary>
+    private (ProcessRun? Run, OrderExecutionSession? Session, string? Error) BeginOrderProcess(
+        int orderIndex, Order? order, int? deadlineTicks = null)
+    {
+        var run = order != null
+            ? Processes.Begin(new ProcessDefinition(ProcessKinds.OrderExecution, "委托 #" + order.Id, order.Id,
+                deadlineTicks: deadlineTicks, graceTicks: ProcessDefaults.GraceTicks))
+            : null;
+        var (session, error) = _orderService.BeginOrderExecution(orderIndex, run);
+        return (run, session, error);
+    }
+
+    /// <summary>
+    /// **取消一个进行中的过程**（P4）：已完成的部分不回滚；订单按失败收尾（原因会写进事件历史）。
+    /// 返回 false 表示"没有这个进行中的过程"（可能已经结束）—— 宿主重试不会因此出错。
+    /// </summary>
+    public (bool Cancelled, string? Error) CancelProcess(int processId, string? reason = null)
+    {
+        var result = Processes.Cancel(processId, reason ?? "被取消");
+        Record(WorldOps.CancelProcess, intA: processId);
         return result;
     }
 
@@ -491,12 +640,24 @@ public class JarSystem
     // 产出与推进
     // ============================================================
 
-    /// <summary>推进 count 次（生产者产罐 → 液体产出 → 向主台流入）。返回值恒为 0。</summary>
+    /// <summary>
+    /// 推进 count 个**世界步进**（生产者产罐 → 液体产出 → 向主台流入）。返回值恒为 0（保持对外签名与行为）。
+    ///
+    /// P2 起这里成了**时间与过程的唯一推进口**：每个步进先走 tick 管线
+    /// （逻辑时钟 +1 → ① 事件 ② 修饰器 ③ 过程推进，见 <see cref="Process.TickPipeline"/>），
+    /// 再做既有的世界产出。逐 tick 拆开**不改变状态**（论证见 <c>ProductionService</c> 的类注释）；
+    /// 流入仍保持"每次宿主 Tick 调用一次"的批量语义。
+    /// </summary>
     public int Tick(int count = 1)
     {
-        var result = _productionService.Tick(count);
+        for (int i = 0; i < count; i++)
+        {
+            Processes.Pipeline.AdvanceOneTick();
+            _productionService.TickStep();
+        }
+        _productionService.FlushFlow();
         Record(WorldOps.Tick, intA: count);
-        return result;
+        return 0;
     }
 
     public void UpdateProducerRate(string name, string shape, double rate)
@@ -555,4 +716,59 @@ public class JarSystem
         Shapes = new List<string>(Vocabulary.Shapes),
         Liquids = new List<string>(Vocabulary.Liquids)
     };
+
+    // ============================================================
+    // 世界事实取值（Rules.IWorldFacts，P5）：给数据驱动的结构化查询（Rules.WorldQuery）用
+    //
+    // 口径：只读、不抛异常；取不到一律返回 0（于是"条件不成立"，规则表现为阻断而不是崩溃）。
+    // workshop 接受 "master" / "slave" / 具体工作台名（解析不到视为不存在 ⇒ 0）。
+    // ============================================================
+
+    /// <inheritdoc />
+    public int WorkshopJars(string workshop, string? shape, bool? empty)
+    {
+        var ws = ResolveWorkshop(workshop);
+        if (ws == null) return 0;
+        int n = 0;
+        foreach (var jar in ws.Jars)
+        {
+            if (shape != null && jar.Shape != shape) continue;
+            if (empty == true && !jar.IsEmpty()) continue;
+            if (empty == false && !jar.IsFull()) continue;
+            n++;
+        }
+        return n;
+    }
+
+    /// <inheritdoc />
+    public int WorkshopLiquid(string workshop, string liquid)
+    {
+        var ws = ResolveWorkshop(workshop);
+        return ws == null ? 0 : ws.LiquidStorage.GetValueOrDefault(liquid);
+    }
+
+    /// <inheritdoc />
+    public int WarehouseJars() => ProducerModule.Warehouse.JarCount;
+
+    /// <inheritdoc />
+    public int WarehouseLiquid(string liquid) => ProducerModule.Warehouse.LiquidCount(liquid);
+
+    /// <inheritdoc />
+    public int DiscardedJars() => ProducerModule.Warehouse.DiscardedJars;
+
+    /// <inheritdoc />
+    public int DiscardedLiquid(string liquid) =>
+        ProducerModule.Warehouse.DiscardedLiquids.GetValueOrDefault(liquid);
+
+    /// <summary>解析查询里的工作台主体："master" / "slave" / 具体名字；找不到返回 null。</summary>
+    private Workshop? ResolveWorkshop(string workshop)
+    {
+        if (string.Equals(workshop, "master", StringComparison.OrdinalIgnoreCase))
+            return CurrentMaster.HasValue ? _workshops[CurrentMaster.Value] : null;
+        if (string.Equals(workshop, "slave", StringComparison.OrdinalIgnoreCase))
+            return CurrentSlave.HasValue ? _workshops[CurrentSlave.Value] : null;
+        foreach (var w in _workshops)
+            if (w.Name == workshop) return w;
+        return null;
+    }
 }

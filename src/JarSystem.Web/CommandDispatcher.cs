@@ -153,6 +153,50 @@ public sealed class CommandDispatcher
                 break;
             }
 
+            case "startOrder":
+            {
+                // P4：**异步轨**（分步执行）—— 只"开始"，随后由世界 tick 驱动（每 2 刻一个单位）。
+                // 进度 / 阻断 / 结束经过程消息广播（见 ProcessObserver），state 里也有活动过程的投影。
+                var idx = ResolveOrderIndex(svc, dataEl);
+                if (idx < 0) { await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "订单不存在" } })); break; }
+                var started = sys.StartOrder(idx);
+                if (!started.Started)
+                {
+                    await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = started.Error ?? "无法开始执行" } }));
+                    break;
+                }
+                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                break;
+            }
+
+            case "cancelProcess":
+            {
+                // P4：取消进行中的过程（已完成的部分不回滚；订单按失败收尾）。
+                var processId = JsonArgs.JI(dataEl, "processId");
+                var cancelled = sys.CancelProcess(processId);
+                if (!cancelled.Cancelled)
+                {
+                    await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = cancelled.Error ?? "取消失败" } }));
+                    break;
+                }
+                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                break;
+            }
+
+            case "setTickInterval":
+            {
+                // P5：宿主侧时间参数（表现层）——**只改推进节奏**，不碰判定（判定只认逻辑 tick）。
+                var ms = JsonArgs.JI(dataEl, "intervalMs");
+                if (ms < 100 || ms > 60000)
+                {
+                    await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "推进间隔必须在 100~60000 毫秒之间" } }));
+                    break;
+                }
+                svc.TickIntervalMs = ms;
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "tickIntervalChanged", data = new { intervalMs = ms } }));
+                break;
+            }
+
             case "checkFeasibility":
             {
                 var idx = ResolveOrderIndex(svc, dataEl);

@@ -23,4 +23,14 @@ public interface IWorkBudgetedSolver
 
     /// <summary>本次检查是否因超出预算而**提前中止**（true 时任何"不可行"结论都不可信）。</summary>
     bool BudgetExceeded { get; }
+
+    /// <summary>
+    /// **未判定的补充原因**（默认 null = 就是"超出预算"）。
+    ///
+    /// 为什么要有它：`BudgetExceeded` 原本只表达"预算用尽"一种未判定；而**装饰器**（例：
+    /// 修饰器感知的求解器）会遇到另一类未判定 —— "当前规则里有本层无法表达的限制"。
+    /// 两者对调用方的处置相同（都按未判定处理），但原因不同，报告里要说清楚。
+    /// 默认实现保证既有实现者不受影响（新增成员带默认值，不破坏源码兼容）。
+    /// </summary>
+    string? InconclusiveReason => null;
 }

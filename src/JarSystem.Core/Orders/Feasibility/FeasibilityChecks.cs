@@ -43,7 +43,8 @@ internal sealed class SinglePhaseCheck : IFeasibilityCheck
             {
                 Feasible = false,
                 Undetermined = true,
-                Reason = "分析超出预算（订单 " + ctx.Requirements.Count + " 个需求）",
+                // 未判定的来源不止"预算用尽"一种（例：加载的临时规则本层无法表达）⇒ 取求解器给的原因
+                Reason = (budgeted.InconclusiveReason ?? "分析超出预算") + "（订单 " + ctx.Requirements.Count + " 个需求）",
                 Blockage = null,
                 CheckMethod = Method
             };

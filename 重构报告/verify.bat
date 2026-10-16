@@ -71,7 +71,7 @@ echo     exit=%ERRORLEVEL%
 type "%REP%_build_output.txt" >> "%LOG%"
 type "%REP%_build_output.txt"
 
-echo [2/9] JarSystem.Test   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 22 deterministic)
+echo [2/9] JarSystem.Test   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 32 deterministic)
 echo [2/9] JarSystem.Test >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release >> "%LOG%" 2>&1
 if errorlevel 1 echo STEP-FAILED step2 >> "%LOG%"
@@ -89,7 +89,7 @@ dotnet run --project test\JarSystem.Test -c Release -- --dump-contract >> "%LOG%
 if errorlevel 1 echo STEP-FAILED step4 >> "%LOG%"
 echo     exit=%ERRORLEVEL%
 
-echo [5/9] contract schema   (expect: 10 types, 0 FAILED, total loose=1, types dts: OK)
+echo [5/9] contract schema   (expect: 11 types, 0 FAILED, total loose=1, types dts: OK)
 echo [5/9] contract schema >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --dump-schema >> "%LOG%" 2>&1
 if errorlevel 1 echo STEP-FAILED step5 >> "%LOG%"
@@ -139,6 +139,11 @@ if "%JSOK%"=="1" if errorlevel 1 echo JS-SYNTAX-ERROR canvas.js >> "%LOG%"
 if "%JSOK%"=="1" if errorlevel 1 set "JSERR=1"
 if "%JSOK%"=="1" if "%JSERR%"=="0" echo JS-OK >> "%LOG%"
 
+rem  P5 sub-check: scenario data gate (kept INSIDE step 7, so the nine-step shape is unchanged).
+rem  It validates the shipped sample with the SAME validator the editor backend uses.
+dotnet run --project test\JarSystem.Test -c Release -- --validate-scenario config\scenario.sample.json >> "%LOG%" 2>&1
+if errorlevel 1 echo SCENARIO-GATE-FAILED >> "%LOG%"
+
 echo [8/9] solver differential   (expect: SOLVER-OK)
 echo [8/9] solver differential >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release -- --check-solver >> "%LOG%" 2>&1
@@ -162,7 +167,7 @@ if errorlevel 1 echo SNAPSHOT-MISMATCH >> "%LOG%"
 
 echo.
 echo ---------------- KEY LINES ----------------
-findstr /i /c:"error CS" /c:"warning CS" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" "%LOG%"
+findstr /i /c:"error CS" /c:"warning CS" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"MODDIFF-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" /c:"SCENARIO-" "%LOG%"
 echo -------------------------------------------
 echo full log : %LOG%
 echo contract : %CONTRACT%\state_keys.txt
@@ -180,11 +185,13 @@ findstr /c:"SOURCE-NOT-FOUND" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SCRIPT-NON-ASCII" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"DTS-DEGRADED" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SOLVER-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"MODDIFF-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"REPLAY-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SNAPSHOT-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SNAPSHOT-NO-BASELINE" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"STEP-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"JS-SYNTAX-ERROR" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"SCENARIO-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
 echo VERDICT=%VERDICT%
 echo VERDICT=%VERDICT% >> "%LOG%"
 echo.

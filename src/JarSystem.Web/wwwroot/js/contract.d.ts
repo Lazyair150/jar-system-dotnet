@@ -10,6 +10,8 @@ interface StateDto {
   producerStatus?: { producers?: { name?: string; rates?: Record<string, number> }[]; generators?: { shape?: string; rate?: number; accumulated?: number; producers?: number }[]; warehouse?: { jars?: number; liquids?: Record<string, number> } };
   globalState?: GlobalStateDto;
   eventHistory?: Record<string, unknown>[];
+  worldRevision?: number;
+  processes?: ProcessStateDto[];
 }
 
 interface WorkshopStateDto {
@@ -103,8 +105,24 @@ interface WorldMetaDto {
   liquids?: string[];
 }
 
-type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "updateProducerRate" | "startTick" | "stopTick" | "setAutoCheck";
-type MessageType = "init" | "state" | "orderExecuted" | "workshopSwitched" | "feasibilityResult" | "allFeasibilityResults" | "autoCheckResults" | "autoCheckChanged" | "error" | "world";
+interface ProcessStateDto {
+  id?: number;
+  kind?: string;
+  subject?: string;
+  subjectId?: number | null;
+  state?: string;
+  outcome?: string | null;
+  currentStep?: number;
+  totalSteps?: number;
+  startedAtTick?: number | null;
+  deadlineTick?: number | null;
+  remainingTicks?: number | null;
+  blockedReason?: string | null;
+  lastJournalSeq?: number;
+}
+
+type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "updateProducerRate" | "startTick" | "stopTick" | "setAutoCheck" | "startOrder" | "cancelProcess" | "setTickInterval";
+type MessageType = "init" | "state" | "orderExecuted" | "workshopSwitched" | "feasibilityResult" | "allFeasibilityResults" | "autoCheckResults" | "autoCheckChanged" | "error" | "world" | "processStarted" | "processProgressed" | "processBlocked" | "processResumed" | "processFinished" | "tickIntervalChanged";
 
 interface RequirementPayload { shape: string; liquid?: string | null; }
 
@@ -143,6 +161,22 @@ interface SetSlavePayload {
 interface ExecuteOrderPayload {
   orderId?: number;
   orderIndex?: number;
+}
+
+/** `startOrder` 的载荷 */
+interface StartOrderPayload {
+  orderId?: number;
+  orderIndex?: number;
+}
+
+/** `cancelProcess` 的载荷 */
+interface CancelProcessPayload {
+  processId?: number;
+}
+
+/** `setTickInterval` 的载荷 */
+interface SetTickIntervalPayload {
+  intervalMs?: number;
 }
 
 /** `checkFeasibility` 的载荷 */
@@ -209,6 +243,9 @@ interface CommandPayloadMap {
   "setMaster": SetMasterPayload;
   "setSlave": SetSlavePayload;
   "executeOrder": ExecuteOrderPayload;
+  "startOrder": StartOrderPayload;
+  "cancelProcess": CancelProcessPayload;
+  "setTickInterval": SetTickIntervalPayload;
   "checkFeasibility": CheckFeasibilityPayload;
   "deleteOrder": DeleteOrderPayload;
   "updateProducerRate": UpdateProducerRatePayload;

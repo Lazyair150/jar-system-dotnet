@@ -108,8 +108,8 @@ public sealed class PartitionSearch
             var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
             if (_solver is IWorkBudgetedSolver mb && mb.BudgetExceeded)
             {
-                inconclusiveReason = "分析超出预算";
-                lastBlockage = "分析超出预算";
+                inconclusiveReason = mb.InconclusiveReason ?? "分析超出预算";
+                lastBlockage = inconclusiveReason;
                 return null;
             }
             if (!mr.Feasible || mr.Path == null) { masterInfeasible[mask] = true; continue; }
@@ -176,8 +176,8 @@ public sealed class PartitionSearch
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
             if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
             {
-                inconclusiveReason = "分析超出预算";
-                lastBlockage = "分析超出预算";
+                inconclusiveReason = sb.InconclusiveReason ?? "分析超出预算";
+                lastBlockage = inconclusiveReason;
                 return null;
             }
             if (sr.Feasible && sr.Path != null)

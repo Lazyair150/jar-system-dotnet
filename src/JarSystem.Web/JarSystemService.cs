@@ -13,13 +13,51 @@
 public class JarSystemService
 {
     private const string CONFIG_RELATIVE_PATH = "config/world.json";
+    private const string SCENARIO_RELATIVE_PATH = "config/scenario.json";
+
+    /// <summary>场景里"开局即生效"的修饰器作用域（持有到宿主结束；区间到点仍由栈自动摘除）。</summary>
+    private readonly List<JarSystem.Core.Rules.ModifierScope> _scenarioScopes = new();
 
     public JarSystem.Core.JarSystem System { get; }
 
+    /// <summary>
+    /// **推进间隔（毫秒）**——宿主侧时间参数（P5）：表示"世界 tick 与墙钟的映射"。
+    /// 判定永远只认逻辑 tick，因此改它只影响推进的**节奏**，不影响任何判定结果。
+    /// </summary>
+    public int TickIntervalMs { get; set; } = 2000;
+
     /// <param name="log">核心的可观测性出口（由宿主注入，见 <see cref="JarSystemHosting"/>）；null 时核心用默认控制台日志。</param>
-    public JarSystemService(JarSystem.Core.Abstractions.ISystemLog? log = null)
+    /// <param name="observer">过程观察者（P4；null = 不通知表现层，行为与今天一致）。</param>
+    public JarSystemService(JarSystem.Core.Abstractions.ISystemLog? log = null, ProcessObserver? observer = null)
     {
         System = new JarSystem.Core.JarSystem(log: log, world: LoadWorldOrNull());
+        if (observer != null) System.Processes.Observer = observer;
+        LoadScenarioOrThrow();
+    }
+
+    /// <summary>
+    /// 装配**场景**（P5 的"世界事件注入"数据版）：`config/scenario.json` 存在时加载它，
+    /// 校验失败即拒绝启动（与 `world.json` 同一口径）；不存在 ⇒ 行为与今天完全一致。
+    /// </summary>
+    private void LoadScenarioOrThrow()
+    {
+        var path = ResolveConfigPath(SCENARIO_RELATIVE_PATH);
+        if (path == null) return;
+
+        var scenario = JarSystem.Core.Rules.ScenarioJson.FromJson(File.ReadAllText(path));
+        var report = scenario.Validate();
+        foreach (var warning in report.Warnings) Console.Error.WriteLine("[scenario] warning: " + warning);
+        if (!report.IsValid)
+        {
+            foreach (var error in report.Errors) Console.Error.WriteLine("[scenario] error: " + error);
+            throw new InvalidOperationException(
+                "场景校验失败（" + path + "）：" + report.Errors.Count + " 个错误，已拒绝启动");
+        }
+        foreach (var m in JarSystem.Core.Rules.ScenarioBinder.BindInitial(scenario, System))
+            _scenarioScopes.Add(System.Modifiers.Push(m));
+        System.Processes.EventSource = JarSystem.Core.Rules.ScenarioBinder.CreateEventSource(scenario, System.Modifiers, System);
+        Console.WriteLine("[scenario] loaded: " + path + "（事件 " + scenario.Events.Count + " 个，初始修饰器 "
+            + scenario.InitialModifiers.Count + " 条）");
     }
 
     public bool IsRunning { get; set; }
@@ -30,7 +68,7 @@ public class JarSystemService
     /// <summary>读取并校验世界配置；没有配置文件时返回 null（用内置默认世界）。校验失败即抛异常。</summary>
     private static JarSystem.Core.Config.WorldOptions? LoadWorldOrNull()
     {
-        var path = ResolveConfigPath();
+        var path = ResolveConfigPath(CONFIG_RELATIVE_PATH);
         if (path == null) return null;
 
         var world = JarSystem.Core.Config.WorldOptionsJson.FromJson(File.ReadAllText(path));
@@ -54,17 +92,36 @@ public class JarSystemService
     /// （net10.0 → Debug → bin → JarSystem.Web → src → 仓库根），
     /// 早先只找 4 层 ⇒ 只有"从仓库根启动"时命中第 ① 条，其它启动方式会**静默找不到配置**。
     /// </summary>
-    private static string? ResolveConfigPath()
+    /// <summary>
+    /// 配置查找顺序（逐条尝试，取第一个存在的）：① 当前工作目录 ② 应用目录 ③ 从应用目录向上逐级。
+    /// **internal**：场景编辑器的三个端点也要用它（否则它们会按"服务的当前目录"找文件 ——
+    /// 而 `dotnet run` 的当前目录是 `src\JarSystem.Web`，实测踩到过）。
+    /// </summary>
+    /// <summary>
+    /// 解析"配置目录"（仓库根的 config/）：以**必然存在**的世界配置为锚点，其次示例文件，
+    /// 最后退回当前目录。之所以需要它：<see cref="ResolveConfigPath"/> 是"找**已存在**文件"的助手，
+    /// 而**保存**场景的目标文件在首次保存前并不存在（实测踩到：它退回了服务的当前目录并 500）。
+    /// </summary>
+    internal static string ResolveConfigDir()
+    {
+        var anchor = ResolveConfigPath(CONFIG_RELATIVE_PATH);
+        if (anchor != null) return Path.GetDirectoryName(anchor)!;
+        var sample = ResolveConfigPath("config/scenario.sample.json");
+        if (sample != null) return Path.GetDirectoryName(sample)!;
+        return Path.Combine(Directory.GetCurrentDirectory(), "config");
+    }
+
+    internal static string? ResolveConfigPath(string relativePath)
     {
         var candidates = new System.Collections.Generic.List<string>
         {
-            Path.Combine(Directory.GetCurrentDirectory(), CONFIG_RELATIVE_PATH),
-            Path.Combine(AppContext.BaseDirectory, CONFIG_RELATIVE_PATH)
+            Path.Combine(Directory.GetCurrentDirectory(), relativePath),
+            Path.Combine(AppContext.BaseDirectory, relativePath)
         };
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         for (int i = 0; i < 8 && dir != null; i++)
         {
-            candidates.Add(Path.Combine(dir.FullName, CONFIG_RELATIVE_PATH));
+            candidates.Add(Path.Combine(dir.FullName, relativePath));
             dir = dir.Parent;
         }
         foreach (var candidate in candidates)
