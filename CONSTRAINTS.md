@@ -32,6 +32,7 @@ side.
 | I5 | Release builds carry zero compiler warnings. | Enforced mechanically by `Directory.Build.props` (`TreatWarningsAsErrors`), so this is a statement about the build, not a request to reviewers. |
 | I6 | Do not commit secrets. Treat save files, scenario JSON, WebSocket payloads, and config files as untrusted input. | The system parses attacker-controlled documents and serves them over a WebSocket. Trust in this layer cannot be recovered by a later check. |
 | I7 | This file is not relaxed in the same change that needed the relaxation. | Otherwise the contract is whatever the last change wanted it to be, and it stops being a contract. |
+| I8 | Keep the core portable: no engine/UI/host framework, no timers, no core-owned concurrency, no unseeded randomness, and every wall-clock read registered with its reason. | The core is meant to be lifted into another engine, which supplies frames and callbacks but not deterministic simulation, replayable command logs, or domain projection. Each of those four prohibitions, if broken, would surface only as "the port behaves differently" — never as a failing test. Enforced mechanically by `test/JarSystem.Tests/PortabilityTests.cs`, whose allowlist records the exact count and the reason for every permitted occurrence, so a new occurrence cannot slip in unnoticed. |
 
 ## Boundaries
 
@@ -54,8 +55,8 @@ weakened or skipped. `AGENTS.md` states the operative rule: do not **silently** 
 | Godot host | Release build, zero compiler warnings | `dotnet build hosts/godot/Jar/jar.csproj -c Release` | every verification |
 | Legacy suite | 0 bugs / 2000 random + 0 bugs / 3000 capacity | `test/JarSystem.Test` | every verification |
 | Determinism | At least 32 deterministic cases; no reduction | `verify.bat` log + `quality-gate.ps1` | every verification |
-| Focused suite | At least 22 xUnit tests; 0 failed/skipped/not-run | `test/JarSystem.Tests` | every verification |
-| Contract snapshot | Exactly 225 state-key lines against the checked-in baseline | `--dump-contract` + `fc` | every verification |
+| Focused suite | At least 114 xUnit tests; 0 failed/skipped/not-run | `test/JarSystem.Tests` | every verification |
+| Contract snapshot | Exactly 226 state-key lines against the checked-in baseline | `--dump-contract` + `fc` | every verification |
 | Schema | 11 DTO types, `degraded=0`, current known `loose=1` only | `--dump-schema` | every verification |
 | Config/world equivalence | Byte-identical to built-in world | `CONFIG-WORLD-MATCH` | every verification |
 | Protocol | 21 commands / 16 messages, payload guards pass | `--check-protocol` | every verification |
@@ -65,6 +66,7 @@ weakened or skipped. `AGENTS.md` states the operative rule: do not **silently** 
 | Scenario data | Shipped sample validates | `SCENARIO-OK` | every verification |
 | JavaScript | `node --check` passes when Node is installed | `JS-OK` | every verification |
 | Quality floor | No new suppressions, stubs, skipped tests, or core packages | `重构报告/quality-gate.ps1` | every verification |
+| Portability | Zero engine/host/threading references in core; every wall-clock read and unseeded default registered with a count and a reason | `test/JarSystem.Tests/PortabilityTests.cs` | every verification |
 
 The complete gate is `重构报告\\verify.bat`; it must end with both `VERDICT=OK` and `QUALITY-OK`.
 CI consumes that same script, so there is only one verification definition.
