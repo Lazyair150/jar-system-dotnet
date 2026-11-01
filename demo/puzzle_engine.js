@@ -244,6 +244,8 @@
       lines: [],
       orders: [],
       log: [],
+      /* 换台迁徙的进行态：{ side, def, turns }。null = 没在迁徙 */
+      migrating: null,
       over: null
     };
     for (var i = 0; i < C.MAX_LINES; i++) G.lines.push(null);
@@ -457,6 +459,18 @@
   /* 一回合的「结算」部分：产出 → 逐条订单尝试自动执行。
      不管胜负、不推进回合数——战斗层要自己决定什么时候算输、什么时候推进。 */
   function runTurnRaw(G) {
+    if (G.migrating) {
+      G.migrating.turns--;
+      if (G.migrating.turns > 0) {
+        log(G, '迁徙中…（还剩 ' + G.migrating.turns + ' 回合不产出）');
+        return;
+      }
+      var m = G.migrating;
+      G.migrating = null;
+      applyBenchDef(G, m.side, m.def);
+      log(G, '迁徙完成：' + (m.side === 'master' ? '主台' : '从台') + ' 换成 ' + m.def.name + '（本回合仍不产出）');
+      return;
+    }
     produce(G);
     for (var i = 0; i < G.orders.length; i++) {
       var od = G.orders[i];
@@ -489,18 +503,39 @@
     G.turn++;
   }
 
-  /* 换工作台：只换能力，罐子和液体原地不动（Workshop.cs:96-99 ReplaceCapability 的语义）。
-     唯一的副作用是液池容量可能变小，超出部分被钳制。 */
+  /* 换工作台。两种情形，与内核一致：
+     · 台上**没有资源**（罐子 0 且液体全 0）⇒ 直接换。依据：`JarSystem.BeginSwitch` 在旧台无资源时
+       不起过程，直接 `SetMaster`。
+     · 台上**有资源** ⇒ 走**迁徙**：内核是 `WorkshopSwitchEvent.Execute() = Begin → RunReshape → RunTransfer`
+       且 `SwitchProcessAdvancer` 一 tick 一段。原型把两段折成「占 2 个回合」：这两回合不产出、不结算订单。
+       迁徙进行中不接受第二次换台 —— 内核 `BeginSwitch` 也拒第二个 `workshop_migration`。 */
   function setBench(G, side, def) {
-    var b = side === 'master' ? G.master : G.sub;
-    if (side === 'sub') {
-      if (!G.sub) G.sub = makeBench(def);
-      else G.sub.def = def;
-      b = G.sub;
-    } else {
-      G.master.def = def;
-      b = G.master;
+    var isSub = side === 'sub';
+    if (isSub && !G.sub) { G.sub = makeBench(def); return G.sub; }
+    var b = isSub ? G.sub : G.master;
+    if (b.def === def) return b;
+
+    if (G.migrating) {
+      log(G, '已在迁徙中，不能同时换第二次台');
+      return b;
     }
+    var hasRes = b.jars.length > 0;
+    for (var k = 0; k < LIQUIDS.length; k++) if ((b.liquid[LIQUIDS[k]] || 0) > 0) hasRes = true;
+
+    if (!hasRes) {
+      log(G, '空台直接换：' + def.name);
+      return applyBenchDef(G, side, def);
+    }
+    G.migrating = { side: side, def: def, turns: 2 };
+    log(G, '换台迁徙开始（' + b.def.name + ' → ' + def.name + '，占 2 回合，期间不产出不结算）');
+    return b;
+  }
+
+  /* 真正落定新的能力参数（ReplaceCapability 的语义：只换规则，不动罐子）；
+     液池容量可能变小，超出部分被钳制并记日志。 */
+  function applyBenchDef(G, side, def) {
+    var b = side === 'master' ? G.master : G.sub;
+    b.def = def;
     for (var i = 0; i < LIQUIDS.length; i++) {
       var L = LIQUIDS[i];
       var cap = (isBanned(def, L) ? 0 : def.pool);

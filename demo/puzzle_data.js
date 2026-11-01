@@ -63,7 +63,7 @@ window.LEVELS = [
   {
     name: '第二关 · 从台与装液',
     hint: '主台用玄武台做三角罐（改形），从台用朱雀台做高罐（高是它的基础标记）。蜜要两路产。',
-    turns: 8,
+    turns: 6,
     benches: ['xuanwu', 'zhuque', 'qinglong', 'qilin'],
     prods: ['j圆', 'j方', 'j三', 'j高', 'j长', 'j扁', 'l酒', 'l蜜'],
     startJars: [],
@@ -77,7 +77,7 @@ window.LEVELS = [
   {
     name: '第三关 · 禁令逼你换台',
     hint: '分三段换主台：玄武台做三角罐（蜜）→ 青龙台做扁罐（三角改形过去，灌酒）→ 白虎台做鼓罐（鼓是它的基础标记）。换台之后旧形状的罐子会留下，它们在新台下多半只能改到新台的基础形状上，所以换台前别把罐位塞满。',
-    turns: 12,
+    turns: 10,
     benches: ['xuanwu', 'zhuque', 'qinglong', 'baihu', 'qilin'],
     prods: ['j圆', 'j方', 'j三', 'j高', 'j长', 'j扁', 'j鼓', 'j尖', 'l酒', 'l蜜'],
     startJars: [],
@@ -91,7 +91,7 @@ window.LEVELS = [
   {
     name: '第四关 · 四种活',
     hint: '四段活，每段换一次主台：玄武台(圆/方，灌蜜) → 青龙台(三角/长，灌酒) → 朱雀台(高，加从台做尖罐) → 白虎台(扁/鼓，扁改形到尖，灌蜜)。',
-    turns: 16,
+    turns: 14,
     benches: ['xuanwu', 'zhuque', 'qinglong', 'baihu', 'qilin'],
     prods: ['j圆', 'j方', 'j三', 'j高', 'j长', 'j扁', 'j鼓', 'j尖', 'l酒', 'l蜜'],
     startJars: [],
@@ -112,7 +112,7 @@ window.LEVELS = [
        罐子只能从主台**转移**过去（原系统 TransferCommand）。产线只往主台产。 */
     name: '第五关 · 转移',
     hint: '这一单在主台做不完：长罐只有在青龙台才算基础标记（能灌酒），圆罐只有在玄武台才算基础标记（能灌蜜），而青龙台忌蜜、玄武台忌酒。所以要从台来干另一半 —— 但从台开局是空的，罐子得从主台**转移**过去。注意：产线只往主台产，罐子换了台之后按新台的规则判定。',
-    turns: 4,
+    turns: 10,
     benches: ['xuanwu', 'zhuque', 'qinglong', 'baihu', 'qilin'],
     prods: ['j圆', 'j方', 'j三', 'j高', 'j长', 'j扁', 'j鼓', 'j尖', 'l酒', 'l蜜'],
     startJars: [],

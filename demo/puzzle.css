@@ -24,6 +24,7 @@ button.big { padding: 10px 40px; font-size: 15px; }
 #topbar .turn { color: var(--dim); }
 #topbar .spacer { flex: 1; }
 .pill { font-size: 12px; padding: 2px 9px; border-radius: 20px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); }
+.pill.warn { color: #e0c169; border-color: rgba(224, 193, 105, .55); background: rgba(224, 193, 105, .12); }
 .result { font-weight: 700; padding: 2px 10px; border-radius: 20px; }
 .result.win { background: rgba(90, 168, 107, .18); color: var(--green); border: 1px solid var(--green); }
 .result.lose { background: rgba(224, 90, 78, .18); color: var(--red); border: 1px solid var(--red); }

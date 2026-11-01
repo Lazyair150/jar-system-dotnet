@@ -61,6 +61,11 @@
     h += '<span class="ptitle">' + (side === 'master' ? '主台' : '从台') + '</span>';
     h += '<span class="bname">' + esc(d.name) + '</span>';
     h += '<span class="pill">罐位 ' + b.jars.length + '/' + (side === 'master' ? C.MAX_JARS : C.MAX_SUB_JARS) + '</span>';
+    /* 换台有代价：台上有资源时走 2 回合迁徙，期间不产出不结算、也不接受第二次换台。
+       没有这个提示，玩家点了"换台"会觉得按钮坏了（能力要到迁徙结束才落定）。 */
+    if (G.migrating && G.migrating.side === side) {
+      h += '<span class="pill warn">迁徙中 → ' + esc(G.migrating.def.name) + ' 还剩' + G.migrating.turns + '回合</span>';
+    }
     h += '<button class="mini" data-act="pickbench" data-side="' + side + '">换台</button>';
     h += '</div>';
     h += '<div class="marks">';

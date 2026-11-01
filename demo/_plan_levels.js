@@ -35,12 +35,35 @@ function remainingNeeds(G) {
     if (o.done) return;
     var left = o.total - o.progress;
     if (left <= 0) return;
+    /* 只数**未满足**的需求：已被某只现成罐子满足的不算缺口。
+       不这么做，打手会一直重复生产"已经够了"的形状（第五关实测：卡在 1/2 上无限产圆罐）。 */
+    var pool = o.cls === 'A'
+      ? G.master.jars
+      : G.master.jars.concat(G.sub ? G.sub.jars : []);
+    var used = [];
     o.reqs.forEach(function (r) {
+      for (var i = 0; i < pool.length; i++) {
+        if (used[i]) continue;
+        var j = pool[i];
+        if (j.shape !== r.shape) continue;
+        if (r.liquid ? j.liquid !== r.liquid : j.liquid != null) continue;
+        used[i] = true;
+        return;
+      }
       shapes[r.shape] = (shapes[r.shape] || 0) + 1;
       if (r.liquid) liquids[r.liquid] = (liquids[r.liquid] || 0) + 1;
     });
   });
-  return { shapes: shapes, liquids: liquids };
+  /* 改形要付 1 单位液体作成本（Workshop.ReshapeEmpty → TryPayReshapeCost）。
+     所以只要场上还有"形状对不上需求"的罐子，就需要一条液体线 —— 哪怕订单里没有装液需求。
+     这条不加，打手会在"只产罐子不产液体"的路上卡死（第一关就卡死过）。 */
+  var needCost = false;
+  for (var k = 0; k < G.master.jars.length; k++) {
+    if (!shapes[G.master.jars[k].shape]) { needCost = true; break; }
+  }
+  if (!needCost && Object.keys(shapes).length) needCost = true;
+
+  return { shapes: shapes, liquids: liquids, needCost: needCost };
 }
 
 /* ---------- 候选产线集合 ---------- */
@@ -84,9 +107,16 @@ function heuristic(G, cfg, needs) {
       var liq = pr.liquid;
       if (needs.liquids[liq]) s += 3 * needs.liquids[liq];
       if (target.ban.indexOf(liq) >= 0) s -= 8;          /* 这个台忌这种液体 */
+      else if (needs.needCost && (G.master.liquid[liq] || 0) < 1) s += 2;   /* 改形缺成本液体 */
     }
   });
-  /* 靠后的需求更容易卡住：给"还缺很多"的台一点点偏好，避免主台乱跳 */
+  /* 换台有代价（有资源时走迁徙，占 2 回合且期间不产出）：给"留在当前台"一个明显偏好，
+     并惩罚"台上有资源却要换台"的候选 —— 否则打手会每回合都想换，一路把回合耗在迁徙上。 */
+  /* 只给很轻的偏好：换台的 2 回合代价已经由仿真（value）如实反映，
+     这里罚重了会挡住"必须换台才能产某个形状"的关卡（第一关就是）。 */
+  if (cfg.master === G.master.def.id) s += 1;
+  else if (G.master.jars.length > 0) s -= 1;
+
   if (cfg.sub && sb) s += 0.5;
   return s;
 }
@@ -152,7 +182,7 @@ function play(lvIdx, verbose) {
     var curProds = prods.filter(function (pid) {
       var pr = P(pid);
       if (pr.kind === 'jar') return !!needs.shapes[pr.shape];
-      return !!needs.liquids[pr.liquid];
+      return !!needs.liquids[pr.liquid] || needs.needCost;
     });
     if (!curProds.length) curProds = prods;
     var curLines = lineCandidates(curProds);
@@ -177,7 +207,14 @@ function play(lvIdx, verbose) {
       for (var v = 0; v < variants.length; v++) {
         var cfg = { master: cands[i].cfg.master, sub: cands[i].cfg.sub, lines: cands[i].cfg.lines, xfer: variants[v].xfer };
         var H = simulate(G, cfg);
-        var val = value(H);
+        /* 迁徙要 2 回合且期间不产出：把"换台候选"多推几回合再看值，
+           并按冻结回合数扣分 —— 否则 1 回合前瞻永远看不出"先付两回合换台"值不值。 */
+        var frozen = 0;
+        while (H.migrating && !H.over && frozen < 3) { ENG.runTurn(H); frozen++; }
+        /* 迁徙结束那一回合仍是冻结的：再跑一回合，让"换台候选"能看到搬完之后的收益，
+           否则 1 回合前瞻永远判不出"先付两回合换台值不值"。冻结回合按 2 分一回合计价。 */
+        if (frozen > 0 && !H.over) { ENG.runTurn(H); frozen++; }
+        var val = value(H) - frozen * 2;
         if (val > bestV) { bestV = val; best = cfg; }
       }
     }
