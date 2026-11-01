@@ -331,6 +331,36 @@
     return true;
   }
 
+  /* 从台残留回流主台（原系统 OrderEvent.RollbackSlaveToMaster → SlaveRollback.Execute）。
+     触发点只有订单结束：Deliver() 成功路径（B 类）与 Fail() 都会调它。
+     口径与 ResourceTransferrer 一致：**主台接不下的直接丢弃**，不留在从台、不回流仓库。
+     简化之处（如实记）：原系统按归属退回（只退 `_transferredJarIds` 与 `_slaveOriginalJarIds`
+     这两批罐子 + 未用液体），原型不区分归属，整台回流。 */
+  function backflow(G) {
+    if (!G.sub) return;
+    var moved = 0, dropped = 0;
+    while (G.sub.jars.length) {
+      var j = G.sub.jars.shift();
+      if (G.master.jars.length < C.MAX_JARS) { G.master.jars.push(j); moved++; }
+      else dropped++;
+    }
+    for (var i = 0; i < LIQUIDS.length; i++) {
+      var L = LIQUIDS[i];
+      var n = G.sub.liquid[L] || 0;
+      if (!n) continue;
+      var cap = isBanned(G.master.def, L) ? 0 : G.master.def.pool;
+      var cur = G.master.liquid[L] || 0;
+      var add = Math.min(n, Math.max(0, cap - cur));
+      G.master.liquid[L] = cur + add;
+      G.sub.liquid[L] = n - add;
+      moved += add;
+      dropped += n - add;
+    }
+    if (moved || dropped) {
+      log(G, '回流：' + moved + ' 项回主台' + (dropped ? '，' + dropped + ' 项主台接不下被丢弃' : ''));
+    }
+  }
+
   /* A 类只看主台；B 类主从联合，每只罐子按它所在的台判定能力，液体按合并池算。 */
   function evalOrder(G, od) {
     var pool, liq;
@@ -399,6 +429,10 @@
       od.done = true;
       od.progress = od.total;
       log(G, '订单 #' + (od.idx + 1) + '（' + od.cls + ' 类，' + od.total + ' 需求）<b style="color:#5aa86b">完成</b>');
+      /* B 类订单结束 ⇒ 从台残留回流主台。
+         原系统两条结束路径都调 RollbackSlaveToMaster()：OrderEvent.Deliver()（成功，B 类，
+         见 OrderEvent.cs:196-197）与 OrderEvent.Fail()（见 :209）。 */
+      if (od.cls === 'B') backflow(G);
     } else {
       od.progress = plan.height;
       if (prepCount > 0) {
