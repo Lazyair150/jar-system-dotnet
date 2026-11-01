@@ -196,3 +196,29 @@ console.log('=== B 类交付必须在从台 ===');
   if (bad) { console.log('  => B 类交付抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
   else console.log('  => B 类交付抽查 OK');
 })();
+
+
+/* ================= 迁徙重组（对齐 WorkshopSwitchEvent.RunReshape） =================
+   内核注释明说 SameBansCase 的用途是「把游离液体尽量灌进旧台基础形状的空罐」——
+   目的是让新台接收"已装满的罐子"作为**额外液体容量**（罐子容量替代液池容量）。
+   原型只有一块物理台，所以 RunTransfer 是空操作，缺的正是这段重组。 */
+console.log('=== 迁徙重组 ===');
+(function () {
+  var bad = 0;
+  var G = ENG.newGame(0);
+  ENG.setBench(G, 'master', ENG.findBench('xuanwu'));
+  G.master.liquid['蜜'] = 5;                       /* 玄武池容量 5 */
+  for (var i = 0; i < 3; i++) G.master.jars.push({ shape: '圆罐', liquid: null });
+
+  ENG.setBench(G, 'master', ENG.findBench('zhuque'));   /* 朱雀 pool=4、不忌蜜 ⇒ 不重组就会丢 1 份 */
+  ENG.runTurn(G);
+  ENG.runTurn(G);
+
+  var full = G.master.jars.filter(function (j) { return j.liquid === '蜜'; }).length;
+  if (G.master.def.name !== '朱雀台') { bad++; console.log('  ! 两回合后还没落定新台：' + G.master.def.name); }
+  if (full !== 3) { bad++; console.log('  ! 应把 3 份蜜灌进 3 只空圆罐，实际 ' + full); }
+  if ((G.master.liquid['蜜'] || 0) !== 2) { bad++; console.log('  ! 液池应剩 2 份，实际 ' + G.master.liquid['蜜']); }
+
+  if (bad) { console.log('  => 迁徙重组抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
+  else console.log('  => 迁徙重组抽查 OK（5 份蜜 → 3 份进罐带走 + 2 份留池）');
+})();

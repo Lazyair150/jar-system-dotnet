@@ -514,6 +514,8 @@
       }
       var m = G.migrating;
       G.migrating = null;
+      var packed = migrateReshape(G, m.side, m.def);
+      if (packed > 0) log(G, '迁徙重组：把 ' + packed + ' 份游离液体灌进旧台基础形状的空罐带走');
       applyBenchDef(G, m.side, m.def);
       log(G, '迁徙完成：' + (m.side === 'master' ? '主台' : '从台') + ' 换成 ' + m.def.name + '（本回合仍不产出）');
       return;
@@ -576,6 +578,33 @@
     G.migrating = { side: side, def: def, turns: 2 };
     log(G, '换台迁徙开始（' + b.def.name + ' → ' + def.name + '，占 2 回合，期间不产出不结算）');
     return b;
+  }
+
+  /* 迁徙的**重组阶段**（内核 WorkshopSwitchEvent.RunReshape → SwitchCases.Execute）。
+     原注释写得很清楚：SameBansCase 的用途是「把游离液体尽量灌进旧台基础形状的空罐」，
+     目的就是让新台接收"已装满的罐子"作为**额外液体容量**（罐子的容量替代液池容量）。
+     原型只有一块物理台，所以"转移阶段"（RunTransfer）是空操作；缺的正是这一段重组。
+     口径按内核：只灌进**旧台基础标记**的空罐；新台忌的液体不灌（反正新台上也倒不出来）。 */
+  function migrateReshape(G, side, newDef) {
+    var b = side === 'master' ? G.master : G.sub;
+    var oldDef = b.def;
+    var moved = 0;
+    for (var i = 0; i < LIQUIDS.length; i++) {
+      var L = LIQUIDS[i];
+      if (isBanned(newDef, L)) continue;          /* 新台忌的液体灌进罐子也没用 */
+      while ((b.liquid[L] || 0) > 0) {
+        var jar = null;
+        for (var k = 0; k < b.jars.length; k++) {
+          var j = b.jars[k];
+          if (j.liquid == null && isBaseMarked(oldDef, j.shape)) { jar = j; break; }
+        }
+        if (!jar) break;
+        b.liquid[L]--;
+        jar.liquid = L;
+        moved++;
+      }
+    }
+    return moved;
   }
 
   /* 真正落定新的能力参数（ReplaceCapability 的语义：只换规则，不动罐子）；
