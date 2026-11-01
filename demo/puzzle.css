@@ -131,3 +131,16 @@ button.big { padding: 10px 40px; font-size: 15px; }
   opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 60;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+
+/* ---------- 过程舞台（事件流播放） ---------- */
+#stagePanel .stage-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+#stagePanel .evline { font-size:15px; line-height:1.6; min-height:46px; padding:2px 0; }
+#stagePanel .evline b { color: var(--accent, #d9a441); }
+#stagePanel .evbar { display:flex; align-items:center; gap:6px; margin-top:8px; }
+#stagePanel .evprog { font-size:11px; color:#6b665e; margin-left:auto; }
+#stagePanel .evtrack { height:4px; background:rgba(255,255,255,.08); border-radius:2px; overflow:hidden; margin-top:6px; }
+#stagePanel .evtrack i { display:block; height:100%; background:var(--accent,#d9a441); width:0; transition:width .12s linear; }
+#stagePanel .evlist { margin-top:8px; max-height:96px; overflow:auto; font-size:11px; color:#8a847a; line-height:1.7; }
+#stagePanel .evlist div.on { color:#e8e2d6; }
+#stagePanel .evkind { display:inline-block; min-width:56px; color:#6b665e; }

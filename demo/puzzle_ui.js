@@ -183,6 +183,108 @@
     return head + ' ？';
   }
 
+  /* ---------- 过程舞台：把本回合的事件流一条一条放出来 ----------
+     分工：引擎算"发生了什么"并排好顺序（G.events）；这里只负责"按顺序说给人听"。
+     **不在这里推导任何规则** —— 一旦在这里补一句"如果……那就……"，规则就有了第二份实现。 */
+  var pb = { queue: [], i: 0, timer: null, speed: 1, active: false };
+
+  var KIND_LABEL = {
+    turnStart: '回合', produce: '产出', flow: '入库', flowLiquid: '入库',
+    orderTry: '订单', op: '操作', deliver: '交付', orderBlocked: '受阻',
+    transfer: '转移', migrateReshape: '重组', migrateDone: '换台', backflow: '回流'
+  };
+
+  function shapeName(s) { return (typeof SHORT !== 'undefined' && SHORT[s]) ? SHORT[s] : s; }
+
+  function describe(ev) {
+    if (!ev) return '—';
+    var o = ev.order === undefined ? '' : '订单 #' + (ev.order + 1) + '：';
+    if (ev.kind === 'turnStart') return '第 ' + ev.turn + ' 回合开始';
+    if (ev.kind === 'produce') {
+      if (ev.item === 'jar') return ev.amount > 0 ? ('产线产出 <b>' + ev.amount + '</b> 只空' + ev.shape + ' → 仓库')
+        : ('仓库罐位满，' + ev.shape + ' ×' + ev.discarded + ' 丢弃');
+      return ev.amount > 0 ? ('产线产出 <b>' + ev.amount + '</b> 份' + ev.liquid + ' → 仓库')
+        : ('仓库' + ev.liquid + '已满，产出丢弃');
+    }
+    if (ev.kind === 'flow') return '仓库 → 主台：流入一只 ' + ev.shape + (ev.liquid ? '（' + ev.liquid + '）' : '');
+    if (ev.kind === 'flowLiquid') return '仓库 → 主台：液体流入 <b>' + ev.amount + '</b> 份';
+    if (ev.kind === 'orderTry') return o + '开始尝试执行（' + ev.cls + ' 类）';
+    if (ev.kind === 'op') {
+      if (ev.op === 'match') return o + shapeName(ev.fromShape) + ' 照用';
+      if (ev.op === 'pourin') return o + shapeName(ev.fromShape) + ' 灌注 <b>' + ev.liquid + '</b>';
+      if (ev.op === 'pourout') return o + shapeName(ev.fromShape) + ' 倒出 <b>' + ev.liquid + '</b> 回液池';
+      if (ev.op === 'reshape') return o + shapeName(ev.fromShape) + ' 改形成 ' + shapeName(ev.toShape) + '（耗 1 份' + ev.liquid + '）';
+      if (ev.op === 'reshapefull') return o + shapeName(ev.fromShape) + ' 改形成 ' + shapeName(ev.toShape) + '（罐内液体被吃掉）';
+      return o + '执行 ' + ev.op;
+    }
+    if (ev.kind === 'deliver') return o + '交付 ' + shapeName(ev.shape) + (ev.liquid ? ':' + ev.liquid : '') + ' → ' + (ev.side === 'sub' ? '从台' : '主台');
+    if (ev.kind === 'orderBlocked') return o + ev.reason;
+    if (ev.kind === 'transfer') return '转移 ' + shapeName(ev.shape) + '：' + (ev.from === 'master' ? '主台 → 从台' : '从台 → 主台');
+    if (ev.kind === 'migrateReshape') return '迁徙重组：把游离液体灌进旧台基础形状的空罐带走';
+    if (ev.kind === 'migrateDone') return '迁徙完成：' + (ev.side === 'master' ? '主台' : '从台') + ' 换成 ' + ev.to;
+    if (ev.kind === 'backflow') return '订单结束：从台残留回流主台';
+    return ev.kind;
+  }
+
+  function stageHtml() {
+    var shown = pb.active || pb.i > 0 ? pb.queue.slice(0, pb.i) : [];
+    var cur = shown.length ? shown[shown.length - 1] : null;
+    var h = '<div class="panel-hd"><span class="ptitle">过程</span>' +
+      '<span class="pill">' + (pb.active ? '播放中' : (pb.i ? '已结束' : '待推进')) + '</span>' +
+      '<span class="hint">这一栏只说引擎已经算好的顺序，不做任何推导</span></div>';
+    h += '<div class="evline">' + (cur ? describe(cur) : '点「推进一回合」，这里会一条一条放出过程') + '</div>';
+    h += '<div class="evtrack"><i style="width:' + (pb.queue.length ? Math.round(100 * pb.i / pb.queue.length) : 0) + '%"></i></div>';
+    h += '<div class="evbar">';
+    h += '<button class="mini" data-act="pbtoggle">' + (pb.active ? '暂停' : '继续') + '</button>';
+    h += '<button class="mini" data-act="pbstep">单步</button>';
+    h += '<button class="mini" data-act="pbspeed">速度 ×' + pb.speed + '</button>';
+    h += '<button class="mini" data-act="pbclose">跳过</button>';
+    h += '<span class="evprog">' + pb.i + ' / ' + pb.queue.length + '</span>';
+    h += '</div>';
+    if (shown.length > 1) {
+      h += '<div class="evlist">';
+      for (var i = Math.max(0, shown.length - 12); i < shown.length; i++) {
+        var e = shown[i];
+        h += '<div' + (i === shown.length - 1 ? ' class="on"' : '') + '><span class="evkind">' + (KIND_LABEL[e.kind] || e.kind) + '</span>' +
+          describe(e).replace(/<b>/g, '').replace(/<\/b>/g, '') + '</div>';
+      }
+      h += '</div>';
+    }
+    return h;
+  }
+
+  function startPlayback(events) {
+    pb.queue = events || [];
+    pb.i = 0;
+    pb.active = pb.queue.length > 0;
+    if (window.__NO_ANIM) {                       /* 无头冒烟用：不做动画，直接到头 */
+      pb.i = pb.queue.length;
+      pb.active = false;
+      render();
+      return;
+    }
+    render();
+    scheduleNext();
+  }
+
+  function scheduleNext() {
+    if (pb.timer) { clearTimeout(pb.timer); pb.timer = null; }
+    if (!pb.active) return;
+    pb.timer = setTimeout(function () {
+      pb.timer = null;
+      if (!pb.active) return;
+      pb.i++;
+      if (pb.i >= pb.queue.length) { pb.active = false; render(); return; }
+      render();
+      scheduleNext();
+    }, 620 / pb.speed);
+  }
+
+  function stopPlayback() {
+    if (pb.timer) { clearTimeout(pb.timer); pb.timer = null; }
+    pb.active = false;
+  }
+
   /* ---------- 主渲染 ---------- */
 
   function render() {
@@ -217,6 +319,8 @@
     }
 
     $('linesPanel').innerHTML = linesPanel();
+    var sp = $('stagePanel');
+    if (sp) sp.innerHTML = stageHtml();
 
     var oh = '<div class="panel-hd"><span class="ptitle">订单</span>' +
       '<span class="hint">进度是「现在就能长到第几层」，会随配置实时变化</span></div>';
@@ -243,7 +347,8 @@
       if (G.migrating) {
         turnLabel += '（迁徙中，本回合不产出 · 还剩 ' + G.migrating.turns + ' 回合）';
       }
-      bt += '<button class="primary big" data-act="turn">' + turnLabel + '</button>';
+      if (pb.active) bt += '<button class="primary big" data-act="turn" disabled>过程中…（' + pb.i + '/' + pb.queue.length + '）</button>';
+      else bt += '<button class="primary big" data-act="turn">' + turnLabel + '</button>';
     }
     $('bottomBar').innerHTML = bt;
 
@@ -304,7 +409,22 @@
     if (!el || el === document.body) return;
     var act = el.getAttribute('data-act');
 
-    if (act === 'turn') { ENG.runTurn(G); ui.picker = null; render(); return; }
+    if (act === 'turn') {
+      if (pb.active) { showToast('过程正在播放中，可以点「跳过」'); return; }
+      ENG.runTurn(G);
+      ui.picker = null;
+      startPlayback(G.events.slice());
+      return;
+    }
+    if (act === 'pbtoggle') { pb.active = !pb.active; if (pb.active) scheduleNext(); else stopPlayback(); render(); return; }
+    if (act === 'pbstep') {
+      stopPlayback();
+      pb.i = Math.min(pb.queue.length, pb.i + 1);
+      render();
+      return;
+    }
+    if (act === 'pbspeed') { pb.speed = pb.speed >= 4 ? 1 : pb.speed * 2; render(); return; }
+    if (act === 'pbclose') { stopPlayback(); pb.i = pb.queue.length; render(); return; }
     if (act === 'restart') { G = ENG.newGame(G.lvIndex); ui.picker = null; render(); return; }
     if (act === 'prevlv') { G = ENG.newGame(Math.max(0, G.lvIndex - 1)); ui.picker = null; render(); return; }
     if (act === 'nextlv') { G = ENG.newGame(Math.min(window.LEVELS.length - 1, G.lvIndex + 1)); ui.picker = null; render(); return; }

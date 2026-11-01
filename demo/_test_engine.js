@@ -265,3 +265,59 @@ console.log('=== 产线 → 仓库 → 主台 ===');
   if (bad) { console.log('  => 产线/仓库抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
   else console.log('  => 产线/仓库抽查 OK（三角罐能进玄武台、酒留在仓库、每回合最多流 3 罐）');
 })();
+
+/* ============ 过程事件流（表现层的契约） ============
+   UI 只按 G.events 的顺序播放，**不重新推导** —— 所以顺序本身必须被断言，
+   否则"规则写第二遍"会从 UI 这一侧偷偷长回来。 */
+console.log('=== 过程事件流 ===');
+(function () {
+  var bad = 0;
+  function check(G, label) {
+    var ev = G.events || [];
+    if (!ev.length) { bad++; console.log('  ! ' + label + '：没有事件'); return; }
+    if (ev[0].kind !== 'turnStart') { bad++; console.log('  ! ' + label + '：第一条不是 turnStart，而是 ' + ev[0].kind); }
+    var seenOrder = false, delivered = {}, opAfterDeliver = false;
+    ev.forEach(function (e) {
+      if (!e.kind || e.turn === undefined) { bad++; console.log('  ! ' + label + '：事件缺 kind/turn'); }
+      /* 流入必须早于任何订单尝试 */
+      if ((e.kind === 'flow' || e.kind === 'flowLiquid') && seenOrder) { bad++; console.log('  ! ' + label + '：流入出现在订单之后'); }
+      if (e.kind === 'orderTry') seenOrder = true;
+      if (e.kind === 'deliver') {
+        if (!seenOrder) { bad++; console.log('  ! ' + label + '：交付出现在订单尝试之前'); }
+        if (e.side !== 'master' && e.side !== 'sub') { bad++; console.log('  ! ' + label + '：交付台非法 ' + e.side); }
+        delivered[e.order] = true;
+      }
+      /* 同一条订单：交付之后不该再有它的操作（不同订单之间当然可以交替） */
+      if (e.kind === 'op' && delivered[e.order]) opAfterDeliver = true;
+    });
+    if (opAfterDeliver) { bad++; console.log('  ! ' + label + '：同一订单在交付之后还有操作（顺序不对）'); }
+  }
+
+  /* A 类：第一关，圆罐 + 方罐 + 蜜 ⇒ 两条订单都能完成 */
+  var G1 = ENG.newGame(0);
+  G1.lines[0] = { prod: ENG.findProd('j圆') };
+  G1.lines[1] = { prod: ENG.findProd('j方') };
+  G1.lines[2] = { prod: ENG.findProd('l蜜') };
+  ENG.runTurn(G1); check(G1, 'L1 A类');
+  var aDeliver = (G1.events || []).filter(function (e) { return e.kind === 'deliver'; });
+  if (aDeliver.length && aDeliver.some(function (e) { return e.side !== 'master'; })) {
+    bad++; console.log('  ! L1 A 类订单的交付台必须是主台');
+  }
+
+  /* B 类：第五关，装备从台后交付台必须是从台 */
+  var G5 = ENG.newGame(4);
+  ENG.setBench(G5, 'sub', ENG.findBench('xuanwu'));
+  G5.lines[0] = { prod: ENG.findProd('j长') };
+  G5.lines[1] = { prod: ENG.findProd('l酒') };
+  var guard = 0;
+  while (!G5.over && guard++ < 12) { ENG.runTurn(G5); check(G5, 'L5 B类 T' + G5.turn); }
+  var bDeliver = [];
+  if (G5.log) { /* 只统计最后一回合的事件 */ }
+  var lastDeliver = (G5.events || []).filter(function (e) { return e.kind === 'deliver'; });
+  if (lastDeliver.length && lastDeliver.some(function (e) { return e.side !== 'sub'; })) {
+    bad++; console.log('  ! 第五关 B 类订单的交付台必须是从台');
+  }
+
+  if (bad) { console.log('  => 事件流抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
+  else console.log('  => 事件流抽查 OK（首条 turnStart、产出→流入→订单→交付的顺序、交付台正确）');
+})();

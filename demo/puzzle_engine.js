@@ -271,6 +271,7 @@
       master: null,
       sub: null,
       lines: [],
+      events: [],            /* 本回合的过程事件流（每回合开始时清空） */
       /* 仓库（原系统 Production/Warehouse）：产线产出先进这里，再按上限流入主台。
          资源是**流动的**：工作台只是承载与操作它们的载体，产出不等于"命令某台生产"。
          容量与内核一致：仓库罐 200 / 液体 200；溢出丢弃并计数。 */
@@ -302,6 +303,19 @@
     return G;
   }
 
+  /* ---------- 过程事件流：表现层唯一的契约 ----------
+     引擎负责"发生了什么"，`G.events` 负责"按什么顺序说清楚"。
+     UI 只消费这个数组：**不重新推导、不猜顺序** —— 把顺序猜第二遍正是"同一套规则写两遍"的老毛病。
+     与内核对应：`Process/Journal` 的 JournalEntry + `World/WorldSignal`。
+     每个事件都必须能被一句中文讲出来（ui 侧的 describeEvent），讲不出来的事件说明字段不够。 */
+  function emit(G, ev) {
+    ev.turn = G.turn;
+    if (!G.events) G.events = [];
+    G.events.push(ev);
+    if (G.events.length > 400) G.events.shift();
+    return ev;
+  }
+
   function log(G, html) {
     G.log.push(html);
     if (G.log.length > 200) G.log.shift();
@@ -328,16 +342,26 @@
           G.wh.jars.push({ shape: pd.shape, liquid: null });
           added++;
         }
-        if (added > 0) log(G, '产出 <b>' + added + '</b> 只空' + pd.shape + ' → 仓库');
-        else log(G, '仓库罐位已满（' + WH_MAX_JARS + '），' + pd.shape + '丢弃');
+        if (added > 0) {
+          log(G, '产出 <b>' + added + '</b> 只空' + pd.shape + ' → 仓库');
+          emit(G, { kind: 'produce', item: 'jar', shape: pd.shape, amount: added, discarded: pd.amount - added });
+        } else {
+          log(G, '仓库罐位已满（' + WH_MAX_JARS + '），' + pd.shape + '丢弃');
+          emit(G, { kind: 'produce', item: 'jar', shape: pd.shape, amount: 0, discarded: pd.amount });
+        }
       } else {
         var L = pd.liquid;
         var cur = G.wh.liquid[L] || 0;
         var accept = Math.min(pd.amount, Math.max(0, WH_MAX_LIQUIDS - cur));
         G.wh.liquid[L] = cur + accept;
         G.wh.discardedLiquid[L] = (G.wh.discardedLiquid[L] || 0) + (pd.amount - accept);
-        if (accept > 0) log(G, '产出 <b>' + accept + '</b> 份' + L + ' → 仓库');
-        else log(G, '仓库' + L + '已满（' + WH_MAX_LIQUIDS + '），产出被丢弃');
+        if (accept > 0) {
+          log(G, '产出 <b>' + accept + '</b> 份' + L + ' → 仓库');
+          emit(G, { kind: 'produce', item: 'liquid', liquid: L, amount: accept, discarded: pd.amount - accept });
+        } else {
+          log(G, '仓库' + L + '已满（' + WH_MAX_LIQUIDS + '），产出被丢弃');
+          emit(G, { kind: 'produce', item: 'liquid', liquid: L, amount: 0, discarded: pd.amount });
+        }
       }
     }
   }
@@ -377,6 +401,12 @@
     if (jarsIn || liqIn) {
       log(G, '仓库→主台：流入 ' + jarsIn + ' 只罐子' + (liqIn ? ' + ' + liqIn + ' 份液体' : ''));
     }
+    /* 事件里带上每只罐子的形状，UI 才能画出"这一只从仓库飞向主台"。 */
+    var flowed = G.master.jars.slice(G.master.jars.length - jarsIn);
+    for (var f = 0; f < flowed.length; f++) {
+      emit(G, { kind: 'flow', from: 'warehouse', to: 'master', shape: flowed[f].shape });
+    }
+    if (liqIn > 0) emit(G, { kind: 'flowLiquid', from: 'warehouse', to: 'master', amount: liqIn });
   }
 
   /* 转移：把一只罐子从一台搬到另一台（原系统 TransferCommand → Workshop.TransferOut/TransferIn）。
@@ -390,6 +420,7 @@
       removeJar(G.master, jar);
       G.sub.jars.push(jar);
       log(G, '转移：把罐子搬到从台');
+      emit(G, { kind: 'transfer', shape: jar.shape, liquid: jar.liquid, from: 'master', to: 'sub' });
       return true;
     }
     if (G.sub.jars.indexOf(jar) < 0) return false;
@@ -397,6 +428,7 @@
     removeJar(G.sub, jar);
     G.master.jars.push(jar);
     log(G, '转移：把罐子搬回主台');
+    emit(G, { kind: 'transfer', shape: jar.shape, liquid: jar.liquid, from: 'sub', to: 'master' });
     return true;
   }
 
@@ -500,17 +532,29 @@
       if (st.prep) prepCount++;
       var jar = st.ref;
       var op = st.op;
+      var before = { shape: jar.shape, liquid: jar.liquid };
       if (op.op === 'pourout') { addLiquid(G, op.liquid, 1); jar.liquid = null; }
       else if (op.op === 'pourin') { takeLiquid(G, op.liquid, 1); jar.liquid = op.liquid; }
       else if (op.op === 'reshape') { takeLiquid(G, op.costLiquid, 1); jar.shape = op.to; }
       else if (op.op === 'reshapefull') { jar.shape = op.to; jar.liquid = null; }
+      emit(G, {
+        kind: 'op', order: od.idx, op: op.op,
+        fromShape: before.shape, toShape: jar.shape,
+        fromLiquid: before.liquid, toLiquid: jar.liquid,
+        liquid: op.liquid || op.costLiquid || null,
+        prep: !!st.prep
+      });
     }
     if (complete) {
       var delivered = 0;
+      /* B 类交付台是从台（OrderEvent.cs:175 CheckDelivery）——UI 要按这个决定罐子飞向哪。 */
+      var deliverySide = od.cls === 'B' ? 'sub' : 'master';
       for (var j = 0; j < plan.steps.length; j++) {
         if (plan.steps[j].prep) continue;
-        removeJar(G.master, plan.steps[j].ref);
-        if (G.sub) removeJar(G.sub, plan.steps[j].ref);
+        var dj = plan.steps[j].ref;
+        emit(G, { kind: 'deliver', order: od.idx, side: deliverySide, shape: dj.shape, liquid: dj.liquid });
+        removeJar(G.master, dj);
+        if (G.sub) removeJar(G.sub, dj);
         delivered++;
       }
       od.done = true;
@@ -552,19 +596,25 @@
       }
       var m = G.migrating;
       G.migrating = null;
+      emit(G, { kind: 'migrateReshape', side: m.side, to: m.def.name });
       var packed = migrateReshape(G, m.side, m.def);
       if (packed > 0) log(G, '迁徙重组：把 ' + packed + ' 份游离液体灌进旧台基础形状的空罐带走');
       applyBenchDef(G, m.side, m.def);
+      emit(G, { kind: 'migrateDone', side: m.side, to: m.def.name });
       log(G, '迁徙完成：' + (m.side === 'master' ? '主台' : '从台') + ' 换成 ' + m.def.name + '（本回合仍不产出）');
       return;
     }
+    G.events = [];               /* 一回合一条时间线：消费方（UI）只读本回合 */
+    emit(G, { kind: 'turnStart' });
     produce(G);
     flowToMaster(G);
     for (var i = 0; i < G.orders.length; i++) {
       var od = G.orders[i];
       if (od.done) continue;
+      emit(G, { kind: 'orderTry', order: od.idx, cls: od.cls });
       var r = evalOrder(G, od);
       od.progress = r.height;
+      if (r.reason) emit(G, { kind: 'orderBlocked', order: od.idx, reason: r.reason });
       if (r.steps && r.steps.length > 0) commitPlan(G, r, od);
     }
     for (var k = 0; k < G.orders.length; k++) if (G.orders[k].done) G.orders[k].progress = G.orders[k].total;

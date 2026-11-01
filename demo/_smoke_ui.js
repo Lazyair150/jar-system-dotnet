@@ -19,6 +19,7 @@ var listeners = {};
 var body = fakeEl('body');
 
 global.window = global;
+global.__NO_ANIM = true;   /* 过程播放不做动画：冒烟只验结构不验节奏 */
 global.document = {
   readyState: 'complete',
   body: body,
