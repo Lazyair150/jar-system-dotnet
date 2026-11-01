@@ -1,4 +1,4 @@
-UML/ 目录 —— 14 张图（均已渲染验证）
+UML/ 目录 —— 16 张图（2026-11 更新；本轮新增/改写的三张尚未渲染验证）
 
 ════════════════════════════════════════════════════════════
  文件清单
@@ -12,125 +12,44 @@ UML/ 目录 —— 14 张图（均已渲染验证）
  05_State_订单生命周期.puml        状态图 —— 待执行 -> 执行中 -> 成功 / 失败
  05_Sequence_工作台切换事件.puml   时序图 —— 切换事件**端到端**调用链
  06_State_罐子操作.puml            状态图 —— 空罐 / 满罐 × 未标记 / 已标记
- 07_Component_架构.puml            组件图 —— Core 包分层与依赖方向
+ 07_Component_架构.puml            组件图 —— L0…L13 层序表与依赖方向【2026-11 重写】
  08_Activity_B类可行性.puml        活动图 —— 可行性三级责任链 + 2^N 划分 + 未判定出口
+ 09_State_过程生命周期.puml        状态图 —— 过程实例：就绪 -> 推进 / 阻断 -> 成功 / 失败 / 取消
+ 10_Sequence_异步订单执行.puml     时序图 —— 异步轨端到端：startOrder -> tick 推进 -> process* 消息
+ 11_Activity_过程推进管线.puml     活动图 —— 一个 tick 的固定顺序：事件 -> 修饰器 -> 过程 -> 产出
+ 12_ClassDiagram_规则与过程.puml   类图   —— 规则层 + 过程系统的类型、端口与实现者
+ 13_ClassDiagram_世界总线与调度.puml 类图 —— World/ 世界总线 + Process/Scheduler 阶段表 + 统一逻辑时间【新增】
+ 14_State_工作台迁徙.puml          状态图 —— 迁徙生命周期：重组 -> 转移 -> 提交 / 回滚【新增】
 
 渲染方式：贴到 plantuml.com，或 VS Code 装 PlantUML 扩展预览。
 
 ────────────────────────────────────────────────────────────
- 两处历史遗留（需要你决定）
+ 2026-11 这轮改了什么（以及为什么）
 ────────────────────────────────────────────────────────────
 
-1) 编号有重复：04_ 有两张、05_ 有两张。索引只能靠全名区分。
-   建议重命名为 04a/04b 与 05a/05b（或顺延为 04/09 与 05/10）。
-   ⚠️ 自动化工具只有写权限、没有改名权限 ⇒ 需要你手动改文件名。
+ 07_Component_架构：整张重写。
+   旧图停在 2026-10，之后做了"依赖分层治理"：层序被压成 L0 Config … L13 Bootstrap 一条链，
+   双向环 7 → 0。旧图里那两条"味道"（Domain→Services、Abstractions↔Solver/Orders）**已不存在**，
+   照旧图讨论会得出错误结论。层序的权威在代码：test/JarSystem.Tests/ArchitectureTests.cs。
 
-2) 04_Sequence 与 05_Sequence 讲同一件事的两个层次，刻意分开以免重复：
-   · 04_Sequence_工作台切换      = 事件**内部**分支细节（ISwitchCase / ResourceTransferrer）
-   · 05_Sequence_工作台切换事件   = **端到端**链路（Dispatcher 到 Service 到 Event 到 History 到回包 到前端动画）
-   若只想留一张，留 05_Sequence_工作台切换事件。
+ 13（新）：World/ 与 Process/Scheduler/ 此前**完全没进图**。内容：
+   世界总线（WorldSignal 只在分发期有效、反应器排效果、级联跨 tick、每 tick 效果上限）、
+   tick 阶段表（Events/Modifiers/Processes/Production/Flow，按阶段+Order 排序、首 tick 封盘、
+   调用边界只跑 Flow）、统一逻辑时间（冻结期间 Tick 完全不生效、不写命令日志）。
 
-════════════════════════════════════════════════════════════
- 同步说明（2026-09-16 全量重写）
-════════════════════════════════════════════════════════════
+ 14（新）：旧图把换台画成同步链路，但它是一个**可失败、可取消、占 tick 的过程**：
+   Execute = Begin -> RunReshape -> RunTransfer，异步轨一 tick 一段；
+   取消要回滚（RunReshape 可能已经改过旧台的罐子），且与订单执行互斥；旧台无资源时直通。
 
-核对方式：逐个类型读 src/JarSystem.Core 的源码，不采用任何历史结论。
+ 02 / 12：未重画，追加了 2026-11 补注，点名新增类型与新搬家（`RuleContext`/`ModifierStack` 已从
+   Rules 下沉到 Domain；`Requirement`/`JarState`/`SolverResult`/`WorkshopInfo` 已归 Abstractions）。
 
-【上一版的问题】
- · 本文件与 01_索引 都写"8 张"，实际有 10 张（漏了 04_Component_模块边界
-   与 05_Sequence_工作台切换事件）
- · 索引里 6 个文件名是简写别名，与实际文件名全部不符
- · 上一版最后同步日期为 2026-08-01，此后整个 2026-09 批次在 UML 里毫无痕迹
+────────────────────────────────────────────────────────────
+ 踩坑规则
+────────────────────────────────────────────────────────────
 
-【本次修正的硬错误】（都有源码证据）
- · 02：引用了**已被删除**的类型 DirectMatch / OperationNeed（2026-09 契约统一时删）
- · 02：Jar 上画着已删除的 {static} NextId()（已被 IIdGenerator 取代）
- · 02：ProducerModule 画成 Warehouse 是 List、且把 ProduceLiquid/FlowToMaster
-       画在它身上（实际已搬到 Production/Warehouse，且 Warehouse 这个类整个缺失）
- · 02：WorkshopInfo 画着自己持有 BaseMarks/AdditionalMarks/Ban（实际只有一个 Capability）
- · 04_Component：9 类型 -> 10；165 行 -> **223 行**（2026-09-16 快照覆盖漏洞修复后实测）；20 个确定性 -> 21；
-       "Godot 宿主 规划中" -> 已落地；"Vite + TS（P4-c）" -> 决策已变（改用
-       contract.d.ts + jsconfig checkJs，不上打包器）；9 消息 -> 10（新增 world）
- · 04_Sequence：旧版把 Case 逻辑画在 WorkshopSwitchEvent 自身，
-       且写"finally 恢复附加标记"（实际已抽出 ISwitchCase + using var 作用域回收）
- · 05_Sequence：旧版把 SetMaster 画在 WorkshopService（2026-09 已抽出
-       MasterSwitchCoordinator）
- · 05_State：缺两条 2026-09 规则 —— 终态不可重复执行、失败不回滚主台
- · 06_State：旧描述写"六态"，实际只有 4 态（一个罐子要么空要么满）
- · 07_Component：原图停留在重构前，缺 Abstractions/Services/Sessions/Warehouse/
-       WorldOptions/Vocabulary 等整层
- · 08_Activity：入口是 CheckTypeB（**该类已不存在**，被 IFeasibilityCheck 责任链取代）；
-       且漏掉 节点预算 / undetermined 出口 / 单调剪枝 / MasterOrigin / 转移预算
-
-【本次新增进图的内容】
- · 可行性三级责任链（single_phase / slave_only / partition）与共享节点预算
- · PartitionSearch 的两个"未判定"出口（预算耗尽、求解器未按契约给终态）
- · B 类的 MasterOrigin 标记、转移预算公式、选择性转移清单构成
- · 求解器搜索三件套（失败状态记忆化 / 同构剪枝 / 节点预算）与每类操作的真实状态效果
- · Sessions（WorldCommand 15 键 + WorldOps 25 个 op + SessionReplay + WorldCommandJson）
- · 全部 DTO 的 [JsonPropertyName]（12 键 feasibilityResult、14 键路径步骤、state 根 6 键）
- · Core 内部真实依赖方向，含两处向上/成环（Domain 依赖 Services；Abstractions 与
-   Solver/Orders 互相引用）
-
-⚠️ 渲染验证状态（2026-10-16 更新）：用户在本机 VS Code（PlantUML 插件 + JVM）逐张预览，
-   **14 张全部正常显示**（含过程系统的 09/10/11/12）。此前 2026-09-16 在 plantuml.com 实测，回报了 4 处错误，
-   现已全部修完。下面两条规则是这轮踩出来的 —— **改图前必读**。
-
-════════════════════════════════════════════════════════════
- PlantUML 踩坑（必读）—— 这轮实测抓到的两条硬规则
-════════════════════════════════════════════════════════════
-
-规则 1：note 的位置词**分图型**，用错就是 Syntax Error
-  · 类图 / 组件图：note top of X、note bottom of X、note left/right of X 都认
-  · 序列图：note left of X、note right of X、note over X（note over 可跨多个参与者）
-    写 note bottom of X / note top of X 会报 "Syntax Error?"
-    （实测：05_Sequence 第 72 行 note bottom of Coord）
-  · 状态图：**只有 note left of X、note right of X**；
-    单状态写 `note over X` 会报 Syntax Error?（2026-10-16 用 PlantUML 1.2026.9beta4 在线实测，
-    09_State_过程生命周期 第 48 行 note over Succeeded）⇒ 一律用 **note right of X**
-    （旧的 05_State 报错也同样是 note 位置词问题：note bottom of Failed）
-  · 活动图：note 必须**紧跟一条活动语句**（先写 :语句; 再写 note right … end note）。
-    **不能**写没有目标的 note bottom / note top（实测：08 第 88 行）；
-    **也不能写悬浮的 `note as X … end note`**——活动图不支持（2026-10-16 在线实测，
-    11_Activity_过程推进管线 第 75 行）⇒ 老老实实写在最后一条活动语句后面，用 `note right`
-  · 最省事的通用写法：**note right of X**（四类图都认）
-
-在线验证语法（2026-10-16 新增，本机没有 Java/PlantUML 时用）
-  · GET + 十六进制编码：把整份文本按 UTF-8 逐字节转十六进制（小写、无分隔），
-    拼到 `https://www.plantuml.com/plantuml/txt/~h<hex>`。
-    返回 **HTTP 200 且正文不含 "Syntax Error"** 才算过；报错时正文会给出
-    `[From string (line N) ]` + 出错行源码 + `Syntax Error?`，据此直接定位。
-  · 注意：**HTTP 400/500 不等于语法错**——长文本的 ~h URL 过长、或公共服务器限流都会给 4xx/5xx；
-    这种情况只能算"未验证"，不要当成通过（我自己踩过：把 400 当成了通过）。
-  · 更稳的方式是 POST（无 URL 长度限制），但服务端会 **302**，需要跟随重定向（curl 加 -L）。
-
-规则 2：note ... of <短名> 需要"名字解析"，而 PlantUML 允许先引用后声明
-  实测病因（02_ClassDiagram，报 "Not known: ISolver"）：
-    · 第 230 行  Workshop ..> IIdGenerator            ← 首次引用，元素还不存在
-    · 第 348 行  +Solver : ISolver                     ← 在 Orders 包里又"建"了一个
-    · 第 576 行  StateSpaceSolver ..|> ISolver         ← 在 Solver 包里再"建"一个
-    · 第 956 行  package "Abstractions" { interface ISolver …  ← 真声明在这里，太晚
-    · 第 1078 行 note bottom of ISolver                ← 短名匹配到多个 ⇒ Not known
-  ⇒ **一个名字先被引用、后被声明，就会在"引用处所在的包"里被当成新元素创建**；
-    真声明出现后短名有了多个候选，凡需要名字解析的语句（note ... of 短名）就会挂。
-    这也解释了为什么只报一个错：JarSystem / FeasibilityResultData / StateSpaceSolver /
-    OrderEvent 都是"先声明后引用"（短名唯一），所以它们的 note 正常。
-  ⇒ 两个对策：
-    ① 把 note 写成**浮动 note**：note as NX … end note（不做名字解析，最稳）
-       —— 02 / 04_Component / 07 现在就是这么写的
-    ② 或者让声明整体排在引用之前（**尚未做**）
-
-  ⚠️ 规则 2 还有副作用：被提前引用的名字会在图上画出**重复的空盒子**。
-     02 里预期出现幽灵盒子的名字：ISolver、IWorkBudgetedSolver、IIdGenerator、
-     ISystemLog、IJarSelectionStrategy、IFeasibilityCheck、ISwitchCase、
-     ResourceTransferrer、JarMatcher。彻底修法 = 把声明整体前置（待办）。
-
-其他已排除的写法（曾写过、有风险，现已全部清掉）
-  · @startuml <中文名字>            ⇒ 一律裸 @startuml
-  · 反引号                          ⇒ creole 用 "" 表等宽，反引号只会原样显示；已全删
-  · string[8] / int[] 之类方括号类型 ⇒ 改纯文本
-  · 一行塞多个成员（+A / +B : T）    ⇒ 会渲染成一行，难读
-  · 成员名以数字开头（+25 个 op）    ⇒ 改 +Op 常量
-  · 多词 stereotype <<internal static>> ⇒ 改单 token <<internal>>
-  · 嵌套 component "X" as Y { }      ⇒ 改完全扁平
-  · 方括号别名 [名字\n...] as 别名    ⇒ 改 component "..." as 别名
+ 1 PlantUML 对 note 里的 `**加粗**` 与表格混排比较挑，报错时先用最小化裁剪定位（2026-10 用过这招）。
+ 2 state 图里状态名不要用 `__` 之外的符号；本目录用 `双下划线` 代替空格（如 `迁徙中__重组`）。
+ 3 组件图用 `package "标题" as 别名 { component ... }`，不要用 `[]` 语法（2026-09 踩过）。
+ 4 本轮 07/13/14 三张**没有本机渲染验证**（无 plantuml.jar，只有 JVM）；
+    若预览报错请把行号发回，按行修。

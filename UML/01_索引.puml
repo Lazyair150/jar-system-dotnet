@@ -2,13 +2,15 @@
 title Jar System UML 索引
 
 ' ============================================================
-'  2026-09-16 全部重写：本目录 10 张图逐张对 src/JarSystem.Core 当前代码核对后重写。
-'  核对方式 = 逐个类型读源码，不采用任何历史结论。
-'  历史遗留：旧版索引与 UML.txt 都写"8 张"，且文件名写成简写别名（全部与实际不符）。
+'  2026-11 更新：本目录 14 → 16 张。
+'    · 07_Component_架构.puml 重写（分层治理之后层序与类型归属都变了）
+'    · 新增 13_ClassDiagram_世界总线与调度.puml（World/ 与 Process/Scheduler/ 此前完全没进图）
+'    · 新增 14_State_工作台迁徙.puml（换台是可失败可取消、占 tick 的过程，不是瞬时动作）
+'  核对方式仍是逐个类型读源码，不采用任何历史结论。
 ' ============================================================
 
 note as N1
-  **本目录共 14 张图（2026-10-16 增补过程系统 4 张）**
+  **本目录共 16 张图（2026-11 增补世界总线、调度与迁徙）**
 
   |= 文件 |= 类型 |= 内容 |
   | 01_索引.puml | 索引 | 本文件 |
@@ -19,26 +21,43 @@ note as N1
   | 05_State_订单生命周期.puml | 状态图 | 待执行 到 执行中 到 成功 / 失败 |
   | 05_Sequence_工作台切换事件.puml | 时序图 | 切换事件**端到端**调用链 |
   | 06_State_罐子操作.puml | 状态图 | 空罐 / 满罐 乘 未标记 / 已标记 |
-  | 07_Component_架构.puml | 组件图 | Core 包分层与依赖方向 |
+  | 07_Component_架构.puml | 组件图 | **L0…L13 层序表 + 依赖方向（本轮重写）** |
   | 08_Activity_B类可行性.puml | 活动图 | 可行性三级责任链 + 2^N 划分 + 未判定出口 |
   | 09_State_过程生命周期.puml | 状态图 | 过程实例：就绪 到 推进 / 阻断 到 成功 / 失败 / 取消 |
   | 10_Sequence_异步订单执行.puml | 时序图 | 异步轨端到端：startOrder 到 tick 推进 到 process* 消息 |
   | 11_Activity_过程推进管线.puml | 活动图 | 一个 tick 的固定顺序：事件 到 修饰器 到 过程 到 产出 |
   | 12_ClassDiagram_规则与过程.puml | 类图 | 规则层 + 过程系统的类型、端口与实现者 |
+  | 13_ClassDiagram_世界总线与调度.puml | 类图 | **世界总线（信号/反应器/效果队列）+ tick 阶段表 + 统一逻辑时间** |
+  | 14_State_工作台迁徙.puml | 状态图 | **迁徙生命周期：重组 → 转移 → 提交 / 回滚，含互斥与无资源直通** |
+end note
+
+note as N2026_11
+  **2026-11 这轮「过时」到底过时在哪（逐条）**
+  1 **层序全变**：2026-10 起做依赖分层治理，层序被压成 L0 Config … L13 Bootstrap 一条链，
+    双向环 7 → 0。旧 07 里那两条「味道」（Domain→Services、Abstractions↔Solver/Orders）
+    **已经不存在**，照旧图讨论会得出错误结论。
+  2 **类型搬家**：`IIdGenerator`/`DefaultIdGenerators` → Domain；`Requirement`/`JarState`/
+    `SolverResult`/`WorkshopInfo` → Abstractions；`ICommandJournal`/`LogError`/`ConsoleSystemLog`
+    → Abstractions；`RuleContext`/`ModifierStack`/5 种 Modifier → Domain；
+    `IProcessStepPrimitives` → Orders；`JarStateMapper` → Orders/Feasibility。
+  3 **整块新设施没进图**：`World/`（世界总线、统一逻辑时间、首个反应器）、
+    `Process/Scheduler/`（阶段表、封盘、调用边界）、`Domain/JarPool`、`Domain/WorkshopRulebook`、
+    `Orders/OrderTemplate`、`Solver/SolverPrecheck|PrecheckedStateSpaceSolver|MatchingSolver`。
+    → 前两块由**新增的 13** 承载；其余已在重写的 07 与 02 的补注里点名。
+  4 **换台被误当成瞬时动作**：旧图把切换事件画成一条同步链路，但异步轨上它是
+    「一 tick 一段」的过程，可失败、可取消、取消要回滚。→ 由**新增的 14** 承载。
 end note
 
 note as N2
-  **两处需要你知道的历史遗留**
+  **两处需要你知道的历史遗留（未变）**
 
   **1. 编号有重复**：04_ 有两张、05_ 有两张（历史追加导致）。
-  （新图因此从 09_ 起编号，不再制造新的重复。）
-  索引只能靠全名区分。建议你手动重命名为
-  04a/04b 与 05a/05b（或顺延为 04/09 与 05/10）—— 自动化工具无改权限。
+  新图因此从 09_ 起编号，没有再制造新的重复。索引只能靠全名区分。
 
-  **2. 04_Sequence 与 05_Sequence 讲同一件事的两个层次**，刻意这样分开以免重复：
-  · 04_Sequence_工作台切换 = 事件**内部**的分支细节（Case1 / Case2 各做什么、S1 协作对象）
-  · 05_Sequence_工作台切换事件 = **端到端**链路（Dispatcher 到 Service 到 Event 到 History 到回包 到前端动画）
-  若你只想留一张，留 05_Sequence_工作台切换事件 即可。
+  **2. 04_Sequence 与 05_Sequence 讲同一件事的两个层次**，刻意分开：
+  · 04_Sequence_工作台切换 = 事件**内部**分支细节（Case1 / Case2 各做什么）
+  · 05_Sequence_工作台切换事件 = **端到端**链路（Dispatcher 到 Service 到 Event 到 History 到回包）
+  只想留一张的话，留 05_Sequence_工作台切换事件 即可。
 end note
 
 note as N3
@@ -46,8 +65,9 @@ note as N3
   · 在线：把单个文件内容贴到 plantuml.com
   · 本地：VS Code 装 PlantUML 扩展直接预览
 
-  ✅ **渲染已验证（2026-10-16）**：用户在本机 VS Code（PlantUML 插件 + 本机 JVM）逐张预览，
-  **14 张全部正常显示**（含新增的 09/10/11/12 与改写的 04/07）。
-  另：09/11 的两处语法错误已用 PlantUML 官方在线服务定位并修好（见 UML.txt 的踩坑规则 1）。
+  ⚠️ **本轮改/增的三张（07、13、14）尚未做过渲染验证** —— 本机没有 plantuml.jar，
+  只有 JVM。语法按 PlantUML 常规写法（package / class / state / enum / note），
+  若 VS Code 预览报错，把报错行号发我，我按行修。
+  2026-10-16 那批 14 张是你在本机预览确认过的。
 end note
 @enduml

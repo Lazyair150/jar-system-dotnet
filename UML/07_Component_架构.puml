@@ -1,225 +1,161 @@
 @startuml
-title JarSystem.Core 包分层与依赖方向
+title JarSystem.Core 包分层与依赖方向（2026-11 第 3 版：层序表驱动）
 ' ============================================================
-'  2026-09-16 重写（第 2 版：完全扁平，去掉嵌套 component 与方括号语法）
-'  依赖方向按各文件的 using 与类型引用逐个核对。
-'  实线 = 有类型引用；虚线 = 少量引用 / 值得注意的例外。
+'  本版重写的理由：2026-10 之后做了「依赖分层治理」，层序被压成一条链、
+'  双向环从 7 降到 0，并且若干类型**换了所属层**。旧图里这三条已不成立：
+'    ① Orders.Feasibility / Orders.Switching / Executor 的子包切分（现按层排）
+'    ② 「Domain 依赖 Services」这处味道（IIdGenerator 等已下沉到 Domain）
+'    ③ 「Abstractions 与 Solver/Orders 互相引用」这处味道（契约值词汇已归 Abstractions）
+'
+'  层序表的唯一权威在代码里：test/JarSystem.Tests/ArchitectureTests.cs
+'  规则：一个层只许引用**更低**的层；新增命名空间必须登记进表，否则测试红。
 ' ============================================================
 skinparam shadowing false
+skinparam packageStyle rectangle
 
-package "Config" {
-  component "Constants + 6 个嵌套契约类" as C1
-  component "Rules / ShapeRules" as C2
-  component "Vocabulary" as C3
-  component "WorldOptions + 4 个嵌套 Options" as C4
-  component "WorldOptionsJson" as C5
+package "L0 Config（常量与契约词汇）" as L0 {
+  component "Constants（SHAPES / LIQUIDS / 操作名 / 订单状态）" as C0a
+  component "Vocabulary / NamePoolOptions / WorkshopOptions / WorldOptions" as C0b
+  component "CheckMethod / OrderType / OrderPhase / SwitchCaseType / OperationType" as C0c
+  component "ShapeRules / Rules / OrderTemplateOptions / RequirementOptions" as C0d
 }
 
-package "Domain" {
-  component "Jar" as D1
-  component "Workshop + TemporaryMarksScope" as D2
-  component "WorkshopCapability" as D3
-  component "WorkshopSnapshot" as D4
-  component "DomainValidationException" as D5
+package "L1 Domain（自身不依赖任何上层）" as L1 {
+  component "Jar + JarPool（对象池 / 回收标记）" as D1a
+  component "Workshop + WorkshopSnapshot + WorkshopCapability" as D1b
+  component "RuleContext / ModifierStack / 5 种 Modifier" as D1c
+  component "WorkshopRulebook / WorkshopOperation / JarFacts" as D1d
+  component "IIdGenerator / SequentialIdGenerator / DefaultIdGenerators" as D1e
+  component "IIntensitySource / DomainValidationException" as D1f
 }
 
-package "Orders" {
-  component "Order / Requirement" as O1
-  component "OrderEvent + ExecutionLogEntry / LogError" as O2
-  component "SlaveRollback" as O3
-  component "WorkshopSwitchEvent" as O4
-  component "FeasibilityChecker" as O5
-  component "SolverStepDto / FeasibilityResultData" as O6
-  component "AutoCheckResultDto" as O7
+package "L2 Abstractions（跨层契约与值词汇）" as L2 {
+  component "ISolver / IWorkBudgetedSolver" as A1
+  component "SolverContracts：Requirement / JarState / SolverResult / WorkshopInfo…" as A2
+  component "ICommandJournal / ISystemLog / ConsoleSystemLog / LogError" as A3
+  component "IJarSelectionStrategy / IProcessRecorder / PlanSources / SolverLimits" as A4
 }
 
-package "Orders.Feasibility" {
-  component "IFeasibilityCheck + 3 实现" as F1
-  component "PartitionSearch + Request / Outcome" as F2
-  component "FeasibilityContext + WorkshopInfoFactory" as F3
-  component "FeasibilityResultFactory + PathSummaryFormatter" as F4
-  component "JarMatcher / LiquidRequirementCalculator / RequirementOrdering" as F5
+package "L3 Rules（世界规则：查询 / 场景 / 装饰求解器）" as L3 {
+  component "WorldQuery + IWorldFacts（结构化查询）" as R1
+  component "IWorldEventSource + WorldEvent / EventData" as R2
+  component "ScenarioOptions / ScenarioJson / ScenarioBinder / ModifierData" as R3
+  component "ModifierAwareSolver（装饰器：可表达则投影，否则未判定）" as R4
 }
 
-package "Orders.Switching" {
-  component "ISwitchCase + SameBans / DifferentBans" as W1
-  component "ResourceTransferrer + JarValuePolicy" as W2
-  component "BanComparison / SwitchOperationLog" as W3
+package "L4 Production（产线 → 仓库 → 主台）" as L4 {
+  component "ProducerModule / Producer / ShapeProductionLine" as P1
+  component "Warehouse（StoreJars / ProduceLiquid / FlowToMaster）" as P2
 }
 
-package "Solver" {
-  component "StateSpaceSolver" as S1
-  component "SolverState / WorkshopInfo / SolverStats / SolverResult" as S2
+package "L5 Solver（可行性求解：三种实现 + 一个前置检查）" as L5 {
+  component "SolverPrecheck（只证不可行）" as S1
+  component "PrecheckedStateSpaceSolver（默认装配）" as S2
+  component "StateSpaceSolver（DFS + 记忆化）" as S3
+  component "MatchingSolver（分配形，非默认）" as S4
 }
 
-package "Executor" {
-  component "OrderExecutor" as E1
-  component "SolverStepApplier" as E2
-  component "GreedyPlanBuilder" as E3
-  component "JarSelector + 5 个策略实现" as E4
+package "L6 Commands（四个原子罐操作）" as L6 {
+  component "Command / CommandResult / CommandExecutor" as M1
+  component "PourIn / PourOut / ReshapeEmpty / Transfer 命令" as M2
 }
 
-package "Commands" {
-  component "Command / CommandResult" as M1
-  component "4 个具体命令" as M2
-  component "CommandExecutor" as M3
+package "L7 Orders（订单、执行语义、可行性、换台）" as L7 {
+  component "Order / OrderEvent / ExecutionLogEntry / SlaveRollback" as O1
+  component "OrderTemplate / OrderTemplateLibrary" as O2
+  component "FeasibilityChecker / PartitionSearch / JarMatcher / RequirementOrdering" as O3
+  component "WorkshopSwitchEvent + SwitchCases + ResourceTransferrer" as O4
+  component "JarStateMapper / IProcessStepPrimitives" as O5
 }
 
-package "Production" {
-  component "ProducerModule" as P1
-  component "Warehouse" as P2
-  component "Producer / ShapeProductionLine" as P3
+package "L8 Process（过程：状态机 / 日志 / 调度 / 端口）" as L8 {
+  component "Model：ProcessDefinition / Instance / Run / State" as PR1
+  component "Scheduler：WorldScheduler / ITickHandler / TickPhase / TickPipeline / LogicalClock" as PR2
+  component "Ports：IProcessAdvancer / IProcessObserver / IOrderExecutionCompletion" as PR3
+  component "Journal：ProcessJournal / JournalCodec" as PR4
+  component "Execution：OrderExecutionSession / SwitchProcessAdvancer" as PR5
+  component "ProcessSystem（门面）" as PR6
 }
 
-package "Services" {
-  component "StateSerializer + 10 个 DTO" as V1
+package "L9 Services（状态序列化与服务层）" as L9 {
+  component "StateDto / StateSerializer + 10 个 DTO" as V1
   component "WorkshopService / OrderService / ProductionService" as V2
   component "MasterSwitchCoordinator" as V3
-  component "SequentialIdGenerator / DefaultIdGenerators" as V4
-  component "ConsoleSystemLog" as V5
 }
 
-package "Sessions" {
-  component "WorldCommand / WorldOps / WorkshopPayload" as X1
-  component "SessionReplay / WorldCommandJson" as X2
+package "L10 Sessions（命令日志与回放）" as L10 {
+  component "WorldCommand / WorldOps / WorkshopPayload / WorldCommandJson" as X1
+  component "SessionReplay" as X2
 }
 
-package "Rules（P4d 起独立成层：世界规则）" {
-  component "RuleContext（规则读取的唯一入口）" as R1
-  component "IRuleModifier + 5 种修饰器" as R2
-  component "ModifierStack（区间 / 优先级 / 冲突 / 到期）" as R3
-  component "WorldQuery + IWorldFacts（结构化查询）" as R4
-  component "ScenarioOptions / ScenarioJson / ScenarioBinder" as R5
-  component "IWorldEventSource + WorldEvent" as R6
-  component "ModifierAwareSolver（装饰器，求解器之上）" as R7
+package "L11 Executor（把求解结果落到世界）" as L11 {
+  component "OrderExecutor / SolverStepApplier / GreedyPlanBuilder" as E1
+  component "JarSelector + 策略实现 / WorkshopStageResult" as E2
 }
 
-package "Process（过程系统：时间 / 状态机 / 日志）" {
-  component "Model：ProcessDefinition/Instance/JournalEntry/State" as P1
-  component "Scheduler：LogicalClock / StepAllocator / TickPipeline" as P2
-  component "Ports：IProcessAdvancer/IProcessObserver/IOrderExecutionCompletion" as P3
-  component "Journal：ProcessJournal / JournalCodec" as P4
-  component "Execution：OrderExecutionSession / OrderProcessAdvancer" as P5
-  component "ProcessRun / ProcessSystem（门面）" as P6
+package "L12 World（世界总线与统一逻辑时间）" as L12 {
+  component "WorldBus（信号 → 反应器 → 本 tick 效果队列）" as W1
+  component "WorldSignal / WorldSignalKind / IWorldObserver / IWorldReactor / IWorldEffectSink" as W2
+  component "WorldTime / WorldTimeState（Tick 委托 LogicalClock）" as W3
+  component "FeasibilityInvalidationReactor（首个真实反应器）" as W4
 }
 
-package "Bootstrap" {
+package "L13 Bootstrap（装配）" as L13 {
   component "SystemBootstrapper" as B1
 }
 
-package "Abstractions" {
-  component "ISolver / IWorkBudgetedSolver" as A1
-  component "IIdGenerator" as A2
-  component "IJarSelectionStrategy" as A3
-  component "ISystemLog" as A4
-}
+component "门面 JarSystem（实现 Rules.IWorldFacts）" as Facade
 
-component "门面 JarSystem" as Facade
+' ---- 层间依赖：只画跨层的主要方向；同层内部关系见图 12 ----
+L1 --> L0
+L2 --> L1
+L3 --> L2
+L3 --> L1 : 规则读取经 RuleContext
+L4 --> L1
+L5 --> L2
+L6 --> L1
+L6 --> L2
+L7 --> L2
+L7 --> L5
+L7 --> L6
+L8 --> L2
+L8 --> L7 : IOrderExecutionCompletion
+L9 --> L7
+L9 --> L8
+L9 --> L11
+L10 --> L9
+L11 --> L5
+L11 --> L7
+L12 --> L2
+L12 --> L8 : ITickHandler
+L13 --> L1
+L13 --> L4
+L13 --> L8
+L13 --> L9
+L13 --> L12
+Facade --> L9
+Facade --> L11
+Facade --> L12
+Facade --> L13
 
-' ---- Domain ----
-D1 --> C3
-D2 --> C3
-D2 --> C2
-D2 --> A2
-D2 ..> V4 : 向上依赖（见 note）
-D2 --> R1 : 规则读取经 RuleContext（P4d：不再直接依赖 Process）
+note as NLayerRule
+  **层序是机器检查的，不是约定**
+  `test/JarSystem.Tests/ArchitectureTests.cs`
+  · `CoreLayersOnlyDependDownward`：一条 using 指向上层即红，报「文件:行号 + 双方排位」
+  · `EveryNamespaceIsRanked`：新增命名空间未登记层号即红
+  反向验证做过：往 `Config/Constants.cs` 里插一行 `using JarSystem.Core.Bootstrap;`，测试立刻红。
 
-' ---- Orders ----
-O1 --> C1
-O2 --> D2
-O2 --> M3
-O4 --> W1
-O4 --> W2
-O5 --> A1
-
-' ---- Orders.Feasibility ----
-F1 --> A1
-F2 --> A1
-F2 --> S2
-F3 --> S2
-F5 --> O1
-
-' ---- Solver ----
-S1 --> A1
-S1 --> C1
-S1 --> D3
-S2 --> D3
-S2 --> O1
-
-' ---- Executor / Commands ----
-E1 --> E2
-E1 --> E3
-E1 --> E4
-E1 --> O2
-E2 --> D1
-E3 --> D1
-E4 --> A3
-M1 --> D1
-M2 --> D2
-M3 --> A4
-
-' ---- Production ----
-P1 --> P2
-P2 --> D2
-P1 --> C3
-
-' ---- Services ----
-V1 --> P1
-V2 --> D2
-V2 --> O5
-V2 --> E1
-V3 --> O4
-
-' ---- Bootstrap / Sessions ----
-B1 --> C4
-B1 --> C3
-B1 --> D2
-B1 --> P1
-X2 --> Facade
-
-' ---- 门面 ----
-Facade --> V2
-Facade --> V3
-Facade --> O5
-Facade --> E1
-Facade --> P1
-Facade --> V1
-Facade --> X2
-Facade --> A2
-Facade --> A4
-Facade --> C4
-Facade --> C3
-
-note as NLayerSmell
-  **两处真实存在的"味道"（P4c/P4d 复查后更新）**
-  1 **Domain 依赖 Services**：Workshop 用 Services.DefaultIdGenerators.Jars
-    给罐子分配 Id，下层依赖了上层。
-  2 **Abstractions 与 Solver / Orders 互相引用**：
-    ISolver.Solve 的签名里出现 Requirement / JarState（Orders）
-    与 SolverResult / WorkshopInfo（Solver），而 Solver 又实现 ISolver。
-    同程序集内成环，编译无碍，但接口并不是"零依赖"的。
-  **已修掉的两处（2026-10-16）**：
-  · Process 曾与 Services / Executor 互相引用 ⇒ 改为
-    Ports.IOrderExecutionCompletion（Services 实现）与
-    Abstractions.IProcessStepPrimitives（Executor 实现）。
-  · Rules 曾住在 Process 下 ⇒ Domain 一度依赖 Process；现已独立成层：
-    Domain → Rules ← Process。
+  本轮把**双向环 7 → 0**，所以旧图里的两条「味道」（Domain→Services、
+  Abstractions↔Solver/Orders）**都已消失**，不要再照旧图讨论它们。
 end note
 
-note as NProcessLayer
-  **过程系统的依赖方向（可自检）**
-  · Process → Rules（用修饰器栈与事件源）、Process → Abstractions（记账/原语/观察者）
-  · Rules → Domain/Config/Orders/Solver（只读世界与规则）
-  · Services → Process（投影 processes[]、实现收尾端口）
-  · 反向依赖自检四项全空（Rules→Process、Domain→Process、
-    Process→Services、Process→Executor）
+note as NMoved
+  **2026-09 之后搬过家的类型（旧图仍在旧位置，以本图为准）**
+  · `IIdGenerator / SequentialIdGenerator / DefaultIdGenerators`：Services → **Domain**
+  · `Requirement / JarState / SolverResult / WorkshopInfo / SolverStats…`：Solver·Orders → **Abstractions**
+  · `ICommandJournal / LogError / ConsoleSystemLog`：Services → **Abstractions**
+  · `RuleContext / ModifierStack / 5 种 Modifier / IIntensitySource`：Rules → **Domain**
+  · `IProcessStepPrimitives` → **Orders**；`JarStateMapper` → **Orders/Feasibility**
 end note
 
-note as NZeroDep
-  **Core 零外部依赖**
-  只用 .NET 基类库 + System.Text.Json（后者只用于 WorldOptionsJson
-  与 Sessions 存档格式）。没有 Hosting / DI 容器 / 任何 NuGet 包，
-  因此可被 Godot / Unity 直接引用。
-  Config 自身不引用任何其它包。
-end note
 @enduml

@@ -245,6 +245,17 @@ ProcessInstance --> ProcessDefinition
 ProcessSystem --> ModifierStack
 ProcessSystem --> IWorldEventSource
 OrderExecutionSession --> IProcessStepPrimitives
+note as NCorrection
+  **2026-11 更正（本图有两处已过时）**
+  1 `RuleContext` / `ModifierStack` / 5 种 Modifier / `IIntensitySource` **已从 Rules 层下沉到 Domain**
+     （理由：它们描述"工作台当前生效的法则"，属工作台状态）。Rules 层现在只剩
+     `WorldQuery` / `IWorldFacts` / `IWorldEventSource` / `WorldEvent` / `Scenario*` / `ModifierAwareSolver`。
+  2 本图缺少两个新类型：`Domain.WorkshopRulebook`（规则的可调用表述：
+     `IsAllowed` / `Available` + `WorkshopOperation` / `JarFacts`）与
+     `Rules.ModifierAwareSolver` 的 sound 语义（可表达则投影，不可表达回"未判定"，
+     **绝不把说不准说成不可行**）。后者在本图里只画了类型，没画语义，见下方 note。
+end note
+
 note as NPorts
   **端口归属（谁实现谁，决定依赖方向）**
   · IProcessStepPrimitives 由 OrderExecutor 实现（Executor 到 Abstractions）

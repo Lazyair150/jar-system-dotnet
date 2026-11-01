@@ -1,0 +1,144 @@
+@startuml
+title 世界总线与 tick 调度（World + Process/Scheduler）—— 2026-11 新增
+' ============================================================
+'  本图覆盖两处此前完全没有进图的基础设施：
+'   ① World/：世界信息总线（信号 → 反应器 → 本 tick 效果队列）+ 统一逻辑时间
+'   ② Process/Scheduler/：tick 阶段表（阶段 + Order）、封盘、调用边界
+'  依据：src/JarSystem.Core/World/*.cs、Process/Scheduler/*.cs、Process/TickPipeline.cs
+'  ！！重要：**级联跨 tick** 执行，不在同一 tick 里递归（同 tick 同步递归会让"收敛"
+'         变成运行时性质，确定性就没了）。
+' ============================================================
+skinparam shadowing false
+
+package "World（L12）" {
+  class WorldSignal {
+    + Tick : int
+    + Revision : long
+    + Kind : WorldSignalKind
+    --
+    ' readonly struct：零分配
+    ' **只在分发期间有效**，不可跨 tick 转存
+  }
+
+  enum WorldSignalKind {
+    OrderStarted
+    OrderFinished
+    WorkshopSwitched
+    ResourceChanged
+    FeasibilityInvalidated
+    TimePaused
+    TimeResumed
+  }
+
+  interface IWorldObserver {
+    + OnSignal(in WorldSignal signal)
+  }
+
+  interface IWorldReactor {
+    + React(in WorldSignal signal, IWorldEffectSink sink)
+  }
+
+  interface IWorldEffectSink {
+    + Enqueue(effect)
+  }
+
+  class WorldBus {
+    + Publish(kind, ...)
+    + RunEffects()
+    --
+    ' 观察者=纯通知；反应器=排效果
+    ' 每 tick 效果上限：防"一个信号引出一串信号"的无界扩散
+  }
+
+  class WorldTime {
+    + Tick : int
+    + Paused : bool
+    + Pause() / Resume()
+    --
+    ' 自己不推进时钟：Tick 委托 Process.LogicalClock
+    ' 冻结期间 Tick 完全不生效（不推进、不产出、**不写命令日志**）
+    ' Tick(count<0) 抛 ArgumentOutOfRangeException（在 Record 之前抛）
+  }
+
+  class WorldTimeState
+
+  class FeasibilityInvalidationReactor {
+    ' 首个真实反应器：世界资源一变 ⇒ 待定订单的可行性缓存作废
+    ' 依据内容指纹，不依据世界修订号（Tick 每 tick 都 Record，按修订号判等永不命中）
+  }
+}
+
+package "Process/Scheduler（L8）" {
+  enum TickPhase {
+    Events
+    Modifiers
+    Processes
+    Production
+    Flow
+  }
+
+  interface ITickHandler {
+    + Phase : TickPhase
+    + Order : int
+    + Name : string
+    + OnTick(in TickContext context)
+  }
+
+  class TickContext {
+    + Tick : int
+    --
+    ' 刻意只有 Tick：无 dt、不持有 JarSystem
+  }
+
+  class DelegateTickHandler
+
+  class WorldScheduler {
+    + Register(ITickHandler)
+    + RunTick(int tick)
+    + RunCallBoundary(int tick)
+    + IsSealed : bool
+    + Handlers
+    --
+    ' 按 Phase + Order 插入排序（**不是注册序**）
+    ' 同阶段同 Order 冲突 ⇒ 指名报错
+    ' 首次 RunTick 之后**封盘**：游戏中再注册即拒
+    ' RunCallBoundary 只跑 Flow（调用边界阶段）
+  }
+
+  class TickPipeline {
+    + Scheduler : WorldScheduler
+    + AdvanceOneTick()
+    + RunCallBoundary()
+  }
+
+  class LogicalClock
+  class StepAllocator
+}
+
+IWorldObserver <|.. WorldBus
+IWorldReactor <|.. FeasibilityInvalidationReactor
+ITickHandler <|.. DelegateTickHandler
+WorldBus --> WorldSignal : 分发
+WorldBus --> IWorldReactor : 反应器排效果
+FeasibilityInvalidationReactor ..> WorldSignal : 读 Tick / Revision
+WorldTime --> LogicalClock : Tick 委托
+TickPipeline --> WorldScheduler : 持有
+TickPipeline --> LogicalClock : 推进
+WorldScheduler --> ITickHandler : 按阶段+Order
+WorldScheduler --> TickContext : 构造后传入
+
+note as NBoot
+  **核心五步的注册（全在 Bootstrap / JarSystem 构造里）**
+  `Events(0)` → `Modifiers(0)` → `Processes(0)` → `Production(0)` → `Flow(0)`
+  新模块接入 = 实现 `ITickHandler` 或 `new DelegateTickHandler(phase, order, name, cb)`，
+  并在**第一个 tick 之前**注册。封盘后拒绝注册，是为了让同一份命令日志在不同会话里
+  重放出同一个世界 —— 动态增删处理器会破坏这一点。
+end note
+
+note as NFrozen
+  **冻结语义（WorldTime）**
+  冻结期间 `Tick` 完全不生效：不推进时钟、不跑产出、**不写命令日志**。
+  这不是"暂停计时"而是"世界停止"，所以回放里不会出现空转的 tick 记录。
+end note
+
+@enduml

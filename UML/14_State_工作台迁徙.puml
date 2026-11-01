@@ -1,0 +1,68 @@
+@startuml
+title 工作台迁徙（workshop_migration）的生命周期 —— 2026-11 新增
+' ============================================================
+'  依据：Orders/WorkshopSwitchEvent.cs（Execute = Begin → RunReshape → RunTransfer）
+'        Process/Execution/SwitchProcessAdvancer.cs（一 tick 一段）
+'        JarSystem.BeginSwitch（互斥 + 无资源直通）
+'  本图补的是：换台在系统里**不是瞬时的**，而是一个可失败、可取消、占 tick 的过程。
+' ============================================================
+skinparam shadowing false
+
+[*] --> 空闲 : 世界就绪
+
+空闲 --> 迁徙中__重组 : BeginSwitch(index, deadline?)\n旧台有资源
+空闲 --> 已切换 : BeginSwitch\n旧台**无资源**（Jars=0 且液体全 0）\n⇒ 不起过程，直接 SetMaster
+
+state "迁徙中 · 重组（RunReshape）" as 迁徙中__重组 {
+  [*] --> 按禁令选分支
+  按禁令选分支 --> Case1_禁令相同 : BanComparison.Same = true
+  按禁令选分支 --> Case2_禁令不同 : BanComparison.Same = false
+  Case1_禁令相同 : 把游离液体尽量灌进**旧台基础形状**的空罐\n（让新台接收"已装满的罐子"作为额外液体容量）
+  Case2_禁令不同 : 按新台禁令处理旧台资源
+  Case1_禁令相同 --> [*]
+  Case2_禁令不同 --> [*]
+}
+
+迁徙中__重组 --> 迁徙中__转移 : 本 tick 结束，下一 tick 进入转移段
+迁徙中__重组 --> 已回滚 : 重组抛异常 / 失败
+
+state "迁徙中 · 转移（RunTransfer）" as 迁徙中__转移 {
+  迁徙中__转移 : 把剩余罐子与液体整体搬到新主台\n按 JarValuePolicy 排序\n新台收不下即丢弃并记 discard_*
+}
+
+迁徙中__转移 --> 已切换 : 转移成功 ⇒ CommitSwitch\n写 workshop_switch 事件历史 + 切 CurrentMaster
+迁徙中__转移 --> 已回滚 : 转移失败
+
+迁徙中__重组 --> 已回滚 : 取消（Cancel）
+迁徙中__转移 --> 已回滚 : 取消（Cancel）
+
+已回滚 : 两台恢复 Begin() 时拍的快照
+已回滚 : **特别注意**：RunReshape 可能已经把旧台罐子改过形，
+           所以取消路径也必须回滚（早期这里没有回滚，是修过的缺陷）
+
+已切换 --> 空闲
+已回滚 --> 空闲
+已切换 --> [*]
+
+note as NMutex
+  **互斥（BeginSwitch 与 StartOrder 互相拒绝）**
+  · `BeginSwitch` 拒绝：已有 `order_execution`、已有第二个 `workshop_migration`
+  · `StartOrder` 拒绝：已有 `workshop_migration`
+  理由：迁徙是**工作台配置的更新**，订单以工作台为前提。
+  互斥刻意做成"互相拒绝"而不是"阻断→恢复" —— 恢复时手里的计划仍基于旧配置。
+end note
+
+note as NFastPath
+  **无资源直通**
+  旧台 `Jars.Count == 0` 且每种液体都是 0 时不起过程，直接 `SetMaster`。
+  这条分支让"空台换台"在回放里不留多余的 tick 记录。
+end note
+
+note as NSync
+  **两条轨，一份搬运逻辑**
+  `WorkshopSwitchEvent.Execute()`（同步瞬时版，`setMaster` 命令用）
+  = `Begin()` → `RunReshape()` → `RunTransfer()`
+  异步轨 `SwitchProcessAdvancer` 只是把同样三段**一 tick 走一段**，不复制搬运代码。
+end note
+
+@enduml

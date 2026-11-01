@@ -1108,4 +1108,23 @@ note as NVisibilityLegend
   DTO 与配置模型（WorldOptions / *Dto / SolverStep / JarState / SolverResult）
   按 ISolver 扩展契约与 JSON 契约的需要保持可写。
 end note
+
+note as N2026_11
+  **2026-11 补注：本图之后新增的类型（未逐个画进本图，避免 34KB 图失控）**
+  · Domain：`JarPool`（对象池 + 回收标记）、`WorkshopRulebook` + `WorkshopOperation` +
+    `WorkshopOperationKind` + `JarFacts`（规则的可调用表述）、`RuleContext` / `ModifierStack` /
+    `SuppressModifier|GrantModifier|RetimeModifier|RequireModifier|IntensityModifier` /
+    `IIntensitySource`（这些**原本在 Rules 层，已下沉到 Domain**）
+  · Abstractions：`SolverContracts` 一组值词汇（`Requirement` / `JarState` / `SolverResult` /
+    `WorkshopInfo` / `SolverStats` / `SolverStep` / `SolverOperation` / `SolverLimits` /
+    `PlanSources`）、`ICommandJournal` / `LogError` / `ConsoleSystemLog`
+  · Orders：`OrderTemplate` / `OrderTemplateLibrary`、`IProcessStepPrimitives`、`JarStateMapper`
+  · Solver：`SolverPrecheck` / `PrecheckedStateSpaceSolver` / `MatchingSolver`（三种可替换实现）
+  · World / Process.Scheduler：**整块设施**见 `13_ClassDiagram_世界总线与调度.puml`
+  · 换台过程的状态机见 `14_State_工作台迁徙.puml`
+
+  另外：`Requirement` / `JarState` / `SolverResult` / `WorkshopInfo` 原先画在 Solver 与 Orders，
+  现在统一在 **Abstractions** —— 层序见 `07_Component_架构.puml`。
+end note
+
 @enduml
