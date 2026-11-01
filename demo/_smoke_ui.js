@@ -105,12 +105,18 @@ console.log('回看：进入/前后走/回到实时 全部通过');
 
 /* 新加的可玩性元素：顶栏要报「第 N / 5 关」；第五关无从台时必须提示「需要从台」；
    玩法面板必须已更新到「迁徙 / 转移」这套当前机制。 */
+var LVN = window.LEVELS.length;   /* 关卡总数不写死：会加关卡 */
 var topText = els.topbar.innerHTML;
-if (topText.indexOf('第 1 / 5 关') < 0) { console.log('  ! 顶栏没有关卡序号：' + topText.slice(0, 80)); process.exitCode = 1; }
+if (topText.indexOf('第 1 / ' + LVN + ' 关') < 0) { console.log('  ! 顶栏没有关卡序号：' + topText.slice(0, 80)); process.exitCode = 1; }
 fire({ 'data-act': 'restart' });
-for (var lv = 0; lv < 4; lv++) fire({ 'data-act': 'nextlv' });
+for (var lv = 0; lv < LVN - 2; lv++) fire({ 'data-act': 'nextlv' });
 var top5 = els.topbar.innerHTML;
-if (top5.indexOf('第 5 / 5 关') < 0) { console.log('  ! 跳不到第五关：' + top5.slice(0, 80)); process.exitCode = 1; }
+if (top5.indexOf('第 ' + (LVN - 1) + ' / ' + LVN + ' 关') < 0) { console.log('  ! 跳不到倒数第二关：' + top5.slice(0, 80)); process.exitCode = 1; }
+fire({ 'data-act': 'nextlv' });
+if (els.topbar.innerHTML.indexOf('第 ' + LVN + ' / ' + LVN + ' 关') < 0) { console.log('  ! 走不到最后一关'); process.exitCode = 1; }
+fire({ 'data-act': 'nextlv' });
+if (els.topbar.innerHTML.indexOf('第 ' + LVN + ' / ' + LVN + ' 关') < 0) { console.log('  ! 最后一关之后还能越界'); process.exitCode = 1; }
+fire({ 'data-act': 'prevlv' });
 fire({ 'data-act': 'turn' });
 var orders5 = els.ordersPanel.innerHTML.replace(/<[^>]*>/g, ' ');
 if (orders5.indexOf('需要从台') < 0 && orders5.indexOf('从台') < 0) {
@@ -127,4 +133,5 @@ fire({ 'data-act': 'prevlv' });
 fire({ 'data-act': 'help' });
 console.log('玩法面板长度 =', els.picker.innerHTML.length);
 fire({ 'data-act': 'closepicker' });
-console.log('\n✅ 冒烟通过：渲染、选台、选产线、产出、装备从台、转移罐子、连按回合、重开、换关、玩法面板全部无异常');
+if (process.exitCode === 1) console.log('\n❌ 冒烟有失败项（见上面 ！开头的行）');
+else console.log('\n✅ 冒烟通过：渲染、选台、选产线、产出、装备从台、转移罐子、连按回合、重开、换关、玩法面板全部无异常');

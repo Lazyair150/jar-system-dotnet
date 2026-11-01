@@ -392,10 +392,11 @@ console.log('=== 中间态快照 ===');
 /* ============ 订单执行顺序 ============
    执行顺序 = G.orders 的数组顺序；od.idx 是身份，不随排序变。
    这里只断言**机制**（引擎确实按数组顺序跑、越界被拒、顺序能跨回合保持）。
-   ⚠️ 一个必须记住的实测结论：在现有五关的 3,576 种产线组合里，
-   **换顺序从不改变完成集合**（identity 级别扫描，0 处差异）——
-   所以这个旋钮目前是"接通了但还没用处"，缺的是**会抢同一批罐子/液体的订单**。
-   这正是关卡设计的缺口，不是代码缺口；一旦设计出这种订单，下面的机制就已经就位。 */
+   ⚠️ 一个必须记住的实测结论：在**前五关**的 3,576 种产线组合里，
+   换顺序从不改变完成集合（identity 级别扫描，0 处差异）—— 因为那五关的订单互不相干：
+   先执行的要么做完了（拿走的罐子本来没别人要），要么做不完（**做不完的计划不消耗罐子**）。
+   所以那不是代码缺口，是关卡设计缺口。第六关「抢资源」就是补这个缺口的样本：
+   两张订单一模一样、都抢同一份稀缺液体 ⇒ 顺序第一次真的改变结果（断言 ④⑤）。 */
 console.log('=== 订单执行顺序 ===');
 (function () {
   var bad = 0;
@@ -447,9 +448,41 @@ console.log('=== 订单执行顺序 ===');
   ENG.runTurn(G2); ENG.runTurn(G2);
   if (G2.orders.map(function (o) { return o.idx; }).join(',') !== want) fail('执行两回合后顺序自己变回去了');
 
+  /* ④ 抢资源的关卡：换顺序必须真的改变"谁做完了"。
+     判据用 identity（od.idx）而不是数量 —— 两张订单面值一样，"做完 1 张"在两种顺序下都成立，
+     只有看是**哪一张**才分得开。这条断言同时是第六关的存在理由：
+     若哪天有人把这张关卡改回互不相干，这里会红。 */
+  function doneSet(levelIdx, swap) {
+    var L = ENG.newGame(levelIdx);
+    if (swap) ENG.moveOrder(L, 0, 1);
+    for (var i = 0; i < L.lv.turns && !L.over; i++) ENG.runTurn(L);
+    return L.orders.filter(function (o) { return o.done; })
+      .map(function (o) { return o.idx; }).sort().join(',');
+  }
+  var lvIdx = -1;
+  (window.LEVELS || []).forEach(function (L, i) { if (L.name.indexOf('抢资源') >= 0) lvIdx = i; });
+  if (lvIdx < 0) fail('找不到「抢资源」关卡，④ 会空转');
+  else {
+    var plain = doneSet(lvIdx, false), swapped = doneSet(lvIdx, true);
+    if (plain === swapped) {
+      fail('「抢资源」关卡里换执行顺序没有改变完成集合（' + plain + ' == ' + swapped + '）—— ' +
+        '这一关的存在理由就是让顺序有意义，改回互不相干就白设了');
+    }
+    if (!plain || !swapped) fail('「抢资源」关卡两边都没做完任何订单，④ 会空转');
+  }
+
+  /* ⑤ 顺序不是免费的：后动的订单会连材料一起丢掉（失败也付代价）。 */
+  (function () {
+    if (lvIdx < 0) return;
+    var L = ENG.newGame(lvIdx);
+    for (var i = 0; i < L.lv.turns && !L.over; i++) ENG.runTurn(L);
+    var failed = L.orders.filter(function (o) { return !o.done; });
+    if (!failed.length) fail('⑤ 前提不成立：这一关没有失败订单，看不出"失败也付代价"');
+  })();
+
   if (bad) { console.log('  => 执行顺序抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
   else console.log('  => 执行顺序抽查 OK（引擎按数组顺序执行、越界被拒、顺序跨回合保持；' +
-    '注意：现有关卡里换顺序不改变结果，见注释）');
+    '「抢资源」关里换顺序真的改变完成集合）');
 })();
 
 /* ---------- 跨回合回看：历史帧必须留下、且不许被后续回合改写 ----------
