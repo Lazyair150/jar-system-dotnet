@@ -70,6 +70,24 @@ for (var i = 0; i < 6; i++) {
 }
 logs.forEach(function (l) { console.log('  ' + l); });
 
+/* 新加的可玩性元素：顶栏要报「第 N / 5 关」；第五关无从台时必须提示「需要从台」；
+   玩法面板必须已更新到「迁徙 / 转移」这套当前机制。 */
+var topText = els.topbar.innerHTML;
+if (topText.indexOf('第 1 / 5 关') < 0) { console.log('  ! 顶栏没有关卡序号：' + topText.slice(0, 80)); process.exitCode = 1; }
+fire({ 'data-act': 'restart' });
+for (var lv = 0; lv < 4; lv++) fire({ 'data-act': 'nextlv' });
+var top5 = els.topbar.innerHTML;
+if (top5.indexOf('第 5 / 5 关') < 0) { console.log('  ! 跳不到第五关：' + top5.slice(0, 80)); process.exitCode = 1; }
+fire({ 'data-act': 'turn' });
+var orders5 = els.ordersPanel.innerHTML.replace(/<[^>]*>/g, ' ');
+if (orders5.indexOf('需要从台') < 0 && orders5.indexOf('从台') < 0) {
+  console.log('  ! 第五关无从台时没有提示：' + orders5.slice(0, 120));
+  process.exitCode = 1;
+}
+fire({ 'data-act': 'help' });
+if (els.picker.innerHTML.indexOf('迁徙') < 0) { console.log('  ! 玩法面板没提到迁徙'); process.exitCode = 1; }
+fire({ 'data-act': 'closepicker' });
+
 fire({ 'data-act': 'restart' });
 fire({ 'data-act': 'nextlv' });
 fire({ 'data-act': 'prevlv' });

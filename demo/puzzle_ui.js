@@ -133,7 +133,11 @@
     if (!od.done && od.cls === 'B' && !G.sub) {
       h += '<div class="onote bad">需要从台才能执行</div>';
     } else if (!od.done) {
-      if (od.progress === od.total) h += '<div class="onote good">下回合可以完成</div>';
+      /* 引擎给的具体原因优先于泛泛的进度提示：例如
+         「交付必须在从台：还要 1 只从主台转过去，从台只剩 0 个罐位」——
+         没有这一行，玩家只会看到 0/2 和一句"一只也配不上"，不知道该动哪只手。 */
+      if (r.reason) h += '<div class="onote bad">' + esc(r.reason) + '</div>';
+      else if (od.progress === od.total) h += '<div class="onote good">下回合可以完成</div>';
       else if (od.progress === 0) h += '<div class="onote bad">一只也配不上 —— 检查产线形状 / 液体禁令 / 罐位是否满</div>';
       else h += '<div class="onote">还差 ' + (od.total - od.progress) + ' 个需求</div>';
     }
@@ -169,7 +173,8 @@
     var doneCount = G.orders.filter(function (o) { return o.done; }).length;
 
     var top = '';
-    top += '<span class="lvname">' + esc(lv.name) + '</span>';
+    top += '<span class="lvname">第 ' + (G.lvIndex + 1) + ' / ' + window.LEVELS.length + ' 关 · ' +
+      esc(lv.name) + '</span>';
     top += '<span class="turn">第 ' + G.turn + ' / ' + lv.turns + ' 回合</span>';
     top += '<span class="pill">订单 ' + doneCount + '/' + G.orders.length + '</span>';
     if (G.over) {
@@ -209,7 +214,20 @@
     var lg = $('logPanel').querySelector('.log');
     if (lg) lg.scrollTop = lg.scrollHeight;
 
-    var bt = '<button class="primary big" data-act="turn"' + (G.over ? ' disabled' : '') + '>推进一回合</button>';
+    var bt = '';
+    if (G.over) {
+      bt += '<span class="result ' + (G.over.win ? 'win' : 'lose') + '">' + esc(G.over.msg) + '</span>';
+      bt += '<button class="mini" data-act="restart">重开本关</button>';
+      if (G.over.win && G.lvIndex < window.LEVELS.length - 1) {
+        bt += '<button class="primary" data-act="nextlv">进入下一关 →</button>';
+      }
+    } else {
+      var turnLabel = '推进一回合';
+      if (G.migrating) {
+        turnLabel += '（迁徙中，本回合不产出 · 还剩 ' + G.migrating.turns + ' 回合）';
+      }
+      bt += '<button class="primary big" data-act="turn">' + turnLabel + '</button>';
+    }
     $('bottomBar').innerHTML = bt;
 
     renderPicker();
@@ -275,7 +293,18 @@
     if (act === 'setbench') {
       var d = ENG.findBench(el.getAttribute('data-id'));
       var side = el.getAttribute('data-side');
-      if (d) { ENG.setBench(G, side, d); ui.picker = null; render(); }
+      if (d) {
+        if (G.migrating) {
+          /* 迁徙中拒绝第二次换台（内核 BeginSwitch 也拒第二个 workshop_migration）。
+             不给提示的话，玩家会以为点没生效。 */
+          showToast('正在迁徙中（还剩 ' + G.migrating.turns + ' 回合），不能再换台');
+        } else {
+          var wasRes = (side === 'master' ? G.master : (G.sub || { jars: [], liquid: {} }));
+          ENG.setBench(G, side, d);
+          if (G.migrating) showToast('台上有资源 → 开始迁徙，占 2 回合且期间不产出');
+        }
+        ui.picker = null; render();
+      }
       return;
     }
     if (act === 'clearsub') {
@@ -330,7 +359,17 @@
 
       '<p><b>一罐一操作的含义</b>：一只形状不对的<b>空</b>罐可以改形成对的形状（但还是空的）；一只形状对的空罐可以灌液。但「改形 + 灌液」是两次操作，<b>做不到</b>。所以需要装液罐的订单，只能靠「本来就是那个形状的空罐 + 灌液」或「本来就装着那种液体的罐子」。</p>' +
 
-      '<p><b>配置随时可改</b>，不消耗回合。换工作台只换能力，罐子和液体原地不动（唯一的副作用是液池容量变小会丢液体）。</p>' +
+      '<p><b>产线只往主台产</b>。罐子形状必须落在<b>主台的基础标记</b>里，否则造不出来。液体被主台禁则直接丢弃。</p>' +
+
+      '<p><b>转移</b>：每只罐子旁边有 <b>→从</b> / <b>→主</b> 按钮，点一下就把这只罐子搬到另一台。转移本身<b>不花回合</b>，只受目标台罐位限制。罐子换了台，之后按<b>新台</b>的规则判定 —— 这是 B 类订单的承重点。</p>' +
+
+      '<p><b>B 类订单必须在从台交付</b>：所有需求罐最后都得落在从台。主台上的罐子要交付就得转移过去，而能不能转过去受<b>从台罐位</b>限制。从台只有 4 格，所以别把它塞满。</p>' +
+
+      '<p><b>换台有代价</b>：台上有资源时，换台要走一次<b>迁徙</b>，占 <b>2 个回合</b>，这两回合<b>不产出、不结算订单</b>，顶上会显示「迁徙中」。台是空的（没有罐子、液体全 0）时才可以直接换。迁徙结束前还会把游离液体灌进旧台基础形状的空罐带走，而不是白丢。</p>' +
+
+      '<p><b>订单结束时从台会回流</b>：B 单完成后，从台上剩下的罐子和液体都退回主台，主台接不下的直接丢弃。所以别把东西堆在从台。</p>' +
+
+      '<p><b>配置随时可改</b>，不消耗回合；改产线、换台、转移都不点「推进一回合」就不会推进。</p>' +
 
       '<p class="dim">这一版是纯解谜：赢了没有奖励，输了重来。它要验证的就一件事——「调对」这个动作本身有没有快感。</p>' +
       '<button class="opt close" data-act="closepicker">知道了</button>' +
