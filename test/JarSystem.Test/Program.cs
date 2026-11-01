@@ -116,12 +116,107 @@ if (args.Length > 0 && args[0] == "--dump-contract")
     return;
 }
 
+// 规则表夹具导出：五套工作台 × 五种液体账目 × 8 形状 × {空,酒,蜜}。
+// 每条只记"被判定为合法的操作"，已足够逐条对拍（不允许的操作即"不在列表里"）。
+void DumpRulebook(string path)
+{
+    var benches = new (string Name, string[] Base, string[] Add, string[] Ban, int Pool)[]
+    {
+        ("xuanwu", new[] { "圆罐", "方罐" }, new[] { "三角罐" }, new[] { "酒" }, 5),
+        ("zhuque", new[] { "高罐" }, new[] { "长罐" }, new[] { "酒" }, 4),
+        ("qinglong", new[] { "三角罐", "长罐" }, new[] { "扁罐" }, new[] { "蜜" }, 4),
+        ("baihu", new[] { "扁罐", "鼓罐" }, new[] { "尖罐" }, new[] { "酒" }, 4),
+        ("qilin", new[] { "尖罐", "圆罐" }, new[] { "方罐" }, new[] { "蜜" }, 5)
+    };
+    var accounts = new List<Dictionary<string, int>>();
+    void Acc(params (string Liquid, int Count)[] entries)
+    {
+        var d = new Dictionary<string, int>();
+        foreach (var l in Constants.LIQUIDS) d[l] = 0;
+        foreach (var (liquid, count) in entries) d[liquid] = count;
+        accounts.Add(d);
+    }
+    Acc();
+    Acc(("酒", 1));
+    Acc(("蜜", 1));
+    Acc(("酒", 3));
+    Acc(("酒", 2), ("蜜", 1));
+
+    var rows = new List<Dictionary<string, object?>>();
+    foreach (var b in benches)
+    {
+        var rules = RuleContext.From(new WorkshopCapability(
+            new List<string>(b.Base), new List<string>(b.Add), new List<string>(b.Ban)));
+        foreach (var acc in accounts)
+        {
+            var accText = new List<string>();
+            foreach (var l in Constants.LIQUIDS)
+                if (acc[l] > 0) accText.Add(l + ":" + acc[l]);
+
+            foreach (var shape in Constants.SHAPES)
+            {
+                var liquids = new List<string?> { null };
+                foreach (var l in Constants.LIQUIDS) liquids.Add(l);
+
+                foreach (var liquid in liquids)
+                {
+                    var facts = new JarFacts(shape, liquid, false);
+                    var allow = new List<string>();
+
+                    foreach (var l in Constants.LIQUIDS)
+                        if (WorkshopRulebook.IsAllowed(rules, b.Pool, facts, WorkshopOperation.PourIn(l), acc))
+                            allow.Add("pourin:" + l);
+
+                    if (WorkshopRulebook.IsAllowed(rules, b.Pool, facts, WorkshopOperation.PourOut(), acc))
+                        allow.Add("pourout");
+
+                    foreach (var to in Constants.SHAPES)
+                    {
+                        foreach (var cost in Constants.LIQUIDS)
+                            if (WorkshopRulebook.IsAllowed(rules, b.Pool, facts, WorkshopOperation.ReshapeEmpty(to, cost), acc))
+                                allow.Add("reshape:" + to + "," + cost);
+
+                        if (WorkshopRulebook.IsAllowed(rules, b.Pool, facts, WorkshopOperation.ReshapeFull(to), acc))
+                            allow.Add("reshapefull:" + to);
+                    }
+
+                    rows.Add(new Dictionary<string, object?>
+                    {
+                        ["w"] = b.Name,
+                        ["shape"] = shape,
+                        ["liquid"] = liquid,
+                        ["acc"] = accText,
+                        ["allow"] = allow
+                    });
+                }
+            }
+        }
+    }
+
+    var json = System.Text.Json.JsonSerializer.Serialize(rows);
+    var full = System.IO.Path.GetFullPath(path);
+    var dir = System.IO.Path.GetDirectoryName(full);
+    if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
+    System.IO.File.WriteAllText(full, json);
+    Console.WriteLine($"RULEBOOK-DUMPED (rows={rows.Count}, bytes={json.Length}) -> {full}");
+}
+
 // 取 "--name value" 形式的参数值（找不到返回 null）
 string? ArgValue(string name)
 {
     for (int i = 0; i < args.Length - 1; i++)
         if (args[i] == name) return args[i + 1];
     return null;
+}
+
+// 规则表夹具（跨语言对拍）：把 Domain/WorkshopRulebook 的判定导出成 JSON，
+//   dotnet run --project test\JarSystem.Test -c Release -- --dump-rulebook demo/_rulebook_fixture.json
+// 用途：demo/_check_rulebook.js 拿它核对原型 JS 的 isAllowed 与内核是否逐条一致。
+// 为什么要这道门：原型是第三份规则实现，历史上"同一套规则写两遍"出过三次 bug。
+if (args.Length > 1 && args[0] == "--dump-rulebook")
+{
+    DumpRulebook(args[1]);
+    return;
 }
 
 // 契约 Schema 导出模式（模块边界产物）：

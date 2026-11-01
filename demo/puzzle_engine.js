@@ -40,52 +40,81 @@
     return null;
   }
 
+  /* ---------- 单个操作的合法性：原型里**唯一**一份规则判定 ---------- */
+
+  /* 与内核 `Domain/WorkshopRulebook.IsAllowed` 逐条对齐（原型没有"已操作/Marked"这个状态，故省掉那道门）。
+     这份谓词是 tryOp 的唯一依据 —— 此前 tryOp 自带的判断与别的入口各写一套，正是"同一套规则写两遍"
+     的温床（历史上这类 bug 出过三次）。跨语言一致性由 `_check_rulebook.js` 对着
+     `_rulebook_fixture.json`（由 `--dump-rulebook` 生成）核对。 */
+  function isAllowed(def, jar, op, liquid) {
+    var d = def;
+    if (op.op === 'match') {
+      return jar.shape === op.shape && (op.liquid ? jar.liquid === op.liquid : jar.liquid == null);
+    }
+    if (op.op === 'pourin') {
+      if (jar.liquid != null) return false;
+      if (!isBaseMarked(d, jar.shape)) return false;
+      if (isBanned(d, op.liquid)) return false;
+      return (liquid[op.liquid] || 0) >= 1;
+    }
+    if (op.op === 'pourout') {
+      if (jar.liquid == null) return false;
+      if (isBanned(d, jar.liquid)) return false;
+      return (liquid[jar.liquid] || 0) < d.pool;
+    }
+    if (op.op === 'reshape') {
+      if (jar.liquid != null) return false;
+      if (!canTransform(jar.shape, op.to, d)) return false;
+      if (isBanned(d, op.costLiquid)) return false;
+      return (liquid[op.costLiquid] || 0) >= 1;
+    }
+    if (op.op === 'reshapefull') {
+      if (jar.liquid == null) return false;
+      if (!canTransform(jar.shape, op.to, d)) return false;
+      return !isBanned(d, jar.liquid);
+    }
+    return false;
+  }
+
   /* ---------- 一个罐子能满足一个需求吗（至多一次操作） ---------- */
 
   /* 返回 { op, to, costLiquid } 或 null。
      op ∈ match / pourout / pourin / reshape / reshapefull
      一罐一操作（规则.txt:47-50）是硬约束：所以「改形 + 灌液」这种两次操作的路一律不可。 */
   function tryOp(jar, req, def, liquid) {
-    var wantLiquid = req.liquid;
     var d = jar.home || def;                                /* 罐子按它所在的台来判定 */
 
-    if (wantLiquid === null) {
-      /* 需求：空罐 */
-      if (jar.liquid === null) {
-        if (jar.shape === req.shape) return { op: 'match' };
-        if (canTransform(jar.shape, req.shape, d)) {
-          var cost = pickCostLiquid(d, liquid);
-          if (cost) return { op: 'reshape', to: req.shape, costLiquid: cost };
-          return null;
-        }
-        return null;
+    if (req.liquid === null) {
+      /* 需求是空罐。四个候选互斥，顺序只影响可读性：
+         白拿 → 倒空 → 满罐改形（液体自耗）→ 付液体改形 */
+      if (isAllowed(d, jar, { op: 'match', shape: req.shape, liquid: null }, liquid)) {
+        return { op: 'match' };
       }
-      /* 罐子有液体，需求要空罐 */
-      if (isBanned(d, jar.liquid)) return null;             /* PourOut 拒绝被禁液体 */
-      if (jar.shape === req.shape) {
-        if ((liquid[jar.liquid] || 0) < d.pool) return { op: 'pourout', liquid: jar.liquid };
-        return null;                                        /* 液池已满，倒不出来 */
+      /* 倒空只在**形状已经对**时才有意义：需求是"某种形状的空罐"，
+         形状不对就得靠改形（满罐改形或付液体改形），光倒空不会让需求成立。
+         这条一开始漏了 —— 下界抽查立刻抓到（grow 报 2/2、重演只得 1）。 */
+      if (jar.shape === req.shape && isAllowed(d, jar, { op: 'pourout' }, liquid)) {
+        return { op: 'pourout', liquid: jar.liquid };
       }
-      /* 形状不对但可改形：满罐改形，液体自耗，结果为空罐（Workshop.cs:308-317） */
-      if (canTransform(jar.shape, req.shape, d)) {
+      if (isAllowed(d, jar, { op: 'reshapefull', to: req.shape }, liquid)) {
         return { op: 'reshapefull', to: req.shape };
+      }
+      var cost = pickCostLiquid(d, liquid);
+      if (cost && isAllowed(d, jar, { op: 'reshape', to: req.shape, costLiquid: cost }, liquid)) {
+        return { op: 'reshape', to: req.shape, costLiquid: cost };
       }
       return null;
     }
 
-    /* 需求：装着 wantLiquid 的罐子 */
-    if (isBanned(d, wantLiquid)) return null;               /* 被禁液体不能倒入 */
-    if (jar.shape !== req.shape) return null;               /* 改形后还要灌液 = 两次操作 */
-    if (jar.liquid === wantLiquid) return { op: 'match' };
-    if (jar.liquid === null) {
-      /* 原系统 Workshop.PourIn 的三道门：未标记 / 形状**基础标记** / 液体未被禁。
-         第三条此前漏了 —— 于是"附加标记"的形状（三角罐、长罐、扁罐、尖罐、方罐? 视台而定）
-         也能白拿一次倒液，等于凭空多出一条原系统里不存在的路。 */
-      if (!isBaseMarked(d, jar.shape)) return null;
-      if ((liquid[wantLiquid] || 0) >= 1) return { op: 'pourin', liquid: wantLiquid };
-      return null;
+    /* 需求是"装着某液体的罐子"：一次操作内只有"已经是"或"灌进去"两种可能 */
+    if (isBanned(d, req.liquid)) return null;
+    if (isAllowed(d, jar, { op: 'match', shape: req.shape, liquid: req.liquid }, liquid)) {
+      return { op: 'match' };
     }
-    return null;                                            /* 装着别的液体 = 两次操作 */
+    if (jar.shape === req.shape && isAllowed(d, jar, { op: 'pourin', liquid: req.liquid }, liquid)) {
+      return { op: 'pourin', liquid: req.liquid };
+    }
+    return null;
   }
 
   function opCost(op) {
@@ -383,6 +412,24 @@
         var L = LIQUIDS[i];
         liq[L] = (G.master.liquid[L] || 0) + (G.sub.liquid[L] || 0);
       }
+
+      var r = grow(od, pool, G.master.def, liq);
+      /* **交付只发生在从台**（原系统 OrderEvent.CheckDelivery()：`Order.Type == A ? Master : Slave`）。
+         所以主台上的罐子要交付，必须先转移到从台，而能不能转过去受**从台罐位**限制 ——
+         内核把它写成 transferBudget = SlaveInfo.MaxJars − 从台原有罐数 − 交付罐数（PartitionSearch.cs:180）。
+         这里按同一口径算：需要从主台搬过去的交付罐数 > 从台空位 ⇒ 这一单此刻长不到头。 */
+      var needMove = 0;
+      for (var s = 0; s < r.steps.length; s++) {
+        if (r.steps[s].prep) continue;
+        if (G.master.jars.indexOf(r.steps[s].ref) >= 0) needMove++;
+      }
+      var free = C.MAX_SUB_JARS - G.sub.jars.length;
+      if (needMove > free) {
+        r.height = 0;
+        r.steps = [];
+        r.reason = '交付必须在从台：还要 ' + needMove + ' 只从主台转过去，从台只剩 ' + free + ' 个罐位';
+      }
+      return r;
     }
     return grow(od, pool, G.master.def, liq);
   }
@@ -553,6 +600,7 @@
     isBanned: isBanned,
     isBaseMarked: isBaseMarked,
     tryOp: tryOp,
+    isAllowed: isAllowed,
     grow: grow,
     newGame: newGame,
     runTurn: runTurn,

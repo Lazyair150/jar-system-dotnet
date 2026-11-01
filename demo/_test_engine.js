@@ -147,3 +147,52 @@ for (var li = 0; li < global.window.LEVELS.length; li++) {
 console.log('  抽查 ' + checked + ' 次：非法步骤 ' + illegal + ' 次，承诺未兑现 ' + promise + ' 次');
 if (illegal || promise) { console.log('  => 下界抽查 FAIL'); process.exitCode = 1; }
 else { console.log('  => 下界抽查 OK'); }
+
+
+/* ================= B 类订单的交付必须在从台（对齐 OrderEvent.CheckDelivery） =================
+   原系统：`var deliveryWorkshop = Order.Type == Constants.OrderType.A ? Master : Slave;`（OrderEvent.cs:175）
+   ⇒ B 类的全部需求罐最终都得落在**从台**上。主台的罐子要交付就必须转移过去，
+   而能不能转过去受从台罐位限制（内核 transferBudget = SlaveInfo.MaxJars − 从台原有 − 交付罐数，
+   PartitionSearch.cs:180）。下面三条把这条规则钉住。 */
+console.log('=== B 类交付必须在从台 ===');
+(function () {
+  var bad = 0;
+
+  function fresh() {
+    var G = ENG.newGame(1);                    /* 第二关，含 B 类订单 */
+    ENG.setBench(G, 'master', ENG.findBench('xuanwu'));
+    ENG.setBench(G, 'sub', ENG.findBench('zhuque'));
+    return G;
+  }
+
+  /* ① 从台塞满 ⇒ 主台上的交付罐无处可去 ⇒ 长不到头 */
+  var g1 = fresh();
+  for (var i = 0; i < 4; i++) g1.sub.jars.push({ shape: '高罐', liquid: null });
+  g1.master.jars.push({ shape: '高罐', liquid: null });
+  g1.master.jars.push({ shape: '高罐', liquid: null });
+  g1.master.liquid['蜜'] = 2;
+  var r1 = ENG.evalOrder(g1, g1.orders[1]);
+  if (r1.height !== 0) { bad++; console.log('  ! 从台满是仍报 height=' + r1.height); }
+  else console.log('  ① 从台罐位为 0 时拒绝交付：' + r1.reason);
+
+  /* ② 高罐在玄武台上灌不进液体（高罐不是玄武的基础标记）—— 规则本身就该挡住 */
+  var g2 = fresh();
+  g2.master.jars.push({ shape: '高罐', liquid: null });
+  g2.master.liquid['蜜'] = 2;
+  var r2 = ENG.evalOrder(g2, g2.orders[1]);
+  if (r2.height !== 1) { bad++; console.log('  ! 高罐在玄武台上竟能灌液，height=' + r2.height); }
+  else console.log('  ② 玄武台上的高罐只能当空罐（高罐非其基础标记，灌不进蜜）');
+
+  /* ③ 把它转移到朱雀从台之后就能灌蜜 —— 这正是"交付在从台"要的效果 */
+  var g3 = fresh();
+  var jar = { shape: '高罐', liquid: null };
+  g3.master.jars.push(jar);
+  g3.master.liquid['蜜'] = 2;
+  ENG.transferJar(g3, jar, 'sub');
+  var r3 = ENG.evalOrder(g3, g3.orders[1]);
+  if (r3.height < 1) { bad++; console.log('  ! 转移到从台后反而长不出来了'); }
+  else console.log('  ③ 同一只高罐转移到朱雀从台后按朱雀规则判定，可继续加工');
+
+  if (bad) { console.log('  => B 类交付抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
+  else console.log('  => B 类交付抽查 OK');
+})();
