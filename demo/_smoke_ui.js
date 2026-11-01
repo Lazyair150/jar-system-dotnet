@@ -71,6 +71,38 @@ for (var i = 0; i < 6; i++) {
 }
 logs.forEach(function (l) { console.log('  ' + l); });
 
+/* 跨回合回看：历史回合必须有按钮；点进去停在第一帧；前后走不越界；能回到实时。
+   回看态必须拦住推进（棋盘画的是快照，推进等于在副本上按真实世界的按钮）。 */
+var stage = els.stagePanel ? els.stagePanel.innerHTML : '';
+if (stage.indexOf('data-act="pbturn"') < 0) {
+  console.log('  ! 过程面板里没有回看按钮：' + stage.slice(0, 120));
+  process.exitCode = 1;
+}
+fire({ 'data-act': 'pbturn', 'data-i': '0' });
+if (els.stagePanel.innerHTML.indexOf('回看 第') < 0) {
+  console.log('  ! 点回看后没有进入回看态：' + els.stagePanel.innerHTML.slice(0, 120));
+  process.exitCode = 1;
+}
+fire({ 'data-act': 'pbnext' });
+fire({ 'data-act': 'pbprev' });
+fire({ 'data-act': 'pbprev' });          /* 已经在第一帧：必须停住，不许走到 0 或负数 */
+if (els.stagePanel.innerHTML.indexOf('<span class="evprog">1 /') < 0) {
+  console.log('  ! 第一帧继续往前走了：' + els.stagePanel.innerHTML.slice(0, 160));
+  process.exitCode = 1;
+}
+var beforeTurn = els.ordersPanel.innerHTML;
+fire({ 'data-act': 'turn' });            /* 回看态下推进必须被拒 */
+if (els.ordersPanel.innerHTML !== beforeTurn) {
+  console.log('  ! 回看中点推进竟然改动了世界');
+  process.exitCode = 1;
+}
+fire({ 'data-act': 'pblive' });
+if (els.stagePanel.innerHTML.indexOf('回看 第') >= 0) {
+  console.log('  ! 返回实时后还停在回看态');
+  process.exitCode = 1;
+}
+console.log('回看：进入/前后走/回到实时 全部通过');
+
 /* 新加的可玩性元素：顶栏要报「第 N / 5 关」；第五关无从台时必须提示「需要从台」；
    玩法面板必须已更新到「迁徙 / 转移」这套当前机制。 */
 var topText = els.topbar.innerHTML;

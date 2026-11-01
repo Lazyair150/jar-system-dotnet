@@ -272,6 +272,10 @@
       sub: null,
       lines: [],
       events: [],            /* 本回合的过程事件流（每回合开始时清空） */
+      /* 已结束回合的时间线（跨回合回看用）：[{ turn, events }]，只留最近 MAX_HISTORY 回合。
+         刻意只存**已结束**的回合：进行中的那一回合就是 G.events 本身。
+         存两份等于给同一段时间两个真相，回看和实时迟早会讲出不同的故事。 */
+      history: [],
       /* 仓库（原系统 Production/Warehouse）：产线产出先进这里，再按上限流入主台。
          资源是**流动的**：工作台只是承载与操作它们的载体，产出不等于"命令某台生产"。
          容量与内核一致：仓库罐 200 / 液体 200；溢出丢弃并计数。 */
@@ -349,6 +353,19 @@
     G.events.push(ev);
     if (G.events.length > 400) G.events.shift();
     return ev;
+  }
+
+  /* 回看保留多少回合。有界是刻意的：每一帧都带一份世界快照（worldSnap），
+     不设上限在长局里会一直涨。8 回合够看清"我刚才错在哪一步"。 */
+  var MAX_HISTORY = 8;
+
+  /* 把**当前这一回合**的时间线归档，然后由调用方开一条新的。
+     只在回合边界调用 —— 归档的是"已经说完的一段"，不是"正在说的那段"。 */
+  function archiveEvents(G) {
+    if (!G.events || G.events.length === 0) return;
+    if (!G.history) G.history = [];
+    G.history.push({ turn: G.events[0].turn || G.turn, events: G.events });
+    if (G.history.length > MAX_HISTORY) G.history.shift();
   }
 
   function log(G, html) {
@@ -635,6 +652,12 @@
   /* 一回合的「结算」部分：产出 → 逐条订单尝试自动执行。
      不管胜负、不推进回合数——战斗层要自己决定什么时候算输、什么时候推进。 */
   function runTurnRaw(G) {
+    /* 先在回合边界把上一回合归档，再开新的一条时间线。
+       —— 顺序很重要：迁徙分支在下面提前 return，若把清空写在它之后，
+       迁徙那几个事件会被追加进**已经归档**的上一回合数组里，于是"历史"跟着现在的回合一起变。
+       这条分支以前不会暴露，是因为那时还没有 history。 */
+    archiveEvents(G);
+    G.events = [];               /* 一回合一条时间线：消费方（UI）只读本回合 */
     if (G.migrating) {
       G.migrating.turns--;
       if (G.migrating.turns > 0) {
@@ -651,7 +674,6 @@
       log(G, '迁徙完成：' + (m.side === 'master' ? '主台' : '从台') + ' 换成 ' + m.def.name + '（本回合仍不产出）');
       return;
     }
-    G.events = [];               /* 一回合一条时间线：消费方（UI）只读本回合 */
     emit(G, { kind: 'turnStart' });
     produce(G);
     flowToMaster(G);
@@ -677,12 +699,14 @@
     if (allDone) {
       G.over = { win: true, msg: '全部订单完成，用了 ' + G.turn + ' 回合' };
       log(G, '<b style="color:#5aa86b">' + G.over.msg + '</b>');
+      archiveEvents(G);          /* 收官这一回合也进回看：它是玩家最想复盘的一段 */
       return;
     }
     if (G.turn >= G.lv.turns) {
       var doneCount = G.orders.filter(function (o) { return o.done; }).length;
       G.over = { win: false, msg: '回合用尽，完成 ' + doneCount + '/' + G.orders.length };
       log(G, '<b style="color:#e05a4e">' + G.over.msg + '</b>');
+      archiveEvents(G);
       return;
     }
     G.turn++;

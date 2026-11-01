@@ -451,3 +451,75 @@ console.log('=== 订单执行顺序 ===');
   else console.log('  => 执行顺序抽查 OK（引擎按数组顺序执行、越界被拒、顺序跨回合保持；' +
     '注意：现有关卡里换顺序不改变结果，见注释）');
 })();
+
+/* ---------- 跨回合回看：历史帧必须留下、且不许被后续回合改写 ----------
+   这一块的判据来自一个**顺序 bug**：把 `G.events = []` 写在迁徙分支之后，
+   迁徙的事件会被追加进已经归档的上一回合数组里 —— 于是"回看"会跟着现在一起变。
+   所以这里不只查"有没有历史"，还查"历史是不是冻住的"。 */
+(function () {
+  var bad = 0;
+  function fail(m) { bad++; console.log('  ! ' + m); }
+
+  /* ① 只有已结束的回合进历史；进行中的那一回合就是 G.events 本身 */
+  var G = ENG.newGame(0);
+  if (!G.history || G.history.length !== 0) fail('新开局就有历史：' + (G.history && G.history.length));
+  ENG.runTurn(G);
+  if (G.history.length !== 0) fail('第一回合还没结束就归档了（同一段时间会有两个真相）');
+  ENG.runTurn(G);
+  if (G.history.length !== 1) fail('第二回合开始时第一回合应已归档，实际 ' + G.history.length);
+  var h0 = G.history[0];
+  if (h0.turn !== 1) fail('归档的回合号不对：' + h0.turn);
+  if (!h0.events.length) fail('归档的事件是空的');
+  if (h0.events[0].kind !== 'turnStart') fail('归档的第一条不是 turnStart：' + h0.events[0].kind);
+  if (h0.events[0].snap === undefined) fail('归档的事件没有快照，回看就没画面');
+
+  /* ② 归档之后再推进，历史必须逐字节不变 */
+  var frozen = JSON.stringify(G.history[0].events);
+  ENG.runTurn(G); ENG.runTurn(G);
+  if (G.history.length && JSON.stringify(G.history[0].events) !== frozen) fail('历史被后续回合改写了');
+
+  /* ③ 有界，且回合号连续（丢的是最旧的，不是中间的） */
+  var H = ENG.newGame(3);
+  for (var t = 0; t < 20 && !H.over; t++) ENG.runTurn(H);
+  if (H.history.length > 8) fail('历史没有上限：' + H.history.length);
+  var turns = H.history.map(function (x) { return x.turn; });
+  for (var i = 1; i < turns.length; i++) {
+    if (turns[i] !== turns[i - 1] + 1) fail('历史回合号不连续：' + turns.join(','));
+  }
+
+  /* ④ 迁徙回合的事件必须落在**本回合**，不许追加进已归档的上一回合 */
+  var M = ENG.newGame(0);
+  setup(M, { lines: [{ prod: 'j圆' }, { prod: 'j方' }] });   /* 不铺产线就攒不出资源，换台会走"空台直接换" */
+  ENG.runTurn(M);                                  /* 先攒出资源，换台才会走迁徙 */
+  if (!M.master.jars.length) fail('铺了产线却没攒出罐子，用例前提不成立');
+  var prevFrozen = M.history.length ? JSON.stringify(M.history[0].events) : null;
+  ENG.setBench(M, 'master', ENG.findBench('qinglong'));
+  if (!M.migrating) fail('没有进入迁徙，用例前提不成立');
+  ENG.runTurn(M);                                  /* 迁徙第 1 回合：不产出 */
+  ENG.runTurn(M);                                  /* 迁徙第 2 回合：重组 + 换台 */
+  if (prevFrozen !== null && JSON.stringify(M.history[0].events) !== prevFrozen) {
+    fail('迁徙回合把事件追加进了已归档的那一回合');
+  }
+  var lastH = M.history[M.history.length - 1];
+  if (!lastH) fail('迁徙回合没有进历史');
+  else if (!lastH.events.some(function (e) { return e.kind === 'migrateDone'; })) {
+    fail('迁徙完成事件没进历史：' + lastH.events.map(function (e) { return e.kind; }).join(','));
+  }
+
+  /* ⑤ 一条历史只能属于一个回合 —— 这是"回合边界"的真正判据。
+     只查"有没有 migrateDone"是不够的：把归档放到迁徙分支之后，迁徙事件会混进上一回合那段，
+     而那段后来仍会被整体归档，于是 migrateDone 照样"在历史里"，断言却看不见污染。
+     查 turn 一致性才抓得住：混合段的 turn 会不一致。 */
+  var allH = (G.history || []).concat(H.history || []).concat(M.history || []);
+  if (!allH.length) fail('三个用例都没留下历史，这条断言会空转');
+  allH.forEach(function (seg) {
+    var mixed = seg.events.filter(function (e) { return e.turn !== seg.turn; });
+    if (mixed.length) {
+      fail('历史第 ' + seg.turn + ' 回合里混入了别的回合的 ' + mixed.length + ' 条事件（' +
+        mixed.map(function (e) { return e.turn + ':' + e.kind; }).join(',') + '）');
+    }
+  });
+
+  if (bad) { console.log('  => 跨回合回看抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
+  else console.log('  => 跨回合回看抽查 OK（只归档已结束回合、历史冻结不被改写、上限 8、迁徙事件落在本回合）');
+})();

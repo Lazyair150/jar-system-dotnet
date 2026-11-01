@@ -214,7 +214,7 @@
   /* ---------- 过程舞台：把本回合的事件流一条一条放出来 ----------
      分工：引擎算"发生了什么"并排好顺序（G.events）；这里只负责"按顺序说给人听"。
      **不在这里推导任何规则** —— 一旦在这里补一句"如果……那就……"，规则就有了第二份实现。 */
-  var pb = { queue: [], i: 0, timer: null, speed: 1, active: false };
+  var pb = { queue: [], i: 0, timer: null, speed: 1, active: false, review: null };
 
   /* 当前帧：播放到第 i 条时，世界的**那一刻**（引擎给的快照，UI 不插值）。
      没有帧时（还没推进过）退回实时世界，这样开局界面照常可用。 */
@@ -264,21 +264,69 @@
     return ev.kind;
   }
 
+  /* ---------- 跨回合回看 ----------
+     回看的是**引擎留下的历史帧**（`G.history[k].events`，每条都带世界快照），
+     UI 只做两件事：换一个队列、走指针。它不重算任何东西 —— 一旦在这里补一句
+     "如果……那就……"，规则就有了第二份实现，回看会开始讲和实时不同的故事。 */
+  function openReview(k) {
+    var h = G.history && G.history[k];
+    if (!h) return;
+    stopPlayback();
+    pb.queue = h.events;
+    pb.i = h.events.length ? 1 : 0;               /* 停在第一帧，让人自己按「下一条」 */
+    pb.review = k;
+    render();
+    flyFor(pb.queue[0]);
+  }
+
+  function closeReview() {
+    pb.review = null;
+    pb.queue = (G.events || []).slice();
+    pb.i = pb.queue.length;                       /* 回到实时：直接落在最新一帧上 */
+    render();
+  }
+
+  /* 换关/重开时必须清掉舞台状态。
+     不清的话 `currentFrame()` 会继续返回**上一局**的快照 —— 棋盘画的是旧世界，而且不会有任何报错。 */
+  function resetStage() {
+    stopPlayback();
+    pb.review = null;
+    pb.queue = (G.events || []).slice();
+    pb.i = 0;
+  }
+
   function stageHtml() {
+    var reviewing = pb.review !== null;
     var shown = pb.active || pb.i > 0 ? pb.queue.slice(0, pb.i) : [];
     var cur = shown.length ? shown[shown.length - 1] : null;
+    var state = reviewing ? ('回看 第 ' + (G.history[pb.review] ? G.history[pb.review].turn : '?') + ' 回合')
+      : (pb.active ? '播放中' : (pb.i ? '已结束' : '待推进'));
     var h = '<div class="panel-hd"><span class="ptitle">过程</span>' +
-      '<span class="pill">' + (pb.active ? '播放中' : (pb.i ? '已结束' : '待推进')) + '</span>' +
+      '<span class="pill">' + state + '</span>' +
       '<span class="hint">这一栏只说引擎已经算好的顺序，不做任何推导</span></div>';
     h += '<div class="evline">' + (cur ? describe(cur) : '点「推进一回合」，这里会一条一条放出过程') + '</div>';
     h += '<div class="evtrack"><i style="width:' + (pb.queue.length ? Math.round(100 * pb.i / pb.queue.length) : 0) + '%"></i></div>';
     h += '<div class="evbar">';
-    h += '<button class="mini" data-act="pbtoggle">' + (pb.active ? '暂停' : '继续') + '</button>';
-    h += '<button class="mini" data-act="pbstep">单步</button>';
-    h += '<button class="mini" data-act="pbspeed">速度 ×' + pb.speed + '</button>';
-    h += '<button class="mini" data-act="pbclose">跳过</button>';
+    if (reviewing) {
+      h += '<button class="mini" data-act="pbprev">◀ 上一条</button>';
+      h += '<button class="mini" data-act="pbnext">下一条 ▶</button>';
+      h += '<button class="mini" data-act="pblive">返回实时</button>';
+    } else {
+      h += '<button class="mini" data-act="pbtoggle">' + (pb.active ? '暂停' : '继续') + '</button>';
+      h += '<button class="mini" data-act="pbstep">单步</button>';
+      h += '<button class="mini" data-act="pbspeed">速度 ×' + pb.speed + '</button>';
+      h += '<button class="mini" data-act="pbclose">跳过</button>';
+    }
     h += '<span class="evprog">' + pb.i + ' / ' + pb.queue.length + '</span>';
     h += '</div>';
+    if (!pb.active && G.history && G.history.length) {
+      h += '<div class="evbar"><span class="hint">回看：</span>';
+      for (var t = 0; t < G.history.length; t++) {
+        h += '<button class="mini' + (pb.review === t ? ' on' : '') + '" data-act="pbturn" data-i="' + t + '">' +
+          '第 ' + G.history[t].turn + ' 回合</button>';
+      }
+      h += '</div>';
+    }
     if (shown.length > 1) {
       h += '<div class="evlist">';
       for (var i = Math.max(0, shown.length - 12); i < shown.length; i++) {
@@ -323,6 +371,8 @@
   }
 
   function startPlayback(events) {
+    stopPlayback();
+    pb.review = null;                             /* 播放是"现在"，回看是"刚才"，两者不许同时成立 */
     pb.queue = events || [];
     pb.i = 0;
     pb.active = pb.queue.length > 0;
@@ -422,6 +472,7 @@
         turnLabel += '（迁徙中，本回合不产出 · 还剩 ' + G.migrating.turns + ' 回合）';
       }
       if (pb.active) bt += '<button class="primary big" data-act="turn" disabled>过程中…（' + pb.i + '/' + pb.queue.length + '）</button>';
+      else if (pb.review !== null) bt += '<button class="primary big" data-act="turn" disabled>回看中…（点「返回实时」再推进）</button>';
       else bt += '<button class="primary big" data-act="turn">' + turnLabel + '</button>';
     }
     $('bottomBar').innerHTML = bt;
@@ -483,18 +534,35 @@
     if (!el || el === document.body) return;
     var act = el.getAttribute('data-act');
 
-    /* 播放期间只允许控制播放本身。
+    /* 播放/回看期间只允许控制播放本身。
        理由：此时棋盘画的是**快照副本**，在副本上点"转移/换台"会去改真实世界 —— 屏幕上看到的和改到的不是一个东西。 */
-    if (pb.active && act.indexOf('pb') !== 0 && act !== 'turn') {
-      showToast('过程播放中：先「跳过」或等它放完');
+    if ((pb.active || pb.review !== null) && act.indexOf('pb') !== 0 && act !== 'turn') {
+      showToast(pb.review !== null ? '回看中：先「返回实时」' : '过程播放中：先「跳过」或等它放完');
       return;
     }
 
     if (act === 'turn') {
+      if (pb.review !== null) { showToast('回看中：先点「返回实时」，否则你看的是快照'); return; }
       if (pb.active) { showToast('过程正在播放中，可以点「跳过」'); return; }
       ENG.runTurn(G);
       ui.picker = null;
       startPlayback(G.events.slice());
+      return;
+    }
+    if (act === 'pbturn') { openReview(Number(el.getAttribute('data-i'))); return; }
+    if (act === 'pblive') { closeReview(); return; }
+    if (act === 'pbprev') {
+      stopPlayback();
+      pb.i = Math.max(1, pb.i - 1);
+      render();
+      flyFor(pb.queue[pb.i - 1]);
+      return;
+    }
+    if (act === 'pbnext') {
+      stopPlayback();
+      pb.i = Math.min(pb.queue.length, pb.i + 1);
+      render();
+      flyFor(pb.queue[pb.i - 1]);
       return;
     }
     if (act === 'pbtoggle') { pb.active = !pb.active; if (pb.active) scheduleNext(); else stopPlayback(); render(); return; }
@@ -512,9 +580,9 @@
       if (ENG.moveOrder(G, oi, act === 'ordup' ? -1 : 1)) render();
       return;
     }
-    if (act === 'restart') { G = ENG.newGame(G.lvIndex); ui.picker = null; render(); return; }
-    if (act === 'prevlv') { G = ENG.newGame(Math.max(0, G.lvIndex - 1)); ui.picker = null; render(); return; }
-    if (act === 'nextlv') { G = ENG.newGame(Math.min(window.LEVELS.length - 1, G.lvIndex + 1)); ui.picker = null; render(); return; }
+    if (act === 'restart') { G = ENG.newGame(G.lvIndex); ui.picker = null; resetStage(); render(); return; }
+    if (act === 'prevlv') { G = ENG.newGame(Math.max(0, G.lvIndex - 1)); ui.picker = null; resetStage(); render(); return; }
+    if (act === 'nextlv') { G = ENG.newGame(Math.min(window.LEVELS.length - 1, G.lvIndex + 1)); ui.picker = null; resetStage(); render(); return; }
     if (act === 'help') { showHelp(); return; }
     if (act === 'pickbench') { openPicker({ kind: 'bench', side: el.getAttribute('data-side') }); return; }
     if (act === 'pickline') { openPicker({ kind: 'line', i: Number(el.getAttribute('data-i')) }); return; }
