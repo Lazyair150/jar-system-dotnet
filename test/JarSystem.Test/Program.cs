@@ -15,6 +15,8 @@ using JsonNode = System.Text.Json.Nodes.JsonNode;
 using JsonObject = System.Text.Json.Nodes.JsonObject;
 using JsonValue = System.Text.Json.Nodes.JsonValue;
 using JarSystem.Core.Abstractions;
+using JarSystem.Core.Production;
+using System.Text.Json;
 
 // ============================================================
 // ============================================================
@@ -216,6 +218,62 @@ string? ArgValue(string name)
 if (args.Length > 1 && args[0] == "--dump-rulebook")
 {
     DumpRulebook(args[1]);
+    return;
+}
+
+// 流动层夹具（跨语言对拍）：导出「仓库 → 主台」一步的差分，
+//   dotnet run --project test\JarSystem.Test -c Release -- --dump-flow demo/_flow_fixture.json
+// 用途：demo/_check_flow.js 用同一批场景核对原型的 flowToMaster。
+// 为什么要这道门：2026-11 的事故（原型把产线实现成"命令当前主台生产、形状不合格就丢"）
+// 之所以能发生，是因为跨语言对拍**只做了操作层**（--dump-rulebook），流动层一份没有。
+if (args.Length > 1 && args[0] == "--dump-flow")
+{
+    var flowBenches = new (string Id, string[] Base, string[] Add, string[] Ban, int MaxLiquids)[]
+    {
+        ("xuanwu", new[] { "圆罐", "方罐" }, new[] { "三角罐" }, new[] { "酒" }, 5),
+        ("zhuque", new[] { "高罐" }, new[] { "长罐" }, new[] { "酒" }, 4),
+        ("qinglong", new[] { "三角罐", "长罐" }, new[] { "扁罐" }, new[] { "蜜" }, 4),
+        ("baihu", new[] { "扁罐", "鼓罐" }, new[] { "尖罐" }, new[] { "酒" }, 4),
+        ("qilin", new[] { "尖罐", "圆罐" }, new[] { "方罐" }, new[] { "蜜" }, 5)
+    };
+    var flowPresets = new (string[] Jars, (string Liquid, int Count)[] Liquids)[]
+    {
+        (new[] { "三角罐" }, new[] { ("酒", 5), ("蜜", 5) }),
+        (new[] { "圆罐", "圆罐", "三角罐", "高罐" }, new[] { ("蜜", 4) }),
+        (new[] { "圆罐", "圆罐", "圆罐", "圆罐", "圆罐", "圆罐", "圆罐", "圆罐" }, new[] { ("蜜", 9) }),
+        (new[] { "长罐", "扁罐", "鼓罐", "尖罐" }, new[] { ("酒", 3), ("蜜", 6) })
+    };
+    var flowCases = new List<object>();
+    foreach (var fb in flowBenches)
+    {
+        foreach (var fp in flowPresets)
+        {
+            var fmaster = new Workshop(fb.Id, fb.Base.ToList(), fb.Add.ToList(), fb.Ban.ToList(),
+                maxJars: 6, maxLiquids: fb.MaxLiquids);
+            var fwh = new Warehouse();
+            fwh.StoreJars(fp.Jars.Select(s => new Jar(s)));
+            foreach (var (liquid, count) in fp.Liquids) fwh.ProduceLiquid(liquid, count);
+
+            fwh.FlowToMaster(fmaster, 3, 2);
+
+            flowCases.Add(new Dictionary<string, object?>
+            {
+                ["bench"] = fb.Id,
+                ["whJars"] = fp.Jars.ToList(),
+                ["whLiquid"] = fp.Liquids.ToDictionary(x => x.Liquid, x => x.Count),
+                ["jarCount"] = 3,
+                ["liquidAmount"] = 2,
+                ["masterJars"] = fmaster.Jars.Select(j => j.Shape).ToList(),
+                ["masterLiquid"] = fmaster.LiquidStorage.ToDictionary(kv => kv.Key, kv => kv.Value),
+                ["whJarsLeft"] = fwh.Jars.Select(j => j.Shape).ToList(),
+                ["whLiquidLeft"] = Constants.LIQUIDS.ToDictionary(l => l, l => fwh.LiquidCount(l)),
+                ["discardedJars"] = fwh.DiscardedJars
+            });
+        }
+    }
+    File.WriteAllText(args[1], JsonSerializer.Serialize(
+        new Dictionary<string, object?> { ["cases"] = flowCases },
+        new JsonSerializerOptions { WriteIndented = true }));
     return;
 }
 

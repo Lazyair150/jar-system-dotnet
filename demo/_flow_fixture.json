@@ -1,0 +1,639 @@
+{
+  "cases": [
+    {
+      "bench": "xuanwu",
+      "whJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 5,
+        "\u871C": 5
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [],
+      "whLiquidLeft": {
+        "\u9152": 5,
+        "\u871C": 3
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "xuanwu",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50",
+        "\u9AD8\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 4
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u9AD8\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "xuanwu",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 9
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 7
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "xuanwu",
+      "whJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50",
+        "\u5C16\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 3,
+        "\u871C": 6
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u5C16\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 3,
+        "\u871C": 4
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "zhuque",
+      "whJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 5,
+        "\u871C": 5
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [],
+      "whLiquidLeft": {
+        "\u9152": 5,
+        "\u871C": 3
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "zhuque",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50",
+        "\u9AD8\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 4
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u9AD8\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "zhuque",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 9
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 7
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "zhuque",
+      "whJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50",
+        "\u5C16\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 3,
+        "\u871C": 6
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u5C16\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 3,
+        "\u871C": 4
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qinglong",
+      "whJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 5,
+        "\u871C": 5
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 2,
+        "\u871C": 0
+      },
+      "whJarsLeft": [],
+      "whLiquidLeft": {
+        "\u9152": 3,
+        "\u871C": 5
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qinglong",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50",
+        "\u9AD8\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 4
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u4E09\u89D2\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 0
+      },
+      "whJarsLeft": [
+        "\u9AD8\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 4
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qinglong",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 9
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 0
+      },
+      "whJarsLeft": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 9
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qinglong",
+      "whJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50",
+        "\u5C16\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 3,
+        "\u871C": 6
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 2,
+        "\u871C": 0
+      },
+      "whJarsLeft": [
+        "\u5C16\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 1,
+        "\u871C": 6
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "baihu",
+      "whJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 5,
+        "\u871C": 5
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [],
+      "whLiquidLeft": {
+        "\u9152": 5,
+        "\u871C": 3
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "baihu",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50",
+        "\u9AD8\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 4
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u9AD8\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "baihu",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 9
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 7
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "baihu",
+      "whJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50",
+        "\u5C16\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 3,
+        "\u871C": 6
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u6241\u7F50",
+        "\u9F13\u7F50",
+        "\u957F\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 2
+      },
+      "whJarsLeft": [
+        "\u5C16\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 3,
+        "\u871C": 4
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qilin",
+      "whJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 5,
+        "\u871C": 5
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 2,
+        "\u871C": 0
+      },
+      "whJarsLeft": [],
+      "whLiquidLeft": {
+        "\u9152": 3,
+        "\u871C": 5
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qilin",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50",
+        "\u9AD8\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 4
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u4E09\u89D2\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 0
+      },
+      "whJarsLeft": [
+        "\u9AD8\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 4
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qilin",
+      "whJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquid": {
+        "\u871C": 9
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 0,
+        "\u871C": 0
+      },
+      "whJarsLeft": [
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50",
+        "\u5706\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 0,
+        "\u871C": 9
+      },
+      "discardedJars": 0
+    },
+    {
+      "bench": "qilin",
+      "whJars": [
+        "\u957F\u7F50",
+        "\u6241\u7F50",
+        "\u9F13\u7F50",
+        "\u5C16\u7F50"
+      ],
+      "whLiquid": {
+        "\u9152": 3,
+        "\u871C": 6
+      },
+      "jarCount": 3,
+      "liquidAmount": 2,
+      "masterJars": [
+        "\u5C16\u7F50",
+        "\u957F\u7F50",
+        "\u6241\u7F50"
+      ],
+      "masterLiquid": {
+        "\u9152": 2,
+        "\u871C": 0
+      },
+      "whJarsLeft": [
+        "\u9F13\u7F50"
+      ],
+      "whLiquidLeft": {
+        "\u9152": 1,
+        "\u871C": 6
+      },
+      "discardedJars": 0
+    }
+  ]
+}
