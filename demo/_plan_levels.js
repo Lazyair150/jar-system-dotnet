@@ -53,13 +53,13 @@ function lineCandidates(prods) {
       out.push(a);
     }
   });
-  /* 两条线的组合：主台 + 主台（最常见：一条罐子线 + 一条液体线） */
+  /* 两条线的组合。**没有 target 维度**：产线只往主台产
+     （原系统 ProductionService.cs:55 唯一调用点是 Warehouse.FlowToMaster(master, ...)），
+     从台的罐子只能靠 transferJar 搬过去。 */
   for (var i = 0; i < prods.length; i++) {
     for (var j = 0; j < prods.length; j++) {
       if (i === j) continue;
-      out.push([{ prod: prods[i], target: 'master' }, { prod: prods[j], target: 'master' }, null]);
-      out.push([{ prod: prods[i], target: 'master' }, { prod: prods[j], target: 'sub' }, null]);
-      out.push([{ prod: prods[i], target: 'sub' }, { prod: prods[j], target: 'master' }, null]);
+      out.push([{ prod: prods[i] }, { prod: prods[j] }, null]);
     }
   }
   return out;
@@ -72,7 +72,7 @@ function heuristic(G, cfg, needs) {
   cfg.lines.forEach(function (l) {
     if (!l) return;
     var pr = P(l.prod);
-    var target = l.target === 'sub' ? sb : mb;   /* findBench 返回的就是 def 本身 */
+    var target = mb;   /* 产线只往主台产；findBench 返回的就是 def 本身 */
     if (!target) { s -= 5; return; }
     if (pr.kind === 'jar') {
       /* 这条罐子线产出的形状，是不是我们缺的？是不是目标台的基础标记？ */
@@ -107,9 +107,29 @@ function apply(G, cfg) {
   if (cfg.lines) {
     for (var i = 0; i < 3; i++) {
       var l = cfg.lines[i];
-      G.lines[i] = l ? { prod: P(l.prod), target: l.target || 'master' } : null;
+      G.lines[i] = l ? { prod: P(l.prod) } : null;
     }
   }
+  /* 转移：按**索引**取克隆自己的罐子再搬（simulate 是 JSON 深拷贝，引用对不上）。 */
+  if (cfg.xfer && cfg.xfer.length && G.sub) {
+    var movers = [];
+    for (var k = 0; k < cfg.xfer.length; k++) {
+      var idx = cfg.xfer[k];
+      if (idx >= 0 && idx < G.master.jars.length) movers.push(G.master.jars[idx]);
+    }
+    for (var m = 0; m < movers.length; m++) ENG.transferJar(G, movers[m], 'sub');
+  }
+}
+
+/* 转移变体：不搬，或把主台第 i 只罐子搬到从台（只试前 4 只，够用且不让搜索爆掉）。
+   为什么要把转移放进候选而不是固定策略：罐子换台 ⇒ 之后按新台的规则判定，
+   哪只该搬取决于那条订单缺什么，靠启发式猜不准，让真跑一回合来选。 */
+function xferVariants(G) {
+  var out = [{ }];
+  if (!G.sub) return out;
+  var n = Math.min(4, G.master.jars.length);
+  for (var i = 0; i < n; i++) out.push({ xfer: [i] });
+  return out;
 }
 
 function value(G) {
@@ -153,15 +173,20 @@ function play(lvIdx, verbose) {
     /* 2) 前 K 名真跑一回合 */
     var K = Math.min(40, cands.length), best = null, bestV = -1e9;
     for (var i = 0; i < K; i++) {
-      var H = simulate(G, cands[i].cfg);
-      var v = value(H);
-      if (v > bestV) { bestV = v; best = cands[i].cfg; }
+      var variants = xferVariants(G);
+      for (var v = 0; v < variants.length; v++) {
+        var cfg = { master: cands[i].cfg.master, sub: cands[i].cfg.sub, lines: cands[i].cfg.lines, xfer: variants[v].xfer };
+        var H = simulate(G, cfg);
+        var val = value(H);
+        if (val > bestV) { bestV = val; best = cfg; }
+      }
     }
     if (!best) best = cands.length ? cands[0].cfg : { master: lv.benches[0], sub: null, lines: [null, null, null] };
 
     apply(G, best);
     log.push('T' + (G.turn + 1) + ' ' + best.master + (best.sub ? '+' + best.sub : '') + ' ' +
-      best.lines.map(function (l) { return l ? l.prod + (l.target === 'sub' ? '→从' : '') : '-'; }).join(','));
+      best.lines.map(function (l) { return l ? l.prod : '-'; }).join(',') +
+      (best.xfer && best.xfer.length ? '  转移#' + best.xfer.join('+') : ''));
     ENG.runTurn(G);
     if (verbose) {
       console.log('  T' + G.turn + '  ' + G.orders.map(function (o) {

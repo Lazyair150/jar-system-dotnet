@@ -68,8 +68,7 @@ button.big { padding: 10px 40px; font-size: 15px; }
 .lineslot { padding: 10px 8px; border-radius: 8px; border: 1px dashed var(--line); background: transparent; color: var(--txt); }
 .lineslot.empty { color: var(--dim); width: 100%; }
 .lineslot:hover { border-color: var(--gold); }
-.target { font-size: 11px; padding: 2px 8px; border-radius: 6px; color: var(--dim); white-space: nowrap; }
-.target.on { color: var(--blue); border-color: rgba(91, 143, 214, .6); background: rgba(91, 143, 214, .12); }
+.xfer { font-size: 10px; padding: 1px 6px; margin-left: 2px; border-radius: 6px; color: var(--dim); white-space: nowrap; }
 
 /* 订单 */
 .order { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--panel2); }

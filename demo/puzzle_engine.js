@@ -272,43 +272,63 @@
     if (G.log.length > 200) G.log.shift();
   }
 
-  /* 产线产出。罐子形状必须在该台的基础标记里（Warehouse.FlowToMaster 只送 master.IsBaseMarked 的形状），
-     否则产不出来 —— 这是工作台选择之所以有意义的原因。 */
+  /* 产线产出。**只进主台** —— 原系统 ProductionService.cs:55 唯一调用点是
+     `Warehouse.FlowToMaster(master, jars, liquid)`，从台收不到任何新产出；
+     罐子形状还必须在该台的基础标记里（FlowToMaster 只送 master.IsBaseMarked 的形状），
+     否则产不出来 —— 这是工作台选择之所以有意义的原因。
+     从台要拿罐子只能靠下面的 transferJar（原系统 TransferCommand）。 */
   function produce(G) {
+    var bench = G.master;
     for (var i = 0; i < G.lines.length; i++) {
       var ln = G.lines[i];
       if (!ln) continue;
-      var toSub = ln.target === 'sub';
-      var bench = toSub ? G.sub : G.master;
-      var tag = toSub ? '从台' : '主台';
       var pd = ln.prod;
-      if (!bench) { log(G, '产线指向' + tag + '，但还没有装备' + tag); continue; }
 
       if (pd.kind === 'jar') {
         if (!isBaseMarked(bench.def, pd.shape)) {
-          log(G, tag + '的基础标记是 ' + bench.def.base.join('/') + '，造不出' + pd.shape + '（丢弃）');
+          log(G, '主台的基础标记是 ' + bench.def.base.join('/') + '，造不出' + pd.shape + '（丢弃）');
           continue;
         }
-        var cap = toSub ? C.MAX_SUB_JARS : C.MAX_JARS;
         var added = 0;
         for (var n = 0; n < pd.amount; n++) {
-          if (bench.jars.length >= cap) break;
+          if (bench.jars.length >= C.MAX_JARS) break;
           bench.jars.push({ shape: pd.shape, liquid: null });
           added++;
         }
-        if (added > 0) log(G, tag + '产出 <b>' + added + '</b> 只空' + pd.shape);
-        else log(G, tag + '罐位已满（' + cap + '），' + pd.shape + '丢弃');
+        if (added > 0) log(G, '主台产出 <b>' + added + '</b> 只空' + pd.shape);
+        else log(G, '主台罐位已满（' + C.MAX_JARS + '），' + pd.shape + '丢弃');
       } else {
         var L = pd.liquid;
-        if (isBanned(bench.def, L)) { log(G, tag + '禁' + L + '，产出的' + L + '被丢弃'); continue; }
+        if (isBanned(bench.def, L)) { log(G, '主台禁' + L + '，产出的' + L + '被丢弃'); continue; }
         var pcap = bench.def.pool;
         var cur = bench.liquid[L] || 0;
         var add = Math.min(pd.amount, Math.max(0, pcap - cur));
         bench.liquid[L] = cur + add;
-        if (add > 0) log(G, tag + '产出 <b>' + add + '</b> 份' + L);
-        else log(G, tag + L + '已满（' + pcap + '），产出被丢弃');
+        if (add > 0) log(G, '主台产出 <b>' + add + '</b> 份' + L);
+        else log(G, '主台' + L + '已满（' + pcap + '），产出被丢弃');
       }
     }
+  }
+
+  /* 转移：把一只罐子从一台搬到另一台（原系统 TransferCommand → Workshop.TransferOut/TransferIn）。
+     它是**物流动作**，不横置罐子（TransferCommand.Execute 不调用 Mark），
+     只受目标台的罐位限制。罐子换了台 ⇒ 之后按新台的规则判定（这是 B 类订单的承重点）。 */
+  function transferJar(G, jar, toSide) {
+    if (!G.sub) return false;
+    if (toSide === 'sub') {
+      if (G.master.jars.indexOf(jar) < 0) return false;
+      if (G.sub.jars.length >= C.MAX_SUB_JARS) return false;
+      removeJar(G.master, jar);
+      G.sub.jars.push(jar);
+      log(G, '转移：把罐子搬到从台');
+      return true;
+    }
+    if (G.sub.jars.indexOf(jar) < 0) return false;
+    if (G.master.jars.length >= C.MAX_JARS) return false;
+    removeJar(G.sub, jar);
+    G.master.jars.push(jar);
+    log(G, '转移：把罐子搬回主台');
+    return true;
   }
 
   /* A 类只看主台；B 类主从联合，每只罐子按它所在的台判定能力，液体按合并池算。 */
@@ -474,6 +494,7 @@
     findProd: findProd,
     log: log,
     makeBench: makeBench,
-    produce: produce
+    produce: produce,
+    transferJar: transferJar
   };
 })();

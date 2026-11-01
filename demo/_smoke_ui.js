@@ -44,7 +44,7 @@ function fire(attrs) {
   click({ target: el });
 }
 
-/* 走一遍：换台 → 选台 → 换产线 → 选产线 → 切换产线目标 → 连按回合到结束 */
+/* 走一遍：换台 → 选台 → 换产线 → 选产线 → 产出一只罐子 → 装备从台 → 转移 → 连按回合到结束 */
 fire({ 'data-act': 'pickbench', 'data-side': 'master' });
 console.log('打开选台面板，picker 长度 =', els.picker.innerHTML.length);
 fire({ 'data-act': 'setbench', 'data-side': 'master', 'data-id': 'xuanwu' });
@@ -54,8 +54,14 @@ console.log('打开选产线面板，picker 长度 =', els.picker.innerHTML.leng
 fire({ 'data-act': 'setline', 'data-i': '0', 'data-id': 'j圆' });
 fire({ 'data-act': 'pickline', 'data-i': '1' });
 fire({ 'data-act': 'setline', 'data-i': '1', 'data-id': 'l蜜' });
-fire({ 'data-act': 'toggleline', 'data-i': '1' });
 console.log('产线配置完成，linesPanel 长度 =', els.linesPanel.innerHTML.length);
+
+/* 产线只往主台产（ProductionService.cs:55 唯一调用点是 FlowToMaster）：
+   先跑一回合拿到罐子，再装备从台、把它转移过去。 */
+fire({ 'data-act': 'turn' });
+fire({ 'data-act': 'setbench', 'data-side': 'sub', 'data-id': 'qinglong' });
+fire({ 'data-act': 'transfer', 'data-side': 'master', 'data-i': '0' });
+console.log('转移后 从台面板长度 =', els.subPanel ? els.subPanel.innerHTML.length : '(无 subPanel)');
 
 var logs = [];
 for (var i = 0; i < 6; i++) {
@@ -70,4 +76,4 @@ fire({ 'data-act': 'prevlv' });
 fire({ 'data-act': 'help' });
 console.log('玩法面板长度 =', els.picker.innerHTML.length);
 fire({ 'data-act': 'closepicker' });
-console.log('\n✅ 冒烟通过：渲染、选台、选产线、切换目标、连按回合、重开、换关、玩法面板全部无异常');
+console.log('\n✅ 冒烟通过：渲染、选台、选产线、产出、装备从台、转移罐子、连按回合、重开、换关、玩法面板全部无异常');

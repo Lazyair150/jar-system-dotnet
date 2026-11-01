@@ -71,7 +71,15 @@
     h += '<div class="row">' + liquidChips(b) + '</div>';
     h += '<div class="row jars">';
     if (b.jars.length === 0) h += '<span class="empty">（没有罐子）</span>';
-    for (var i = 0; i < b.jars.length; i++) h += jarChip(b.jars[i]);
+    for (var i = 0; i < b.jars.length; i++) {
+      h += jarChip(b.jars[i]);
+      /* 转移：物流动作（原系统 TransferCommand → TransferOut/TransferIn），不横置罐子，受目标台罐位限制 */
+      if (G.sub) {
+        h += '<button class="xfer" data-act="transfer" data-side="' + side + '" data-i="' + i + '" ' +
+          'title="把这只罐子转到另一台（换台之后按新台的规则判定）">' +
+          (side === 'master' ? '→从' : '→主') + '</button>';
+      }
+    }
     h += '</div>';
     return h;
   }
@@ -79,7 +87,7 @@
   function linesPanel() {
     var h = '<div class="panel-hd"><span class="ptitle">产线</span>' +
       '<span class="pill">' + G.lines.filter(Boolean).length + '/' + C.MAX_LINES + '</span>' +
-      '<span class="hint">每回合结算一次。罐子形状必须在目标台的基础标记里</span></div>';
+      '<span class="hint">每回合结算一次。产出只进主台，罐子形状必须是主台的基础标记</span></div>';
     h += '<div class="lines">';
     for (var i = 0; i < G.lines.length; i++) {
       var ln = G.lines[i];
@@ -90,11 +98,8 @@
         var txt = pd.kind === 'jar'
           ? (SHORT[pd.shape] || pd.shape) + ' ×' + pd.amount
           : pd.liquid + ' ×' + pd.amount;
-        var bad = ln.target === 'sub' && !G.sub;
-        h += '<div class="linebox' + (bad ? ' bad' : '') + '">';
+        h += '<div class="linebox">';
         h += '<button class="lineslot" data-act="pickline" data-i="' + i + '">' + txt + '</button>';
-        h += '<button class="target' + (ln.target === 'sub' ? ' on' : '') + '" data-act="toggleline" data-i="' + i + '" ' +
-          'title="点一下切换产出到主台 / 从台">→ ' + (ln.target === 'sub' ? '从台' : '主台') + '</button>';
         h += '</div>';
       }
     }
@@ -275,16 +280,18 @@
       var i = Number(el.getAttribute('data-i'));
       var pid = el.getAttribute('data-id');
       var old = G.lines[i];
-      G.lines[i] = pid ? { prod: ENG.findProd(pid), target: old ? old.target : 'master' } : null;
+      G.lines[i] = pid ? { prod: ENG.findProd(pid) } : null;
       ui.picker = null; render(); return;
     }
-    if (act === 'toggleline') {
+    if (act === 'transfer') {
+      var ts = el.getAttribute('data-side');
       var ti = Number(el.getAttribute('data-i'));
-      var tl = G.lines[ti];
-      if (!tl) return;
-      /* 没有从台时不允许指向从台，否则产出会静默丢掉 */
-      if (tl.target !== 'sub' && !G.sub) { showToast('还没有装备从台，产线只能产出到主台'); return; }
-      tl.target = tl.target === 'sub' ? 'master' : 'sub';
+      var bench = ts === 'master' ? G.master : G.sub;
+      var jar = bench && bench.jars[ti];
+      if (!jar) return;
+      var ok = ENG.transferJar(G, jar, ts === 'master' ? 'sub' : 'master');
+      if (!ok) showToast(ts === 'master' ? '从台罐位已满，搬不过去' : '主台罐位已满，搬不回来');
+      ui.picker = null;
       render();
       return;
     }
