@@ -37,17 +37,21 @@ public class ArchitectureTests
         ["Config"] = 0,
         ["Domain"] = 1,
         ["Abstractions"] = 2,
-        ["Rules"] = 3,
-        ["Production"] = 4,
-        ["Solver"] = 5,
-        ["Commands"] = 6,
-        ["Orders"] = 7,
-        ["Process"] = 8,
-        ["Services"] = 9,
-        ["Sessions"] = 10,
-        ["Executor"] = 11,
-        ["World"] = 12,
-        ["Bootstrap"] = 13,
+        // Presentation 与 Abstractions 同类：**纯契约词汇 + 有界缓冲，不依赖任何层**。
+        // 排在这里而不是顶层的理由：`World` 要把信号投影成帧（`World/BusPresentationBridge`），
+        // 若把 Presentation 放在 World 之上，这条边就成了向上引用。
+        ["Presentation"] = 3,
+        ["Rules"] = 4,
+        ["Production"] = 5,
+        ["Solver"] = 6,
+        ["Commands"] = 7,
+        ["Orders"] = 8,
+        ["Process"] = 9,
+        ["Services"] = 10,
+        ["Sessions"] = 11,
+        ["Executor"] = 12,
+        ["World"] = 13,
+        ["Bootstrap"] = 14,
     };
 
     private static readonly Regex NamespaceRx =

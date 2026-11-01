@@ -36,31 +36,38 @@ package "L2 Abstractions（跨层契约与值词汇）" as L2 {
   component "IJarSelectionStrategy / IProcessRecorder / PlanSources / SolverLimits" as A4
 }
 
-package "L3 Rules（世界规则：查询 / 场景 / 装饰求解器）" as L3 {
+package "L3 Presentation（表现层帧流：封闭词表 + 有界缓冲 + 只读投影）" as L3 {
+  component "PresentationKind（封闭词表，4 值）" as P1
+  component "PresentationFrame（Seq/Kind/Op/Subject/Tick/Revision，无载荷）" as P2
+  component "PresentationFeed（Seq 单调 / 有界 / 缺口可查 / Since 游标）" as P3
+  component "IPresentationSink（宿主实现，不得抛异常、不得改世界）" as P4
+}
+
+package "L4 Rules（世界规则：查询 / 场景 / 装饰求解器）" as L4 {
   component "WorldQuery + IWorldFacts（结构化查询）" as R1
   component "IWorldEventSource + WorldEvent / EventData" as R2
   component "ScenarioOptions / ScenarioJson / ScenarioBinder / ModifierData" as R3
   component "ModifierAwareSolver（装饰器：可表达则投影，否则未判定）" as R4
 }
 
-package "L4 Production（产线 → 仓库 → 主台）" as L4 {
+package "L5 Production（产线 → 仓库 → 主台）" as L5 {
   component "ProducerModule / Producer / ShapeProductionLine" as P1
   component "Warehouse（StoreJars / ProduceLiquid / FlowToMaster）" as P2
 }
 
-package "L5 Solver（可行性求解：三种实现 + 一个前置检查）" as L5 {
+package "L6 Solver（可行性求解：三种实现 + 一个前置检查）" as L6 {
   component "SolverPrecheck（只证不可行）" as S1
   component "PrecheckedStateSpaceSolver（默认装配）" as S2
   component "StateSpaceSolver（DFS + 记忆化）" as S3
   component "MatchingSolver（分配形，非默认）" as S4
 }
 
-package "L6 Commands（四个原子罐操作）" as L6 {
+package "L7 Commands（四个原子罐操作）" as L7 {
   component "Command / CommandResult / CommandExecutor" as M1
   component "PourIn / PourOut / ReshapeEmpty / Transfer 命令" as M2
 }
 
-package "L7 Orders（订单、执行语义、可行性、换台）" as L7 {
+package "L8 Orders（订单、执行语义、可行性、换台）" as L8 {
   component "Order / OrderEvent / ExecutionLogEntry / SlaveRollback" as O1
   component "OrderTemplate / OrderTemplateLibrary" as O2
   component "FeasibilityChecker / PartitionSearch / JarMatcher / RequirementOrdering" as O3
@@ -68,7 +75,7 @@ package "L7 Orders（订单、执行语义、可行性、换台）" as L7 {
   component "JarStateMapper / IProcessStepPrimitives" as O5
 }
 
-package "L8 Process（过程：状态机 / 日志 / 调度 / 端口）" as L8 {
+package "L9 Process（过程：状态机 / 日志 / 调度 / 端口）" as L9 {
   component "Model：ProcessDefinition / Instance / Run / State" as PR1
   component "Scheduler：WorldScheduler / ITickHandler / TickPhase / TickPipeline / LogicalClock" as PR2
   component "Ports：IProcessAdvancer / IProcessObserver / IOrderExecutionCompletion" as PR3
@@ -77,30 +84,30 @@ package "L8 Process（过程：状态机 / 日志 / 调度 / 端口）" as L8 {
   component "ProcessSystem（门面）" as PR6
 }
 
-package "L9 Services（状态序列化与服务层）" as L9 {
+package "L10 Services（状态序列化与服务层）" as L10 {
   component "StateDto / StateSerializer + 10 个 DTO" as V1
   component "WorkshopService / OrderService / ProductionService" as V2
   component "MasterSwitchCoordinator" as V3
 }
 
-package "L10 Sessions（命令日志与回放）" as L10 {
+package "L11 Sessions（命令日志与回放）" as L11 {
   component "WorldCommand / WorldOps / WorkshopPayload / WorldCommandJson" as X1
   component "SessionReplay" as X2
 }
 
-package "L11 Executor（把求解结果落到世界）" as L11 {
+package "L12 Executor（把求解结果落到世界）" as L12 {
   component "OrderExecutor / SolverStepApplier / GreedyPlanBuilder" as E1
   component "JarSelector + 策略实现 / WorkshopStageResult" as E2
 }
 
-package "L12 World（世界总线与统一逻辑时间）" as L12 {
+package "L13 World（世界总线与统一逻辑时间）" as L13 {
   component "WorldBus（信号 → 反应器 → 本 tick 效果队列）" as W1
   component "WorldSignal / WorldSignalKind / IWorldObserver / IWorldReactor / IWorldEffectSink" as W2
   component "WorldTime / WorldTimeState（Tick 委托 LogicalClock）" as W3
   component "FeasibilityInvalidationReactor（首个真实反应器）" as W4
 }
 
-package "L13 Bootstrap（装配）" as L13 {
+package "L14 Bootstrap（装配）" as L14 {
   component "SystemBootstrapper" as B1
 }
 
@@ -110,56 +117,57 @@ component "门面 JarSystem（实现 Rules.IWorldFacts）" as Facade
 ' 全部方向都是"引用更低的层"；`ArchitectureTests` 守的就是这张表。
 L1 --> L0
 L2 --> L1
-L3 --> L0
-L3 --> L1
-L3 --> L2
 L4 --> L0
 L4 --> L1
+L4 --> L2
 L5 --> L0
 L5 --> L1
-L5 --> L2
+L6 --> L0
 L6 --> L1
 L6 --> L2
-L7 --> L0
 L7 --> L1
 L7 --> L2
-L7 --> L6
 L8 --> L0
 L8 --> L1
 L8 --> L2
-L8 --> L3
-L8 --> L6
 L8 --> L7
 L9 --> L0
 L9 --> L1
 L9 --> L2
+L9 --> L4
 L9 --> L7
 L9 --> L8
+L10 --> L0
 L10 --> L1
 L10 --> L2
-L10 --> L7
-L11 --> L0
+L10 --> L8
+L10 --> L9
 L11 --> L1
 L11 --> L2
-L11 --> L6
-L11 --> L7
+L11 --> L8
 L12 --> L0
-L12 --> L3
+L12 --> L1
+L12 --> L2
 L12 --> L7
-L12 --> L10
+L12 --> L8
 L13 --> L0
-L13 --> L1
 L13 --> L3
 L13 --> L4
-Facade --> L11
-Facade --> L9
-Facade --> L10
+L13 --> L8
+L13 --> L11
+L14 --> L0
+L14 --> L1
+L14 --> L4
+L14 --> L5
 Facade --> L12
+Facade --> L10
+Facade --> L11
 Facade --> L13
+Facade --> L14
 
 ' ---- 运行时越层：**类型上不引用**，经门面拿实例，所以层序测试看不见 ----
-L9 ..> L11 : 运行时 _system.Executor（OrderService.cs:286）
-L9 ..> L12 : 运行时 _system.World（WorkshopService.cs:41）
+L10 ..> L12 : 运行时 _system.Executor（OrderService.cs:286）
+L10 ..> L13 : 运行时 _system.World（WorkshopService.cs:41）
 
 note as NLayerRule
   **层序是机器检查的，不是约定**
@@ -174,9 +182,9 @@ end note
 
 note as NFacadeGap
   **层序测试守不住的一类依赖：经门面的运行时越层**
-  `Services`（L9）里有两处**不 `using` 上层**却直接调到上层实例：
-  · `Services/OrderService.cs:286` `_system.Executor.BeginSession(...)` → `Executor`（L11）
-  · `Services/WorkshopService.cs:41` `_system.World.NamePools` → `World`（L12）
+  `Services`（L10）里有两处**不 `using` 上层**却直接调到上层实例：
+  · `Services/OrderService.cs:286` `_system.Executor.BeginSession(...)` → `Executor`（L12）
+  · `Services/WorkshopService.cs:41` `_system.World.NamePools` → `World`（L13）
   它们走的是门面属性（`JarSystem.cs:166 public OrderExecutor Executor { get; }`），
   因此 `ArchitectureTests` 的层序检查**看不出来**。图上画成虚线以区别于类型引用。
 

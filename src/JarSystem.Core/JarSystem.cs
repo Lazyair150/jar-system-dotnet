@@ -7,6 +7,7 @@ using JarSystem.Core.Domain;
 using JarSystem.Core.Executor;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Process;
+using JarSystem.Core.Presentation;
 using JarSystem.Core.Production;
 using JarSystem.Core.Sessions;
 using JarSystem.Core.Services;
@@ -246,6 +247,23 @@ public class JarSystem : Rules.IWorldFacts
     /// </summary>
     public WorldBus Bus { get; }
 
+    /// <summary>
+    /// **表现层帧流**：核心对"世界如何被看见"唯一承诺的东西 —— 按发生顺序排好、帧号单调的一串引用。
+    ///
+    /// 它与总线的分工是刻意的：
+    /// <list type="bullet">
+    /// <item><see cref="Bus"/> 面向**世界内部**：订阅者可反应、可级联，会影响世界；</item>
+    /// <item>本帧流面向**世界外部**：只读、只排顺序，删掉它世界一步都不变。</item>
+    /// </list>
+    /// 因此宿主（Web / Godot / 离线录制）应该只认这一条流，不要再各自造一套事件词汇
+    /// —— 那正是 2026-11 审计发现的缺口（三个宿主三套语义，谁也说不清自己漏了什么）。
+    ///
+    /// 帧里**没有状态**：需要"那一刻的世界"请自己维护读模型、按帧增量应用；
+    /// 想一次性对齐请调 <c>GetState()</c>。节奏（多久播一帧）是宿主的参数，不是内核的
+    /// —— 和 <c>TickIntervalMs</c> 同类。
+    /// </summary>
+    public PresentationFeed Presentation { get; }
+
     /// <summary>罐子对象池（世界级；生产借出、丢弃归还）。见 <see cref="Domain.JarPool"/>。</summary>
     public JarPool JarPool { get; }
 
@@ -286,6 +304,10 @@ public class JarSystem : Rules.IWorldFacts
         _liquidProductionRateView = new ReadOnlyDictionary<string, int>(_liquidProductionRate);
         Rng = randomSeed.HasValue ? new Random(randomSeed.Value) : new Random();
         Bus = new WorldBus();
+        // 帧流只是总线的**只读投影**：它订阅总线、存帧，从不回写世界。
+        // 删掉这一行与下一行，世界行为与回放字节完全不变（PresentationFeedTests 守着这条）。
+        Presentation = new PresentationFeed();
+        Bus.Subscribe(new BusPresentationBridge(Presentation));
         JarPool = new JarPool();
         // 第一个真实反应器：世界资源一变，待定订单的可行性缓存就不再成立。
         // 它排进下一个 tick 的批再清 —— 信号分发时世界还处在"改到一半"的状态，不能此刻读。
@@ -930,6 +952,7 @@ public class JarSystem : Rules.IWorldFacts
         // P2 起还必须清空过程运行时：活动过程持有旧工作台/旧订单的引用，重来后不得继续推进它们。
         Processes.Clear();
         Bus.ResetPending();   // 已排队的闭包捕获的是旧世界，重来后不得再执行
+        Presentation.Clear(); // 帧流是旧世界的投影：重来后从头开始（接收方保留，宿主不必重连）
         Time.Reset();         // 世界重建 ⇒ 时间回到"尚未开始"（tick 由 Processes.Clear 归零）
         ClearWorkshopsCore(); ClearOrdersCore(); CurrentEvent = null; _eventHistory.Clear();
         _liquidProductionRate.Clear();
