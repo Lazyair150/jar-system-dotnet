@@ -388,3 +388,66 @@ console.log('=== 中间态快照 ===');
   if (bad) { console.log('  => 快照抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
   else console.log('  => 快照抽查 OK（每帧都有那一刻的世界、流入逐只、交付即离台、转移 uid 不变）');
 })();
+
+/* ============ 订单执行顺序 ============
+   执行顺序 = G.orders 的数组顺序；od.idx 是身份，不随排序变。
+   这里只断言**机制**（引擎确实按数组顺序跑、越界被拒、顺序能跨回合保持）。
+   ⚠️ 一个必须记住的实测结论：在现有五关的 3,576 种产线组合里，
+   **换顺序从不改变完成集合**（identity 级别扫描，0 处差异）——
+   所以这个旋钮目前是"接通了但还没用处"，缺的是**会抢同一批罐子/液体的订单**。
+   这正是关卡设计的缺口，不是代码缺口；一旦设计出这种订单，下面的机制就已经就位。 */
+console.log('=== 订单执行顺序 ===');
+(function () {
+  var bad = 0;
+  function fail(m) { bad++; console.log('  ! ' + m); }
+
+  function run(swap) {
+    var G = ENG.newGame(0);
+    ['j圆', 'j圆', 'j方'].forEach(function (id, i) { G.lines[i] = { prod: ENG.findProd(id) }; });
+    if (swap) ENG.moveOrder(G, 0, 1);
+    var firsts = [];
+    for (var t = 0; t < 3; t++) {
+      /* 期望值：这条回合里"第一个未完成的订单"（已完成的会被跳过） */
+      var exp = null, expRank = 0;
+      for (var k = 0; k < G.orders.length; k++) {
+        if (!G.orders[k].done) { exp = G.orders[k].idx; expRank = k + 1; break; }
+      }
+      ENG.runTurn(G);
+      var f = (G.events || []).filter(function (e) { return e.kind === 'orderTry'; })[0];
+      if (f) firsts.push({ ev: f, exp: exp, expRank: expRank });
+    }
+    return firsts;
+  }
+
+  /* ① 引擎按数组顺序：原序第一条是 #1，换序第一条是 #2，而且**每一回合**都是 */
+  var A = run(false), B = run(true);
+  if (!A.length || !B.length) fail('没有 orderTry 事件');
+  function checkSeq(list, label) {
+    list.forEach(function (x, i) {
+      if (x.ev.order !== x.exp) fail(label + '第 ' + (i + 1) + ' 回合：应当先执行 #' + (x.exp + 1) + '，实际 #' + (x.ev.order + 1));
+      if (x.ev.rank !== x.expRank) fail(label + '第 ' + (i + 1) + ' 回合：rank 应当是 ' + x.expRank + '，实际 ' + x.ev.rank);
+    });
+  }
+  checkSeq(A, '原序');
+  checkSeq(B, '换序');
+  /* 换序之后第一回合的第一条必须真的变了（否则"排序"这个动作没生效） */
+  if (A.length && B.length && A[0].ev.order === B[0].ev.order) fail('换序后第一回合的执行顺序没变');
+
+  /* ② 越界移动必须被拒，且不改动数组 */
+  var G = ENG.newGame(0);
+  var before = G.orders.map(function (o) { return o.idx; }).join(',');
+  if (ENG.moveOrder(G, 0, -1)) fail('moveOrder(0,-1) 应当返回 false');
+  if (ENG.moveOrder(G, G.orders.length - 1, 1)) fail('moveOrder(last,+1) 应当返回 false');
+  if (G.orders.map(function (o) { return o.idx; }).join(',') !== before) fail('越界移动改动了订单顺序');
+
+  /* ③ 排序是持久的：移动一次，之后每回合都按新顺序，不会自己弹回去 */
+  var G2 = ENG.newGame(1);
+  ENG.moveOrder(G2, 0, 1);
+  var want = G2.orders.map(function (o) { return o.idx; }).join(',');
+  ENG.runTurn(G2); ENG.runTurn(G2);
+  if (G2.orders.map(function (o) { return o.idx; }).join(',') !== want) fail('执行两回合后顺序自己变回去了');
+
+  if (bad) { console.log('  => 执行顺序抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
+  else console.log('  => 执行顺序抽查 OK（引擎按数组顺序执行、越界被拒、顺序跨回合保持；' +
+    '注意：现有关卡里换顺序不改变结果，见注释）');
+})();

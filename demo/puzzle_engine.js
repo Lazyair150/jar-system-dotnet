@@ -617,6 +617,20 @@
     if (i >= 0) bench.jars.splice(i, 1);
   }
 
+  /* ---------- 订单执行顺序 ----------
+     **执行顺序就是 `G.orders` 的数组顺序**；`od.idx` 是订单的**身份**（显示用 #编号），不随排序变。
+     这样只有一处真相，不需要维护一张"顺序表"再跟数组对账。
+     顺序真的会改变结果：先执行的订单先拿走台上的罐子与液池里的液体。
+     原系统同理 —— `OrderService` 按队列顺序逐单 `OrderEvent.Execute`。 */
+  function moveOrder(G, i, dir) {
+    var j = i + dir;
+    if (i < 0 || j < 0 || i >= G.orders.length || j >= G.orders.length) return false;
+    var tmp = G.orders[i];
+    G.orders[i] = G.orders[j];
+    G.orders[j] = tmp;
+    return true;
+  }
+
   /* 一回合：产出 → 逐条订单尝试自动执行 → 回合数 +1 */
   /* 一回合的「结算」部分：产出 → 逐条订单尝试自动执行。
      不管胜负、不推进回合数——战斗层要自己决定什么时候算输、什么时候推进。 */
@@ -644,7 +658,7 @@
     for (var i = 0; i < G.orders.length; i++) {
       var od = G.orders[i];
       if (od.done) continue;
-      emit(G, { kind: 'orderTry', order: od.idx, cls: od.cls });
+      emit(G, { kind: 'orderTry', order: od.idx, rank: i + 1, cls: od.cls });
       var r = evalOrder(G, od);
       od.progress = r.height;
       if (r.reason) emit(G, { kind: 'orderBlocked', order: od.idx, reason: r.reason });
@@ -765,6 +779,7 @@
     produce: produce,
     newWarehouse: newWarehouse,
     flowToMaster: flowToMaster,
-    transferJar: transferJar
+    transferJar: transferJar,
+    moveOrder: moveOrder
   };
 })();

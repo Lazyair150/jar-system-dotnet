@@ -150,7 +150,7 @@
     return h;
   }
 
-  function orderCard(od) {
+  function orderCard(od, rank, total) {
     var r = ENG.evalOrder(G, od);
     od.progress = od.done ? od.total : r.height;
 
@@ -160,6 +160,13 @@
     h += '<span class="ocls' + (od.cls === 'B' ? ' b' : '') + '">' + od.cls + ' 类</span>';
     h += '<span class="oprog">' + od.progress + '/' + od.total + '</span>';
     if (od.done) h += '<span class="obadge">完成</span>';
+    /* 执行顺序：一回合内谁先跑。先跑的订单先拿走台上的罐子与液池里的液体 ——
+       所以这不是"显示顺序"，是一个真的策略旋钮（原系统由订单队列顺序决定）。 */
+    if (!od.done && total > 1) {
+      h += '<span class="orank" title="本回合第 ' + rank + ' 个被执行">顺序 ' + rank + '</span>';
+      h += '<button class="mini ord" data-act="ordup" data-i="' + (rank - 1) + '"' + (rank === 1 ? ' disabled' : '') + '>↑</button>';
+      h += '<button class="mini ord" data-act="orddown" data-i="' + (rank - 1) + '"' + (rank === total ? ' disabled' : '') + '>↓</button>';
+    }
     h += '</div>';
 
     h += '<div class="obar"><i style="width:' + Math.round(100 * od.progress / od.total) + '%"></i></div>';
@@ -391,7 +398,7 @@
 
     var oh = '<div class="panel-hd"><span class="ptitle">订单</span>' +
       '<span class="hint">进度是「现在就能长到第几层」，会随配置实时变化</span></div>';
-    for (var i = 0; i < G.orders.length; i++) oh += orderCard(G.orders[i]);
+    for (var i = 0; i < G.orders.length; i++) oh += orderCard(G.orders[i], i + 1, G.orders.length);
     $('ordersPanel').innerHTML = oh;
 
     var lh = '<div class="panel-hd"><span class="ptitle">记录</span></div><div class="log">';
@@ -500,6 +507,11 @@
     }
     if (act === 'pbspeed') { pb.speed = pb.speed >= 4 ? 1 : pb.speed * 2; render(); return; }
     if (act === 'pbclose') { stopPlayback(); pb.i = pb.queue.length; render(); return; }
+    if (act === 'ordup' || act === 'orddown') {
+      var oi = parseInt(el.getAttribute('data-i'), 10);
+      if (ENG.moveOrder(G, oi, act === 'ordup' ? -1 : 1)) render();
+      return;
+    }
     if (act === 'restart') { G = ENG.newGame(G.lvIndex); ui.picker = null; render(); return; }
     if (act === 'prevlv') { G = ENG.newGame(Math.max(0, G.lvIndex - 1)); ui.picker = null; render(); return; }
     if (act === 'nextlv') { G = ENG.newGame(Math.min(window.LEVELS.length - 1, G.lvIndex + 1)); ui.picker = null; render(); return; }
