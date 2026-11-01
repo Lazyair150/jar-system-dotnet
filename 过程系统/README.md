@@ -19,24 +19,28 @@
 | **Phase 4c** | 自审与修正（热路径缓存、端口归位）+ **修饰器差分门**（`MODDIFF-OK 400/1200`） | ✅ **完成并验证** | `09_自审与修正.md` |
 | **Phase 4d** | 边界重构（A1 `Rules` 独立成层 / A2、A3 破两处成环）+ 生产者强度消费者 | ✅ **完成并验证**（反向依赖自检全空） | `10_边界重构与阶段推进.md` |
 | **Phase 4 收口** | 数据驱动修饰器/事件 + 表达力升级（受限池重跑）+ `flow` 强度消费者 | ✅ **完成并验证**（`MODDIFF 1600`，`32 deterministic`） | `11_阶段四收口与阶段五开场.md` |
-| **Phase 5（开场）** | 宿主侧时间参数（`JarSystem:TickIntervalMs`） | 🟡 **第一片已落地**；倍速/暂停适配与场景编辑器待做 | 同上 §3/§5 |
+| **Phase 5（开场）** | 宿主侧时间参数（`JarSystem:TickIntervalMs`） | ✅ 第一片已落地，后续片并入下一行 | 同上 §3/§5 |
 | **Phase 5（收口三项）** | `Require` 数据化（`IWorldQuery`）+ 倍速（`setTickInterval`）+ 场景装配与校验工具 | ✅ **完成并验证**（`PROTOCOL-OK 21/16`，`SCENARIO-OK`） | `12_阶段五_三项收口.md` |
 | **Phase 5（收口）** | 结构化查询（`IWorldFacts` + `WorldQuery`）+ 场景编辑器（3 端点 + 弹窗）+ 校验入门（第 7 步子检查） | ✅ **完成并验证**（含端到端冒烟：编辑→保存→重启→装配） | `13_阶段五_场景编辑器与结构化查询.md` |
 | **全项目审查** | 设计目的 vs 实现差异：修 D1 `Window.From`、D2 `Priority`、D3 `DeadlineTick`（三处"声明未读取"）+ 规格回填实现现状 | ✅ **完成并验证**（`32 deterministic`） | `14_全项目审查_设计目的与实现差异.md` |
 | **UML 补齐** | 新增 4 张（过程状态机 / 异步轨时序 / tick 管线活动图 / 规则与过程类图）+ 更新 3 张 + 覆盖体检 | ✅ **完成**（10 → 14 张；**14 张已全部渲染验证**，用户本机 VS Code + JVM） | `15_UML覆盖审查与过程系统补图.md` |
 | **UML 语法在线验证** | 09/11 的语法错误定位并修正（并回填 `UML.txt` 的踩坑规则） | ✅ **09/11 在线修正 + 全 14 张经用户本机验证正常显示** | `15` §7 |
+| **工程硬化（2026-10-18）** | 质量约束、聚焦 xUnit 入九步门、过程收尾/Reset 修正、Web 启动路径与输入边界加固 | ✅ **完成并验证**（`VERDICT=OK` + `QUALITY-OK`） | `16_技能驱动全项目审查与加固.md` |
 | Phase 5 | （可选）引擎时间对接、世界事件注入编辑器 | ⬜ | 同上 |
 
-## 最新实测（2026-10-16，P2b + P2c 后）
+## 最新实测（2026-10-18，工程硬化后）
 
 ```
 0 bugs / 2000 random + 0 bugs / 3000 capacity + 32 deterministic
-docs baseline: OK (9 carriers say 22)     CONFIG-WORLD-MATCH
-PROTOCOL-OK (commands=21, messages=16)    JS-OK
+docs baseline: OK (9 carriers say 32)     CONFIG-WORLD-MATCH
+JarSystem.Tests: Total 22, Errors 0, Failed 0, Skipped 0, Not Run 0
+PROTOCOL-OK (commands=21, messages=16)    JS-OK    QUALITY-OK
 SOLVER-OK (compared=4003, agree=4003, feasible=583, undetermined=0, targeted=3)
-REPLAY-OK (commands=33, stateBytes=3091, logBytes=8797, journalBytes=1415)
-        ↑ 数字变化全部来自"脚本会话新增异步段"；异步轨的过程日志逐字节可复现
-VERDICT=OK        （耗时 18 秒；契约快照 223 行、schema 10 类型、contract.d.ts 224 行均未变）
+MODDIFF-OK (scenarios=400, checks=1600)
+REPLAY-OK (commands=33, stateBytes=3125, logBytes=8797, journalBytes=725)
+        ↑ journalBytes 从此前的 1415 降到 725：`Reset()` 现在会清空过程运行时；
+          这是重置语义的修正，回放仍逐字节一致
+VERDICT=OK        （契约快照 225 行、schema 11 类型/loose=1、contract.d.ts 34 接口/261 行）
 JOURNAL-OK (processes=4, entries=20, steps=3, phases=6)   ← 新产物（--dump-journal）
 ```
 
@@ -54,21 +58,22 @@ JOURNAL-OK (processes=4, entries=20, steps=3, phases=6)   ← 新产物（--dump
 3. **判定只认逻辑 tick**：过程不得读墙钟。
 4. **每阶段必须有等价性论证 + 验证门 + 回滚方式**（沿用 `重构报告/板块报告/` 的格式）。
 
-## 当前基线（2026-10-16 复跑，`重构报告\verify.bat`，`CI=1`）
+## 当前基线（2026-10-18 复跑，`重构报告\verify.bat`，`CI=1`）
 
 ```
 === 0 bugs / 2000 random + 0 bugs / 3000 capacity + 32 deterministic ===
-docs baseline: OK (9 carriers say 22)
-schema: 10 types / total loose=1     contract.d.ts: 224 行
-state_keys.txt: 223 行               CONFIG-WORLD-MATCH
+docs baseline: OK (9 carriers say 32)
+schema: 11 types / total loose=1     contract.d.ts: 34 interfaces / 261 lines
+state_keys.txt: 225 行               CONFIG-WORLD-MATCH
+JarSystem.Tests: Total 22, Errors 0, Failed 0, Skipped 0, Not Run 0
 PROTOCOL-OK (commands=21, messages=16)
-JS-OK
+JS-OK                                QUALITY-OK
 SOLVER-OK (compared=4003, agree=4003, feasible=583, undetermined=0, targeted=3)
-REPLAY-OK (commands=29, stateBytes=2369, logBytes=7748)
+REPLAY-OK (commands=33, stateBytes=3125, logBytes=8797, journalBytes=725)
 VERDICT=OK
 ```
 
-上述数字是 Phase 1 的**等价性基准**：Phase 1 完成后必须逐项相同（新增产物另行增加）。
+上述数字是当前**机器基线**；任何有意变更都必须同时更新 `CONSTRAINTS.md`、相关报告和验证产物。
 
 ## 运行验证
 

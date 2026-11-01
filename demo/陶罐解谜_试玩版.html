@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>陶罐解谜 · 试玩版</title>
+<link rel="stylesheet" href="puzzle.css">
+</head>
+<body>
+
+<div id="app">
+  <div id="topbar"></div>
+  <div id="hintbar"></div>
+  <div id="toast"></div>
+
+  <div class="cols">
+    <div class="col">
+      <div class="panel" id="masterPanel"></div>
+      <div class="panel dim" id="subPanel"></div>
+      <div class="panel" id="linesPanel"></div>
+    </div>
+    <div class="col">
+      <div class="panel" id="ordersPanel"></div>
+      <div class="panel" id="logPanel"></div>
+    </div>
+  </div>
+</div>
+
+<div id="bottomBar"></div>
+<div id="picker" class="hidden"></div>
+
+<script src="puzzle_data.js"></script>
+<script src="puzzle_engine.js"></script>
+<script src="puzzle_ui.js"></script>
+</body>
+</html>

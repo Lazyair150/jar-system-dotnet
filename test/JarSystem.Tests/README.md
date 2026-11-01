@@ -1,10 +1,12 @@
-# test/JarSystem.Tests —— 增量测试工程（P2/P3 第一步）
+# test/JarSystem.Tests —— 聚焦回归测试工程
 
-## 为什么它**不在** `JarSystem.slnx` 里
+## 现在的位置
 
-它需要 NuGet 包，而当前解决方案是**零依赖**。若 restore 失败（离线、版本不存在等），
-把它放进解决方案会**连带打挂现有的七步验证门**（`重构报告/verify.bat`）。
-所以先在这里把测试跑通，再决定是否纳入解决方案。
+它**已经在** `JarSystem.slnx` 里，并由 `重构报告/verify.bat` 第 2 步执行。
+九步门因此同时覆盖旧 runner 的 32 条确定性用例和本工程的 22 条 xUnit 用例；
+其中 2 条直接锁定过程内核的收尾一致性与 `Reset()` 运行时清理。
+
+核心工程仍保持零外部包；NuGet 测试包只属于测试工程。
 
 ## 用法
 
@@ -14,7 +16,7 @@ cd /d D:\codex\jar-system-dotnet
 :: 1) 装测试框架（版本交给 NuGet 选最新，避免手写版本号猜错）
 dotnet add test\JarSystem.Tests package xunit.v3
 
-:: 2) 运行（xUnit v3 的测试项目本身就是可执行程序，不需要 VSTest/MTP 配置，也不必改 global.json）
+:: 2) 运行（xUnit v3 的测试项目本身就是可执行程序；本项目使用 dotnet run，不依赖 VSTest）
 dotnet run --project test\JarSystem.Tests
 ```
 
@@ -51,14 +53,15 @@ Verify 33.x 起是**赞助门槛软件**：`SponsorCheck` 会让构建直接失�
 
 （若你将来愿意赞助 Verify，把 `Verify.XunitV3` 加回来并按其要求声明赞助/豁免即可。）
 
-## 与现有门的关系（重要）
+## 与现有门的关系
 
-* 本工程是**增量**：旧 runner（`test/JarSystem.Test`，2000 随机 + 3000 容量 + 20 确定性）继续作为
-  **基线守护**留在 `verify.bat` 第 2 步，其输出字符串**不变**；
-* 因此测试基线 `0 bugs / 2000 random + 0 bugs / 3000 capacity + 32 deterministic` 不受影响；
-* 七步门里的 build 只构建 `JarSystem.slnx`，**不会**编译本工程 —— 所以本工程里的编译错误只有运行它时才会暴露。
+* 旧 runner（`test/JarSystem.Test`，2000 随机 + 3000 容量 + 32 确定性）继续作为
+  **基线守护**留在 `verify.bat` 第 2 步，其输出字符串不变；
+  对应输出仍是 `0 bugs / 2000 random + 0 bugs / 3000 capacity + 32 deterministic`；
+* `quality-gate.ps1` 要求 xUnit 总数不少于 22，且 Errors/Failed/Skipped/Not Run 全为 0；
+* Release 构建现在覆盖本工程，编译错误会在第 1 步直接失败。
 
-## 已包含的测试（首版 4 条 `[Fact]`）
+## 已包含的测试（共 22 条）
 
 | 测试 | 锁定的不变量 |
 |---|---|
@@ -66,6 +69,8 @@ Verify 33.x 起是**赞助门槛软件**：`SponsorCheck` 会让构建直接失�
 | `Vocabulary_Default_MatchesBuiltInConstants` | 词表是形状/液体目录的唯一权威，默认等于内置常量，非法形状被拒 |
 | `WorldAssembledFromDefaultOptions_EqualsBuiltInWorld` | **配置装配 == 内置世界**（`GetState()` 序列化逐字节相等） |
 | `FeasibilityAndExecution_AreConsistentInBothDirections` | 判定可行⇒执行成功、判定不可行⇒执行失败 |
+| `CompletionFailure_DrivesTheProcessOutcome` | 最终交付失败时过程不得误报成功 |
+| `Reset_ClearsProcessRuntimeState` | 世界重置会清空活动/最近过程、过程日志与逻辑时钟 |
 
 后续按文件尾部注释里的两个模式补：FsCheck 性质测试（失败会自动收缩出最小反例 + 可重放种子）、
-Verify 快照测试（`GetState()` 的 JSON 审批基线，与现有 **223 行**文本快照互补）。
+审批快照测试（`GetState()` 的 JSON 审批基线，与现有 **225 行**文本快照互补）。

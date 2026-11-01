@@ -16,7 +16,7 @@ public class JarSystemService
     private const string SCENARIO_RELATIVE_PATH = "config/scenario.json";
 
     /// <summary>场景里"开局即生效"的修饰器作用域（持有到宿主结束；区间到点仍由栈自动摘除）。</summary>
-    private readonly List<JarSystem.Core.Rules.ModifierScope> _scenarioScopes = new();
+    private readonly List<JarSystem.Core.Domain.ModifierScope> _scenarioScopes = new();
 
     public JarSystem.Core.JarSystem System { get; }
 

@@ -8,6 +8,8 @@ using JarSystem.Core.Services;
 
 // 别名：命名空间 JarSystem.Core 与类型 JarSystem 同名，直接用会歧义（核心测试工程也是这么处理的）
 using CoreSystem = JarSystem.Core.JarSystem;
+using JarSystem.Core.Abstractions;
+using JarSystem.Core.Domain;
 
 /// <summary>
 /// 宿主控制器（Autoload）：持有唯一的 <see cref="CoreSystem"/> 实例、驱动时间、把状态与日志广播给 UI。
@@ -196,7 +198,7 @@ public partial class GameManager : Node
     /// （这些规则住在核心，所以 Web 宿主与 Godot 宿主自动遵守同一条）。
     /// 这里只把拒绝原因原样回传给表单展示。
     /// </summary>
-    public (bool Ok, string? Error) CreateOrder(List<JarSystem.Core.Orders.Requirement> requirements, string orderType)
+    public (bool Ok, string? Error) CreateOrder(List<JarSystem.Core.Abstractions.Requirement> requirements, string orderType)
     {
         var r = System.CreateOrder(requirements, orderType);
         Log(r.Success

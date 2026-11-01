@@ -1,5 +1,4 @@
 using JarSystem.Core.Config;
-using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.Services;
 

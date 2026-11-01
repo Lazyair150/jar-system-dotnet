@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>陶罐战线 · 试玩版</title>
+<link rel="stylesheet" href="battle.css">
+</head>
+<body>
+<div id="app">
+
+  <h1>陶罐战线 <small>它出题，你做配置，引擎自己算。</small></h1>
+
+  <div id="top">
+    <span style="color:#7d7870;font-size:12px">对手</span>
+    <span class="ename" id="ename">—</span>
+    <div class="hpbar"><i id="hpfill" style="width:100%"></i></div>
+    <span class="hptxt" id="hptxt">—</span>
+    <span class="turn" id="turn">—</span>
+    <span class="spacer"></span>
+    <button id="next" class="primary">下一回合 →</button>
+    <button data-act="restart">重开</button>
+  </div>
+
+  <div id="forecast"></div>
+  <div id="consline"></div>
+
+  <div id="board">
+    <div class="panel">
+      <h2>你的工作台</h2>
+      <div id="benches"></div>
+    </div>
+
+    <div class="panel">
+      <h2>它出的题</h2>
+      <div id="orders"></div>
+    </div>
+
+    <div class="panel">
+      <h2>产线（3 槽）</h2>
+      <div id="lines"></div>
+      <div style="margin-top:12px;font-size:11px;color:#6b665e;line-height:1.7">
+        罐子只能产出「主台基础标记」里的形状。<br>
+        A 类题只看主台；B 类题要两台一起才做得出来。
+      </div>
+    </div>
+  </div>
+
+  <div id="log"></div>
+
+  <div style="margin-top:14px;font-size:11px;color:#5f5b54;line-height:1.8">
+    规则全部来自原陶罐系统：形状转换只看基础/附加标记，附加标记是死胡同；
+    异体不能共存（罐子要么空、要么只装一种液体）；一罐一回合只能被操作一次，
+    所以「改形再灌液」永远要跨回合 —— 这就是这张表算的是「下界」而不是「可行」的原因。
+  </div>
+</div>
+
+<div id="over"><div class="box" id="overbox"></div></div>
+<div id="picker">
+  <div class="pickbox">
+    <h4 id="picktitle">—</h4>
+    <div id="pickrows"></div>
+    <div style="margin-top:14px;text-align:right">
+      <button data-act="cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<script src="puzzle_data.js"></script>
+<script src="puzzle_engine.js"></script>
+<script src="battle_data.js"></script>
+<script src="battle_engine.js"></script>
+<script src="battle_ui.js"></script>
+</body>
+</html>

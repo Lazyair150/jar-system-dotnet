@@ -10,6 +10,7 @@ using JarSystem.Core.Domain;
 using JarSystem.Core.Executor;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
+using JarSystem.Core.Abstractions;
 
 int seeds = 3;
 int ordersPerRun = 30;

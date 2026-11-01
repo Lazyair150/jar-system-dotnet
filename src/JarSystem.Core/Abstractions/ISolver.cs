@@ -1,12 +1,10 @@
 using System.Collections.Generic;
-using JarSystem.Core.Orders;
-using JarSystem.Core.Solver;
 
 namespace JarSystem.Core.Abstractions;
 
 /// <summary>
 /// 状态空间求解器契约（阶段 2：让可行性分析依赖抽象而非具体实现）。
-/// 实现：<see cref="Solver.StateSpaceSolver"/>。
+/// 实现：<c>Solver.StateSpaceSolver</c>（以及 PrecheckedStateSpaceSolver / MatchingSolver）。
 /// </summary>
 public interface ISolver
 {

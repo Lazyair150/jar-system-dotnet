@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using JarSystem.Core.Orders;
+using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Core.Sessions;
 
@@ -106,6 +106,13 @@ public static class WorldOps
 
     /// <summary>**异步轨**：把订单执行起成一个由 tick 驱动的过程（P2b 新增；同步轨仍是 <see cref="ExecuteOrder"/>）。</summary>
     public const string StartOrder = "startOrder";
+
+    /// <summary>
+    /// **工作台迁徙过程**：把"换主台"起成一个由 tick 驱动的过程（与 `startOrder` 同一套机制）。
+    /// 与 `setMaster` 的区别是**语义**：`setMaster` 是同步瞬时的原子切换，`startSwitch` 是玩家主动发起的、
+    /// 一 tick 一段的迁徙过程（有 started/blocked/finished，可取消）。
+    /// </summary>
+    public const string StartSwitch = "startSwitch";
 
     /// <summary>取消一个进行中的过程（P4 新增；已完成的部分不回滚）。</summary>
     public const string CancelProcess = "cancelProcess";

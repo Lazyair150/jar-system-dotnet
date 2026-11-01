@@ -16,9 +16,12 @@ internal sealed class ResourceTransferrer
 {
     private readonly JarValuePolicy _valuePolicy;
 
-    public ResourceTransferrer(JarValuePolicy valuePolicy)
+    private readonly JarPool? _pool;
+
+    public ResourceTransferrer(JarValuePolicy valuePolicy, JarPool? pool = null)
     {
         _valuePolicy = valuePolicy;
+        _pool = pool;
     }
 
     public void TransferAll(Workshop oldMaster, Workshop newMaster, SwitchOperationLog log, string caseType)
@@ -37,6 +40,8 @@ internal sealed class ResourceTransferrer
             else
             {
                 log.Add("discard_jar", $"丢弃 {jar.GetDescription()} (新主台容量已满)");
+                // 先记日志再归还：归还后 `GetDescription()` 会抛（这正是回收标记要拦的那类误用）。
+                _pool?.Return(jar);
             }
         }
 

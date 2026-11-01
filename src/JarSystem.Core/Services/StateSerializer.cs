@@ -3,6 +3,7 @@ using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Process;
+using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Core.Services;
 

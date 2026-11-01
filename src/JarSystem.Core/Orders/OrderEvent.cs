@@ -9,7 +9,7 @@ using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.Orders;
 
-public class OrderEvent
+public class OrderEvent : ICommandJournal
 {
     private readonly SlaveRollback _rollback = new();
 
@@ -69,7 +69,7 @@ public class OrderEvent
     internal void AppendLog(ExecutionLogEntry entry) => _executionLog.Add(entry);
 
     /// <summary>追加一条错误记录（仅供本程序集内的命令执行 / 回滚路径调用）。</summary>
-    internal void AppendError(LogError error) => _errors.Add(error);
+    public void AppendError(LogError error) => _errors.Add(error);
 
     /// <param name="log">可观测性出口（阶段 3-A）：透传给本事件的命令执行器，用于回滚失败留痕；null 用默认控制台日志。</param>
     public OrderEvent(Order order, Workshop masterWorkshop, Workshop slaveWorkshop, ISystemLog? log = null)
@@ -246,13 +246,5 @@ public class ExecutionLogEntry
     public string? Jar { get; init; }
     public string? Liquid { get; init; }
     public int? Amount { get; init; }
-    public string? Reason { get; init; }
-}
-
-/// <summary>一条错误记录。**init**：同上，审计数据不可变。</summary>
-public class LogError
-{
-    public string? Phase { get; init; }
-    public string? Command { get; init; }
     public string? Reason { get; init; }
 }

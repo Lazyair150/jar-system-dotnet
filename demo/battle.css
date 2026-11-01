@@ -1,0 +1,160 @@
+/* 陶罐战线 · 战斗界面样式（自带一套，不依赖 puzzle.css） */
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: #16161a; color: #d9d5cc;
+  font: 13px/1.65 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+#app { max-width: 1180px; margin: 0 auto; padding: 14px 16px 40px; }
+h1 { font-size: 17px; margin: 0 0 10px; font-weight: 600; letter-spacing: .5px; }
+h1 small { font-weight: 400; color: #7d7870; font-size: 12px; margin-left: 10px; }
+
+/* 顶部敌情条 */
+#top {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: #1e1e24; border: 1px solid #2e2e36; border-radius: 10px; padding: 10px 14px;
+}
+.ename { font-size: 15px; font-weight: 600; color: #e0b060; }
+.hpbar {
+  flex: 0 0 220px; height: 16px; background: #2a2a32; border-radius: 8px; overflow: hidden;
+  border: 1px solid #3a3a44;
+}
+.hpbar i { display: block; height: 100%; background: linear-gradient(90deg, #b8452f, #e0713f); transition: width .25s; }
+.hptxt { font-variant-numeric: tabular-nums; color: #c9c3b8; }
+.turn { color: #7d7870; }
+.spacer { flex: 1; }
+
+button {
+  background: #2c2c35; color: #dcd7cd; border: 1px solid #43434f;
+  border-radius: 7px; padding: 6px 13px; font: inherit; cursor: pointer;
+}
+button:hover { background: #363641; border-color: #55556a; }
+button:disabled { opacity: .4; cursor: default; }
+button.primary { background: #3a5a3f; border-color: #568257; color: #daf0da; }
+button.primary:hover { background: #44684a; }
+
+/* 预告 + 约束 */
+#forecast {
+  margin-top: 10px; padding: 9px 14px; border-radius: 9px;
+  background: #2a1f1c; border: 1px solid #5a3a2e; color: #e8b9a0;
+}
+#forecast b { color: #f0c060; }
+#consline { margin-top: 8px; display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+#consline .lbl { color: #7d7870; font-size: 12px; }
+.ctag {
+  font-size: 12px; padding: 2px 9px; border-radius: 20px;
+  background: #3a2420; border: 1px solid #70402f; color: #e59a7a;
+}
+
+/* 主布局 */
+#board { display: grid; grid-template-columns: 300px 1fr 320px; gap: 12px; margin-top: 12px; }
+@media (max-width: 980px) { #board { grid-template-columns: 1fr; } }
+
+.panel {
+  background: #1c1c22; border: 1px solid #2c2c34; border-radius: 10px; padding: 10px 12px;
+}
+.panel > h2 {
+  font-size: 12px; font-weight: 600; color: #8a857c; margin: 0 0 8px;
+  letter-spacing: 1px; text-transform: uppercase;
+}
+
+/* 工作台卡 */
+.benchcard { margin-bottom: 10px; }
+.benchcard .bname {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.benchcard .bname button { padding: 3px 10px; font-size: 12px; }
+.benchcard .bname .who { color: #7d7870; font-size: 11px; }
+.marks { display: flex; gap: 5px; flex-wrap: wrap; font-size: 11px; color: #8f8a80; margin-bottom: 7px; }
+.marks .k { color: #6b665e; }
+.marks .ban { color: #c8553d; }
+
+.jars { display: flex; gap: 6px; flex-wrap: wrap; min-height: 30px; }
+.jarchip {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: #2a2a33; border: 1px solid #3d3d49; border-radius: 6px;
+  padding: 3px 8px; font-size: 12px; color: #cfc9be;
+}
+.jarchip.liq { border-color: #6a5a2a; }
+.jarchip .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.dot.jiu { background: #b8722f; }
+.dot.mi { background: #d9a83c; }
+
+.liqrow { margin-top: 7px; display: flex; gap: 10px; font-size: 12px; color: #9a948a; }
+.liqrow b { color: #d9cfa8; font-variant-numeric: tabular-nums; }
+
+/* 产线槽 */
+.lineslot {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  background: #232329; border: 1px solid #33333d; border-radius: 8px; padding: 6px 10px;
+}
+.lineslot.empty { color: #5f5b54; font-style: italic; }
+.lineslot .nm { flex: 1; }
+.lineslot .tgt { font-size: 11px; color: #7d7870; }
+.lineslot button { padding: 2px 8px; font-size: 11px; }
+
+/* 订单 */
+.order {
+  background: #232329; border: 1px solid #34343e; border-radius: 9px;
+  padding: 9px 11px; margin-bottom: 8px;
+}
+.order.dead { opacity: .45; border-style: dashed; }
+.order .oh { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.order .onm { font-weight: 600; color: #ddd6c8; flex: 1; }
+.order .val {
+  font-size: 11px; padding: 1px 8px; border-radius: 20px;
+  background: #3a3220; border: 1px solid #6b5a2c; color: #e0c274;
+}
+.order .cls { font-size: 11px; color: #7d7870; }
+.reqs { display: flex; gap: 6px; flex-wrap: wrap; }
+.reqchip {
+  font-size: 11px; padding: 2px 8px; border-radius: 6px;
+  background: #2c2c36; border: 1px solid #414150; color: #c4bfb4;
+}
+.reqchip.fill { background: #3a2c1c; border-color: #7a5a2c; color: #e6c890; }
+.progbar { height: 4px; background: #2c2c34; border-radius: 2px; margin-top: 7px; overflow: hidden; }
+.progbar i { display: block; height: 100%; background: #5a8a5e; transition: width .25s; }
+.deadnote { font-size: 11px; color: #b8452f; margin-top: 5px; }
+
+/* 日志 */
+#log {
+  margin-top: 12px; max-height: 190px; overflow-y: auto;
+  background: #15151a; border: 1px solid #26262e; border-radius: 9px;
+  padding: 9px 13px; font-size: 12px; line-height: 1.75; color: #9a948a;
+}
+#log div { border-bottom: 1px solid #1d1d24; padding: 1px 0; }
+#log b { color: #d9d3c6; }
+
+/* 结局面板 */
+#over {
+  position: fixed; inset: 0; background: rgba(10, 10, 14, .82);
+  display: none; align-items: center; justify-content: center; z-index: 50;
+}
+#over.show { display: flex; }
+#over .box {
+  background: #1e1e26; border: 1px solid #3a3a46; border-radius: 14px;
+  padding: 26px 34px; text-align: center; max-width: 460px;
+}
+#over h3 { margin: 0 0 10px; font-size: 22px; }
+#over h3.win { color: #6fbf7a; }
+#over h3.lose { color: #e05a4e; }
+#over p { color: #a8a29a; margin: 0 0 18px; }
+
+/* 选择器 */
+#picker {
+  position: fixed; inset: 0; background: rgba(10, 10, 14, .78);
+  display: none; align-items: center; justify-content: center; z-index: 60;
+}
+#picker.show { display: flex; }
+#picker .pickbox {
+  background: #1e1e26; border: 1px solid #3a3a46; border-radius: 14px;
+  padding: 18px 20px; width: 460px; max-height: 78vh; overflow-y: auto;
+}
+#picker h4 { margin: 0 0 12px; font-size: 14px; color: #cfc9be; }
+.pickrow {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+}
+.pickrow:hover { background: #2a2a34; border-color: #3f3f4c; }
+.pickrow .pn { flex: 1; }
+.pickrow .pd { font-size: 11px; color: #7d7870; }
+.pickrow.cur { border-color: #568257; background: #24312a; }

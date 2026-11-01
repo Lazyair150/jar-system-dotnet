@@ -1,7 +1,5 @@
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Domain;
-using JarSystem.Core.Orders;
-using JarSystem.Core.Solver;
 
 namespace JarSystem.Core.Rules;
 
@@ -74,11 +72,22 @@ public sealed class ModifierAwareSolver : ISolver, IWorkBudgetedSolver
                     if (!granted.Contains(g.Shape)) granted.Add(g.Shape);
                     break;                       // 可表达：视作附加标记
 
-                case SuppressModifier s when !string.IsNullOrEmpty(s.Liquid)
-                    && s.Operation is null or "POUR_IN" or "POUR_OUT" or "RESHAPE":
-                    // 可表达：基础法则里"被禁液体"恰好覆盖倒入、存储、作为改形成本、以及倒出（PourOut 也会拒）
+                case SuppressModifier s when !string.IsNullOrEmpty(s.Liquid) && s.Operation is null:
+                    // 可表达（**且仅当不限操作时**）：基础法则里"被禁液体"恰好同时覆盖倒入、存储、
+                    // 作为空罐改形的成本、倒出（PourOut 也会拒），以及满罐改形的自耗。
+                    // 也就是说，只有"整种液体不可用"才等价于"被禁"。
                     if (!banned.Contains(s.Liquid)) banned.Add(s.Liquid);
                     break;
+
+                case SuppressModifier s when !string.IsNullOrEmpty(s.Liquid):
+                    // 不可表达：抑制只针对**某一种操作**（例如"此刻不得往罐里灌酒"）。
+                    // 把它折成"酒被禁"会**多禁**——真执行里满罐改形自耗酒仍然合法、
+                    // 空罐改形用酒作成本也许仍合法。多禁的后果是求解器凭空报"不可行"，
+                    // 与史上那 105 例错杀同一形状，因此如实回"未判定"。
+                    _inconclusive = "当前规则含求解器无法表达的限制：" + m.Name
+                        + "（只抑制液体 " + s.Liquid + " 的 " + s.Operation + " 操作，"
+                        + "而求解器只有「整种液体被禁」这一种投影）";
+                    return new SolverResult { Feasible = false, Stats = new SolverStats() };
 
                 case SuppressModifier s when string.IsNullOrEmpty(s.Liquid)
                     && !string.IsNullOrEmpty(s.Shape) && s.Operation is null:

@@ -5,7 +5,6 @@ using System.Text.Json.Serialization;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
-using JarSystem.Core.Services;
 
 namespace JarSystem.Core.Orders;
 
@@ -91,6 +90,17 @@ public class Order
     /// <summary>记录本次可行性分析结果。</summary>
     public void RecordFeasibility(FeasibilityResultData result) { FeasibilityResult = result; }
 
+    /// <summary>
+    /// 清空缓存的可行性结论（世界已变，旧结论不再对应现在的工作台）。
+    ///
+    /// <para>为什么必须有这个方法：<c>OrderService.ExecuteOrder</c> 会照着
+    /// <see cref="FeasibilityResult"/> 里的 <c>SolverPath</c> 执行，而那份路径**没有记下
+    /// "算在哪一版工作台上"**（它由 <c>OrderService.WorldSignature</c> 旁挂记录）。
+    /// 世界在两次检测之间变了之后，执行器会拿着对不上现状的步骤照做 ——
+    /// 清空之后它退回贪心兜底，宁可慢也不能拿着过期计划动手。</para>
+    /// </summary>
+    public void ClearFeasibility() { FeasibilityResult = null; }
+
     public bool IsSatisfiedBy(IReadOnlyList<Jar> jars)
     {
         var matched = JarMatcher.MatchAll(jars, Requirements, JarMatcher.Matches);
@@ -105,16 +115,6 @@ public class Order
             r.Liquid != null ? "满罐(" + r.Shape + "," + r.Liquid + ")" : "空罐(" + r.Shape + ")"));
         return "订单#" + Id + "[" + Type + "类]{" + reqs + "}";
     }
-}
-
-public class Requirement
-{
-    // ⚠️ init：需求一旦构造即不可变。
-    // Order.Requirements 已改成只读列表；但若元素仍可写，`order.Requirements[0].Shape = "x"`
-    // 依然能编译并通过 —— ValidateOrder() 的约定（A/B 类型、需求数上限、空罐在前满罐在后）
-    // 就被绕开了。全仓 35 处构造**全部**用对象初始化器、且零处构造后赋值，故 init 零破坏。
-    public string Shape { get; init; } = "";
-    public string? Liquid { get; init; }
 }
 
 /// <summary>
@@ -179,58 +179,3 @@ public class FeasibilityResultData
 // 它们只服务于已删除的 directSatisfactions / operationsNeeded 两个键，而后者的唯一消费者
 // （前端）只用到了数组长度 —— 而长度就等于 directCount / operationCount；
 // 逐条明细由 solverPath（14 字段/步）承载，信息量严格更大。
-
-public class SolverStep
-{
-    public int Step { get; set; }
-    public Requirement? Requirement { get; set; }
-    public SolverOperation? Operation { get; set; }
-    public List<JarState>? Before { get; set; }
-    public List<JarState>? After { get; set; }
-    public Dictionary<string, int>? AfterLiquids { get; set; }
-}
-
-/// <summary>
-/// 求解器操作步骤。属性名与对外 JSON 的路径步骤字段对齐
-/// （jarIndex / targetShape / targetLiquid / costLiquid / consumed），避免缩写造成的对照成本。
-/// </summary>
-public class SolverOperation
-{
-    public string? Type { get; set; }
-    public string? Description { get; set; }
-    public int? JarIndex { get; set; }
-    public string? TargetShape { get; set; }
-    public string? TargetLiquid { get; set; }
-    public string? CostLiquid { get; set; }
-    public Dictionary<string, int>? Consumed { get; set; }
-    public bool FullReshape { get; set; }
-}
-
-public class JarState
-{
-    public int? Id { get; set; }
-    public string Shape { get; set; } = "";
-    public string? Liquid { get; set; }
-    public bool IsMarked { get; set; }
-    // 选择性转移标记：从台求解池中的主台来源罐子（受转移预算约束，未使用则留在主台）
-    public bool MasterOrigin { get; set; }
-
-    /// <summary>由真实罐子生成求解器状态（投影唯一实现；快照语义为未标记）。</summary>
-    public static JarState From(Jar jar) => new()
-    {
-        Id = jar.Id,
-        Shape = jar.Shape,
-        Liquid = jar.Liquid,
-        IsMarked = false
-    };
-
-    /// <summary>复制求解器状态（投影唯一实现）。<paramref name="masterOrigin"/> 为 null 时保留来源标记。</summary>
-    public static JarState Copy(JarState source, bool? masterOrigin = null) => new()
-    {
-        Id = source.Id,
-        Shape = source.Shape,
-        Liquid = source.Liquid,
-        IsMarked = source.IsMarked,
-        MasterOrigin = masterOrigin ?? source.MasterOrigin
-    };
-}

@@ -1,7 +1,6 @@
 using System;
-using JarSystem.Core.Abstractions;
 
-namespace JarSystem.Core.Services;
+namespace JarSystem.Core.Abstractions;
 
 /// <summary>
 /// <see cref="ISystemLog"/> 的默认实现：错误写 stderr、信息写 stdout。

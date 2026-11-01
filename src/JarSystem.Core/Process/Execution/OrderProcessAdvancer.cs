@@ -36,9 +36,15 @@ internal sealed class OrderProcessAdvancer : IProcessAdvancer
 
     public bool AdvanceOneUnit(IProcessRecorder recorder) => _session.AdvanceOneUnit(recorder);
 
-    public bool Succeeded => _session.Succeeded;
+    /// <summary>
+    /// 工作体最终是否成功。收尾完成之后，以收尾结果为准：会话只回答“计划是否走完”，
+    /// 而交付/落账可能在此之后拒绝成功（例如未来接入新的交付约束）。
+    /// 过程状态必须与宿主拿到的最终结果一致，不能出现“订单失败但过程日志写成功”。
+    /// </summary>
+    public bool Succeeded => Result?.Success ?? _session.Succeeded;
 
-    public string? FailureReason => _session.Reason;
+    /// <summary>失败原因；收尾完成之后同样以收尾结果为准。</summary>
+    public string? FailureReason => Result?.Reason ?? _session.Reason;
 
     /// <inheritdoc />
     public GuardResult CheckGuard() => _guard();

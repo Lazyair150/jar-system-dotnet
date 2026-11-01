@@ -9,8 +9,10 @@ rem    double-click this file, OR drag it into an open cmd window and press Ente
 rem    (running from an open cmd window shows any error text)
 rem
 rem  WHAT IT DOES
-rem    1) dotnet build JarSystem.slnx
+rem    1) dotnet build JarSystem.slnx -c Release
+rem       Godot host build (same Release configuration)
 rem    2) test/JarSystem.Test       -c Release
+rem       test/JarSystem.Tests     -c Release (focused xUnit suite)
 rem    3) test/StrategyExperiment   -c Release
 rem    4) contract snapshot         (--dump-contract)
 rem    5) contract schema           (--dump-schema, JsonSchemaExporter)
@@ -45,6 +47,7 @@ rem
 rem  EXIT CODE
 rem    0 = all checks passed, 1 = something failed (VERDICT=FAIL)
 rem    set CI=1 to skip the final "press any key" (so it can run as a CI gate)
+rem    the quality floor runs after step 9; QUALITY-OK is required
 rem    key lines are printed on screen at the end
 rem
 rem  HARD RULE (do not break this again)
@@ -63,18 +66,28 @@ echo ==== %DATE% %TIME% ==== > "%LOG%"
 echo repo root: %CD% >> "%LOG%"
 echo. >> "%LOG%"
 
-echo [1/9] dotnet build JarSystem.slnx  (full rebuild: --no-incremental)
-echo [1/9] dotnet build JarSystem.slnx >> "%LOG%"
-dotnet build JarSystem.slnx --no-incremental > "%REP%_build_output.txt" 2>&1
+echo [1/9] dotnet build JarSystem.slnx -c Release  (full rebuild: --no-incremental)
+echo [1/9] dotnet build JarSystem.slnx -c Release >> "%LOG%"
+dotnet build JarSystem.slnx -c Release --no-incremental > "%REP%_build_output.txt" 2>&1
 if errorlevel 1 echo STEP-FAILED step1 >> "%LOG%"
 echo     exit=%ERRORLEVEL%
 type "%REP%_build_output.txt" >> "%LOG%"
 type "%REP%_build_output.txt"
 
-echo [2/9] JarSystem.Test   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 32 deterministic)
+echo [1b/9] Godot host build (Release)
+echo [1b/9] Godot host build (Release) >> "%LOG%"
+dotnet build hosts\godot\Jar\jar.csproj -c Release --no-incremental --nologo >> "%LOG%" 2>&1
+if errorlevel 1 echo STEP-FAILED step1-godot >> "%LOG%"
+echo     exit=%ERRORLEVEL%
+
+echo [2/9] JarSystem.Test + JarSystem.Tests   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 32 deterministic; xUnit clean)
 echo [2/9] JarSystem.Test >> "%LOG%"
 dotnet run --project test\JarSystem.Test -c Release >> "%LOG%" 2>&1
 if errorlevel 1 echo STEP-FAILED step2 >> "%LOG%"
+echo     exit=%ERRORLEVEL%
+echo [2b/9] JarSystem.Tests >> "%LOG%"
+dotnet run --project test\JarSystem.Tests\JarSystem.Tests.csproj -c Release >> "%LOG%" 2>&1
+if errorlevel 1 echo STEP-FAILED step2-xunit >> "%LOG%"
 echo     exit=%ERRORLEVEL%
 
 echo [3/9] StrategyExperiment
@@ -166,8 +179,16 @@ fc /n "%CONTRACT%\state_keys.baseline.txt" "%CONTRACT%\state_keys.txt" > "%CONTR
 if errorlevel 1 echo SNAPSHOT-MISMATCH >> "%LOG%"
 
 echo.
+echo [quality] floor scan + evidence counts
+echo [quality] floor scan + evidence counts >> "%LOG%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%REP%quality-gate.ps1" -LogPath "%LOG%" > "%REP%_quality_output.txt" 2>&1
+set "QUALITY_EXIT=%ERRORLEVEL%"
+type "%REP%_quality_output.txt" >> "%LOG%"
+if not "%QUALITY_EXIT%"=="0" echo QUALITY-GATE-FAILED >> "%LOG%"
+
+echo.
 echo ---------------- KEY LINES ----------------
-findstr /i /c:"error CS" /c:"warning CS" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"MODDIFF-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" /c:"SCENARIO-" "%LOG%"
+findstr /i /c:"error CS" /c:"warning CS" /c:"warning MSB" /c:"warning NETSDK" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"MODDIFF-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" /c:"SCENARIO-" /c:"QUALITY-" /c:"JarSystem.Tests" /c:"Total:" "%LOG%"
 echo -------------------------------------------
 echo full log : %LOG%
 echo contract : %CONTRACT%\state_keys.txt
@@ -192,6 +213,8 @@ findstr /c:"SNAPSHOT-NO-BASELINE" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"STEP-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"JS-SYNTAX-ERROR" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SCENARIO-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"QUALITY-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"QUALITY-OK" "%LOG%" >nul || set "VERDICT=FAIL"
 echo VERDICT=%VERDICT%
 echo VERDICT=%VERDICT% >> "%LOG%"
 echo.

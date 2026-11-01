@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Abstractions;
 
 /// <summary>
 /// 新建订单表单（等价于 Web 端 `showCreateOrder` 那个弹窗）。

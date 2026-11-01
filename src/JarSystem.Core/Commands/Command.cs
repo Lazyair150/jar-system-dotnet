@@ -1,6 +1,6 @@
 using System;
+using JarSystem.Core.Abstractions;
 using JarSystem.Core.Domain;
-using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.Commands;
 
@@ -41,10 +41,10 @@ public abstract class Command
     }
 
     /// <summary>执行本命令（子类实现）。</summary>
-    public abstract CommandResult Execute(Workshop workshop, OrderEvent? event_);
+    public abstract CommandResult Execute(Workshop workshop, ICommandJournal? journal);
 
     /// <summary>撤销本命令（用于回滚；子类实现）。</summary>
-    public abstract CommandResult Undo(Workshop workshop, OrderEvent? event_);
+    public abstract CommandResult Undo(Workshop workshop, ICommandJournal? journal);
 
     public Dictionary<string, object?> ToJson()
     {

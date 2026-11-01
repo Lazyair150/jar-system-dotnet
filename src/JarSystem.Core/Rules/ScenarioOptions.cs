@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Rules;
 
@@ -33,13 +34,21 @@ public sealed class ScenarioOptions
             if (string.IsNullOrWhiteSpace(m.Kind)) r.Errors.Add(where + "：kind 不能为空");
             else if (!known.Contains(m.Kind))
                 r.Errors.Add(where + "：未知 kind \"" + m.Kind + "\"（数据侧支持：" + string.Join(" / ", known) + "）");
+            if (m.From is < 0 || m.To is < 0)
+                r.Errors.Add(where + "：from/to 不能为负（0 表示世界尚未推进）");
             if (m.To is null) r.Errors.Add(where + "：数据驱动的修饰器必须写明 to（区间终点）");
             if (m.From.HasValue && m.To.HasValue && m.From > m.To) r.Errors.Add(where + "：from 不能大于 to");
             if (m.Kind == "suppress" && m.Operation == null && m.Shape == null && m.Liquid == null)
                 r.Errors.Add(where + "：suppress 至少要写 operation / shape / liquid 之一");
             if (m.Kind == "retime" && (m.TicksPerStep is null or <= 0)) r.Errors.Add(where + "：retime 需要正整数 ticksPerStep");
-            if (m.Kind == "intensity" && (string.IsNullOrWhiteSpace(m.Target) || m.FactorPerMille is null))
-                r.Errors.Add(where + "：intensity 需要 target 与 factorPerMille");
+            if (m.Kind == "intensity")
+            {
+                if (string.IsNullOrWhiteSpace(m.Target) || m.FactorPerMille is null)
+                    r.Errors.Add(where + "：intensity 需要 target 与 factorPerMille");
+                else if (m.FactorPerMille is < 0 or > Constants.MAX_INTENSITY_FACTOR_PER_MILLE)
+                    r.Errors.Add(where + "：factorPerMille 必须在 0~"
+                        + Constants.MAX_INTENSITY_FACTOR_PER_MILLE + " 之间");
+            }
             if (m.Kind == "grant" && string.IsNullOrWhiteSpace(m.Shape)) r.Errors.Add(where + "：grant 需要 shape");
             if (m.Kind == "require")
             {

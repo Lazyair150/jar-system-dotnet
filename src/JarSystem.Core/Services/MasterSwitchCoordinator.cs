@@ -43,7 +43,7 @@ internal sealed class MasterSwitchCoordinator
             bool hasResources = old != null && (old.Jars.Count > 0 || old.LiquidStorage.Values.Any(v => v > 0));
             if (old != null && hasResources)
             {
-                var switchEvent = new WorkshopSwitchEvent(old, next);
+                var switchEvent = new WorkshopSwitchEvent(old, next, _system.JarPool);
                 var (ok, err) = switchEvent.Execute();
                 if (!ok) return new() { ["success"] = false, ["reason"] = err ?? "切换事件失败" };
 
@@ -54,15 +54,8 @@ internal sealed class MasterSwitchCoordinator
                         ["description"] = o.Description
                     })
                     .ToList();
-                _system.AddEvent(new Dictionary<string, object?>
-                {
-                    ["type"] = "workshop_switch",
-                    ["from"] = old.Name,
-                    ["to"] = next.Name,
-                    ["caseType"] = switchEvent.CaseType,
-                    ["operations"] = ops,
-                    ["timestamp"] = _system.Now.ToString("o")   // 用"本次意图的时间"（可记录/可回放）
-                });
+                // 换台事件走唯一发射点（与异步轨 CommitSwitch 共用），不再各自拼字典。
+                _system.AddWorkshopSwitchEvent(old.Name, next.Name, switchEvent.CaseType, ops);
                 result["switched"] = true;
                 result["caseType"] = switchEvent.CaseType;
                 result["operations"] = ops;

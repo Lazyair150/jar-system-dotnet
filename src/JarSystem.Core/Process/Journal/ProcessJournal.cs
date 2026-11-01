@@ -42,6 +42,22 @@ public sealed class ProcessJournal
     /// <summary>因容量上限被丢弃的最旧条目数（序号仍然是单调的，缺口据此可查）。</summary>
     public int DroppedEntries { get; private set; }
 
+    /// <summary>
+    /// 保留条目里的最小序号（无条目时为 0）。
+    /// 与 <see cref="DroppedEntries"/> 满足恒等式 <c>FirstSeq == DroppedEntries + 1</c>（有保留时），
+    /// 因此消费方可以用它验证"我手上这段历史是连续的、缺口正好在它前面"。
+    /// </summary>
+    public int FirstSeq => _entries.Count > 0 ? _entries[0].Seq : 0;
+
+    /// <summary>保留条目里的最大序号（无条目时为 0）。</summary>
+    public int LastSeq => _entries.Count > 0 ? _entries[^1].Seq : 0;
+
+    /// <summary>
+    /// 历史是否已被裁剪。为 <c>true</c> 时"从头回看这条过程"是不可能的：
+    /// 消费方必须据此把"没有记录"读成"没有**保留的**记录"，而不是"没发生过"。
+    /// </summary>
+    public bool IsTruncated => DroppedEntries > 0;
+
     /// <summary>追加一条（返回落盘后的条目，便于调用方回填过程的日志游标）。</summary>
     public JournalEntry Append(int tick, int processId, string kind, int? stepIndex = null,
         string? operation = null, string? modifier = null, string? reason = null,
@@ -78,5 +94,6 @@ public sealed class ProcessJournal
     {
         _entries.Clear();
         DroppedEntries = 0;
+        _seq = 0;
     }
 }

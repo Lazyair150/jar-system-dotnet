@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
-using JarSystem.Core.Solver;
+using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Core.Orders;
 

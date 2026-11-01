@@ -5,6 +5,7 @@ using JarSystem.Core.Commands;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Core.Executor;
 

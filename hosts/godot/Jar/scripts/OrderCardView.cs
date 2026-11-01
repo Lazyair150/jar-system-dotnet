@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Services;
+using JarSystem.Core.Abstractions;
 
 /// <summary>单个订单的卡片视图（代码构建，理由同 <see cref="WorkshopCardView"/>）。</summary>
 public partial class OrderCardView : PanelContainer

@@ -1,6 +1,6 @@
-using JarSystem.Core.Abstractions;
+using JarSystem.Core.Domain;
 
-namespace JarSystem.Core.Rules;
+namespace JarSystem.Core.Domain;
 
 /// <summary>
 /// 修饰器栈：世界在某一刻的活跃修饰器集合（按区间自动失效，按作用域强制回收）。
@@ -62,6 +62,15 @@ public sealed class ModifierStack : IIntensitySource
         var removed = _active.RemoveAll(m => m.Window is { To: { } to } && tick > to);
         if (removed > 0) _revision++;
         return removed;
+    }
+
+    /// <summary>世界重建时把窗口时钟归零（只由 <see cref="Process.ProcessSystem.Clear"/> 调用）。</summary>
+    internal void ResetClock()
+    {
+        _now = 0;
+        _revision++;
+        _grantedRevision = -1;
+        _grantedTick = -1;
     }
 
     /// <summary>
@@ -137,12 +146,13 @@ public sealed class ModifierStack : IIntensitySource
             if (m is not IntensityModifier i) continue;
             if (!IsLive(m)) continue;
             if (i.Target != target) continue;
-            value = (int)((long)value * i.FactorPerMille / 1000);
+            var scaled = (long)value * Math.Max(0, i.FactorPerMille) / 1000;
+            value = (int)Math.Clamp(scaled, 0L, int.MaxValue);
         }
         return value;
     }
 
-    /// <summary>端口实现（P4c）：让产出层经 <see cref="Abstractions.IIntensitySource"/> 使用同一份折算逻辑。</summary>
+    /// <summary>端口实现（P4c）：让产出层经 <see cref="IIntensitySource"/> 使用同一份折算逻辑。</summary>
     int IIntensitySource.Apply(string target, int value) => ApplyIntensity(target, value);
 
     /// <summary>

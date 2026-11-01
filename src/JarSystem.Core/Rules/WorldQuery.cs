@@ -23,10 +23,12 @@ namespace JarSystem.Core.Rules;
 public sealed class WorldQuery
 {
     /// <summary>可查询的对象（词汇表）。</summary>
-    public static readonly string[] WhatValues = ["jars", "liquid", "warehouseJars", "warehouseLiquid", "discardedJars", "discardedLiquid"];
+    public static IReadOnlyList<string> WhatValues { get; } =
+        Array.AsReadOnly<string>(["jars", "liquid", "warehouseJars", "warehouseLiquid", "discardedJars", "discardedLiquid"]);
 
     /// <summary>可用的比较符（词汇表）。</summary>
-    public static readonly string[] OpValues = [">=", ">", "<=", "<", "==", "!="];
+    public static IReadOnlyList<string> OpValues { get; } =
+        Array.AsReadOnly<string>([">=", ">", "<=", "<", "==", "!="]);
 
     /// <summary>工作台主体：<c>master</c> / <c>slave</c> / 具体工作台名（对 warehouse 类对象无意义）。</summary>
     [JsonPropertyName("workshop")] public string? Workshop { get; set; }

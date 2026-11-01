@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 
@@ -28,7 +29,7 @@ internal sealed class SinglePhaseCheck : IFeasibilityCheck
     public FeasibilityResultData? TryCheck(FeasibilityContext ctx)
     {
         if (ctx.Order.Type != Constants.OrderType.A) return null;
-        var jars = ctx.Master.Jars.Select(JarState.From).ToList();
+        var jars = ctx.Master.Jars.Select(JarStateMapper.From).ToList();
         var liquids = ctx.Master.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value);
         var solverResult = ctx.Solver.Solve(ctx.Requirements, ctx.MasterInfo, jars, liquids);
 
@@ -63,7 +64,7 @@ internal sealed class SlaveOnlyCheck : IFeasibilityCheck
         if (ctx.Order.Type == Constants.OrderType.A) return null;
 
         var solverResult = ctx.Solver.Solve(ctx.Requirements, ctx.SlaveInfo,
-            ctx.Slave.Jars.Select(JarState.From).ToList(),
+            ctx.Slave.Jars.Select(JarStateMapper.From).ToList(),
             ctx.Slave.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value));
         if (!solverResult.Feasible) return null;
 
@@ -94,9 +95,9 @@ internal sealed class PartitionCheck : IFeasibilityCheck
             Requirements = ctx.Requirements,
             MasterInfo = ctx.MasterInfo,
             SlaveInfo = ctx.SlaveInfo,
-            MasterJars = ctx.Master.Jars.Select(JarState.From).ToList(),
+            MasterJars = ctx.Master.Jars.Select(JarStateMapper.From).ToList(),
             MasterLiquids = ctx.Master.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value),
-            SlaveJars = ctx.Slave.Jars.Select(JarState.From).ToList(),
+            SlaveJars = ctx.Slave.Jars.Select(JarStateMapper.From).ToList(),
             SlaveLiquids = ctx.Slave.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value)
         }, out var lastBlockage, out var inconclusiveReason);
 

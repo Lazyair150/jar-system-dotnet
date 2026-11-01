@@ -2,5 +2,6 @@
   <Project Path="src\JarSystem.Core\JarSystem.Core.csproj" />
   <Project Path="src\JarSystem.Web\JarSystem.Web.csproj" />
   <Project Path="test\JarSystem.Test\JarSystem.Test.csproj" />
+  <Project Path="test\JarSystem.Tests\JarSystem.Tests.csproj" />
   <Project Path="test\StrategyExperiment\StrategyExperiment.csproj" />
 </Solution>

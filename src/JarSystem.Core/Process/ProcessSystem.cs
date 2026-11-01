@@ -1,3 +1,4 @@
+using JarSystem.Core.Domain;
 using JarSystem.Core.Rules;
 namespace JarSystem.Core.Process;
 
@@ -66,6 +67,18 @@ public sealed class ProcessSystem
     /// </summary>
     public IProcessObserver? Observer { get; set; }
 
+    /// <summary>
+    /// **过程信号的第二个出口**（可选）：同一份通知原样再送给它，用来汇入世界总线。
+    ///
+    /// 为什么两个出口而不是把 <see cref="Observer"/> 换掉：`Observer` 是宿主的既有槽位
+    /// （Web 层在 `Web/ProcessObserver.cs` 里把它翻成对外消息），换掉会静默改变宿主行为；
+    /// 而总线是**内核**要用的通道。两个出口各接各的线，谁都不必知道对方存在。
+    /// null（默认）= 只有 `Observer` 一个出口，行为与接入总线之前逐字节一致。
+    ///
+    /// 调用约定与 <see cref="Observer"/> 相同：**不得抛异常**，不得反向调用系统。
+    /// </summary>
+    public Action<ProcessInstance, string, int>? SignalSink { get; set; }
+
     /// <summary>管线第 ① 步：取出本 tick 的事件并执行（事件只改世界，不改过程状态）。</summary>
     internal void DrainEvents()
     {
@@ -103,7 +116,11 @@ public sealed class ProcessSystem
         _active.Add(instance);
         TotalCreated++;
         return new ProcessRun(instance, _journal, _worldRevision, tickSource: () => _clock.Tick,
-            onClosed: Close, notify: (inst, reason, tick) => Observer?.OnChanged(inst, reason, tick));
+            onClosed: Close, notify: (inst, reason, tick) =>
+            {
+                Observer?.OnChanged(inst, reason, tick);
+                SignalSink?.Invoke(inst, reason, tick);
+            });
     }
 
     /// <summary>把工作体挂到过程上（异步轨；<see cref="TickPipeline"/> 每个到达间隔的 tick 推它一个单位）。</summary>
@@ -193,12 +210,31 @@ public sealed class ProcessSystem
         }
     }
 
+    /// <summary>
+    /// **过程状态变化的唯一出口**。
+    ///
+    /// 为什么必须收成一个方法：Observer（宿主槽位，传活的 ProcessInstance）
+    /// 与 SignalSink（世界总线的过程线，传轻量信号）是两个订阅面，但它们必须永远同步 ——
+    /// 否则"总线打通了"只是说法，某一条路径漏接就静默失真。
+    /// 这条约束不是推测：本类原先在 AdvanceUnit 里直接调了 Observer?.OnChanged(...)，
+    /// 绕过了 Begin 传入的 notify 回调，于是 progressed 从来没上过总线。
+    /// 一条"两槽位收到的事件集合必须相同"的测试当场把它抓了出来
+    /// （test/JarSystem.Tests/ProcessLineParityTests.cs）。
+    ///
+    /// 新增任何过程状态变化时只能走这里，不要再直接碰 Observer。
+    /// </summary>
+    private void Notify(ProcessInstance instance, string reason, int tick)
+    {
+        Observer?.OnChanged(instance, reason, tick);
+        SignalSink?.Invoke(instance, reason, tick);
+    }
+
     /// <summary>推进一个单位；单位用尽时收尾并结束过程（含"交付 / 落账"）。</summary>
     private void AdvanceUnit(ProcessRun run, IProcessAdvancer advancer, ProcessInstance instance, int tick, int id)
     {
         bool more = advancer.AdvanceOneUnit(run);
         instance.NoteUnitAdvanced(tick);
-        Observer?.OnChanged(instance, ProcessObserverReasons.Progressed, tick);
+        Notify(instance, ProcessObserverReasons.Progressed, tick);
         if (more) return;
         advancer.OnFinished();
         run.Finish(advancer.Succeeded, advancer.FailureReason);
@@ -229,13 +265,19 @@ public sealed class ProcessSystem
         return (true, null);
     }
 
-    /// <summary>清空（仅供世界重来这类入口调用；正常流程不调用）。</summary>
+    /// <summary>
+    /// 清空过程运行时（仅供世界重来这类入口调用；正常流程不调用）。
+    /// 活动/最近过程、过程日志与逻辑时钟清理，修饰器窗口时钟重新锚定到 0；
+    /// 过程 id 和累计创建数保持单调，这样旧句柄/旧客户端 id 不会在重置后误命中新过程。
+    /// </summary>
     public void Clear()
     {
         _work.Clear();
         _active.Clear();
         _recent.Clear();
         _journal.Clear();
+        _clock.Reset();
+        _modifiers.ResetClock();
     }
 
     private void Close(ProcessRun run)

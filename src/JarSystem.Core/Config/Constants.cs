@@ -26,6 +26,9 @@ public static class Constants
     /// </summary>
     public const double MAX_PRODUCER_RATE = 100;
 
+    /// <summary>数据侧强度修饰器的上限（千分比 100_000 = 100 倍），防止乘算溢出。</summary>
+    public const int MAX_INTENSITY_FACTOR_PER_MILLE = 100_000;
+
     public static class OrderType
     {
         public const string A = "A";

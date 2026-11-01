@@ -20,4 +20,7 @@ public sealed class LogicalClock
 
     /// <summary>推进一个 tick（唯一入口；只由 <see cref="TickPipeline"/> 调用）。</summary>
     internal void Advance() => Tick++;
+
+    /// <summary>世界重建时归零（只由 <see cref="ProcessSystem.Clear"/> 调用）。</summary>
+    internal void Reset() => Tick = 0;
 }

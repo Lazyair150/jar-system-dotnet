@@ -36,9 +36,47 @@ internal sealed class OrderService : IOrderExecutionCompletion
         catch (Exception e) { return (false, e.Message); }
     }
 
+    /// <summary>
+    /// 按**模板名**派一张订单。模板来自 <c>JarSystem.OrderTemplates</c>（即世界配置）。
+    ///
+    /// <para>与 <see cref="CreateOrder"/> 的唯一区别是"需求从哪来"：这里从模板实例化一份新列表，
+    /// 其余完全一样（同一个 ID 源、同一份词表、同一个入口）⇒ 回放语义不变。</para>
+    ///
+    /// <para>与 <see cref="CreateRandomOrder"/> 的分工：这里按**名字**取一张确定的模板；
+    /// 那里在模板库非空时**随机抽**一张，库空时退回"现掷骰子造需求"的旧行为。</para>
+    /// </summary>
+    public (bool Success, string? Error) CreateOrderFromTemplate(string templateName)
+    {
+        if (!_system.OrderTemplates.TryGet(templateName, out var template))
+            return (false, "没有这个订单模板: " + templateName);
+        return CreateOrder(template.Instantiate(), template.Type);
+    }
+
+    /// <summary>
+    /// 随机派一张订单。
+    ///
+    /// <para><b>两种模式（2026-08 定案，由"订单模板库"引入）</b>：</para>
+    /// <list type="number">
+    /// <item>模板库**非空** ⇒ 从库里**随机抽一张模板**并实例化。订单因此是"世界内容"里有的东西，
+    ///       而不是掷出来的组合 —— 这是模板库存在的意义；</item>
+    /// <item>模板库**为空** ⇒ 退回原来那段"现掷骰子造需求"的逻辑，**逐字未改**
+    ///       （空库的世界行为与引入模板库之前完全一致）。</item>
+    /// </list>
+    ///
+    /// <para><b>为什么仍然可回放</b>：两次抽签都只用门面的 <c>Rng</c>，而 <c>Rng</c> 由种子决定、
+    /// 命令顺序决定消耗了多少随机数 ⇒ 同一份命令日志必然抽出同一张模板。
+    /// 这条命令**不记参数**（<c>WorldOps.CreateRandomOrder</c> 无字段），所以"抽到哪张"必须
+    /// 由种子＋命令序列唯一决定 —— 这正是上面那条推理要成立的原因。</para>
+    /// </summary>
     public (bool Success, string? Error) CreateRandomOrder()
     {
         var rand = _system.Rng;  // T4：共用门面的随机源（给了种子即可复现）
+        var library = _system.OrderTemplates;
+        if (!library.IsEmpty)
+        {
+            var picked = library.Get(rand.Next(library.Count));
+            return CreateOrder(picked.Instantiate(), picked.Type);
+        }
         // S2：随机需求按**词表**取（原先写死读 Constants.SHAPES / Constants.LIQUIDS）
         var shapes = _system.Vocabulary.Shapes;
         var liquids = _system.Vocabulary.Liquids;
@@ -67,6 +105,7 @@ internal sealed class OrderService : IOrderExecutionCompletion
         {
             var r = new FeasibilityResultData { Feasible = false, Reason = "未选择主工作台" };
             _system.Orders[orderIndex].RecordFeasibility(r);
+            Remember(_system.Orders[orderIndex]);
             return r;
         }
         var order = _system.Orders[orderIndex];
@@ -76,33 +115,100 @@ internal sealed class OrderService : IOrderExecutionCompletion
         {
             var r = new FeasibilityResultData { Feasible = false, Reason = "无效参数" };
             order!.RecordFeasibility(r);
+            Remember(order!);
             return r;
         }
         if (order.Type == Constants.OrderType.B && slave == null)
         {
             var r = new FeasibilityResultData { Feasible = false, Reason = "B类订单需要选择从台" };
             order.RecordFeasibility(r);
+            Remember(order);
             return r;
         }
         // A 类订单无需从台：无从台时以主台快照占位（CheckTypeA 不读取从台）
         var resultData = _system.Checker.Check(order, master.CreateSnapshot(), (slave ?? master).CreateSnapshot());
         order.RecordFeasibility(resultData);
+        Remember(order);
         return resultData;
+    }
+
+    /// <summary>
+    /// 「这张订单的结论算在世界第几修订号上」。
+    ///
+    /// 为什么要它：宿主每 5 秒调一次 <see cref="CheckAllFeasibility"/>（`AutoCheckBackgroundService.cs:11`），
+    /// 而那 5 秒里世界往往**什么都没变** —— 判定结果本来就存在订单上，重算纯属重复劳动。
+    /// `JarSystem.WorldRevision`（= 命令日志序号）正好是天然的失效键：它只在实际改了世界时才变。
+    ///
+    /// 与 `World.FeasibilityInvalidationReactor` 的分工：那边负责在**世界真的变了**时把缓存清掉，
+    /// 这边负责在**世界没变**时不去碰它。两条合起来，判定的执行次数才与"世界变化次数"成正比，
+    /// 而不是与"定时器滴答次数"成正比。
+    ///
+    /// 刻意做成**旁挂表**而不是往 <c>FeasibilityResultData</c> 加字段：那是对外契约，
+    /// 加键要连带改 snapshot / schema / contract.d.ts / 协议清单，而这只是内部记账。
+    /// </summary>
+    private readonly Dictionary<int, string> _resultSignature = new();
+
+    /// <summary>
+    /// 世界**内容指纹**：判定所依赖的一切（主从台选择 + 每台的标记/禁令 + 罐子集合 + 液池）。
+    ///
+    /// 为什么不用 <c>JarSystem.WorldRevision</c>：`Tick` 每次都会记一条 `WorldOps.Tick`
+    /// （`JarSystem.cs:683`，且发生在产出与流入**之后**），所以修订号每 tick 必增 ——
+    /// 默认 2 秒一 tick、自动检测 5 秒一次，两次检测之间修订号几乎必然变过，缓存永远不命中。
+    /// 而判定真正关心的只有上面那几样；它们没变就**一定**得出同一个结论。
+    ///
+    /// 指纹里带上罐子 Id：结论里的 <c>transferJarIds</c> 是具体 Id，换一只同形同液的罐子结论就不同。
+    /// </summary>
+    internal string WorldSignature()
+    {
+        var sb = new System.Text.StringBuilder(256);
+        sb.Append(_system.CurrentMaster?.ToString() ?? "-").Append('/')
+          .Append(_system.CurrentSlave?.ToString() ?? "-");
+        for (int i = 0; i < _system.Workshops.Count; i++)
+        {
+            var w = _system.Workshops[i];
+            sb.Append('').Append(i).Append(':');
+            foreach (var m in w.Capability.BaseMarks) sb.Append(m).Append(',');
+            sb.Append('/');
+            foreach (var m in w.Capability.AdditionalMarks) sb.Append(m).Append(',');
+            sb.Append('/');
+            foreach (var m in w.Capability.Ban) sb.Append(m).Append(',');
+            sb.Append('/');
+            foreach (var jar in w.Jars)
+                sb.Append(jar.Id?.ToString() ?? "?").Append(jar.Shape).Append(jar.Liquid ?? "-").Append('');
+            sb.Append('/');
+            foreach (var kv in w.LiquidStorage)
+                sb.Append(kv.Key).Append('=').Append(kv.Value).Append(',');
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>记下"这张订单的结论算在世界第几修订号上"（与 <see cref="_resultRevision"/> 配套）。</summary>
+    private void Remember(Orders.Order? order)
+    {
+        if (order != null) _resultSignature[order.Id] = WorldSignature();
     }
 
     /// <summary>对所有「待执行」订单做可行性分析（元素见 <see cref="AutoCheckResultDto"/>：index / orderId / result）。</summary>
     public List<AutoCheckResultDto> CheckAllFeasibility()
     {
         var results = new List<AutoCheckResultDto>();
+        var signature = WorldSignature();
         for (int i = 0; i < _system.Orders.Count; i++)
         {
-            if (_system.Orders[i].Status == Constants.OrderStatus.PENDING)
-                results.Add(new AutoCheckResultDto
-                {
-                    Index = i,
-                    OrderId = _system.Orders[i].Id,
-                    Result = CheckFeasibility(i)
-                });
+            var order = _system.Orders[i];
+            if (order.Status != Constants.OrderStatus.PENDING) continue;
+
+            // 世界没变、结论还在 ⇒ 直接复用，不重算。
+            bool reusable = order.FeasibilityResult != null
+                && _resultSignature.TryGetValue(order.Id, out var at)
+                && string.Equals(at, signature, StringComparison.Ordinal);
+
+            results.Add(new AutoCheckResultDto
+            {
+                Index = i,
+                OrderId = order.Id,
+                Result = reusable ? order.FeasibilityResult : CheckFeasibility(i)
+            });
         }
         return results;
     }
@@ -201,6 +307,7 @@ internal sealed class OrderService : IOrderExecutionCompletion
             if (delivery.Success) order.MarkSucceeded(); else order.MarkFailed();
             _system.AddEvent(new Dictionary<string, object?>
             {
+                ["type"] = "order_event",
                 ["order"] = order.Id,
                 ["master"] = master.Name,
                 ["slave"] = effectiveSlave.Name,
@@ -216,6 +323,7 @@ internal sealed class OrderService : IOrderExecutionCompletion
             order.MarkFailed();
             _system.AddEvent(new Dictionary<string, object?>
             {
+                ["type"] = "order_event",
                 ["order"] = order.Id,
                 ["master"] = master.Name,
                 ["slave"] = effectiveSlave.Name,

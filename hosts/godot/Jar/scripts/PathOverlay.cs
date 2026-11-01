@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text;
 using Godot;
 using JarSystem.Core.Services;
+using JarSystem.Core.Abstractions;
 
 /// <summary>
 /// 可行性路径弹窗（等价于 Web 端 `app.js` 的 <c>showPathModal</c>）。

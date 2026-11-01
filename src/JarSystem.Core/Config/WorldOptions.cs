@@ -44,8 +44,25 @@ public sealed class WorldOptions
     /// <summary>工作台清单（装配顺序 = 列表顺序 ⇒ 主从下标与契约快照的顺序）。</summary>
     [JsonPropertyName("workshops")] public List<WorkshopOptions> Workshops { get; set; } = new();
 
+    /// <summary>
+    /// 订单模板库（**内容**，不是运行时对象）。
+    /// 空表示"这个世界不提供模板"，此时订单只能靠显式需求或随机生成。
+    /// 语义与校验在 <c>JarSystem.Core.Orders.OrderTemplateLibrary</c>：Config 层只描述形状，
+    /// 不引用 <c>Requirement</c>（那在更上层），否则会破层序。
+    /// </summary>
+    [JsonPropertyName("orderTemplates")] public List<OrderTemplateOptions> OrderTemplates { get; set; } = new();
+
     /// <summary>随机工作台的名字池（内容词，原先是硬编码在服务里的数组）。</summary>
     [JsonPropertyName("namePools")] public NamePoolOptions NamePools { get; set; } = new();
+
+    /// <summary>把 (形状, 液体) 元组拼成一条模板 —— 只是让 <see cref="CreateDefault"/> 里的模板清单可读。</summary>
+    private static OrderTemplateOptions Template(string name, string type, params (string Shape, string? Liquid)[] reqs)
+    {
+        var o = new OrderTemplateOptions { Name = name, Type = type };
+        foreach (var (shape, liquid) in reqs)
+            o.Requirements.Add(new RequirementOptions { Shape = shape, Liquid = liquid });
+        return o;
+    }
 
     /// <summary>由本配置构造词表（形状/液体目录的唯一权威由此产生）。</summary>
     public Vocabulary BuildVocabulary() => new(Shapes, Liquids);
@@ -239,6 +256,19 @@ public sealed class WorldOptions
         options.Producers.Add(new ProducerOptions { Name = "机器A", Rates = new() { ["三角罐"] = 0.6, ["扁罐"] = 0.3 } });
         options.Producers.Add(new ProducerOptions { Name = "机器B", Rates = new() { ["鼓罐"] = 0.4, ["尖罐"] = 0.3 } });
 
+        // 订单模板库：世界"可派什么单"的落点（此前这一层根本不存在，只能靠调用方传需求或随机掷骰）。
+        // 顺序即"牌库"顺序，按名字取用；条目仍在 Orders 层做词表与条数校验。
+        options.OrderTemplates.Add(Template("空双罐", Constants.OrderType.A,
+            ("圆罐", null), ("方罐", null)));
+        options.OrderTemplates.Add(Template("灌酒圆罐", Constants.OrderType.A,
+            ("圆罐", null), ("圆罐", "酒")));
+        options.OrderTemplates.Add(Template("三角改形", Constants.OrderType.A,
+            ("方罐", null), ("三角罐", null)));
+        options.OrderTemplates.Add(Template("主从高长", Constants.OrderType.B,
+            ("高罐", null), ("长罐", "蜜")));
+        options.OrderTemplates.Add(Template("三件套", Constants.OrderType.B,
+            ("尖罐", null), ("扁罐", null), ("鼓罐", "酒")));   // 空罐在前、满罐在后（Order 的顺序不变量）
+
         // 工作台：模板（原 Rules.WORKSHOP_TEMPLATES）+ 青龙台 + 白虎台（顺序与重构前一致）
         foreach (var t in Rules.WORKSHOP_TEMPLATES)
             options.Workshops.Add(new WorkshopOptions
@@ -293,6 +323,29 @@ public sealed class NamePoolOptions
 {
     [JsonPropertyName("prefix")] public List<string> Prefix { get; set; } = new();
     [JsonPropertyName("suffix")] public List<string> Suffix { get; set; } = new();
+}
+
+/// <summary>
+/// 订单模板里的一条需求（**数据形态**）。与 <c>Requirement</c> 一一对应，但故意不共用类型：
+/// 前者属于配置（层 0），后者属于契约词汇（层 2）。
+/// </summary>
+public sealed class RequirementOptions
+{
+    [JsonPropertyName("shape")] public string Shape { get; set; } = "";
+
+    /// <summary>null/空 = 空罐需求；否则是"装满该液体的该形状罐"。</summary>
+    [JsonPropertyName("liquid")] public string? Liquid { get; set; }
+}
+
+/// <summary>一张订单模板：名字 + 类型 + 需求清单。</summary>
+public sealed class OrderTemplateOptions
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+
+    /// <summary>订单类型：<c>A</c>（主台独立完成）或 <c>B</c>（需要主从台转移）。</summary>
+    [JsonPropertyName("type")] public string Type { get; set; } = "A";
+
+    [JsonPropertyName("requirements")] public List<RequirementOptions> Requirements { get; set; } = new();
 }
 
 /// <summary>配置校验结果：<see cref="Errors"/> 非空应拒绝启动；<see cref="Warnings"/> 供人判断。</summary>

@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Domain;
-using JarSystem.Core.Orders;
-using JarSystem.Core.Services;
 
 namespace JarSystem.Core.Commands;
 
@@ -11,8 +9,8 @@ namespace JarSystem.Core.Commands;
 /// CommandExecutor - 命令执行器
 /// 负责：命令队列管理、事务边界、回滚
 ///
-/// 阶段 3-A：回滚失败时除写入 <c>event_.Errors</c>（对外契约）外，另经 <see cref="ISystemLog"/> 留痕
-/// —— 原实现在 <c>event_</c> 为 null 时会整条丢失（Node 版此处是 <c>console.error</c>，移植时丢了）。
+/// 阶段 3-A：回滚失败时除写入 <c>journal.Errors</c>（对外契约）外，另经 <see cref="ISystemLog"/> 留痕
+/// —— 原实现在 <c>journal</c> 为 null 时会整条丢失（Node 版此处是 <c>console.error</c>，移植时丢了）。
 /// </summary>
 public class CommandExecutor
 {
@@ -36,9 +34,9 @@ public class CommandExecutor
     public IReadOnlyList<Command> History => _historyView;
 
     // 执行单条命令
-    public CommandResult Execute(Command command, Workshop workshop, OrderEvent? event_)
+    public CommandResult Execute(Command command, Workshop workshop, ICommandJournal? journal)
     {
-        var result = command.Execute(workshop, event_);
+        var result = command.Execute(workshop, journal);
         if (result.Success)
             _history.Add(command);
         return result;
@@ -46,16 +44,16 @@ public class CommandExecutor
 
     // 批量执行（事务）
     public (bool Success, int ExecutedCount, string? Reason) ExecuteBatch(
-        List<Command> commands, Workshop workshop, OrderEvent? event_)
+        List<Command> commands, Workshop workshop, ICommandJournal? journal)
     {
         var executed = new List<Command>();
         foreach (var cmd in commands)
         {
-            var result = Execute(cmd, workshop, event_);
+            var result = Execute(cmd, workshop, journal);
             if (!result.Success)
             {
                 // 事务失败，回滚已执行的
-                Rollback(executed, workshop, event_);
+                Rollback(executed, workshop, journal);
                 return (false, executed.Count, result.Reason);
             }
             executed.Add(cmd);
@@ -65,14 +63,14 @@ public class CommandExecutor
 
     // 回滚（逆序）。单条撤销失败不中断其余回滚，但必须留下痕迹
     // （原 Node 版此处为 console.error，移植到 .NET 时丢失了该日志 —— 阶段 3-A 经 ISystemLog 补回）
-    public void Rollback(List<Command> commands, Workshop workshop, OrderEvent? event_)
+    public void Rollback(List<Command> commands, Workshop workshop, ICommandJournal? journal)
     {
         // 逆序回滚
         for (int i = commands.Count - 1; i >= 0; i--)
         {
             try
             {
-                var undone = commands[i].Undo(workshop, event_);
+                var undone = commands[i].Undo(workshop, journal);
 
                 // ⚠️ **撤销失败有两条通路**：抛异常，或者**返回 Success=false**
                 // （`TransferCommand` / `PourOutCommand` / `ReshapeEmptyCommand` 都用返回值表示失败）。
@@ -81,7 +79,7 @@ public class CommandExecutor
                 if (!undone.Success)
                 {
                     var why = string.IsNullOrEmpty(undone.Reason) ? "撤销未成功（未给出原因）" : undone.Reason!;
-                    event_?.AppendError(new LogError
+                    journal?.AppendError(new LogError
                     {
                         Phase = "rollback",
                         Command = commands[i].Type,
@@ -92,8 +90,8 @@ public class CommandExecutor
             }
             catch (Exception ex)
             {
-                // 契约留痕：保持原样（event_ 为 null 时本行无效果，故下一行补日志出口）
-                event_?.AppendError(new LogError
+                // 契约留痕：保持原样（journal 为 null 时本行无效果，故下一行补日志出口）
+                journal?.AppendError(new LogError
                 {
                     Phase = "rollback",
                     Command = commands[i].Type,

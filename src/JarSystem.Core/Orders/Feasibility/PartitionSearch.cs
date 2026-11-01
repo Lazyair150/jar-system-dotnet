@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
-using JarSystem.Core.Solver;
 
 namespace JarSystem.Core.Orders;
 
@@ -92,6 +91,15 @@ public sealed class PartitionSearch
         // 为什么这条最关键：B 类不可行订单要对全部 2^N 个划分各做一次主台+从台求解，
         // 而最贵的正是"主台拿到很多需求"的那些 mask —— 一旦某个小失败子集被证出来，
         // 它的全部超集（数量最多、单次最贵）一次跳过。
+        // #2（本轮）**按需求多重集去重 mask**：mask 只决定"哪些需求归主台"，而求解结果是
+        // (主台需求多重集, 从台需求多重集) 的纯函数 —— 罐子/液体/工作台信息在整个循环里恒定。
+        // 于是两条完全相同的需求（订单里很常见：两个空圆罐）会让两个不同 mask 落到**同一个子问题**，
+        // 却各跑一遍主台 + 从台求解。这里按签名去重，等价、只是省掉那次。
+        //
+        // 注意**不能**进一步按"子集 DP"共享主台结果：每个 mask 的主台需求子集是真的不同，
+        // 主台求解次数降不下来。这一点我先前判断错了，记在这里免得后人再试一遍。
+        var seenPartitions = new HashSet<string>(StringComparer.Ordinal);
+
         var masterInfeasible = new bool[1 << reqs.Count];
         for (int mask = 0; mask < (1 << reqs.Count); mask++)
         {
@@ -104,6 +112,9 @@ public sealed class PartitionSearch
                 if ((mask >> i & 1) == 1) mReqs.Add(reqs[i]);
                 else sReqs.Add(reqs[i]);
             }
+
+            var partitionKey = Signature(mReqs) + "" + Signature(sReqs);
+            if (!seenPartitions.Add(partitionKey)) continue;
 
             var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
             if (_solver is IWorkBudgetedSolver mb && mb.BudgetExceeded)
@@ -213,6 +224,19 @@ public sealed class PartitionSearch
 
         lastBlockage = blockage;
         return null;
+    }
+
+    /// <summary>
+    /// 需求多重集的**规范签名**（与顺序无关）：排序后拼接。用于识别"两个 mask 其实问的是同一件事"。
+    /// </summary>
+    private static string Signature(List<Requirement> reqs)
+    {
+        if (reqs.Count == 0) return "";
+        var parts = new string[reqs.Count];
+        for (var i = 0; i < reqs.Count; i++)
+            parts[i] = reqs[i].Shape + ":" + (reqs[i].Liquid ?? "");
+        Array.Sort(parts, StringComparer.Ordinal);
+        return string.Join(",", parts);
     }
 
     /// <summary>

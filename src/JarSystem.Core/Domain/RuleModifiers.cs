@@ -1,4 +1,6 @@
-namespace JarSystem.Core.Rules;
+using JarSystem.Core.Domain;
+
+namespace JarSystem.Core.Domain;
 
 /// <summary>修饰器的种类（取值不是契约：只在本程序集内使用，不进任何对外 JSON）。</summary>
 public enum ModifierKind

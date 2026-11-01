@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Domain;
@@ -8,23 +9,39 @@ namespace JarSystem.Core.Domain;
 /// 不变量：<see cref="Shape"/> 恒为**词表**之一（S2：词表随实例携带，默认内置词表 ⇒ 行为与重构前一致）；
 /// <see cref="Liquid"/> 为 null 表示空罐；「一罐一操作」由 <see cref="IsMarked"/> 表达。
 /// 状态只能经本类意图方法变更（阶段 1：消除公共 setter）。
+///
+/// **对象池契约（2026 新增）**：罐子是持续产出、持续消耗的资源，因此允许经 <see cref="JarPool"/>
+/// 回收复用。回收后本对象的**全部读写都会抛异常**（`IsRecycled`），
+/// 因为"回收后仍被别处引用"等于让两处代码持有了同一只罐子 —— 这正是对象池唯一真正的危险。
+/// 由此得到一条可以逐字照做的规矩：**要回收一只罐子，必须能说清"世界上再没有第二处引用它"**。
 /// </summary>
 public class Jar
 {
-    // S2：形状合法性由**词表**裁决。罐子携带创建时的那份词表，改形仍校验同一份。
+    // S2：形状合法性由**词表**裁决。罐子携带创建时的那一份，改形仍校验同一份。
     private readonly Vocabulary _vocabulary;
 
+    private int? _id;
+    private string _shape;
+    private string? _liquid;
+    private bool _marked;
+
     /// <summary>全局唯一 ID（跨工作台转移/回滚据此判定归属）；由工作台经 <c>IIdGenerator</c> 分配，入台前为 null。</summary>
-    public int? Id { get; internal set; }
+    public int? Id { get { ThrowIfRecycled(); return _id; } internal set { ThrowIfRecycled(); _id = value; } }
 
     /// <summary>罐子形状。</summary>
-    public string Shape { get; private set; }
+    public string Shape { get { ThrowIfRecycled(); return _shape; } private set { _shape = value; } }
 
     /// <summary>罐内液体；null 表示空罐。</summary>
-    public string? Liquid { get; private set; }
+    public string? Liquid { get { ThrowIfRecycled(); return _liquid; } private set { _liquid = value; } }
 
     /// <summary>本次执行周期内是否已被操作（一罐一操作）。</summary>
-    public bool IsMarked { get; private set; }
+    public bool IsMarked { get { ThrowIfRecycled(); return _marked; } private set { _marked = value; } }
+
+    /// <summary>
+    /// 是否已被归还对象池。归还后再读写本对象一律抛 <see cref="InvalidOperationException"/>。
+    /// 由 <see cref="JarPool.Return"/> / <see cref="JarPool.Rent"/> 维护，业务代码不应设置它。
+    /// </summary>
+    public bool IsRecycled { get; private set; }
 
     /// <param name="vocabulary">形状/液体词表；null 表示使用内置默认词表。</param>
     public Jar(string shape, string? liquid = null, int? id = null, Vocabulary? vocabulary = null)
@@ -32,10 +49,10 @@ public class Jar
         _vocabulary = vocabulary ?? Vocabulary.Default;
         if (!_vocabulary.IsValidShape(shape))
             throw new ArgumentException($"无效形状: {shape}");
-        Id = id;
-        Shape = shape;
-        Liquid = liquid;
-        IsMarked = false;
+        _id = id;
+        _shape = shape;
+        _liquid = liquid;
+        _marked = false;
     }
 
     /// <summary>
@@ -45,17 +62,27 @@ public class Jar
     public static bool IsValidShape(string shape) => Vocabulary.Default.IsValidShape(shape);
 
     /// <summary>本罐子所属词表下的形状合法性。</summary>
-    public bool IsValidShapeIn(string shape) => _vocabulary.IsValidShape(shape);
+    public bool IsValidShapeIn(string shape)
+    {
+        ThrowIfRecycled();
+        return _vocabulary.IsValidShape(shape);
+    }
 
-    public bool IsEmpty() => Liquid is null;
-    public bool IsFull() => Liquid is not null;
+    public bool IsEmpty() { ThrowIfRecycled(); return _liquid is null; }
+    public bool IsFull() { ThrowIfRecycled(); return _liquid is not null; }
 
     public string GetDescription()
     {
-        var idStr = Id.HasValue ? $"#{Id.Value}" : "";
-        return Liquid is not null
-            ? $"满罐({Shape},{Liquid}){idStr}"
-            : $"空罐({Shape}){idStr}";
+        ThrowIfRecycled();
+        return Describe();
+    }
+
+    private string Describe()
+    {
+        var idStr = _id.HasValue ? $"#{_id.Value}" : "";
+        return _liquid is not null
+            ? $"满罐({_shape},{_liquid}){idStr}"
+            : $"空罐({_shape}){idStr}";
     }
 
     // ============================================================
@@ -74,39 +101,90 @@ public class Jar
     // ============================================================
 
     /// <summary>标记为本次执行周期内已操作。</summary>
-    internal void Mark() { IsMarked = true; }
+    internal void Mark() { ThrowIfRecycled(); _marked = true; }
 
     /// <summary>清除操作标记。</summary>
-    internal void Unmark() { IsMarked = false; }
+    internal void Unmark() { ThrowIfRecycled(); _marked = false; }
 
     /// <summary>倒入液体（仅允许空罐）。</summary>
     internal void PourIn(string liquid)
     {
-        if (!IsEmpty()) throw new InvalidOperationException("罐子不为空");
-        Liquid = liquid;
+        ThrowIfRecycled();
+        if (_liquid is not null) throw new InvalidOperationException("罐子不为空");
+        _liquid = liquid;
     }
 
     /// <summary>清空罐内液体并返回它（返回 null 表示本来就是空罐）。</summary>
     internal string? ClearLiquid()
     {
-        var l = Liquid;
-        Liquid = null;
+        ThrowIfRecycled();
+        var l = _liquid;
+        _liquid = null;
         return l;
     }
 
     /// <summary>恢复罐内液体（撤销倒入/倒出时使用；null 表示恢复为空罐）。</summary>
-    internal void RestoreLiquid(string? liquid) { Liquid = liquid; }
+    internal void RestoreLiquid(string? liquid) { ThrowIfRecycled(); _liquid = liquid; }
 
     /// <summary>改形（形状必须在**本罐子所属词表**内合法）。</summary>
     internal void Reshape(string newShape)
     {
+        ThrowIfRecycled();
         if (!_vocabulary.IsValidShape(newShape))
             throw new ArgumentException($"无效形状: {newShape}");
-        Shape = newShape;
+        _shape = newShape;
     }
 
     /// <summary>深拷贝（快照隔离用；显式命名替代含义模糊的 ICloneable）。</summary>
-    public Jar DeepClone() => new(Shape, Liquid, Id, _vocabulary) { IsMarked = IsMarked };
+    public Jar DeepClone()
+    {
+        ThrowIfRecycled();
+        return new Jar(_shape, _liquid, _id, _vocabulary) { IsMarked = _marked };
+    }
 
     public override string ToString() => GetDescription();
+
+    // ============================================================
+    // 对象池（只有 JarPool 调用；业务代码不得触碰）
+    // ============================================================
+
+    /// <summary>本罐子是否用同一份词表创建（池只能复用词表一致的罐子）。</summary>
+    internal bool HasVocabulary(Vocabulary vocabulary) => ReferenceEquals(_vocabulary, vocabulary);
+
+    /// <summary>
+    /// 尝试把这只罐子重新用作一个新罐子：清状态、置形状/液体/Id、解除回收标记。
+    /// 返回 false 表示形状在该词表内非法（池会跳过它并继续找下一条）。
+    /// </summary>
+    internal bool TryRecycle(string shape, string? liquid, int? id, Vocabulary vocabulary)
+    {
+        if (!HasVocabulary(vocabulary) || !vocabulary.IsValidShape(shape))
+            return false;
+        _id = id;
+        _shape = shape;
+        _liquid = liquid;
+        _marked = false;
+        IsRecycled = false;
+        return true;
+    }
+
+    /// <summary>置为已回收并清空状态。返回 false 表示它已经在池里（重复归还是个错误）。</summary>
+    internal bool BeginRecycle()
+    {
+        if (IsRecycled)
+            return false;
+        IsRecycled = true;
+        _id = null;
+        _shape = "";
+        _liquid = null;
+        _marked = false;
+        return true;
+    }
+
+    private void ThrowIfRecycled()
+    {
+        if (IsRecycled)
+            throw new InvalidOperationException(
+                "罐子已被归还对象池，不能再读写 —— 此时它可能已被别处复用成另一只罐子；"
+                + "回到调用点检查是否在 Return 之后仍持有该引用。");
+    }
 }

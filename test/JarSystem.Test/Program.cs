@@ -14,6 +14,7 @@ using JsonArray = System.Text.Json.Nodes.JsonArray;
 using JsonNode = System.Text.Json.Nodes.JsonNode;
 using JsonObject = System.Text.Json.Nodes.JsonObject;
 using JsonValue = System.Text.Json.Nodes.JsonValue;
+using JarSystem.Core.Abstractions;
 
 // ============================================================
 // ============================================================
@@ -436,7 +437,7 @@ Run("S10-删单后订单Id稳定(问题12)", () =>
 Run("S11-形状转换规则三处实现一致(问题16)", () =>
 {
     var ws = new Workshop("W", new() { "圆罐", "方罐" }, new() { "三角罐" }, new(), 20, 30);
-    var info = new JarSystem.Core.Solver.WorkshopInfo
+    var info = new JarSystem.Core.Abstractions.WorkshopInfo
     {
         // S1：能力参数改由 WorkshopCapability 承载（与 Workshop 共用同一份不可变对象）
         Capability = new JarSystem.Core.Domain.WorkshopCapability(
@@ -1463,7 +1464,7 @@ void CheckSolverDifferential()
     {
         var shapeA = Constants.SHAPES[modRand.Next(Constants.SHAPES.Count)];
         var shapeB = Constants.SHAPES[modRand.Next(Constants.SHAPES.Count)];
-        var info = new JarSystem.Core.Solver.WorkshopInfo
+        var info = new JarSystem.Core.Abstractions.WorkshopInfo
         {
             Capability = new WorkshopCapability(new[] { shapeA, shapeB }, Array.Empty<string>(), Array.Empty<string>()),
             MaxJars = 20,
@@ -1509,7 +1510,7 @@ void CheckSolverDifferential()
         {
             var suppressed = new ModifierAwareSolver(new JarSystem.Core.Solver.StateSpaceSolver(), banStack)
                 .Solve(reqs, info, jars, liquids);
-            var bannedInfo = new JarSystem.Core.Solver.WorkshopInfo
+            var bannedInfo = new JarSystem.Core.Abstractions.WorkshopInfo
             {
                 Capability = new WorkshopCapability(new[] { shapeA, shapeB }, Array.Empty<string>(), new[] { Constants.LIQUIDS[0] }),
                 MaxJars = info.MaxJars,
@@ -2400,9 +2401,9 @@ sealed class CountingSolver : JarSystem.Core.Abstractions.ISolver
     /// <summary>被调用次数（一次可行性分析可能调用多次：划分搜索里每侧各一次）。</summary>
     public int Calls { get; private set; }
 
-    public JarSystem.Core.Solver.SolverResult Solve(
+    public JarSystem.Core.Abstractions.SolverResult Solve(
         List<Requirement> requirements,
-        JarSystem.Core.Solver.WorkshopInfo workshopInfo,
+        JarSystem.Core.Abstractions.WorkshopInfo workshopInfo,
         List<JarState> jars,
         Dictionary<string, int> liquids,
         int transferBudget = int.MaxValue)

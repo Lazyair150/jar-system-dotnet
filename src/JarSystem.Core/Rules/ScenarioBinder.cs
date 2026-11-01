@@ -1,3 +1,4 @@
+using JarSystem.Core.Domain;
 namespace JarSystem.Core.Rules;
 
 /// <summary>

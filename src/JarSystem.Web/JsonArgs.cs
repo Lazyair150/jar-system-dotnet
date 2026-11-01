@@ -1,5 +1,6 @@
 using System.Text.Json;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Abstractions;
 
 /// <summary>
 /// WebSocket 命令载荷的 JSON 读取/序列化辅助（原为 Program.cs 的顶层局部函数）。

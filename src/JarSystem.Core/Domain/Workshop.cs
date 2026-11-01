@@ -1,11 +1,9 @@
-using JarSystem.Core.Rules;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using JarSystem.Core.Abstractions;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Config;
-using JarSystem.Core.Services;
 
 namespace JarSystem.Core.Domain;
 

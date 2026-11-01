@@ -1,5 +1,5 @@
+using JarSystem.Core.Abstractions;
 using JarSystem.Core.Domain;
-using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.Commands;
 
@@ -15,7 +15,7 @@ public class PourInCommand : Command
         Liquid = liquid;
     }
 
-    public override CommandResult Execute(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Execute(Workshop workshop, ICommandJournal? journal)
     {
         Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var (success, reason) = workshop.PourIn(Jar, Liquid);
@@ -25,7 +25,7 @@ public class PourInCommand : Command
         return result;
     }
 
-    public override CommandResult Undo(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Undo(Workshop workshop, ICommandJournal? journal)
     {
         if (!Executed) return new CommandResult { Success = false };
         // 撤销倒入：罐内液体倒回工作台存储 + 清除标记，恢复到 Execute 之前。
@@ -60,7 +60,7 @@ public class ReshapeEmptyCommand : Command
         OriginalShape = jar.Shape;
     }
 
-    public override CommandResult Execute(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Execute(Workshop workshop, ICommandJournal? journal)
     {
         Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var (success, reason) = workshop.ReshapeEmpty(Jar, TargetShape, CostLiquid);
@@ -70,7 +70,7 @@ public class ReshapeEmptyCommand : Command
         return result;
     }
 
-    public override CommandResult Undo(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Undo(Workshop workshop, ICommandJournal? journal)
     {
         if (!Executed) return new CommandResult { Success = false };
         // 撤销改形
@@ -111,7 +111,7 @@ public class TransferCommand : Command
         To = toWorkshop;
     }
 
-    public override CommandResult Execute(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Execute(Workshop workshop, ICommandJournal? journal)
     {
         Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var out_ = From.TransferOut(Jar);
@@ -120,7 +120,7 @@ public class TransferCommand : Command
             var success = To.TransferIn(Jar);
             if (success)
             {
-                event_?.RecordTransfer(Jar);
+                journal?.RecordTransfer(Jar);
                 Executed = true;
                 var ok = new CommandResult { Success = true };
                 Result = ok;
@@ -134,7 +134,7 @@ public class TransferCommand : Command
         return failed;
     }
 
-    public override CommandResult Undo(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Undo(Workshop workshop, ICommandJournal? journal)
     {
         if (!Executed) return new CommandResult { Success = false };
         var out_ = To.TransferOut(Jar);
@@ -165,7 +165,7 @@ public class PourOutCommand : Command
         OriginalLiquid = jar.Liquid!;
     }
 
-    public override CommandResult Execute(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Execute(Workshop workshop, ICommandJournal? journal)
     {
         Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var (success, reason, liquid) = workshop.PourOut(Jar);
@@ -175,7 +175,7 @@ public class PourOutCommand : Command
         return result;
     }
 
-    public override CommandResult Undo(Workshop workshop, OrderEvent? event_)
+    public override CommandResult Undo(Workshop workshop, ICommandJournal? journal)
     {
         if (!Executed) return new CommandResult { Success = false };
         // Reverse: remove liquid from storage, restore jar's liquid

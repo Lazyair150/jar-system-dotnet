@@ -1,6 +1,6 @@
 using JarSystem.Core.Domain;
 
-namespace JarSystem.Core.Rules;
+namespace JarSystem.Core.Domain;
 
 /// <summary>
 /// 规则读取的唯一入口：基础法则（<see cref="WorkshopCapability"/>）+ 活跃修饰器。

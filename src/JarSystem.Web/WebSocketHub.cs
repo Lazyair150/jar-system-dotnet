@@ -52,7 +52,12 @@ public sealed class WebSocketHub : IWebSocketSink
         // 先发**世界元数据**（形状/液体目录，一次性），再发 init ——
         // 这样客户端拿到 init 时已经知道"有哪些形状"，可直接渲染下拉框与标记选择器
         await SendAsync(ws, JsonArgs.J(new { type = "world", data = sys.WorldMeta() }));
-        await SendAsync(ws, JsonArgs.J(new { type = "init", data = sys.GetState() }));
+        // 初始快照与命令、tick 共用同一串行闸门，避免在枚举世界集合时被后台推进改写。
+        string initJson;
+        await svc.Gate.WaitAsync();
+        try { initJson = JsonArgs.J(new { type = "init", data = sys.GetState() }); }
+        finally { svc.Gate.Release(); }
+        await SendAsync(ws, initJson);
 
         var buf = new byte[32768];
         try
@@ -105,8 +110,9 @@ public sealed class WebSocketHub : IWebSocketSink
         finally
         {
             lock (_clients) _clients.Remove(ws);
-            // 收尾用空 catch：连接可能已被对端关闭，关闭失败无补救动作
-            try { if (ws.State == WebSocketState.Open) await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", default); } catch { }
+            // 收尾失败无补救动作，但不能把原因静默吞掉：留下传输层证据便于诊断断连。
+            try { if (ws.State == WebSocketState.Open) await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", default); }
+            catch (Exception ex) { Console.Error.WriteLine("[ws] 关闭失败: " + ex.Message); }
         }
     }
 

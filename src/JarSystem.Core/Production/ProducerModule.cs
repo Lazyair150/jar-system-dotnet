@@ -37,7 +37,8 @@ public class Producer
 public class ShapeProductionLine
 {
     private readonly Vocabulary _vocabulary;
-    private readonly Abstractions.IIntensitySource? _intensity;
+    private readonly IIntensitySource? _intensity;
+    private readonly JarPool? _pool;
 
     public string Shape { get; }
 
@@ -70,11 +71,12 @@ public class ShapeProductionLine
 
     /// <param name="vocabulary">词表（S2）：本线产出的罐子按它校验形状；null 表示内置默认词表。</param>
     /// <param name="intensity">强度折算出口（可选）：`producer:形状` 目标可折减本线产出。</param>
-    public ShapeProductionLine(string shape, Vocabulary? vocabulary = null, Abstractions.IIntensitySource? intensity = null)
+    public ShapeProductionLine(string shape, Vocabulary? vocabulary = null, IIntensitySource? intensity = null, JarPool? pool = null)
     {
         Shape = shape;
         _vocabulary = vocabulary ?? Vocabulary.Default;
         _intensity = intensity;
+        _pool = pool;
         _producerListView = _producerList.AsReadOnly();
     }
 
@@ -105,7 +107,9 @@ public class ShapeProductionLine
         _accumulatedMilli -= n * MilliUnit;
         var jars = new List<Jar>();
         for (int i = 0; i < n; i++)
-            jars.Add(new Jar(Shape, null, null, _vocabulary));
+            jars.Add(_pool != null
+                ? _pool.Rent(Shape, null, null, _vocabulary)
+                : new Jar(Shape, null, null, _vocabulary));
         return jars;
     }
 
@@ -129,7 +133,10 @@ public class ProducerModule
     private readonly Vocabulary _vocabulary;
 
     /// <summary>强度折算出口（可选）：透传给各条生产线（目标名 `producer:形状`）。</summary>
-    private readonly Abstractions.IIntensitySource? _intensity;
+    private readonly IIntensitySource? _intensity;
+
+    /// <summary>罐子对象池（可选）：生产优先复用丢弃回收的罐子；null 时退化为直接 new。</summary>
+    private readonly JarPool? _pool;
 
     /// <summary>
     /// **中央仓库**（2026-09 从本类抽出）：罐子/液体库存、容量与丢弃计数、仓库→主台的流入规则。
@@ -155,16 +162,18 @@ public class ProducerModule
     public IReadOnlyDictionary<string, int> LiquidWarehouse => Warehouse.LiquidWarehouse;
 
     /// <param name="vocabulary">词表（S2）；null 表示内置默认词表（行为与重构前一致）。</param>
-    public ProducerModule(Vocabulary? vocabulary = null, Abstractions.IIntensitySource? intensity = null)
+    public ProducerModule(Vocabulary? vocabulary = null, IIntensitySource? intensity = null, JarPool? pool = null)
     {
         _vocabulary = vocabulary ?? Vocabulary.Default;
         _intensity = intensity;
         // 只读包装最先建立（活视图 ⇒ 后续注册的生产者/生产线照样反映）
         _generatorsView = new ReadOnlyDictionary<string, ShapeProductionLine>(_generators);
         _producersView = new ReadOnlyDictionary<string, Producer>(_producers);
+        // 池必须在建生产线**之前**赋值：生产线持有它，生产罐子时用。
+        _pool = pool;
         foreach (var s in _vocabulary.Shapes)
-            _generators[s] = new ShapeProductionLine(s, _vocabulary, _intensity);
-        Warehouse = new Warehouse(_vocabulary);
+            _generators[s] = new ShapeProductionLine(s, _vocabulary, _intensity, _pool);
+        Warehouse = new Warehouse(_vocabulary, pool);
     }
 
     /// <summary>

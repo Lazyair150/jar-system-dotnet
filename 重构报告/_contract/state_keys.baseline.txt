@@ -207,6 +207,7 @@ state.globalState.currentMaster = 0
 state.globalState.currentSlave = 2
 state.globalState.masterName = 玄武台
 state.globalState.slaveName = 青龙台
+state.eventHistory[0].type = order_event
 state.eventHistory[0].order = 1
 state.eventHistory[0].master = 玄武台
 state.eventHistory[0].slave = 朱雀台

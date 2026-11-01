@@ -6,6 +6,7 @@ using Xunit;
 
 // 别名：本文件位于 JarSystem.* 命名空间下，用别名可避免 `JarSystem` 既是命名空间又是类型带来的歧义
 using CoreSystem = JarSystem.Core.JarSystem;
+using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Tests;
 

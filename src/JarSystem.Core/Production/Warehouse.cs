@@ -22,6 +22,7 @@ namespace JarSystem.Core.Production;
 public sealed class Warehouse
 {
     private readonly List<Jar> _jars = new();
+    private readonly JarPool? _pool;
     private readonly Dictionary<string, int> _liquidWarehouse = new();
     private readonly Dictionary<string, int> _discardedLiquids = new();
 
@@ -46,8 +47,9 @@ public sealed class Warehouse
     public int DiscardedJars { get; private set; }
 
     /// <param name="vocabulary">词表（S2）：液体账目按它的名字与**顺序**建键 —— 契约快照里 `liquids` 的键序依赖它。</param>
-    public Warehouse(Vocabulary? vocabulary = null)
+    public Warehouse(Vocabulary? vocabulary = null, JarPool? pool = null)
     {
+        _pool = pool;
         // 只读包装最先建立（活视图）——构造期间若有代码读公开视图也不会拿到 null
         _jarsView = _jars.AsReadOnly();
         _liquidWarehouseView = new ReadOnlyDictionary<string, int>(_liquidWarehouse);
@@ -66,8 +68,17 @@ public sealed class Warehouse
     {
         foreach (var jar in jars)
         {
-            if (_jars.Count < Constants.WAREHOUSE_MAX_JARS) _jars.Add(jar);
-            else DiscardedJars++;
+            if (_jars.Count < Constants.WAREHOUSE_MAX_JARS)
+            {
+                _jars.Add(jar);
+            }
+            else
+            {
+                // 仓库溢出**直接丢弃**（`规则.txt`：溢出丢弃并计数，不回流）—— 丢弃即"已彻底离开世界"，
+                // 这是可以安全归还对象池的少数位置之一。
+                DiscardedJars++;
+                _pool?.Return(jar);
+            }
         }
     }
 

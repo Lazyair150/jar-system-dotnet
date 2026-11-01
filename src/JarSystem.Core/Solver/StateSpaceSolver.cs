@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
-using JarSystem.Core.Domain;
-using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.Solver;
 
@@ -60,68 +58,6 @@ internal class SolverState
     }
 }
 
-/// <summary>
-/// 求解器侧的工作台规则信息。
-///
-/// S1：能力参数（标记/禁令）改由 <see cref="Domain.WorkshopCapability"/> 承载 ——
-/// 与域层 <c>Workshop</c>、快照 <c>WorkshopSnapshot</c> **共用同一份不可变对象**，
-/// 不再各存一份标记表；因此"求解器的规则视图"与"领域层的规则视图"不可能漂移。
-/// </summary>
-public class WorkshopInfo
-{
-    /// <summary>能力参数（与域层同源）。</summary>
-    public WorkshopCapability Capability { get; set; } = new();
-
-    public int MaxJars { get; set; } = 20;
-    public int MaxLiquids { get; set; } = 30;
-
-    public List<string> GetPossibleTransforms(string shape) => Capability.GetPossibleTransforms(shape);
-}
-
-public class SolverStats
-{
-    public int NodesExplored { get; set; }
-    public int SolutionsFound { get; set; }
-    public int DeadEnds { get; set; }
-    public int PourOuts { get; set; }
-
-    /// <summary>被"失败状态记忆化"挡下的重复探索次数（诊断用，不参与任何对外契约）。</summary>
-    public int MemoHits { get; set; }
-
-    /// <summary>被"同构罐子剪枝"省掉的等价候选操作数（诊断用）。</summary>
-    public int IsomorphicPruned { get; set; }
-}
-
-public class SolverResult
-{
-    public bool Feasible { get; set; }
-    public List<SolverStep>? Path { get; set; }
-    public string? Blockage { get; set; }
-    public SolverStats? Stats { get; set; }
-
-    /// <summary>
-    /// 本次求解是否因**超出工作预算**而提前中止（见 <see cref="IWorkBudgetedSolver"/>）。
-    /// true 时 <see cref="Feasible"/>=false 表示"未判定"，**不是**"不可行"。
-    /// </summary>
-    public bool BudgetExceeded { get; set; }
-
-    /// <summary>
-    /// 可行时的**最终世界状态：罐子**。这是**求解器契约的一部分**，不是可选诊断信息 ——
-    /// B 类（<c>PartitionSearch</c>）要靠它算"主台剩下的罐子"才能构造从台求解池。
-    /// 缺失时旧实现会退化成"用主台**原始**状态"，于是从台池算错、结论静默失真
-    /// （差分测试实测过：只填 Path 不填快照的求解器会让 B 类算错）。
-    /// </summary>
-    public List<JarState>? FinalJars { get; set; }
-
-    /// <summary>可行时的**最终世界状态：液体账目**（同 <see cref="FinalJars"/> 的契约要求）。</summary>
-    public Dictionary<string, int>? FinalLiquids { get; set; }
-}
-
-/// <summary>
-/// StateSpaceSolver v6 — 状态空间搜索求解器（实现 <see cref="ISolver"/>）
-/// 合法操作: MATCH(预定), POUR_IN(倒液), POUR_OUT(倒空), RESHAPE(改形)
-/// RESHAPE: 适用于空罐(用工作台液体)和满罐(用自身液体)
-/// </summary>
 public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
 {
     public SolverStats Stats { get; private set; } = new();
@@ -133,7 +69,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     /// 典型 A 类订单（20 罐 / 10 需求）实测约 7 千节点（34 ms），远在预算之内；
     /// 只有"大需求 + 不可行"的 B 类订单会撞到它，此时如实回"未判定"而不是假装不可行。
     /// </summary>
-    public const int DefaultNodeBudget = 400_000;
+    public const int DefaultNodeBudget = SolverLimits.DefaultNodeBudget;
 
     private int _nodesRemaining = DefaultNodeBudget;
     private bool _explicitBudget;

@@ -115,6 +115,82 @@
       "maxLiquids": null
     }
   ],
+  "orderTemplates": [
+    {
+      "name": "\u7A7A\u53CC\u7F50",
+      "type": "A",
+      "requirements": [
+        {
+          "shape": "\u5706\u7F50",
+          "liquid": null
+        },
+        {
+          "shape": "\u65B9\u7F50",
+          "liquid": null
+        }
+      ]
+    },
+    {
+      "name": "\u704C\u9152\u5706\u7F50",
+      "type": "A",
+      "requirements": [
+        {
+          "shape": "\u5706\u7F50",
+          "liquid": null
+        },
+        {
+          "shape": "\u5706\u7F50",
+          "liquid": "\u9152"
+        }
+      ]
+    },
+    {
+      "name": "\u4E09\u89D2\u6539\u5F62",
+      "type": "A",
+      "requirements": [
+        {
+          "shape": "\u65B9\u7F50",
+          "liquid": null
+        },
+        {
+          "shape": "\u4E09\u89D2\u7F50",
+          "liquid": null
+        }
+      ]
+    },
+    {
+      "name": "\u4E3B\u4ECE\u9AD8\u957F",
+      "type": "B",
+      "requirements": [
+        {
+          "shape": "\u9AD8\u7F50",
+          "liquid": null
+        },
+        {
+          "shape": "\u957F\u7F50",
+          "liquid": "\u871C"
+        }
+      ]
+    },
+    {
+      "name": "\u4E09\u4EF6\u5957",
+      "type": "B",
+      "requirements": [
+        {
+          "shape": "\u5C16\u7F50",
+          "liquid": null
+        },
+        {
+          "shape": "\u6241\u7F50",
+          "liquid": null
+        },
+        {
+          "shape": "\u9F13\u7F50",
+          "liquid": "\u9152"
+        }
+      ]
+    }
+  ],
   "namePools": {
     "prefix": [
       "\u91D1",

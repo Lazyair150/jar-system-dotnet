@@ -1,28 +1,199 @@
 {
-  "shapes": ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"],
-  "liquids": ["酒", "蜜"],
+  "shapes": [
+    "圆罐",
+    "方罐",
+    "三角罐",
+    "高罐",
+    "长罐",
+    "扁罐",
+    "鼓罐",
+    "尖罐"
+  ],
+  "liquids": [
+    "酒",
+    "蜜"
+  ],
   "defaultMaxJars": 20,
   "defaultMaxLiquids": 30,
   "flow": {
     "jarCount": 3,
     "liquidAmount": 2,
-    "liquidRate": { "酒": 1, "蜜": 1 }
+    "liquidRate": {
+      "酒": 1,
+      "蜜": 1
+    }
   },
-  "initialStock": { "酒": 20, "蜜": 20 },
+  "initialStock": {
+    "酒": 20,
+    "蜜": 20
+  },
   "producers": [
-    { "name": "陶工甲", "rates": { "圆罐": 0.4, "方罐": 0.3 } },
-    { "name": "陶工乙", "rates": { "高罐": 0.5, "长罐": 0.2 } },
-    { "name": "机器A", "rates": { "三角罐": 0.6, "扁罐": 0.3 } },
-    { "name": "机器B", "rates": { "鼓罐": 0.4, "尖罐": 0.3 } }
+    {
+      "name": "陶工甲",
+      "rates": {
+        "圆罐": 0.4,
+        "方罐": 0.3
+      }
+    },
+    {
+      "name": "陶工乙",
+      "rates": {
+        "高罐": 0.5,
+        "长罐": 0.2
+      }
+    },
+    {
+      "name": "机器A",
+      "rates": {
+        "三角罐": 0.6,
+        "扁罐": 0.3
+      }
+    },
+    {
+      "name": "机器B",
+      "rates": {
+        "鼓罐": 0.4,
+        "尖罐": 0.3
+      }
+    }
   ],
   "workshops": [
-    { "name": "玄武台", "baseMarks": ["圆罐", "方罐"], "additionalMarks": ["三角罐"], "ban": ["酒"] },
-    { "name": "朱雀台", "baseMarks": ["高罐"], "additionalMarks": ["长罐"], "ban": ["酒"] },
-    { "name": "青龙台", "baseMarks": ["三角罐"], "additionalMarks": ["圆罐"], "ban": ["蜜"] },
-    { "name": "白虎台", "baseMarks": ["长罐", "扁罐"], "additionalMarks": ["鼓罐"], "ban": [] }
+    {
+      "name": "玄武台",
+      "baseMarks": [
+        "圆罐",
+        "方罐"
+      ],
+      "additionalMarks": [
+        "三角罐"
+      ],
+      "ban": [
+        "酒"
+      ]
+    },
+    {
+      "name": "朱雀台",
+      "baseMarks": [
+        "高罐"
+      ],
+      "additionalMarks": [
+        "长罐"
+      ],
+      "ban": [
+        "酒"
+      ]
+    },
+    {
+      "name": "青龙台",
+      "baseMarks": [
+        "三角罐"
+      ],
+      "additionalMarks": [
+        "圆罐"
+      ],
+      "ban": [
+        "蜜"
+      ]
+    },
+    {
+      "name": "白虎台",
+      "baseMarks": [
+        "长罐",
+        "扁罐"
+      ],
+      "additionalMarks": [
+        "鼓罐"
+      ],
+      "ban": []
+    }
   ],
   "namePools": {
-    "prefix": ["金", "木", "水", "火", "土", "天", "地", "玄", "黄"],
-    "suffix": ["工坊", "作坊", "窑", "炉", "台", "阁"]
-  }
+    "prefix": [
+      "金",
+      "木",
+      "水",
+      "火",
+      "土",
+      "天",
+      "地",
+      "玄",
+      "黄"
+    ],
+    "suffix": [
+      "工坊",
+      "作坊",
+      "窑",
+      "炉",
+      "台",
+      "阁"
+    ]
+  },
+  "orderTemplates": [
+    {
+      "name": "空双罐",
+      "type": "A",
+      "requirements": [
+        {
+          "shape": "圆罐"
+        },
+        {
+          "shape": "方罐"
+        }
+      ]
+    },
+    {
+      "name": "灌酒圆罐",
+      "type": "A",
+      "requirements": [
+        {
+          "shape": "圆罐"
+        },
+        {
+          "shape": "圆罐",
+          "liquid": "酒"
+        }
+      ]
+    },
+    {
+      "name": "三角改形",
+      "type": "A",
+      "requirements": [
+        {
+          "shape": "方罐"
+        },
+        {
+          "shape": "三角罐"
+        }
+      ]
+    },
+    {
+      "name": "主从高长",
+      "type": "B",
+      "requirements": [
+        {
+          "shape": "高罐"
+        },
+        {
+          "shape": "长罐",
+          "liquid": "蜜"
+        }
+      ]
+    },
+    {
+      "name": "三件套",
+      "type": "B",
+      "requirements": [
+        {
+          "shape": "尖罐"
+        },
+        {
+          "shape": "扁罐"
+        },
+        {
+          "shape": "鼓罐",
+          "liquid": "酒"
+        }
+      ]
+    }
+  ]
 }

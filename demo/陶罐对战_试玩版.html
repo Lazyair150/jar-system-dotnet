@@ -1,0 +1,1694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>陶罐对战 · 试玩版 v0.4</title>
+<style>
+:root{
+  --bg:#14161a; --panel:#1d2027; --panel2:#252932; --line:#333844;
+  --txt:#e6e8ee; --dim:#8b93a5; --gold:#d9a441; --red:#e05a4e; --green:#5aa86b;
+  --blue:#5b8fd6; --purple:#9a6fd6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:14px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);
+  color:var(--txt);padding:5px 12px;border-radius:6px;transition:.12s}
+button:hover:not(:disabled){background:#313743;border-color:#4a5262}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.primary{background:var(--gold);color:#1a1a1a;border-color:var(--gold);font-weight:600}
+button.primary:hover:not(:disabled){background:#e8b757}
+button.danger{background:#7a2b26;border-color:#a03a33}
+
+#app{max-width:1180px;margin:0 auto;padding:10px 14px 220px}
+
+/* ---------- 顶栏 ---------- */
+#topbar{display:flex;align-items:center;gap:14px;padding:8px 12px;margin-bottom:10px;
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;flex-wrap:wrap}
+#topbar .turn{font-weight:700;color:var(--gold);font-size:15px}
+#topbar .settings{display:flex;gap:14px;margin-left:auto;font-size:12px;color:var(--dim);align-items:center}
+#topbar label{display:flex;align-items:center;gap:5px;cursor:pointer}
+
+/* ---------- 玩家区 ---------- */
+.side{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;margin-bottom:10px}
+.side.active{border-color:var(--gold);box-shadow:0 0 0 1px rgba(217,164,65,.35)}
+.side .hd{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.side .pname{font-weight:700;font-size:15px}
+.side .pname.ai{color:var(--purple)}
+.pill{font-size:12px;padding:2px 9px;border-radius:20px;background:var(--panel2);
+  border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.pill.step{color:var(--gold);border-color:#6b5320;background:#2a2313}
+.pill.deck{color:var(--blue)}
+
+/* ---------- 工作台 ---------- */
+.benches{display:flex;gap:10px;flex-wrap:wrap}
+.bench{flex:1 1 300px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:8px;padding:8px 10px;min-width:280px}
+.bench.empty{opacity:.42;border-style:dashed;display:flex;align-items:center;justify-content:center;
+  min-height:110px;color:var(--dim)}
+.bench .bh{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.bench .bname{font-weight:600}
+.bench .role{font-size:11px;color:var(--dim);border:1px solid var(--line);
+  padding:0 6px;border-radius:4px}
+.bench .hp{margin-left:auto;font-weight:700;color:var(--red);font-size:14px}
+.bench .marks{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.mark{font-size:11px;padding:1px 6px;border-radius:4px;border:1px solid var(--line);
+  background:#1a1d23;color:var(--dim)}
+.mark.base{color:#a9c7f0;border-color:#3a4d68}
+.mark.add{color:#c0a86f;border-color:#5c4d28}
+.mark.ban{color:#c07a72;border-color:#5c3230;text-decoration:line-through}
+.liquids{display:flex;gap:10px;font-size:12px;margin-bottom:7px;color:var(--dim);align-items:center}
+.liq{display:flex;align-items:center;gap:4px;padding:1px 7px;border-radius:10px;
+  background:#1a1d23;border:1px solid var(--line)}
+.liq b{color:var(--txt)}
+.liq.banned{opacity:.38;text-decoration:line-through}
+/* 场上没有主台时，把手里的工作台卡点亮，告诉你唯一有意义的一步是什么 */
+#hand.need-bench .card[data-type="bench"]{
+  border-color:var(--red);
+  box-shadow:0 0 0 2px rgba(224,90,78,.55), 0 0 18px rgba(224,90,78,.35);
+  animation:pulse 1.3s infinite}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.dot.honey{background:var(--gold)}
+.dot.wine{background:#b3453c}
+.jars{display:flex;gap:6px;flex-wrap:wrap;min-height:38px;align-items:center}
+.jar{position:relative;width:44px;height:38px;border-radius:6px;border:1px solid #3d4453;
+  background:#2b303a;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:11px;cursor:pointer;transition:.12s;user-select:none}
+.jar:hover{border-color:var(--gold);transform:translateY(-2px)}
+.jar .ic{font-size:14px;line-height:1}
+.jar .fill{position:absolute;bottom:0;left:0;right:0;height:5px;border-radius:0 0 5px 5px;background:var(--gold)}
+.jar.tapped{transform:rotate(-14deg);opacity:.5;filter:grayscale(.55)}
+.jar.tapped:hover{transform:rotate(-14deg) translateY(-2px)}
+.jar.sel{border-color:var(--gold);box-shadow:0 0 0 2px rgba(217,164,65,.4)}
+.jar.target{border-color:var(--green);box-shadow:0 0 0 2px rgba(90,168,107,.55);cursor:crosshair;
+  animation:pulse 1.4s ease-in-out infinite}
+.jar.pickedT{border-color:var(--red);box-shadow:0 0 0 2px rgba(224,90,78,.7);background:#3a2426}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.62}}
+.line.target{border-color:var(--green);cursor:crosshair}
+#enemySide.picking{border-color:var(--green);box-shadow:0 0 0 1px rgba(90,168,107,.4)}
+.jars .none{color:#565e6e;font-size:12px}
+
+/* ---------- 产线 ---------- */
+.lines{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
+.lines .lt{font-size:11px;color:var(--dim);margin-right:2px}
+.line{font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid #3a5a44;
+  background:#1e2c23;color:#93c9a4;cursor:pointer}
+.line.jar{background:#1e2836;border-color:#3a4d68;color:#a9c7f0}
+.line.sel{border-color:var(--gold)}
+.line.slot{border-style:dashed;color:#565e6e;border-color:#333844;background:transparent;cursor:default}
+
+/* ---------- 中央 ---------- */
+#center{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:8px 12px;margin-bottom:10px;max-height:110px;overflow-y:auto;font-size:12.5px}
+#center .ev{color:var(--dim);padding:1px 0}
+#center .ev.hi{color:var(--gold)}
+#center .ev.bad{color:var(--red)}
+#center .ev.good{color:var(--green)}
+
+/* ---------- 手牌 ---------- */
+#handbar{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(180deg,#16181d,#101216);
+  border-top:1px solid var(--line);padding:8px 14px 10px;z-index:50}
+#hand{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;min-height:118px;align-items:flex-start}
+.card{flex:0 0 auto;width:96px;min-height:106px;border-radius:8px;border:1px solid #3d4453;
+  background:var(--panel2);padding:6px 7px;font-size:11px;cursor:pointer;
+  display:flex;flex-direction:column;gap:3px;transition:.12s;position:relative}
+.card:hover{transform:translateY(-4px);border-color:var(--gold)}
+.card.sel{border-color:var(--gold);box-shadow:0 0 0 2px rgba(217,164,65,.45);transform:translateY(-6px)}
+.card.playable::after{content:"";position:absolute;top:4px;right:4px;width:6px;height:6px;
+  border-radius:50%;background:var(--green)}
+.card .cn{font-weight:600;font-size:12px;line-height:1.25}
+.card .ct{font-size:10px;color:var(--dim)}
+.card .cd{margin-top:auto;font-size:10.5px;color:#b9c2d4;line-height:1.35}
+.card.bench{background:#1e2a24;border-color:#35543f}
+.card.prod{background:#1e2836;border-color:#35506e}
+.card.supply{background:#2a2436;border-color:#4a3a6b}
+.card.attack{background:#2e2224;border-color:#6b3538}
+.card.tactic{background:#26232e;border-color:#4a4258}
+.badge{position:absolute;top:5px;right:6px;font-size:9px;padding:0 4px;border-radius:3px;
+  background:#0006;color:var(--dim)}
+.badge.A{color:#e8a05a} .badge.B{color:#c07ad0}
+
+/* ---------- 操作栏 ---------- */
+#actionbar{position:fixed;left:0;right:0;bottom:132px;padding:0 14px;z-index:60;
+  display:flex;justify-content:center;pointer-events:none}
+#actioninner{background:#1f232b;border:1px solid var(--line);border-radius:10px;
+  padding:9px 14px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;
+  box-shadow:0 8px 26px #0009;pointer-events:auto;max-width:1100px}
+#actioninner .hint{color:var(--dim);font-size:12px}
+
+/* ---------- 结算 ---------- */
+#overlay{position:fixed;inset:0;background:#000c;display:none;align-items:center;
+  justify-content:center;z-index:200}
+#overlay.on{display:flex}
+#overlay .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:24px 32px;text-align:left;max-width:700px;max-height:82vh;overflow-y:auto;line-height:1.75}
+#overlay h2{margin:0 0 12px;font-size:21px;text-align:center;color:var(--gold)}
+#overlay p{color:#c3cad9;margin:6px 0 0;font-size:13px}
+#overlay #ovBtn{display:block;margin:20px auto 0}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span class="turn" id="turnLabel">—</span>
+    <span class="pill step" id="stepLabel">step 4</span>
+    <div class="settings">
+      <label><input type="checkbox" id="optShougu" checked> 固守改成「减伤」(建议版)</label>
+      <label><input type="checkbox" id="optXuli" checked> 续力改成「+1 次操作」(建议版)</label>
+      <button id="btnHelp" style="padding:3px 10px;font-size:12px">玩法</button>
+      <button id="btnRestart" style="padding:3px 10px;font-size:12px">重开</button>
+    </div>
+  </div>
+
+  <div class="side" id="enemySide"></div>
+  <div id="center"></div>
+  <div class="side" id="mySide"></div>
+</div>
+
+<div id="actionbar"><div id="actioninner"><span class="hint">点击手牌或罐子进行操作</span></div></div>
+<div id="handbar"><div id="hand"></div></div>
+
+<div id="overlay"><div class="box">
+  <h2 id="ovTitle"></h2>
+  <p id="ovText"></p>
+  <button class="primary" id="ovBtn">再来一局</button>
+</div></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   0. 常量与规则开关
+   ============================================================ */
+const SHAPES = ['圆罐','方罐','三角罐','高罐','长罐','扁罐','鼓罐','尖罐'];
+const ICON   = {'圆罐':'○','方罐':'□','三角罐':'△','高罐':'▯','长罐':'▭','扁罐':'▬','鼓罐':'◍','尖罐':'◈'};
+const HUE    = {'圆罐':'#8fb8e8','方罐':'#e0a86a','三角罐':'#7fd4b0','高罐':'#b0a0f0',
+                '长罐':'#e88f9f','扁罐':'#c8c07a','鼓罐':'#7fc4d4','尖罐':'#e07ac0'};
+
+const RULES = {
+  shouguMode: 'dmg',   // 'dmg' = 对方下回合攻击 -1 伤（建议版）; 'tax' = 每张攻击 +1 step（v0.4 原版）
+  xuliMode:   'op',    // 'op'  = 本回合 +1 次罐子操作（建议版）; 'step' = +1 step（v0.4 原版）
+};
+
+const MAX_JARS   = 6;
+const MAX_LINES  = 3;
+const HAND_LIMIT = 10;
+const STEPS_PER_TURN = 4;
+const DRAW_PER_TURN  = 4;
+const START_HAND     = 10;
+
+/* ---------- 形状相克 ---------- */
+function countersOf(s) {
+  const i = SHAPES.indexOf(s);
+  return [SHAPES[(i + 1) % 8], SHAPES[(i + 3) % 8]];
+}
+
+/* ---------- 工作台定义 ---------- */
+const BENCH_DEFS = {
+  '玄武台': { name:'玄武台', base:['圆罐','方罐'], add:['三角罐'], ban:['酒'], pool:5 },
+  '朱雀台': { name:'朱雀台', base:['高罐'],        add:['长罐'],   ban:['酒'], pool:4 },
+  // 加这一台的唯一目的：让「禁令不同」的换台分支(Case2)真的能被触发。
+  // 玄武与朱雀都禁酒 ⇒ 它们之间换台永远走 Case1，Case2 是死代码。
+  '青龙台': { name:'青龙台', base:['三角罐','长罐'], add:['扁罐'], ban:['蜜'], pool:4 },
+};
+
+/* ============================================================
+   1. 牌库（50 张）
+   ============================================================ */
+let _uid = 0;
+const uid = () => ++_uid;
+
+function A(name, attr, reqs, dmg, cls, eff, note) {
+  return { t:'attack', name, attr, reqs, dmg, cls, eff, note };
+}
+// req 形如 {shape:'圆罐', liq:null} 空罐 或 {shape:'圆罐', liq:'蜜'} 装蜜罐
+
+const ATTACKS = [
+  A('圆堰','圆罐',[{shape:'圆罐',liq:null},{shape:'圆罐',liq:null}],4,'A','固守'),
+  A('方锋','方罐',[{shape:'方罐',liq:null},{shape:'方罐',liq:null}],4,'A','连击'),
+  A('蜜堰','圆罐',[{shape:'圆罐',liq:null},{shape:'圆罐',liq:'蜜'}],6,'A','固守'),
+  A('蜜锤','方罐',[{shape:'方罐',liq:null},{shape:'方罐',liq:'蜜'}],6,'A','连击'),
+  A('三角引','三角罐',[{shape:'三角罐',liq:null},{shape:'圆罐',liq:null}],4,'A','连锁'),
+  A('高垒','高罐',[{shape:'高罐',liq:null},{shape:'高罐',liq:null}],4,'A','越位'),
+  A('蜜炮','高罐',[{shape:'高罐',liq:null},{shape:'高罐',liq:'蜜'}],6,'A','越位'),
+  A('长引','长罐',[{shape:'长罐',liq:null},{shape:'长罐',liq:null}],4,'A','续力'),
+  A('三叠','圆罐',[{shape:'圆罐',liq:null},{shape:'方罐',liq:null},
+                   {shape:'三角罐',liq:null},{shape:'圆罐',liq:'蜜'}],9,'A','固守'),
+  A('双蜜鸣','圆罐',[{shape:'圆罐',liq:'蜜'},{shape:'圆罐',liq:'蜜'}],9,'A','固守'),
+
+  A('双蜜斩','圆罐',[{shape:'圆罐',liq:'蜜'},{shape:'高罐',liq:'蜜'}],8,'B','固守'),
+  A('圆高连环','圆罐',[{shape:'圆罐',liq:null},{shape:'高罐',liq:null}],5,'B','固守'),
+  A('三方蜜阵','方罐',[{shape:'方罐',liq:'蜜'},{shape:'高罐',liq:'蜜'},{shape:'三角罐',liq:null}],8,'B','连击'),
+  A('高塔崩塌','高罐',[{shape:'高罐',liq:'蜜'},{shape:'高罐',liq:'蜜'},{shape:'圆罐',liq:null}],10,'B','越位'),
+  A('蜜雨覆盖','圆罐',[{shape:'圆罐',liq:'蜜'},{shape:'方罐',liq:'蜜'}],8,'B','固守'),
+  A('三角终局','三角罐',[{shape:'三角罐',liq:null},{shape:'三角罐',liq:null},{shape:'高罐',liq:'蜜'}],9,'B','连锁'),
+];
+
+const TACTICS = [
+  { key:'V1', name:'换手',  cost:0, desc:'弃 2 张手牌，抽 2 张' },
+  { key:'V2', name:'疾抄',  cost:1, desc:'抽 2 张' },
+  { key:'V3', name:'汲液',  cost:0, desc:'主台液池 +2 蜜' },
+  { key:'V4', name:'催产',  cost:1, desc:'指定 1 条产线本回合额外结算 1 次' },
+  { key:'V5', name:'破罐',  cost:1, desc:'打碎对方 1 张罐子卡' },
+  { key:'V6', name:'倾罐',  cost:1, desc:'倒掉对方 1 罐上的液体' },
+  { key:'V7', name:'封罐',  cost:1, desc:'横置对方 2 张罐子' },
+  { key:'V8', name:'堵腔',  cost:2, desc:'对方主台下回合不能入罐' },
+  { key:'V9', name:'护堰',  cost:1, desc:'免疫敌方 1 次变化卡' },
+  { key:'V10',name:'固壁',  cost:1, desc:'重置己方 1 张横置罐子' },
+];
+
+const SUPPLIES = [
+  { name:'补给·双圆', jars:[{shape:'圆罐',n:2}] },
+  { name:'补给·双方', jars:[{shape:'方罐',n:2}] },
+  { name:'补给·双高', jars:[{shape:'高罐',n:2}] },
+  { name:'补给·四蜜', liquids:{蜜:4} },
+  { name:'补给·双蜜', liquids:{蜜:2} },
+];
+
+function buildDeck() {
+  const d = [];
+  const add = (c, n) => { for (let i = 0; i < n; i++) d.push({ ...c, _id: uid() }); };
+
+  add({ t:'bench', key:'玄武台' }, 2);
+  add({ t:'bench', key:'朱雀台' }, 2);
+  add({ t:'bench', key:'青龙台' }, 1);
+
+  const jarsProd = [['圆罐',2],['方罐',2],['三角罐',1],['高罐',3],['长罐',2]];
+  for (const [shape, n] of jarsProd)
+    add({ t:'prod', kind:'jar', shape, amount:2 }, n);
+
+  add({ t:'prod', kind:'liquid', liquid:'蜜', amount:4 }, 2);
+  add({ t:'prod', kind:'liquid', liquid:'蜜', amount:2 }, 2);
+
+  for (const s of SUPPLIES) add({ t:'supply', ...s }, 1);
+  for (const a of ATTACKS) add(a, 1);
+  for (const v of TACTICS) add({ t:'tactic', ...v }, 1);
+
+  return d;
+}
+
+/* ============================================================
+   2. 状态
+   ============================================================ */
+let G = null;
+
+function newBench(key) {
+  const d = BENCH_DEFS[key];
+  // 深一层拷贝：def 会被换台流程当作「旧台能力」只读，共享引用容易被意外改到
+  const def = { ...d, base: [...d.base], add: [...d.add], ban: [...d.ban] };
+  return { key, def, hp: 20, maxHp: 20, liquid: { 酒:0, 蜜:0 }, jars: [] };
+}
+
+function newPlayer(name, isAI) {
+  return {
+    name, isAI,
+    main: null, sub: null,
+    lines: [],            // 产线卡
+    hand: [], deck: [], discard: [],
+    steps: 0,
+    opsLeft: 0,           // 「+1 次操作」用
+    firstTurn: true,
+    attacksThisTurn: 0,
+    didJarOp: false,      // 连锁触发条件
+    dmgReduce: 0,         // 我方攻击 -N（来自对方固守）
+    stepTax: 0,           // 我方每张攻击 +N step（v0.4 原版固守）
+    shield: 0,            // 护堰
+    lockFill: false,      // 堵腔
+    extraProd: 0,         // 催产：本回合额外结算次数
+  };
+}
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function newGame() {
+  G = {
+    players: [ newPlayer('你', false), newPlayer('AI', true) ],
+    cur: 0,
+    turnNo: 1,
+    log: [],
+    over: false,
+    sel: null,            // {kind:'card'|'jar', ...}
+    pending: null,        // 需要选择目标的待决动作
+  };
+  for (const p of G.players) {
+    p.deck = shuffle(buildDeck());
+    for (let i = 0; i < START_HAND; i++) p.hand.push(p.deck.pop());
+    ensureOpening(p, 'bench');
+    ensureOpening(p, 'prod');
+  }
+  log('新对局开始。', 'hi');
+  startTurn(0);
+}
+
+// 起手保底：确保手里至少有 1 张工作台、1 张产线，否则开局无事可做
+function ensureOpening(p, type) {
+  if (p.hand.some(c => c.t === type)) return;
+  const i = p.deck.findIndex(c => c.t === type);
+  if (i < 0) return;
+  const card = p.deck.splice(i, 1)[0];
+  const j = p.hand.findIndex(c => c.t !== 'bench' && c.t !== 'prod');
+  if (j >= 0) { p.deck.push(p.hand[j]); p.hand[j] = card; }
+  else p.hand.push(card);
+}
+
+function log(msg, cls) {
+  G.log.push({ msg, cls: cls || '' });
+  if (G.log.length > 200) G.log.shift();
+}
+
+const me    = () => G.players[0];
+const foe   = () => G.players[1];
+const opp   = p => G.players[p === G.players[0] ? 1 : 0];
+
+/* ============================================================
+   3. 回合流程
+   ============================================================ */
+function startTurn(pi) {
+  G.cur = pi;
+  const p = G.players[pi];
+
+  p.steps   = STEPS_PER_TURN;
+  p.opsLeft = 0;
+  p.attacksThisTurn = 0;
+  p.didJarOp = false;
+  p.extraProd = 0;
+  // 注意：dmgReduce / stepTax / lockFill 由「对手在上个回合施加」，
+  // 必须在自己的回合内保持有效，所以不能在回合开始时清空。
+  // 它们的清理放在 endTurn()（本回合用完即清）。
+
+  // 己方罐子全部竖直
+  for (const b of [p.main, p.sub]) if (b) for (const j of b.jars) j.tapped = false;
+
+  // 抽牌
+  draw(p, DRAW_PER_TURN);
+  log(`—— 第 ${G.turnNo} 回合 · ${p.name} ——`, 'hi');
+
+  render();
+  if (p.isAI) setTimeout(aiTurn, 600);
+}
+
+function draw(p, n) {
+  for (let i = 0; i < n; i++) {
+    if (!p.deck.length) {
+      if (!p.discard.length) { log(`${p.name} 牌库已空，无法抽牌。`, 'bad'); return; }
+      p.deck = shuffle(p.discard); p.discard = [];
+      log(`${p.name} 的弃牌堆洗回牌库。`, '');
+    }
+    p.hand.push(p.deck.pop());
+  }
+}
+
+function endTurn() {
+  if (G.over) return;
+  const p = G.players[G.cur];
+
+  // 空过拦截：手上还有工作台卡、场上却没有主台时，不许结束回合。
+  // 依据：原系统里入罐/出罐/改形/产线结算/攻击全部挂在主台上，
+  // 没有主台 = 这个回合一个有效动作都做不出来。允许结束回合，
+  // 等于让玩家在一个完全不可行动的状态里白扔一回合，而界面上看不出任何事。
+  if (G.cur === 0 && !p.main && p.hand.some(c => c.t === 'bench')) {
+    return fail('你还没有主台 —— 先把手里的工作台放下，否则这回合什么都做不了');
+  }
+
+  G.pending = null;
+  G.sel = null;
+
+  // 产线结算
+  if (p.main) {
+    const extra = p.extraProd > 0 ? 1 : 0;
+    const times = 1 + extra;
+    for (const ln of p.lines) {
+      for (let k = 0; k < times; k++) resolveLine(p, ln);
+    }
+    if (extra) log(`催产：产线额外结算 1 次`, '');
+  } else if (p.lines.length) {
+    log(`${p.name} 没有主台，产线不结算。`, 'bad');
+  }
+
+  // 弃至手牌上限
+  while (p.hand.length > HAND_LIMIT) {
+    const c = p.hand.pop();
+    p.discard.push(c);
+  }
+
+  // 本回合用完即清的「到来型」状态
+  p.dmgReduce = 0;
+  p.stepTax   = 0;
+  p.lockFill  = false;
+
+  p.firstTurn = false;
+  G.turnNo++;
+  startTurn(G.cur === 0 ? 1 : 0);
+}
+
+function resolveLine(p, ln) {
+  const b = p.main;
+  if (ln.kind === 'jar') {
+    if (b.jars.length >= MAX_JARS) { log(`主台罐位已满，${ln.shape} 产出被丢弃。`, 'bad'); return; }
+    let got = 0;
+    for (let i = 0; i < ln.amount && b.jars.length < MAX_JARS; i++) {
+      b.jars.push({ shape: ln.shape, liquid: null, tapped: false, _id: uid() });
+      got++;
+    }
+    log(`产线产出 ${ln.shape}×${got} → 主台${got < ln.amount ? `（罐位满，丢 ${ln.amount - got}）` : ''}`, got ? 'good' : 'bad');
+  } else {
+    // 原系统 MaxLiquids 是**每种液体各自的容量**，不是总量（Workshop.AddLiquid: c+n > MaxLiquids）
+    const cap = b.def.pool;
+    const cur = b.liquid[ln.liquid] || 0;
+    const got = Math.min(ln.amount, Math.max(0, cap - cur));
+    b.liquid[ln.liquid] = cur + got;
+    log(`产线产出 ${ln.liquid}×${got}${got < ln.amount ? `（溢出 ${ln.amount - got}）` : ''} → 液池`, got ? 'good' : 'bad');
+  }
+}
+
+/* ============================================================
+   4. 罐子操作
+   ============================================================ */
+function canReshape(from, to, def) {
+  const isBase = def.base.includes(from);
+  const isAdd  = def.add.includes(from);
+  if (isBase) return def.base.includes(to) || def.add.includes(to);
+  if (isAdd)  return def.base.includes(to);
+  return def.base.includes(to);
+}
+
+function spendOp(p) {
+  if (p.opsLeft > 0) { p.opsLeft--; return true; }
+  if (p.steps > 0)   { p.steps--;   return true; }
+  return false;
+}
+
+function fillJar(p, side, jar) {
+  const b = side === 'main' ? p.main : p.sub;
+  if (!b) return fail('该位置没有工作台');
+  if (p.lockFill && side === 'main') return fail('主台被堵腔封锁，本回合不能入罐');
+  if (jar.liquid) return fail('罐子不是空的');
+  if (jar.tapped) return fail('罐子已横置');
+  if (!b.def.base.includes(jar.shape)) return fail(`${jar.shape} 不在${b.def.name}的基础标记里，不能装液`);
+  const liq = b.def.ban.includes('酒') ? '蜜' : '酒';
+  if (b.liquid[liq] <= 0) return fail(`液池没有${liq}了`);
+  if (!spendOp(p)) return fail('没有可用的操作次数');
+  b.liquid[liq]--; jar.liquid = liq; jar.tapped = true;
+  p.didJarOp = true;
+  log(`${p.name} 入罐：1 ${liq} → ${jar.shape}`, '');
+  render(); return true;
+}
+
+// 出罐 = 原系统 PourOut（Workshop.cs:287-296）：
+// 横置拒 / 空拒 / **该液体被本台禁则拒** / **液池该液体已满则拒**（不是溢出）
+function emptyJar(p, side, jar) {
+  const b = side === 'main' ? p.main : p.sub;
+  if (!b) return fail('该位置没有工作台');
+  if (jar.tapped) return fail('罐子已被操作（横置）');
+  if (!jar.liquid) return fail('罐子本来就是空的');
+  const liq = jar.liquid;
+  if (b.def.ban.includes(liq)) return fail(`${b.def.name}禁${liq}，不能倒出`);
+  if ((b.liquid[liq] || 0) >= b.def.pool) return fail(`${liq} 存储已满（${b.def.pool}），倒不出来`);
+  if (!spendOp(p)) return fail('没有可用的操作次数');
+  b.liquid[liq] = (b.liquid[liq] || 0) + 1;
+  jar.liquid = null; jar.tapped = true;
+  p.didJarOp = true;
+  log(`${p.name} 出罐：${liq} 回液池`, '');
+  render(); return true;
+}
+
+// 改形 = 原系统的两条路：
+//   ReshapeEmpty（Workshop.cs:298-306）空罐，付 1 份可用液体作成本，成本液体由玩家指定
+//   ReshapeFull （Workshop.cs:308-317）满罐，**用罐内自己的液体当成本**；若该液体被本台禁则不可改
+function reshapeJar(p, side, jar, to, costLiq) {
+  const b = side === 'main' ? p.main : p.sub;
+  if (!b) return fail('该位置没有工作台');
+  if (jar.tapped) return fail('罐子已被操作（横置）');
+  if (!canReshape(jar.shape, to, b.def)) return fail(`${jar.shape} → ${to} 不可达`);
+
+  if (jar.liquid) {
+    const l = jar.liquid;
+    if (b.def.ban.includes(l)) return fail(`罐内是${l}，本台禁${l}，满罐不能改形`);
+    if (!spendOp(p)) return fail('没有可用的操作次数');
+    jar.liquid = null;
+    jar.shape = to; jar.tapped = true;
+    p.didJarOp = true;
+    log(`${p.name} 改形（满罐）：→ ${to}（自耗罐内 1 份${l}）`, '');
+    render(); return true;
+  }
+
+  const cost = costLiq || (b.def.ban.includes('酒') ? '蜜' : '酒');
+  if (b.def.ban.includes(cost)) return fail(`本台禁${cost}，不能拿它当成本`);
+  if ((b.liquid[cost] || 0) <= 0) return fail(`改形需要 1 份${cost}作成本，液池没有`);
+  if (!spendOp(p)) return fail('没有可用的操作次数');
+  b.liquid[cost]--;
+  jar.shape = to; jar.tapped = true;
+  p.didJarOp = true;
+  log(`${p.name} 改形：→ ${to}（耗 1 ${cost}）`, '');
+  render(); return true;
+}
+
+function fail(msg) { log('✗ ' + msg, 'bad'); render(); return false; }
+
+/* ============================================================
+   5. 攻击结算
+   ============================================================ */
+// 需求匹配（回溯）
+function matchReqs(reqs, pools) {
+  // pools: [{jar, side}]
+  const used = new Array(pools.length).fill(false);
+  const pick = [];
+  function go(i) {
+    if (i === reqs.length) return true;
+    const r = reqs[i];
+    for (let k = 0; k < pools.length; k++) {
+      if (used[k]) continue;
+      const j = pools[k].jar;
+      if (j.shape !== r.shape) continue;
+      if (r.liq ? j.liquid !== r.liq : j.liquid !== null) continue;
+      used[k] = true; pick.push(pools[k]);
+      if (go(i + 1)) return true;
+      pick.pop(); used[k] = false;
+    }
+    return false;
+  }
+  return go(0) ? pick.slice() : null;
+}
+
+function benchOf(p, side) { return side === 'main' ? p.main : p.sub; }
+
+// 收集可用于该攻击的罐子
+function collectPools(p, card) {
+  const out = [];
+  const allowBoth = (card.cls === 'B') || (card.eff === '越位');
+  if (card.cls === 'B') {
+    if (!p.sub) return null;                       // B 类必须有从台
+    for (const j of p.sub.jars) out.push({ jar: j, side: 'sub' });
+    if (p.main) for (const j of p.main.jars) out.push({ jar: j, side: 'main' });
+  } else if (allowBoth) {
+    if (p.main) for (const j of p.main.jars) out.push({ jar: j, side: 'main' });
+    if (p.sub)  for (const j of p.sub.jars)  out.push({ jar: j, side: 'sub' });
+  } else {
+    if (!p.main) return null;
+    for (const j of p.main.jars) out.push({ jar: j, side: 'main' });
+  }
+  return out;
+}
+
+function attackInfo(p, card) {
+  const pools = collectPools(p, card);
+  if (!pools) return { ok:false, why: card.cls === 'B' ? '需要有从台' : '需要有主台' };
+  const picked = matchReqs(card.reqs, pools);
+  if (!picked) return { ok:false, why:'罐子不满足需求' };
+
+  const cross = card.cls === 'B' && picked.some(x => x.side === 'main');
+  const stepCost = cross ? 1 : 0;
+  if (p.steps < stepCost) return { ok:false, why:`跨台转移需要 ${stepCost} step` };
+
+  const t = targetBench(p, card);
+  if (!t) return { ok:false, why:'对方没有可攻击的工作台' };
+
+  return { ok:true, picked, cross, stepCost, target: t.bench, targetSide: t.side };
+}
+
+function targetBench(p, card) {
+  const o = opp(p);
+  if (card.cls === 'B' && o.sub && o.sub.hp > 0) return { bench:o.sub, side:'sub' };
+  if (o.main && o.main.hp > 0) return { bench:o.main, side:'main' };
+  if (o.sub && o.sub.hp > 0) return { bench:o.sub, side:'sub' };
+  return null;
+}
+
+// 属性：加权（空罐 1 / 装液 2），取最大，平局取先出现者
+function decideAttr(card, picked) {
+  let best = null, bestW = -1;
+  for (const r of card.reqs) {
+    const w = r.liq ? 2 : 1;
+    if (w > bestW) { bestW = w; best = r.shape; }
+  }
+  return best || card.attr;
+}
+
+function calcDamage(attr, base, targetDef, p, card) {
+  let m = 1;
+  if (targetDef.base.some(s => countersOf(attr).includes(s))) m *= 4 / 3;
+  if (targetDef.base.some(s => countersOf(s).includes(attr))) m *= 3 / 4;
+  let d = Math.round(base * m);
+  if (card.eff === '连击' && p.attacksThisTurn > 0) d += 2;
+  d -= p.dmgReduce;
+  return Math.max(0, d);
+}
+
+function playAttack(p, card) {
+  const info = attackInfo(p, card);
+  if (!info.ok) return fail(info.why);
+  if (p.firstTurn) return fail('首回合不能对对手使用卡牌');
+  if (p.steps < info.stepCost) return fail('step 不足');
+
+  p.steps -= info.stepCost;
+
+  // 消耗罐子
+  for (const x of info.picked) {
+    const b = benchOf(p, x.side);
+    b.jars = b.jars.filter(j => j !== x.jar);
+  }
+
+  const attr = decideAttr(card, info.picked);
+  const dmg = calcDamage(attr, card.dmg, info.target.def, p, card);
+  info.target.hp -= dmg;
+
+  p.attacksThisTurn++;
+  p.hand = p.hand.filter(c => c !== card);
+  p.discard.push(card);
+
+  log(`${p.name} 打出【${card.name}】属性 ${attr} → ${info.target.def.name} 受到 ${dmg} 伤`, 'hi');
+
+  // 效果
+  applyEffect(p, card, info);
+
+  checkDeath();
+  render();
+}
+
+function applyEffect(p, card, info) {
+  const o = opp(p);
+  switch (card.eff) {
+    case '固守':
+      if (RULES.shouguMode === 'dmg') { o.dmgReduce += 1; log(`  · 固守：${o.name} 下回合所有攻击 −1 伤`); }
+      else { o.stepTax += 1; log(`  · 固守：${o.name} 下回合每张攻击 +1 step`); }
+      break;
+    case '连击':
+      break; // 已在伤害里算
+    case '连锁':
+      if (p.didJarOp) { draw(p, 1); log(`  · 连锁：本回合操作过罐子，抽 1 张`); }
+      else log(`  · 连锁：本回合未操作罐子，无效果`);
+      break;
+    case '续力':
+      if (RULES.xuliMode === 'op') { p.opsLeft += 1; log(`  · 续力：本回合 +1 次罐子操作`); }
+      else { p.steps += 1; log(`  · 续力：本回合 +1 step`); }
+      break;
+    case '越位':
+      log(`  · 越位：需求可跨主从台收集`);
+      break;
+  }
+}
+
+function checkDeath() {
+  for (const p of G.players) {
+    const m = p.main && p.main.hp > 0;
+    const s = p.sub && p.sub.hp > 0;
+    // 没有台 = 已倒
+    const dead = !m && !s;
+    if (dead && !(p.main === null && p.sub === null)) {
+      G.over = true;
+      const other = opp(p);
+      log(`${p.name} 的两座工作台都被击破！`, 'bad');
+      showOverlay(`${other.name} 获胜`, `第 ${G.turnNo} 回合结束对局。`, '再来一局', () => { newGame(); render(); });
+      return;
+    }
+  }
+}
+
+/* ============================================================
+   6. 打出手牌
+   ============================================================ */
+function canPlayCard(p, card) {
+  switch (card.t) {
+    case 'bench': {
+      if (!p.main) return { ok:true, why:'放到主台' };
+      if (!p.sub)  return { ok:true, why:'放到从台' };
+      if (p.steps < 1) return { ok:false, why:'换台需要 1 step' };
+      return { ok:true, why:'可与场上任一台互换（1 step）' };
+    }
+    case 'prod': {
+      if (p.lines.length >= MAX_LINES) {
+        if (p.steps < 1) return { ok:false, why:'换线需要 1 step' };
+        return { ok:true, why:'可与场上任一条产线互换（1 step）' };
+      }
+      return { ok:true, why:'放到产线区' };
+    }
+    case 'supply': return { ok:true, why:'直接使用' };
+    case 'attack': {
+      if (p.firstTurn) return { ok:false, why:'首回合不能攻击' };
+      const i = attackInfo(p, card);
+      if (!i.ok) return i;
+      return { ok:true, why:`造成约 ${calcDamage(decideAttr(card, i.picked), card.dmg, i.target.def, p, card)} 伤` };
+    }
+    case 'tactic': {
+      if (p.steps < card.cost) return { ok:false, why:`需要 ${card.cost} step` };
+      return { ok:true, why:card.desc };
+    }
+  }
+  return { ok:false, why:'?' };
+}
+
+function playCard(p, card) {
+  switch (card.t) {
+    case 'bench': {
+      if (p.main && p.sub) return fail('两台都在场，请用「换台」');
+      const side = !p.main ? 'main' : 'sub';
+      p[side] = newBench(card.key);
+      discardFromHand(p, card);
+      log(`${p.name} 放下【${card.key}】(${side === 'main' ? '主台' : '从台'})`, 'good');
+      break;
+    }
+    case 'prod': {
+      if (p.lines.length >= MAX_LINES) return fail('产线区已满，请用「换线」');
+      p.lines.push(card);
+      discardFromHand(p, card, true);
+      log(`${p.name} 布置产线：${card.kind === 'jar' ? card.shape : card.liquid} ${card.amount}/回合`, 'good');
+      break;
+    }
+    case 'supply': {
+      const b = p.main;
+      if (!b) return fail('需要先有主台');
+      if (card.jars) for (const g of card.jars) {
+        for (let i = 0; i < g.n && b.jars.length < MAX_JARS; i++)
+          b.jars.push({ shape:g.shape, liquid:null, tapped:false, _id:uid() });
+      }
+      if (card.liquids) for (const k in card.liquids) {
+        // 容量是每种液体各自的（Workshop.AddLiquid: c + n > MaxLiquids）
+        const room = Math.max(0, b.def.pool - (b.liquid[k] || 0));
+        b.liquid[k] = (b.liquid[k] || 0) + Math.min(room, card.liquids[k]);
+      }
+      discardFromHand(p, card);
+      log(`${p.name} 使用【${card.name}】`, 'good');
+      break;
+    }
+    case 'attack':
+      return playAttack(p, card);
+    case 'tactic':
+      return playTactic(p, card);
+  }
+  render();
+}
+
+function discardFromHand(p, card, toLines) {
+  p.hand = p.hand.filter(c => c !== card);
+  if (!toLines) p.discard.push(card);
+  else p.inPlay = p.inPlay || [];
+}
+
+/* ============================================================
+   6.5 换台 / 换线 / 转移罐子
+   ============================================================ */
+/* ---- 换台：移植原系统 WorkshopSwitchEvent ---- */
+// 原系统语义（src/JarSystem.Core/Orders/WorkshopSwitchEvent.cs:37-64）：
+//   快照 → 按「禁令是否一致」选分支(Case1/Case2) → 执行分支 → TransferAll 转移剩余 → 异常回滚
+// 触发条件（src/JarSystem.Core/Services/MasterSwitchCoordinator.cs:43）：
+//   旧台有罐子 或 有液体 才走事件；没有资源 = 直接换。
+// 关键：罐子**不因形状不兼容被丢弃**。JarValuePolicy 只决定「新台容量不够时先丢谁」（见 jarValue）。
+
+// BanComparison.Same：只逐液体比较禁令，不含基础/附加标记
+function sameBans(a, b) {
+  return ['酒', '蜜'].every(l => a.ban.includes(l) === b.ban.includes(l));
+}
+
+// Case1（禁令相同）：把游离液体尽量灌进「旧台基础形状的空罐」，
+// 让新台接收「已装满的罐子」当作额外液体容量。
+function caseSameBans(old, ops) {
+  const baseShapes = old.def.base;
+  let guard = 0;
+  while (guard++ < 40) {
+    const emptyJar = old.jars.find(j => !j.liquid && !j.tapped && baseShapes.includes(j.shape));
+    if (!emptyJar) break;
+
+    // 优先用游离液体
+    const freeLiq = ['酒', '蜜'].find(l => !old.def.ban.includes(l) && (old.liquid[l] || 0) > 0);
+    if (freeLiq) {
+      old.liquid[freeLiq]--;
+      emptyJar.liquid = freeLiq;
+      ops.push(`向 ${emptyJar.shape} 倒入 ${freeLiq}`);
+      continue;
+    }
+    // 无游离液体：从「非基础形状的满罐」倒出（液体未禁、存储有空间）
+    const src = old.jars.find(j => j.liquid && !j.tapped &&
+      !old.def.ban.includes(j.liquid) &&
+      !baseShapes.includes(j.shape) &&
+      (old.liquid[j.liquid] || 0) < old.def.pool);
+    if (!src) break;
+    const liq = src.liquid;
+    src.liquid = null;
+    old.liquid[liq] = (old.liquid[liq] || 0) + 1;
+    old.liquid[liq]--;
+    emptyJar.liquid = liq;
+    ops.push(`从 ${src.shape} 倒出 ${liq}，再倒入 ${emptyJar.shape}`);
+  }
+}
+
+// Case2（禁令不同）：旧台**临时获得新台的基础形状作为附加标记**，把旧台罐子改形为新台形状。
+// 步骤：游离液体改形空罐 → 满罐用自身液体改形 → 仍缺液体时从满罐倒出补液再改形。
+// 剩余游离液体不在此清空，交给 TransferAll 按禁令/容量处理。
+function caseDiffBans(old, ndef, ops) {
+  const base = old.def.base;
+  const add = [...old.def.add, ...ndef.base];   // WithTemporaryAdditionalMarks(newMaster.BaseMarks)
+  const canT = (from, to) => {
+    if (base.includes(from)) return base.includes(to) || add.includes(to);
+    if (add.includes(from)) return base.includes(to);
+    return base.includes(to);
+  };
+  const targets = ndef.base;
+  let guard = 0;
+
+  // Step 1：游离液体改形空罐
+  for (const target of targets) {
+    while (guard++ < 40) {
+      const costLiq = ['酒', '蜜'].find(l => (old.liquid[l] || 0) > 0 && !old.def.ban.includes(l));
+      if (!costLiq) break;
+      const src = old.jars.find(j => !j.liquid && !j.tapped && canT(j.shape, target));
+      if (!src) break;
+      old.liquid[costLiq]--;
+      const from = src.shape;
+      src.shape = target;
+      ops.push(`${from} → ${target}（消耗 ${costLiq}）`);
+    }
+  }
+  // Step 2：满罐用自身液体改形（满罐改形会清空罐内液体）
+  for (const target of targets) {
+    while (guard++ < 80) {
+      const full = old.jars.find(j => j.liquid && !j.tapped &&
+        !old.def.ban.includes(j.liquid) && canT(j.shape, target));
+      if (!full) break;
+      const from = full.shape, liq = full.liquid;
+      full.shape = target; full.liquid = null;
+      ops.push(`${from} → ${target}（自耗 ${liq}）`);
+    }
+  }
+  // Step 3：仍缺液体时，从满罐倒出补液再改形
+  for (const target of targets) {
+    while (guard++ < 120) {
+      const src = old.jars.find(j => !j.liquid && !j.tapped && canT(j.shape, target));
+      if (!src) break;
+      const pourSrc = old.jars.find(j => j.liquid && !j.tapped &&
+        !old.def.ban.includes(j.liquid) && (old.liquid[j.liquid] || 0) < old.def.pool);
+      if (!pourSrc) break;
+      const liq = pourSrc.liquid;
+      pourSrc.liquid = null;
+      old.liquid[liq] = (old.liquid[liq] || 0) + 1;
+      old.liquid[liq]--;
+      const from = src.shape;
+      src.shape = target;
+      ops.push(`从 ${pourSrc.shape} 倒出 ${liq}，改形 ${from} → ${target}`);
+    }
+  }
+}
+
+// JarValuePolicy 五级（越小越优先保留；仅用于容量不足时的排序，**不是丢弃条件**）：
+// 0 同液满罐 / 1 同形空罐 / 2 基础+附加之外的异形空罐 / 3 附加标记空罐 / 4 异液满罐
+function jarValue(j, ndef) {
+  if (j.liquid) return ndef.ban.includes(j.liquid) ? 4 : 0;
+  if (ndef.base.includes(j.shape)) return 1;
+  if (!ndef.add.includes(j.shape)) return 2;
+  return 3;
+}
+
+// TransferAll：旧台资源一律先移出，新台收不下才丢弃并记账。
+// 「仓库单向流动」——丢弃的资源不回流。
+function transferAll(old, nb, ndef, ops) {
+  const sorted = old.jars.slice().sort((a, b) => jarValue(a, ndef) - jarValue(b, ndef));
+  for (const j of sorted) {
+    j.tapped = false;                       // Unmark
+    if (nb.jars.length < MAX_JARS) {
+      nb.jars.push(j);
+      ops.push(`转移 ${j.shape}${j.liquid ? '·装' + j.liquid : ''} → 新台`);
+    } else {
+      ops.push(`丢弃 ${j.shape}（新台容量已满）`);
+    }
+  }
+  old.jars = [];
+
+  for (const l of ['酒', '蜜']) {
+    const amt = old.liquid[l] || 0;
+    if (!amt) continue;
+    old.liquid[l] = 0;
+    if (ndef.ban.includes(l)) { ops.push(`丢弃 ${l}×${amt}（新台禁${l}）`); continue; }
+    // 容量是每种液体各自的（AddLiquid: c + n > MaxLiquids）
+    const room = Math.max(0, ndef.pool - (nb.liquid[l] || 0));
+    const got = Math.min(room, amt);
+    nb.liquid[l] = (nb.liquid[l] || 0) + got;
+    if (got < amt) ops.push(`丢弃 ${l}×${amt - got}（新台容量已满）`);
+    if (got) ops.push(`转移 ${l}×${got} → 新台`);
+  }
+}
+
+// 换台入口。血量的处理是**我自己加的**（原系统没有工作台血量），
+// 理由：不接管血量的话 1 step 就能换一条命。
+function switchBench(p, card, side) {
+  const old = p[side];
+  if (!old) return fail('该位置没有工作台');
+  if (old.hp <= 0) return fail('该工作台已被击破，不能换台');
+  if (p.steps < 1) return fail('换台需要 1 step');
+
+  const ndef = BENCH_DEFS[card.key];
+  const nb = newBench(card.key);
+  nb.hp = Math.min(old.hp, nb.maxHp);
+
+  const ops = [];
+  const hasResources = old.jars.length > 0 || ((old.liquid.酒 || 0) + (old.liquid.蜜 || 0)) > 0;
+  let tag = '无资源，直接换';
+
+  if (hasResources) {
+    const same = sameBans(old.def, ndef);
+    tag = same ? '禁令相同' : '禁令不同';
+    if (same) caseSameBans(old, ops);
+    else caseDiffBans(old, ndef, ops);
+    transferAll(old, nb, ndef, ops);
+  }
+
+  p[side] = nb;
+  p.hand = p.hand.filter(c => c !== card);
+  p.hand.push({ t:'bench', key: old.key, _id: uid() });
+  p.steps -= 1;
+
+  log(`${p.name} 换台：${old.def.name} → ${ndef.name}（${side === 'main' ? '主台' : '从台'}）[${tag}]`, 'hi');
+  for (const o of ops) log('　· ' + o, '');
+  render();
+  return true;
+}
+
+// 换线：手牌的产线卡与场上的产线互换，耗 1 step。旧产线卡回手牌。
+function lineName(ln) { return ln.kind === 'jar' ? ln.shape : ln.liquid; }
+
+function switchLine(p, card, idx) {
+  const old = p.lines[idx];
+  if (!old) return fail('该产线不存在');
+  if (p.steps < 1) return fail('换线需要 1 step');
+  p.steps -= 1;
+  p.hand = p.hand.filter(c => c !== card);
+  p.lines[idx] = card;
+  p.hand.push(old);
+  log(`${p.name} 换线：${lineName(old)} → ${lineName(card)}`, 'hi');
+  render();
+  return true;
+}
+
+// 转移罐子 = 物流层：花 1 step，但不产生横置，横置也拦不住。
+function transferJar(p, fromSide, jar) {
+  const from = benchOf(p, fromSide);
+  const toSide = fromSide === 'main' ? 'sub' : 'main';
+  const to = benchOf(p, toSide);
+  if (!from) return fail('该位置没有工作台');
+  if (!to) return fail(`需要先有${toSide === 'main' ? '主台' : '从台'}才能转移`);
+  if (p.steps < 1) return fail('转移需要 1 step');
+  if (to.jars.length >= MAX_JARS) return fail('目标台罐位已满');
+  p.steps -= 1;
+  from.jars = from.jars.filter(j => j !== jar);
+  to.jars.push(jar);
+  log(`${p.name} 转移：1 张 ${jar.shape} ${fromSide === 'main' ? '主→从' : '从→主'}`, '');
+  render();
+  return true;
+}
+
+/* ============================================================
+   7. 变化卡
+   ============================================================ */
+const TACTIC_NO_TARGET = { V5:'对方没有罐子', V6:'对方没有装液罐', V7:'对方没有可封的罐子' };
+const TACTIC_VERB = { V5:'破罐', V6:'倾罐', V7:'封罐' };
+
+// 列出对方可以被 V5/V6/V7 指定的罐子
+function tacticCandidates(o, key) {
+  const out = [];
+  for (const b of [o.main, o.sub]) {
+    if (!b) continue;
+    for (const j of b.jars) {
+      if (key === 'V6' && !j.liquid) continue;
+      if (key === 'V7' && j.tapped) continue;
+      out.push({ b, j, side: b === o.main ? 'main' : 'sub' });
+    }
+  }
+  return out;
+}
+
+function applyTacticJars(p, key, picked) {
+  if (key === 'V5') for (const t of picked) t.b.jars = t.b.jars.filter(x => x !== t.j);
+  if (key === 'V6') for (const t of picked) t.j.liquid = null;
+  if (key === 'V7') for (const t of picked) t.j.tapped = true;
+}
+
+// 人类玩家选完目标后结算
+function resolvePending() {
+  const pd = G.pending;
+  if (!pd) return;
+  const p = me();
+  if (p.steps < pd.card.cost) { G.pending = null; return fail('step 不足'); }
+  p.steps -= pd.card.cost;
+  p.hand = p.hand.filter(c => c !== pd.card);
+  p.discard.push(pd.card);
+  applyTacticJars(p, pd.key, pd.picked);
+  log(`${p.name} ${TACTIC_VERB[pd.key]}：` +
+      pd.picked.map(t => `${t.side === 'main' ? '主台' : '从台'}${t.j.shape}`).join('、'), 'hi');
+  G.pending = null;
+  render();
+}
+
+function playTactic(p, card) {
+  if (p.steps < card.cost) return fail('step 不足');
+  const o = opp(p);
+
+  switch (card.key) {
+    case 'V1': {
+      const others = p.hand.filter(c => c !== card);
+      if (others.length < 2) return fail('手牌不足 2 张');
+      for (let i = 0; i < 2; i++) {
+        const x = others.pop();
+        p.hand = p.hand.filter(c => c !== x);
+        p.discard.push(x);
+      }
+      p.steps -= card.cost; draw(p, 2);
+      log(`${p.name} 换手：弃 2 抽 2`, ''); break;
+    }
+    case 'V2': p.steps -= card.cost; draw(p, 2);
+      log(`${p.name} 疾抄：抽 2 张`, ''); break;
+    case 'V3': {
+      if (!p.main) return fail('需要主台');
+      const room = Math.max(0, p.main.def.pool - (p.main.liquid.蜜 || 0));
+      const got = Math.min(2, room); p.main.liquid.蜜 += got;
+      p.steps -= card.cost;
+      log(`${p.name} 汲液：主台液池 +${got} 蜜`, ''); break;
+    }
+    case 'V4': {
+      if (!p.lines.length) return fail('没有产线可催');
+      p.extraProd += 1; p.steps -= card.cost;
+      log(`${p.name} 催产：产线本回合额外结算 1 次`, ''); break;
+    }
+    case 'V5': case 'V6': case 'V7': {
+      if (o.shield > 0) {
+        o.shield--; p.steps -= card.cost;
+        log(`${o.name} 的【护堰】抵消了这次变化卡`, 'good'); break;
+      }
+      const cand = tacticCandidates(o, card.key);
+      if (!cand.length) return fail(TACTIC_NO_TARGET[card.key]);
+      const need = card.key === 'V7' ? 2 : 1;
+      const take = Math.min(need, cand.length);
+
+      if (!p.isAI) {
+        // 人类玩家：进入目标选择。卡先留在手里，选完再结算。
+        G.pending = { card, key: card.key, need: take, cand, picked: [] };
+        log(`${p.name} 打出【${card.name}】—— 请选择 ${take} 个目标`, 'hi');
+        render();
+        return true;
+      }
+      // AI：随机挑
+      const picks = shuffle(cand.slice()).slice(0, take);
+      p.steps -= card.cost;
+      applyTacticJars(p, card.key, picks);
+      log(`${p.name} ${TACTIC_VERB[card.key]}：${picks.map(t => t.side === 'main' ? '主台' : '从台').join('、')}` +
+          ` ${picks.map(t => t.j.shape).join('、')}`, 'hi');
+      break;
+    }
+    case 'V8': {
+      if (o.shield > 0) { o.shield--; p.steps -= card.cost; log(`【护堰】抵消了一次变化卡`, 'good'); break; }
+      o.lockFill = true; p.steps -= card.cost;
+      log(`${p.name} 堵腔：对方主台下回合不能入罐`, 'hi'); break;
+    }
+    case 'V9':
+      p.shield += 1; p.steps -= card.cost;
+      log(`${p.name} 护堰：获得 1 层变化卡免疫`, ''); break;
+    case 'V10': {
+      const cand = [];
+      for (const b of [p.main, p.sub]) if (b) for (const j of b.jars) if (j.tapped) cand.push(j);
+      if (!cand.length) return fail('没有横置的罐子');
+      cand[0].tapped = false; p.steps -= card.cost;
+      log(`${p.name} 固壁：重置 1 张罐子`, ''); break;
+    }
+  }
+  discardFromHand(p, card);
+  render();
+  return true;
+}
+
+/* ============================================================
+   8. 渲染
+   ============================================================ */
+function render() {
+  if (!G) return;
+  const p = G.players[G.cur];
+  document.getElementById('turnLabel').textContent =
+    `第 ${G.turnNo} 回合 · ${p.name}${p.isAI ? '（AI）' : '（你）'}`;
+  document.getElementById('stepLabel').textContent =
+    `step ${p.steps}${p.opsLeft ? ` (+${p.opsLeft} 操作)` : ''}`;
+
+  document.getElementById('enemySide').className =
+    'side' + (G.cur === 1 ? ' active' : '') + (G.pending ? ' picking' : '');
+  document.getElementById('enemySide').innerHTML = renderPlayer(G.players[1], true);
+  document.getElementById('mySide').className = 'side' + (G.cur === 0 ? ' active' : '');
+  document.getElementById('mySide').innerHTML = renderPlayer(G.players[0], false);
+
+  document.getElementById('center').innerHTML = G.log.slice(-8).reverse()
+    .map(e => `<div class="ev ${e.cls}">${e.msg}</div>`).join('');
+
+  renderHand();
+  renderActionBar();
+  updateSettings();
+}
+
+function renderPlayer(p, hideHand) {
+  const jarsOf = b => {
+    if (!b) return '';
+    if (!b.jars.length) return `<span class="none">（无罐子）</span>`;
+    return b.jars.map(j => {
+      const sel = G.sel && G.sel.kind === 'jar' && G.sel.jar === j ? ' sel' : '';
+      const isPicked = G.pending && G.pending.picked.some(t => t.j === j);
+      const isTarget = G.pending && G.pending.cand.some(t => t.j === j);
+      const tcls = isPicked ? ' pickedT' : (isTarget ? ' target' : '');
+      return `<div class="jar${j.tapped ? ' tapped' : ''}${sel}${tcls}"
+        data-jar="${j._id}" data-side="${b === p.main ? 'main' : 'sub'}"
+        title="${j.shape}${j.liquid ? ' · 装' + j.liquid : ' · 空'}${j.tapped ? ' · 已横置' : ''}">
+        <span class="ic" style="color:${HUE[j.shape]}">${ICON[j.shape]}</span>
+        <span>${j.shape.slice(0, -1)}</span>
+        ${j.liquid ? `<span class="fill"></span>` : ''}
+      </div>`;
+    }).join('');
+  };
+
+  const benchHtml = (b, side) => {
+    const roleName = side === 'main' ? '主台' : '从台';
+    if (!b) return `<div class="bench empty">${roleName}：空</div>`;
+    return `<div class="bench">
+      <div class="bh">
+        <span class="bname">${b.def.name}</span>
+        <span class="role">${roleName}</span>
+        <span class="hp">♥ ${Math.max(0, b.hp)}/${b.maxHp}</span>
+      </div>
+      <div class="marks">
+        ${b.def.base.map(s => `<span class="mark base">基·${s}</span>`).join('')}
+        ${b.def.add.map(s => `<span class="mark add">附·${s}</span>`).join('')}
+        ${b.def.ban.map(s => `<span class="mark ban">禁·${s}</span>`).join('')}
+      </div>
+      <div class="liquids">
+        ${['蜜', '酒'].map(l => b.def.ban.includes(l)
+            ? `<span class="liq banned"><i class="dot ${l === '蜜' ? 'honey' : 'wine'}"></i>${l} 禁</span>`
+            : `<span class="liq"><i class="dot ${l === '蜜' ? 'honey' : 'wine'}"></i>${l} <b>${b.liquid[l] || 0}</b>/${b.def.pool}</span>`
+          ).join('')}
+      </div>
+      <div class="jars">${jarsOf(b)}</div>
+    </div>`;
+  };
+
+  const linesHtml = () => {
+    let h = `<div class="lines"><span class="lt">产线区</span>`;
+    for (const ln of p.lines) {
+      h += `<span class="line ${ln.kind === 'jar' ? 'jar' : ''}">
+        ${ln.kind === 'jar' ? ln.shape : ln.liquid} ${ln.amount}/回合</span>`;
+    }
+    for (let i = p.lines.length; i < MAX_LINES; i++) h += `<span class="line slot">空格</span>`;
+    h += `</div>`;
+    return h;
+  };
+
+  return `
+    <div class="hd">
+      <span class="pname ${p.isAI ? 'ai' : ''}">${p.name}</span>
+      <span class="pill step">step ${p.steps}${p.opsLeft ? ` +${p.opsLeft}` : ''}</span>
+      <span class="pill deck">牌库 ${p.deck.length}</span>
+      <span class="pill">手牌 ${p.hand.length}</span>
+      <span class="pill deck">弃牌 ${p.discard.length}</span>
+      ${p.dmgReduce ? `<span class="pill" style="color:#e05a4e">伤害 −${p.dmgReduce}</span>` : ''}
+      ${p.shield ? `<span class="pill" style="color:#5b8fd6">护堰 ${p.shield}</span>` : ''}
+      ${p.firstTurn ? `<span class="pill">首回合（不能攻击）</span>` : ''}
+    </div>
+    <div class="benches">
+      ${benchHtml(p.main, 'main')}
+      ${benchHtml(p.sub, 'sub')}
+    </div>
+    ${linesHtml()}
+  `;
+}
+
+const TYPE_LABEL = { bench:'工作台', prod:'产线', supply:'补给', attack:'攻击', tactic:'变化' };
+
+function cardHtml(c, sel) {
+  let name = '', sub = '', desc = '', dmgBadge = '';
+  if (c.t === 'bench') {
+    const d = BENCH_DEFS[c.key];
+    name = d.name; sub = '工作台';
+    desc = `基：${d.base.join('/')}<br>附：${d.add.join('/')}<br>液池 ${d.pool} · 禁${d.ban.join('/')}`;
+  } else if (c.t === 'prod') {
+    name = c.kind === 'jar' ? c.shape : c.liquid + '产线';
+    sub = '产线';
+    desc = `每回合产出 ${c.amount}`;
+  } else if (c.t === 'supply') {
+    name = c.name; sub = '补给';
+    desc = c.jars ? c.jars.map(g => `${g.shape}×${g.n}`).join(' ')
+         : Object.entries(c.liquids).map(([k, v]) => `${k}×${v}`).join(' ');
+  } else if (c.t === 'attack') {
+    name = c.name; sub = `攻击·${c.eff}`;
+    desc = `${c.reqs.map(r => (r.liq ? '装' + r.liq : '空') + r.shape.slice(0, -1)).join('+')}`;
+    dmgBadge = `<span class="badge ${c.cls}">${c.cls} · ${c.dmg}伤</span>`;
+  } else if (c.t === 'tactic') {
+    name = c.name; sub = `变化·${c.cost}步`;
+    desc = c.desc;
+    dmgBadge = `<span class="badge">${c.key}</span>`;
+  }
+  const playable = G.cur === 0 ? canPlayCard(me(), c).ok : false;
+  return `<div class="card ${c.t}${sel ? ' sel' : ''}${playable ? ' playable' : ''}"
+    data-card="${c._id}" data-type="${c.t}">
+    ${dmgBadge}
+    <div class="cn">${name}</div>
+    <div class="ct">${sub}</div>
+    <div class="cd">${desc}</div>
+  </div>`;
+}
+
+function renderHand() {
+  const p = me();
+  const el = document.getElementById('hand');
+  el.classList.toggle('need-bench',
+    G.cur === 0 && !G.over && !p.main && p.hand.some(c => c.t === 'bench'));
+  if (!p.hand.length) { el.innerHTML = `<span class="hint" style="color:#565e6e">手牌为空</span>`; return; }
+  el.innerHTML = p.hand.map(c =>
+    cardHtml(c, G.sel && G.sel.kind === 'card' && G.sel.card === c)).join('');
+}
+
+/* ---------- 操作栏 ---------- */
+function renderActionBar() {
+  const bar = document.getElementById('actioninner');
+  const p = me();
+  const btns = [];
+
+  if (G.over) { bar.innerHTML = '<span class="hint">对局已结束</span>'; return; }
+
+  // 选中的罐子可能已经被攻击吃掉，清掉失效的选择
+  if (G.sel && G.sel.kind === 'jar') {
+    const b = benchOf(p, G.sel.side);
+    if (!b || !b.jars.includes(G.sel.jar)) G.sel = null;
+  }
+
+  // 目标选择优先
+  if (G.pending) {
+    const pd = G.pending;
+    btns.push(`<span class="hint">【${pd.card.name}】选择目标 ${pd.picked.length}/${pd.need} —— 点击对方罐子</span>`);
+    btns.push(`<button data-act="cancelPending">取消</button>`);
+    bar.innerHTML = btns.join('');
+    return;
+  }
+
+  if (G.cur !== 0) {
+    bar.innerHTML = '<span class="hint">AI 行动中…</span>';
+    return;
+  }
+
+  if (G.sel && G.sel.kind === 'card') {
+    const c = G.sel.card;
+    const chk = canPlayCard(p, c);
+    const label = c.t === 'prod' ? lineName(c) : (c.name || c.key || c.t);
+    btns.push(`<span class="hint">【${label}】${chk.ok ? chk.why : '✗ ' + chk.why}</span>`);
+
+    if (c.t === 'bench') {
+      if (!p.main) btns.push(`<button class="primary" data-act="play">放到主台</button>`);
+      else if (!p.sub) btns.push(`<button class="primary" data-act="play">放到从台</button>`);
+      else {
+        btns.push(`<button class="primary" data-act="switchbench" data-side="main" ${chk.ok ? '' : 'disabled'}>换主台 (1步)</button>`);
+        btns.push(`<button class="primary" data-act="switchbench" data-side="sub" ${chk.ok ? '' : 'disabled'}>换从台 (1步)</button>`);
+      }
+    } else if (c.t === 'prod' && p.lines.length >= MAX_LINES) {
+      for (let i = 0; i < p.lines.length; i++)
+        btns.push(`<button class="primary" data-act="switchline" data-idx="${i}" ${chk.ok ? '' : 'disabled'}>换线→${lineName(p.lines[i])} (1步)</button>`);
+    } else {
+      btns.push(`<button class="primary" data-act="play" ${chk.ok ? '' : 'disabled'}>打出</button>`);
+    }
+    btns.push(`<button data-act="deselect">取消</button>`);
+
+  } else if (G.sel && G.sel.kind === 'jar') {
+    const { jar, side } = G.sel;
+    const b = benchOf(p, side);
+    btns.push(`<span class="hint">${jar.shape}${jar.liquid ? ' · 装' + jar.liquid : ' · 空'}${jar.tapped ? ' · 已横置' : ''}</span>`);
+    btns.push(`<button data-act="fill">入罐 (1步)</button>`);
+    btns.push(`<button data-act="empty">出罐 (1步)</button>`);
+    const costs = ['蜜', '酒'].filter(l => !b.def.ban.includes(l) && (b.liquid[l] || 0) > 0);
+    for (const s of [...b.def.base, ...b.def.add]) {
+      if (s === jar.shape) continue;
+      if (!canReshape(jar.shape, s, b.def)) continue;
+      const nm = s.replace('罐', '');
+      if (jar.liquid) {
+        // 满罐改形：罐内液体自耗，没有可选成本
+        if (b.def.ban.includes(jar.liquid))
+          btns.push(`<button data-act="reshape" data-to="${s}" disabled>改形→${nm} ✗ 罐内${jar.liquid}被禁</button>`);
+        else
+          btns.push(`<button data-act="reshape" data-to="${s}">改形→${nm}（自耗罐内${jar.liquid}）</button>`);
+      } else if (!costs.length) {
+        btns.push(`<button data-act="reshape" data-to="${s}" disabled>改形→${nm} ✗ 无成本液</button>`);
+      } else {
+        for (const c of costs)
+          btns.push(`<button data-act="reshape" data-to="${s}" data-cost="${c}">改形→${nm}（耗${c}）</button>`);
+      }
+    }
+    const otherSide = side === 'main' ? 'sub' : 'main';
+    if (benchOf(p, otherSide)) {
+      const full = benchOf(p, otherSide).jars.length >= MAX_JARS;
+      btns.push(`<button data-act="transfer" ${(p.steps < 1 || full) ? 'disabled' : ''}>` +
+                `转移到${otherSide === 'main' ? '主台' : '从台'} (1步)${full ? ' · 已满' : ''}</button>`);
+    }
+    btns.push(`<button data-act="deselect">取消</button>`);
+
+  } else if (!p.main) {
+    const canStillPlay = p.hand.some(c => c.t === 'bench');
+    btns.push(`<span class="hint" style="color:var(--red)">` +
+      `✗ 还没有主台。入罐 / 出罐 / 改形 / 产线结算 / 攻击 <b>全部</b>挂在主台上 —— 先放下工作台。` +
+      `</span>`);
+    btns.push(`<button data-act="end" ${canStillPlay ? 'disabled' : ''}>` +
+      `结束回合${canStillPlay ? '（请先放工作台）' : ''}</button>`);
+  } else {
+    btns.push(`<span class="hint">点击手牌出牌，点击罐子操作</span>`);
+    btns.push(`<button class="primary" data-act="end">结束回合</button>`);
+  }
+  bar.innerHTML = btns.join('');
+}
+
+function updateSettings() {
+  document.getElementById('optShougu').checked = RULES.shouguMode === 'dmg';
+  document.getElementById('optXuli').checked   = RULES.xuliMode === 'op';
+}
+
+/* ============================================================
+   9. 交互
+   ============================================================ */
+document.getElementById('hand').addEventListener('click', e => {
+  if (G.cur !== 0 || G.over || G.pending) return;
+  const el = e.target.closest('[data-card]');
+  if (!el) return;
+  const id = +el.dataset.card;
+  const c = me().hand.find(x => x._id === id);
+  if (!c) return;
+  G.sel = (G.sel && G.sel.card === c) ? null : { kind:'card', card:c };
+  render();
+});
+
+document.getElementById('mySide').addEventListener('click', e => {
+  if (G.cur !== 0 || G.over || G.pending) return;
+  const el = e.target.closest('[data-jar]');
+  if (!el) return;
+  const id = +el.dataset.jar, side = el.dataset.side;
+  const b = benchOf(me(), side);
+  if (!b) return;
+  const jar = b.jars.find(j => j._id === id);
+  if (!jar) return;
+  G.sel = { kind:'jar', jar, side };
+  render();
+});
+
+// 目标选择：点对方的罐子
+document.getElementById('enemySide').addEventListener('click', e => {
+  if (!G.pending || G.cur !== 0 || G.over) return;
+  const el = e.target.closest('[data-jar]');
+  if (!el) return;
+  const id = +el.dataset.jar;
+  const pd = G.pending;
+  const cand = pd.cand.find(t => t.j._id === id);
+  if (!cand || pd.picked.some(t => t.j === cand.j)) return;
+  pd.picked.push(cand);
+  if (pd.picked.length >= pd.need) resolvePending();
+  else render();
+});
+
+document.getElementById('actioninner').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const p = me();
+
+  if (act === 'cancelPending') { G.pending = null; render(); return; }
+  if (act === 'deselect') { G.sel = null; render(); return; }
+  if (act === 'end') { G.sel = null; endTurn(); return; }
+
+  if (act === 'play') {
+    const c = G.sel && G.sel.card; if (!c) return;
+    G.sel = null;
+    playCard(p, c);
+    return;
+  }
+  if (act === 'switchbench') {
+    const c = G.sel && G.sel.card; if (!c) return;
+    G.sel = null;
+    switchBench(p, c, btn.dataset.side);
+    return;
+  }
+  if (act === 'switchline') {
+    const c = G.sel && G.sel.card; if (!c) return;
+    G.sel = null;
+    switchLine(p, c, +btn.dataset.idx);
+    return;
+  }
+  if (act === 'transfer') {
+    const sel = G.sel; if (!sel || sel.kind !== 'jar') return;
+    G.sel = null;
+    transferJar(p, sel.side, sel.jar);
+    return;
+  }
+  if (act === 'fill' || act === 'empty' || act === 'reshape') {
+    const sel = G.sel; if (!sel || sel.kind !== 'jar') return;
+    G.sel = null;
+    if (act === 'fill') fillJar(p, sel.side, sel.jar);
+    else if (act === 'empty') emptyJar(p, sel.side, sel.jar);
+    else reshapeJar(p, sel.side, sel.jar, btn.dataset.to, btn.dataset.cost);
+    return;
+  }
+});
+
+document.getElementById('optShougu').addEventListener('change', e => {
+  RULES.shouguMode = e.target.checked ? 'dmg' : 'tax';
+  log(`固守切换为：${e.target.checked ? '减伤（建议版）' : '+1 step（v0.4 原版）'}`, '');
+  render();
+});
+document.getElementById('optXuli').addEventListener('change', e => {
+  RULES.xuliMode = e.target.checked ? 'op' : 'step';
+  log(`续力切换为：${e.target.checked ? '+1 次操作（建议版）' : '+1 step（v0.4 原版）'}`, '');
+  render();
+});
+let overlayAction = null;
+
+document.getElementById('btnRestart').addEventListener('click', () => {
+  document.getElementById('overlay').classList.remove('on');
+  overlayAction = null;
+  newGame(); render();
+});
+document.getElementById('btnHelp').addEventListener('click', () => {
+  if (G.over) return;
+  showOverlay('玩法速查', HELP_TEXT, '知道了', null);
+});
+document.getElementById('ovBtn').addEventListener('click', () => {
+  document.getElementById('overlay').classList.remove('on');
+  const a = overlayAction; overlayAction = null;
+  if (a) a();
+});
+document.getElementById('overlay').addEventListener('click', e => {
+  if (e.target.id === 'overlay') {
+    document.getElementById('overlay').classList.remove('on');
+    overlayAction = null;
+  }
+});
+
+function showOverlay(title, text, btnText, action) {
+  document.getElementById('ovTitle').textContent = title;
+  document.getElementById('ovText').innerHTML = text;
+  document.getElementById('ovBtn').textContent = btnText || '关闭';
+  overlayAction = action;
+  document.getElementById('overlay').classList.add('on');
+}
+
+const HELP_TEXT = `
+<b>一、你在做什么</b><br>
+你是一个陶匠。两座工作台（主台 / 从台）各有 20 血，<b>两座都被打空才算输</b>。<br>
+攻击不是"出牌打脸"，而是<b>用你生产的罐子去凑出一张订单的需求</b>——凑齐了才能打出。<br><br>
+
+<b>二、一回合</b><br>
+1. 抽 4 张，step 重置为 <b>4</b><br>
+2. 行动（出牌 / 操作罐子）<br>
+3. 结束回合：产线结算 → 弃至 10 张 → 罐子全部竖直<br><br>
+
+<b>三、三件不同的事（很重要）</b><br>
+· <b>操作</b>（入罐 / 出罐 / 改形）：花 <b>1 step</b>，把罐子横置。横置的罐子不能再操作。<br>
+· <b>物流</b>（产线产出 / 补给 / 转移）：<b>不花 step、不横置</b>。<br>
+· <b>消耗</b>（攻击卡吃掉罐子）：<b>不花 step、不横置，横置也拦不住</b>。<br>
+⇒ 所以"横置"标记的是「这张卡本回合已经被加工过」，<b>不是</b>「这张卡不能用」。<br><br>
+
+<b>四、罐子</b><br>
+· <b>入罐</b>：空罐 + 形状必须是该台的<b>基础标记</b> + 液池有液 + 该液不被禁<br>
+· <b>出罐</b>：把液体倒回液池。<b>该液体被本台禁，或该液体存储已满，都倒不出来</b>（原系统是拒绝，不是溢出）<br>
+· <b>改形 · 空罐</b>：消耗 1 份成本液体（<b>用哪种液由你点按钮时选</b>）。基础标记之间互通；附加标记是死胡同，<b>只能退回基础标记</b><br>
+· <b>改形 · 满罐</b>：可以直接改，<b>用罐子里自己那份液体当成本</b>；但若罐内液体被本台禁，就不能改<br>
+· <b>液池容量是每种液体各自 5（或 4）格</b>，不是两种液体抢一个总格数<br><br>
+
+<b>五、换台 / 换线 / 转移（都花 1 step）</b><br>
+· <b>换台</b>（移植原系统 <code>WorkshopSwitchEvent</code>）：旧台<b>有罐子或有液体</b>才走切换流程，<b>没资源就直接换</b>。<br>
+　流程＝按<b>禁令是否一致</b>选分支 → 重组 → 转移剩余。<br>
+　· <b>禁令相同</b>：把游离液体尽量灌进「旧台基础形状的空罐」，让新台多拿到几枚<b>已装满的罐子</b>（等于额外液体容量）。没有游离液体时，从「非基础形状的满罐」倒出来再灌。<br>
+　· <b>禁令不同</b>：旧台<b>临时获得新台的基础形状当附加标记</b>，把旧罐子改形成新台形状（游离液体改形 → 满罐自耗改形 → 从满罐倒液补足）。<br>
+　· <b>转移</b>：罐子按「对新台的价值」升序搬（0 同液满罐 / 1 同形空罐 / 2 异形空罐 / 3 附加标记空罐 / 4 异液满罐）——<b>这个排序只决定“容量不够时先丢谁”，不是丢弃条件</b>。形状不合新台的罐子<b>照样搬过去</b>，它不能在新台入罐，但仍是攻击卡可吃的弹药。<br>
+　· 液体：新台禁的才丢；不禁但装不下的丢溢出的部分。<br>
+　· <b>血量</b>：新台<b>接管旧台的血</b>。这一条是卡牌化后我自己加的（原系统没有工作台血量），否则 1 step 就能换一条命。<br>
+· <b>换线</b>：手牌的产线卡与场上任一条产线互换，换下来的产线卡回手牌。<br>
+· <b>转移罐子</b>：同一张罐子在主台与从台之间搬。属于<b>物流层</b>——花 1 step，但不产生横置，横置也拦不住。<br><br>
+
+<b>六、变化卡可以自己选目标</b><br>
+破罐 / 倾罐 / 封罐打出后进入选目标状态，对方<b>可被指定的罐子会绿色闪烁</b>，点一下选中（封罐要选 2 张），选中变红。按"取消"则放弃本次选择，<b>卡留在手里，不消耗 step</b>。<br><br>
+
+<b>七、攻击</b><br>
+A 类：只能从<b>主台</b>凑需求，打对方主台。<br>
+B 类：要有<b>从台</b>，可主从联合凑需求（用到主台的罐子要付 <b>1 step</b> 转移），打对方从台。<br>
+属性 = 需求里加权最高者（空罐 1 / 装液罐 2），平局取先出现的。<br>
+倍率：克对方工作台的基础标记 <b>×4/3</b>；被对方基础标记克制 <b>×3/4</b>。<br>
+环序：圆→方→三角→高→长→扁→鼓→尖→圆，每属性克其后<b>第 1 位与第 3 位</b>。<br><br>
+
+<b>八、首回合保护</b><br>
+双方各自的<b>第一回合都不能对对手用卡</b>。前两回合是建台、铺产线。<br><br>
+
+<b>九、已知手感问题（这是试玩要找的东西）</b><br>
+· 圆罐的「固守」在 v0.4 原文里是「对方每张攻击 +1 step」，但攻击卡本身不吃 step ⇒ 原版等于空转。顶部勾选框可切换两版对比。<br>
+· 长罐的「续力」原文是 +1 step（≈0.45 伤当量），建议版改成 +1 次操作。<br>
+· 尖罐「定点」的期望值是<b>负数</b>（放弃克制比躲开抵抗亏得多），所以本预组里没放尖罐卡。<br>
+· <b>我加了一台青龙台（禁蜜）</b>。原预组里玄武/朱雀都禁酒 ⇒ 它们之间换台永远走「禁令相同」分支，「禁令不同」分支是死代码。加青龙台只是为了让你能看到那条路真的跑起来；不想要就删掉 <code>BENCH_DEFS</code> 里的青龙台和牌库里那 1 张。<br><br>
+
+<b>十、怎么算赢</b><br>
+把对方<b>主台和从台的血都打到 0</b>。对方只建了一座台的话，打空那一座就赢。
+`;
+
+/* ============================================================
+   10. AI
+   ============================================================ */
+function aiTurn() {
+  if (G.over || G.cur !== 1) return;
+  const p = G.players[1];
+  let guard = 0;
+
+  const step = () => {
+    if (G.over || G.cur !== 1) return;
+    if (++guard > 60) { endTurn(); return; }
+    const did = aiAct(p);
+    render();
+    if (did) setTimeout(step, 520);
+    else setTimeout(() => { if (G.cur === 1 && !G.over) endTurn(); }, 420);
+  };
+  step();
+}
+
+function aiAct(p) {
+  // 1) 没有主台 → 放工作台
+  if (!p.main) {
+    const c = p.hand.find(x => x.t === 'bench');
+    if (c) return tryPlay(p, c);
+  }
+  // 2) 有主台但没从台 → 放从台
+  if (p.main && !p.sub) {
+    const c = p.hand.find(x => x.t === 'bench');
+    if (c) return tryPlay(p, c);
+  }
+  // 3) 铺产线
+  if (p.main && p.lines.length < MAX_LINES) {
+    const c = p.hand.find(x => x.t === 'prod');
+    if (c) return tryPlay(p, c);
+  }
+  // 4) 干扰对方（破罐 / 倾罐），专挑对方有装液的台
+  if (!p.firstTurn && p.steps >= 1) {
+    const t = p.hand.find(x => x.t === 'tactic' && (x.key === 'V5' || x.key === 'V6'));
+    if (t) {
+      const o = opp(p);
+      const hasTarget = [o.main, o.sub].some(b => b && b.jars.some(j => j.liquid));
+      if (hasTarget) return tryPlay(p, t);
+    }
+  }
+  // 5) 攻击（挑能打出的最高伤害）
+  if (!p.firstTurn) {
+    const scored = [];
+    for (const c of p.hand) {
+      if (c.t !== 'attack') continue;
+      const i = attackInfo(p, c);
+      if (!i.ok) continue;
+      scored.push({ c, d: calcDamage(decideAttr(c, i.picked), c.dmg, i.target.def, p, c) });
+    }
+    scored.sort((a, b) => b.d - a.d);
+    if (scored.length) return tryPlay(p, scored[0].c);
+  }
+  // 6) 入罐：只喂给手里攻击卡真正需要的「装液」形状
+  if ((p.steps > 0 || p.opsLeft > 0) && !p.lockFill) {
+    const need = new Set();
+    for (const c of p.hand) if (c.t === 'attack')
+      for (const r of c.reqs) if (r.liq) need.add(r.shape);
+    for (const b of [p.main, p.sub]) {
+      if (!b) continue;
+      const j = b.jars.find(j => !j.liquid && !j.tapped && b.def.base.includes(j.shape) && need.has(j.shape));
+      if (j) {
+        const liq = b.def.ban.includes('酒') ? '蜜' : '酒';
+        if (b.liquid[liq] > 0) {
+          const before = p.steps + p.opsLeft;
+          fillJar(p, b === p.main ? 'main' : 'sub', j);
+          return p.steps + p.opsLeft < before;
+        }
+      }
+    }
+  }
+  // 7) 补货
+  const sup = p.hand.find(c => c.t === 'supply');
+  if (sup && p.main) return tryPlay(p, sup);
+  // 8) 抽牌类变化卡（手上不太多时）
+  if (p.hand.length <= 8) {
+    const dr = p.hand.find(c => c.t === 'tactic' && (c.key === 'V1' || c.key === 'V2') && p.steps >= c.cost);
+    if (dr) return tryPlay(p, dr);
+  }
+  // 9) 解卡手：上面全都打不出去时，用操作去换出下一张能打的攻击卡
+  return aiUnstick(p);
+}
+
+// 解卡手。
+// 会卡住的局面是：罐位被占满 + 液池也满了 ⇒ 入不了罐（没空罐）、倒不出罐（液池满），
+// 而攻击卡基本都要「某个形状的空罐」或「某个形状的装液罐」。
+// 唯一能自己走出来的一步是**改形**：满罐改形会自耗罐内液体并清空，等于凭空造出一个空罐。
+function aiUnstick(p) {
+  if (p.steps <= 0 && p.opsLeft <= 0) return false;
+
+  // 手里攻击卡到底在等什么形状
+  const wantEmpty = new Set(), wantFull = new Set();
+  for (const c of p.hand) {
+    if (c.t !== 'attack') continue;
+    for (const r of c.reqs) (r.liq ? wantFull : wantEmpty).add(r.shape);
+  }
+
+  // 1) 液池没满就出罐 —— 直接把装液罐变空罐，液体还回池子
+  for (const side of ['main', 'sub']) {
+    const b = benchOf(p, side);
+    if (!b) continue;
+    const j = b.jars.find(j => j.liquid && !j.tapped && (b.liquid[j.liquid] || 0) < b.def.pool);
+    if (j) return emptyJar(p, side, j);
+  }
+
+  // 2) 改形：把用不上的罐子换成攻击卡需要的形状
+  for (const side of ['main', 'sub']) {
+    const b = benchOf(p, side);
+    if (!b) continue;
+    // 先满足「空罐」需求，再满足「装液罐」需求（装液罐还要求形状在基础标记里才能灌）
+    const targets = [...wantEmpty, ...wantFull.filter(s => b.def.base.includes(s))];
+    for (const s of targets) {
+      for (const j of b.jars) {
+        if (j.tapped || j.shape === s) continue;
+        if (!canReshape(j.shape, s, b.def)) continue;
+        if (j.liquid) {
+          if (b.def.ban.includes(j.liquid)) continue;   // 满罐改形，罐内液体被禁则不行
+          return reshapeJar(p, side, j, s);
+        }
+        const cost = ['蜜', '酒'].find(l => !b.def.ban.includes(l) && (b.liquid[l] || 0) > 0);
+        if (cost) return reshapeJar(p, side, j, s, cost);
+      }
+    }
+  }
+
+  return false;
+}
+
+// 判断一张牌是否真的被打出去了（从手里消失）。比返回值可靠，避免 AI 空转。
+function tryPlay(p, card) {
+  const had = p.hand.includes(card);
+  playCard(p, card);
+  return had && !p.hand.includes(card);
+}
+
+/* ============================================================
+   11. 启动
+   ============================================================ */
+newGame();
+render();
+</script>
+</body>
+</html>

@@ -6,6 +6,7 @@ using JarSystem.Core.Orders;
 using Xunit;
 
 using CoreSystem = JarSystem.Core.JarSystem;
+using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Tests;
 
@@ -89,9 +90,11 @@ public class PropertyAndSnapshotTests
 
         if (!File.Exists(approvedPath))
         {
-            // 首次运行：建立基线（等同 Verify 的"首次生成 *.verified.txt"）
-            File.WriteAllText(approvedPath, json);
-            Assert.True(true);
+            // 基线缺失必须失败：若在这里自动写回，删除基线也会"自愈"成绿色，
+            // 审批门就失去了区分"有意变更"与"基线丢失"的能力。
+            Assert.Fail(
+                "审批基线缺失，不能自动重建：" + approvedPath + Environment.NewLine
+                + "请从版本控制恢复基线；确认世界配置确实变更后，再人工更新 approved 文件。");
             return;
         }
 
