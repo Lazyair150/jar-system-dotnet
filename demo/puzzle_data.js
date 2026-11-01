@@ -102,5 +102,23 @@ window.LEVELS = [
       { cls: 'B', reqs: [{ shape: '高罐', liquid: null }, { shape: '高罐', liquid: '蜜' }] },
       { cls: 'B', reqs: [{ shape: '尖罐', liquid: null }, { shape: '扁罐', liquid: '蜜' }] }
     ]
+  },
+  {
+    /* 教学目的：**从台不是仓库 —— 它有自己的一块罐位（4 格）和自己的液池，产线可以指着它产**。
+       主台只有 6 格，而这一关要交 8 只罐子（三条订单各 2~3 只、跨两个形状家族：
+       三角/长 出自青龙与玄武、鼓/扁 出自白虎），全往主台产一定会被罐位挤爆并被丢弃。
+       所以要么把一半产出打到从台，要么把从台的形状当作主台做不到的补充。 */
+    name: '第五关 · 从台也是产线',
+    hint: '从台不是仓库：它有自己的一块罐位（4 格）和自己的液池，产线可以指着它产。主台只有 6 格，而这一关要交 8 只罐子、跨两个形状家族（三角与长出自青龙/玄武，鼓与扁出自白虎）—— 全往主台产一定会被罐位挤爆。把一部分产出打到从台去。',
+    turns: 5,
+    benches: ['xuanwu', 'zhuque', 'qinglong', 'baihu', 'qilin'],
+    prods: ['j圆', 'j方', 'j三', 'j高', 'j长', 'j扁', 'j鼓', 'j尖', 'l酒', 'l蜜'],
+    startJars: [],
+    startLiquid: {},
+    orders: [
+      { cls: 'B', reqs: [{ shape: '三角罐', liquid: null }, { shape: '鼓罐', liquid: null }] },
+      { cls: 'B', reqs: [{ shape: '长罐', liquid: null }, { shape: '长罐', liquid: null }] },
+      { cls: 'B', reqs: [{ shape: '扁罐', liquid: null }, { shape: '扁罐', liquid: '蜜' }] }
+    ]
   }
 ];

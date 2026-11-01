@@ -54,3 +54,13 @@ run(3, [
   { at: 6, cfg: { master: 'zhuque', sub: 'qinglong', lines: [{ prod: 'j高' }, { prod: 'l蜜' }, null] } },
   { at: 10, cfg: { master: 'baihu', lines: [{ prod: 'j扁' }, { prod: 'l蜜' }, null] } }
 ], '第四关');
+
+/* 第五关：从台是**第二块罐位 + 第二个液池**。这一关要交 8 只罐子、跨两个形状家族，
+   全往主台产会被 6 格挤爆（多出的直接丢弃）。下面是 `_plan_levels.js` 算出来的配置：
+   一半产出打到从台（`target: 'sub'`），最后一步让从台（白虎）承接灌蜜。 */
+run(4, [
+  { at: 1, cfg: { master: 'baihu', sub: 'qinglong', lines: [{ prod: 'j长', target: 'sub' }, { prod: 'j扁' }, null] } },
+  { at: 2, cfg: { master: 'baihu', sub: 'xuanwu', lines: [{ prod: 'j扁' }, { prod: 'j鼓' }, null] } },
+  { at: 3, cfg: { master: 'baihu', sub: 'qinglong', lines: [{ prod: 'j三', target: 'sub' }, { prod: 'j扁' }, null] } },
+  { at: 4, cfg: { master: 'xuanwu', sub: 'baihu', lines: [{ prod: 'j扁', target: 'sub' }, { prod: 'l蜜' }, null] } }
+], '第五关');
