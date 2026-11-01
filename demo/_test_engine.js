@@ -523,3 +523,89 @@ console.log('=== 订单执行顺序 ===');
   if (bad) { console.log('  => 跨回合回看抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
   else console.log('  => 跨回合回看抽查 OK（只归档已结束回合、历史冻结不被改写、上限 8、迁徙事件落在本回合）');
 })();
+
+/* ---------------------------------------------------------------------------
+   帧信封抽查：`seq / tick / revision` 与窗口账目。
+
+   demo 原本的 `G.events` 只是"这一回合的事件数组"，没有全局序号、没有世界修订号、
+   没有窗口账目。内核那边这三样都有（`Presentation/PresentationFrame` 的 seq/tick/revision
+   与 `PresentationFeed` 的 FirstSeq/DroppedFrames/Since 拉模型）。这一节把 demo 的对齐情况钉住：
+   如果哪天有人把 seq 改成"每回合从 1 开始"，这里会当场红。
+   --------------------------------------------------------------------------- */
+(function () {
+  var problems = [];
+  function bad(msg) { problems.push(msg); }
+
+  /* ① 序号全局单调且连续：帧是"一条时间线"，不是"每回合各自一套编号" */
+  /* 必须铺产线：不铺的话一回合只有 turnStart/orderTry/orderBlocked，
+     拿不到任何"世界变了"的帧，④ 就变成空转（这条断言自己会喊出来）。 */
+  var G = ENG.newGame(0);
+  setup(G, { lines: [{ prod: 'j圆' }, { prod: 'j方' }, { prod: 'l蜜' }] });
+  for (var i = 0; i < 20 && !G.over; i++) ENG.runTurn(G);
+  var frames = ENG.framesSince(G, 0);
+  if (frames.length < 10) bad('帧数太少（' + frames.length + '），这条断言会空转');
+  var worldCount = frames.filter(function (f) {
+    return ({ produce: 1, flow: 1, flowLiquid: 1, op: 1, deliver: 1, transfer: 1, backflow: 1, migrateReshape: 1, migrateDone: 1 })[f.kind];
+  }).length;
+  if (worldCount < 3) bad('可用的"世界帧"只有 ' + worldCount + ' 条，④ 会空转');
+  for (var k = 1; k < frames.length; k++) {
+    if (frames[k].seq !== frames[k - 1].seq + 1) {
+      bad('帧序号不连续：' + frames[k - 1].seq + ' → ' + frames[k].seq + '（' + frames[k].kind + '）');
+      break;
+    }
+  }
+
+  /* ② 窗口账目恒等式：能给出的最旧序号 == 丢掉的帧数 + 1 */
+  var w = ENG.frameWindow(G);
+  if (w.lastSeq !== frames[frames.length - 1].seq) {
+    bad('窗口末序号 ' + w.lastSeq + ' 与实际末帧 ' + frames[frames.length - 1].seq + ' 不一致');
+  }
+  if (w.firstSeq !== frames[0].seq) {
+    bad('窗口首序号 ' + w.firstSeq + ' 与实际首帧 ' + frames[0].seq + ' 不一致');
+  }
+  if (w.dropped > 0 && w.firstSeq !== w.dropped + 1) {
+    bad('窗口账目破了：firstSeq=' + w.firstSeq + ' 而 dropped=' + w.dropped +
+      '（内核同一口径：FirstSeq == DroppedFrames + 1）');
+  }
+
+  /* ③ 拉模型：给游标只拿之后的帧；给末序号拿空 */
+  var mid = frames[Math.floor(frames.length / 2)];
+  var after = ENG.framesSince(G, mid.seq);
+  if (!after.length) bad('从中间游标拉不到东西');
+  after.forEach(function (f) { if (f.seq <= mid.seq) bad('拉到了游标之前的帧 #' + f.seq); });
+  if (after[0] && after[0].seq !== mid.seq + 1) bad('拉取起点不是游标 + 1：' + after[0].seq);
+  if (ENG.framesSince(G, w.lastSeq).length !== 0) bad('游标给到末帧之后还能拉到帧');
+
+  /* ④ 修订号：单调不减；只有"世界真的动了"的 kind 才推进它 */
+  var revs = frames.map(function (f) { return f.revision; });
+  for (var r = 1; r < revs.length; r++) {
+    if (revs[r] < revs[r - 1]) { bad('修订号回退：' + revs[r - 1] + ' → ' + revs[r]); break; }
+  }
+  var WORLD = { produce: 1, flow: 1, flowLiquid: 1, op: 1, deliver: 1, transfer: 1, backflow: 1, migrateReshape: 1, migrateDone: 1 };
+  var bumped = {};
+  for (var j = 1; j < frames.length; j++) {
+    var changed = frames[j].revision !== frames[j - 1].revision;
+    if (changed && !WORLD[frames[j].kind]) {
+      bad('修订号被「只描述意图」的帧推进了：' + frames[j].kind);
+      break;
+    }
+    if (!changed && WORLD[frames[j].kind]) bumped[frames[j].kind] = 1;
+  }
+  /* 允许例外：同一回合里连续两条同类世界帧不会各自都涨——这里只要求"至少有一个世界帧涨过"，
+     真正的判据在上面那条（意图帧不许涨）。 */
+  if (!Object.keys(bumped).length && !frames.some(function (f) { return WORLD[f.kind]; })) {
+    bad('整段里没有任何世界帧，④ 会空转');
+  }
+
+  /* ⑤ tick 与回合一一对应：同一回合的帧 tick 必须相同 */
+  frames.forEach(function (f) { if (f.tick !== f.turn) bad('帧 #' + f.seq + ' 的 tick(' + f.tick + ') 与 turn(' + f.turn + ') 不一致'); });
+
+  if (problems.length === 0) {
+    console.log('  => 帧信封抽查 OK（seq 连续 ' + frames[0].seq + '..' + w.lastSeq +
+      '、dropped=' + w.dropped + '、拉模型与修订号单调）');
+  } else {
+    problems.forEach(function (m) { console.log('  ! ' + m); });
+    console.log('  => 帧信封抽查 FAIL ' + problems.length + ' 处');
+    process.exitCode = 1;
+  }
+})();

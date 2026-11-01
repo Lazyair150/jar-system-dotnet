@@ -28,7 +28,8 @@ fix.cases.forEach(function (c) {
   var G = {
     master: { def: ENG.findBench(c.bench), jars: [], liquid: { '酒': 0, '蜜': 0 } },
     wh: ENG.newWarehouse(),
-    log: [], lines: [], orders: [], turn: 1, over: null
+    log: [], lines: [], orders: [], turn: 1, over: null,
+    feed: ENG.newFeed(), rev: 0
   };
   c.whJars.forEach(function (s) { G.wh.jars.push({ shape: s, liquid: null }); });
   Object.keys(c.whLiquid).forEach(function (l) { G.wh.liquid[l] = c.whLiquid[l]; });

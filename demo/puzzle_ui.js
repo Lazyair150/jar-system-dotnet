@@ -265,15 +265,33 @@
   }
 
   /* ---------- 跨回合回看 ----------
-     回看的是**引擎留下的历史帧**（`G.history[k].events`，每条都带世界快照），
+     回看的是**引擎留下的历史帧**（按序号向引擎要，每条都带世界快照），
      UI 只做两件事：换一个队列、走指针。它不重算任何东西 —— 一旦在这里补一句
      "如果……那就……"，规则就有了第二份实现，回看会开始讲和实时不同的故事。 */
+  /* 帧一律**从引擎拉**，不从数组里切。
+     `G.history[k].events` 能用，但那是在直接摸引擎的内部容器 —— 等 demo 换成真的
+     `PresentationFeed`（内核已经有这一层）时，这种写法要整套重写；而 `framesSince` /
+     `framesOfTurn` 是那份契约的形状（游标 + 序号），换实现时调用点不动。 */
+  /* "实时"= 当前这一回合的帧。收官回合会被归档（`G.events` 仍指向同一批帧），
+     所以这里要按回合号取，不能按"归档位点之后"取 —— 那时后面已经没有帧了。 */
+  function liveFrames() {
+    var evs = G.events || [];
+    if (!evs.length) return [];
+    return ENG.framesOfTurn(G, evs[0].tick);
+  }
+
+  function turnFrames(k) {
+    var h = G.history && G.history[k];
+    if (!h || typeof ENG.framesOfTurn !== 'function') return [];
+    return ENG.framesOfTurn(G, h.turn);
+  }
+
   function openReview(k) {
     var h = G.history && G.history[k];
     if (!h) return;
     stopPlayback();
-    pb.queue = h.events;
-    pb.i = h.events.length ? 1 : 0;               /* 停在第一帧，让人自己按「下一条」 */
+    pb.queue = turnFrames(k);
+    pb.i = pb.queue.length ? 1 : 0;               /* 停在第一帧，让人自己按「下一条」 */
     pb.review = k;
     render();
     flyFor(pb.queue[0]);
@@ -281,7 +299,7 @@
 
   function closeReview() {
     pb.review = null;
-    pb.queue = (G.events || []).slice();
+    pb.queue = liveFrames();
     pb.i = pb.queue.length;                       /* 回到实时：直接落在最新一帧上 */
     render();
   }
@@ -291,7 +309,7 @@
   function resetStage() {
     stopPlayback();
     pb.review = null;
-    pb.queue = (G.events || []).slice();
+    pb.queue = liveFrames();
     pb.i = 0;
   }
 
@@ -317,7 +335,13 @@
       h += '<button class="mini" data-act="pbspeed">速度 ×' + pb.speed + '</button>';
       h += '<button class="mini" data-act="pbclose">跳过</button>';
     }
-    h += '<span class="evprog">' + pb.i + ' / ' + pb.queue.length + '</span>';
+    /* 帧的信封也显示出来：`#seq`、`tick`、`rev`。玩家不需要懂它们，
+       但"过程是一串带编号的帧"这件事必须看得见 —— 不然下次又要有人把它当成随手打的日志。 */
+    var w = ENG.frameWindow ? ENG.frameWindow(G) : null;
+    var stamp = cur ? ('帧 #' + cur.seq + ' · tick ' + cur.tick + ' · rev ' + cur.revision) :
+      (w ? ('窗口 #' + w.firstSeq + '…#' + w.lastSeq + (w.dropped ? '（已丢 ' + w.dropped + ' 帧）' : '')) : '');
+    h += '<span class="evprog">' + pb.i + ' / ' + pb.queue.length +
+      (stamp ? ' · ' + stamp : '') + '</span>';
     h += '</div>';
     if (!pb.active && G.history && G.history.length) {
       h += '<div class="evbar"><span class="hint">回看：</span>';
@@ -546,7 +570,7 @@
       if (pb.active) { showToast('过程正在播放中，可以点「跳过」'); return; }
       ENG.runTurn(G);
       ui.picker = null;
-      startPlayback(G.events.slice());
+      startPlayback(liveFrames());
       return;
     }
     if (act === 'pbturn') { openReview(Number(el.getAttribute('data-i'))); return; }

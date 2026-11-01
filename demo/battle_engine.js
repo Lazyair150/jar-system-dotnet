@@ -104,6 +104,8 @@
       sub: null,
       lines: [null, null, null],
       wh: ENG.newWarehouse(),          /* 产线产出先进仓库，再由 flowToMaster 流入主台 */
+      feed: ENG.newFeed(),             /* 帧信封：战斗与解谜共用同一条过程流 */
+      rev: 0,
       orders: [], log: [], over: null
     };
 

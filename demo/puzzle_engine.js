@@ -272,6 +272,12 @@
       sub: null,
       lines: [],
       events: [],            /* 本回合的过程事件流（每回合开始时清空） */
+      /* 帧流的信封：全局单调序号 + 世界修订号 + 窗口账目。
+         对应内核 `Presentation/PresentationFrame`（seq/kind/tick/revision）与
+         `PresentationFeed`（FirstSeq / DroppedFrames / Since 拉模型）。
+        这里**不另存一份帧**：history 与 events 就是帧的容器，信封只补"它们属于全局第几帧"。 */
+      feed: newFeed(),
+      rev: 0,
       /* 已结束回合的时间线（跨回合回看用）：[{ turn, events }]，只留最近 MAX_HISTORY 回合。
          刻意只存**已结束**的回合：进行中的那一回合就是 G.events 本身。
          存两份等于给同一段时间两个真相，回看和实时迟早会讲出不同的故事。 */
@@ -346,8 +352,30 @@
      UI 只消费这个数组：**不重新推导、不猜顺序** —— 把顺序猜第二遍正是"同一套规则写两遍"的老毛病。
      与内核对应：`Process/Journal` 的 JournalEntry + `World/WorldSignal`。
      每个事件都必须能被一句中文讲出来（ui 侧的 describeEvent），讲不出来的事件说明字段不够。 */
+  /* 哪些 kind 算"世界变了"。判据是**世界状态真的动了**：产出/流入/操作/交付/转移/换台。
+     回合开始、订单尝试、受阻这些只描述意图，不该推进修订号 ——
+     否则"修订号变了"就不再等于"世界变了"，缓存失效判定会跟着一起坏。 */
+  var WORLD_KINDS = {
+    produce: 1, flow: 1, flowLiquid: 1, op: 1, deliver: 1,
+    transfer: 1, backflow: 1, migrateReshape: 1, migrateDone: 1
+  };
+
+  /* 帧流信封。任何"世界"都必须带一个 —— 战斗引擎和流动对拍夹具都自己搭 G，
+     少了它 `emit` 会当场报错而不是静默写出 undefined 序号。 */
+  function newFeed() {
+    return { seq: 0, firstSeq: 1, dropped: 0, archivedSeq: 0 };
+  }
+
   function emit(G, ev) {
+    if (!G.feed) {
+      throw new Error('emit: 这个世界没有帧流信封（G.feed）—— 世界必须由 newGame/newBattle 建，或显式带 newFeed()');
+    }
     ev.turn = G.turn;
+    ev.tick = G.turn;                /* 内核里 tick 是逻辑时间；原型里一回合 = 一 tick */
+    if (WORLD_KINDS[ev.kind]) G.rev += 1;
+    ev.revision = G.rev;
+    G.feed.seq += 1;
+    ev.seq = G.feed.seq;             /* 全局单调，跨回合不重置 */
     ev.snap = worldSnap(G);          /* 事件发生后那一刻的世界 */
     if (!G.events) G.events = [];
     G.events.push(ev);
@@ -365,7 +393,49 @@
     if (!G.events || G.events.length === 0) return;
     if (!G.history) G.history = [];
     G.history.push({ turn: G.events[0].turn || G.turn, events: G.events });
-    if (G.history.length > MAX_HISTORY) G.history.shift();
+    /* 归档后这一批帧仍然挂在 G.events 上（收官那一回合要能当场回放），
+       而 history 里也有一份**同一个数组**的引用 —— 所以拉取时必须按 archivedSeq 去重，
+       否则同一帧会被读两遍（帧数比末序号还大，正是这个病）。 */
+    G.feed.archivedSeq = G.events[G.events.length - 1].seq;
+    if (G.history.length > MAX_HISTORY) {
+      var gone = G.history.shift();
+      /* 整回合被挤出窗口：这些帧再也拉不到了，必须**记账**而不是假装它们没发生过
+         （内核同一个口径：`PresentationFeed.FirstSeq == DroppedFrames + 1`）。 */
+      G.feed.dropped += gone.events.length;
+      G.feed.firstSeq = G.history.length ? G.history[0].events[0].seq : G.feed.seq + 1;
+    }
+  }
+
+  /* ---------- 帧的拉模型（对应 PresentationFeed.Since） ----------
+     消费方给一个游标，拿"游标之后的所有帧"。为什么是拉不是推：
+     节奏归消费方 —— 同一份帧流可以被 62ms 播一遍，也可以被测试一次性读空。 */
+  function framesSince(G, cursor) {
+    var from = typeof cursor === 'number' ? cursor : 0;
+    var out = [];
+    for (var i = 0; i < G.history.length; i++) {
+      var evs = G.history[i].events;
+      for (var k = 0; k < evs.length; k++) if (evs[k].seq > from) out.push(evs[k]);
+    }
+    var live = G.events || [];
+    for (var j = 0; j < live.length; j++) {
+      if (live[j].seq > from && live[j].seq > G.feed.archivedSeq) out.push(live[j]);
+    }
+    return out;
+  }
+
+  /* 窗口账目：能给的最旧序号、最新序号、丢掉的帧数。 */
+  function frameWindow(G) {
+    return {
+      firstSeq: G.feed.firstSeq,
+      lastSeq: G.feed.seq,
+      dropped: G.feed.dropped
+    };
+  }
+
+  /* 某一回合的帧。**按序号取**而不是按"history 里的下标"：
+     下标会随窗口滑动而变，序号不会 —— 这正是内核用 seq 而不是数组位置的理由。 */
+  function framesOfTurn(G, turn) {
+    return framesSince(G, 0).filter(function (f) { return f.tick === turn; });
   }
 
   function log(G, html) {
@@ -804,6 +874,10 @@
     newWarehouse: newWarehouse,
     flowToMaster: flowToMaster,
     transferJar: transferJar,
-    moveOrder: moveOrder
+    moveOrder: moveOrder,
+    newFeed: newFeed,
+    framesSince: framesSince,
+    frameWindow: frameWindow,
+    framesOfTurn: framesOfTurn
   };
 })();
