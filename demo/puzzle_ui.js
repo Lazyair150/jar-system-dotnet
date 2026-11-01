@@ -90,9 +90,9 @@
   }
 
   function linesPanel() {
-    var h = '<div class="panel-hd"><span class="ptitle">产线</span>' +
+    var h = '<div class="panel-hd"><span class="ptitle">产线 → 仓库 → 主台</span>' +
       '<span class="pill">' + G.lines.filter(Boolean).length + '/' + C.MAX_LINES + '</span>' +
-      '<span class="hint">每回合结算一次。产出只进主台，罐子形状必须是主台的基础标记</span></div>';
+      '<span class="hint">产线是资源生产线，产出**不依赖主台**；每回合仓库按上限流入主台（罐 3 / 每种液 2）</span></div>';
     h += '<div class="lines">';
     for (var i = 0; i < G.lines.length; i++) {
       var ln = G.lines[i];
@@ -109,6 +109,23 @@
       }
     }
     h += '</div>';
+
+    /* 仓库：形状与禁令只在"与工作台打交道"时起作用，所以没流入的东西在这里等着。 */
+    var byShape = {};
+    for (var k = 0; k < G.wh.jars.length; k++) {
+      var s = G.wh.jars[k].shape;
+      byShape[s] = (byShape[s] || 0) + 1;
+    }
+    var parts = [];
+    Object.keys(byShape).forEach(function (s) { parts.push((SHORT[s] || s) + '×' + byShape[s]); });
+    var wl = [];
+    LIQUIDS.forEach(function (L) {
+      if ((G.wh.liquid[L] || 0) > 0) wl.push(L + '×' + G.wh.liquid[L]);
+    });
+    var dis = G.wh.discardedJars + (G.wh.discardedLiquid['酒'] || 0) + (G.wh.discardedLiquid['蜜'] || 0);
+    h += '<div class="whbar">仓库　罐 ' + G.wh.jars.length + (parts.length ? '（' + parts.join(' ') + '）' : '') +
+      '　液 ' + (wl.length ? wl.join(' ') : '—') +
+      (dis ? '　已丢弃 ' + dis : '') + '</div>';
     return h;
   }
 
@@ -239,6 +256,12 @@
     var p = $('picker');
     if (!ui.picker) { p.className = 'hidden'; p.innerHTML = ''; return; }
     p.className = '';
+    if (ui.picker.kind === 'help') {
+      /* 帮助面板必须走渲染管线：以前是直接写 innerHTML，任何一次重渲染
+         （例如推进一回合）都会把 renderPicker 的空状态写回去，面板当场消失。 */
+      p.innerHTML = helpHtml();
+      return;
+    }
     var h = '<div class="pickbox">';
     if (ui.picker.kind === 'bench') {
       h += '<div class="ph">选工作台 · ' + (ui.picker.side === 'master' ? '主台' : '从台') + '</div>';
@@ -333,11 +356,9 @@
 
   /* ---------- 玩法说明 ---------- */
 
-  function showHelp() {
-    var p = $('picker');
-    p.className = '';
-    p.innerHTML =
-      '<div class="pickbox help">' +
+  function showHelp() { openPicker({ kind: 'help' }); }
+
+  function helpHtml() { return '<div class="pickbox help">' +
       '<div class="ph">玩法</div>' +
       '<p><b>你只做一件事：配置。</b>引擎自己跑。</p>' +
 
@@ -359,7 +380,7 @@
 
       '<p><b>一罐一操作的含义</b>：一只形状不对的<b>空</b>罐可以改形成对的形状（但还是空的）；一只形状对的空罐可以灌液。但「改形 + 灌液」是两次操作，<b>做不到</b>。所以需要装液罐的订单，只能靠「本来就是那个形状的空罐 + 灌液」或「本来就装着那种液体的罐子」。</p>' +
 
-      '<p><b>产线只往主台产</b>。罐子形状必须落在<b>主台的基础标记</b>里，否则造不出来。液体被主台禁则直接丢弃。</p>' +
+      '<p><b>资源是流动的：产线 → 仓库 → 主台</b>。产线是<b>世界里的生产线</b>，它产出什么都照产，<b>不看当前主台</b>；产出先进<b>仓库</b>（罐 200 / 液 200，溢出才丢弃并计数）。每回合仓库按上限往主台送：罐子最多 <b>3 只</b>、每种液体最多 <b>2 份</b>。<b>任何形状的罐子都能进主台</b> —— 基础标记约束的是"能不能操作它"（灌注 / 改形），不是"能不能存它"。被主台<b>禁</b>的液体则一份也进不去，留在仓库里等换台。</p>' +
 
       '<p><b>转移</b>：每只罐子旁边有 <b>→从</b> / <b>→主</b> 按钮，点一下就把这只罐子搬到另一台。转移本身<b>不花回合</b>，只受目标台罐位限制。罐子换了台，之后按<b>新台</b>的规则判定 —— 这是 B 类订单的承重点。</p>' +
 
@@ -373,8 +394,7 @@
 
       '<p class="dim">这一版是纯解谜：赢了没有奖励，输了重来。它要验证的就一件事——「调对」这个动作本身有没有快感。</p>' +
       '<button class="opt close" data-act="closepicker">知道了</button>' +
-      '</div>';
-  }
+      '</div>'; }
 
   /* ---------- 启动 ---------- */
 

@@ -271,6 +271,10 @@
       master: null,
       sub: null,
       lines: [],
+      /* 仓库（原系统 Production/Warehouse）：产线产出先进这里，再按上限流入主台。
+         资源是**流动的**：工作台只是承载与操作它们的载体，产出不等于"命令某台生产"。
+         容量与内核一致：仓库罐 200 / 液体 200；溢出丢弃并计数。 */
+      wh: newWarehouse(),
       orders: [],
       log: [],
       /* 换台迁徙的进行态：{ side, def, turns }。null = 没在迁徙 */
@@ -303,41 +307,75 @@
     if (G.log.length > 200) G.log.shift();
   }
 
-  /* 产线产出。**只进主台** —— 原系统 ProductionService.cs:55 唯一调用点是
-     `Warehouse.FlowToMaster(master, jars, liquid)`，从台收不到任何新产出；
-     罐子形状还必须在该台的基础标记里（FlowToMaster 只送 master.IsBaseMarked 的形状），
-     否则产不出来 —— 这是工作台选择之所以有意义的原因。
-     从台要拿罐子只能靠下面的 transferJar（原系统 TransferCommand）。 */
+  /* 产线产出 → **仓库**（原系统 Production/ProducerModule.Tick() → Warehouse.StoreJars/ProduceLiquid）。
+     产线是世界里的资源生产线：它产出罐子与液体，产出**不依赖当前主台**。
+     形状与禁令只在与工作台打交道时才起作用（流入、灌注、改形）。 */
+  var WH_MAX_JARS = 200, WH_MAX_LIQUIDS = 200;
+  /* 仓库的唯一构造点：解谜与战斗两个模式共用（资源流动口径必须一致）。 */
+  function newWarehouse() {
+    return { jars: [], liquid: { '酒': 0, '蜜': 0 }, discardedJars: 0, discardedLiquid: { '酒': 0, '蜜': 0 } };
+  }
   function produce(G) {
-    var bench = G.master;
     for (var i = 0; i < G.lines.length; i++) {
       var ln = G.lines[i];
       if (!ln) continue;
       var pd = ln.prod;
 
       if (pd.kind === 'jar') {
-        if (!isBaseMarked(bench.def, pd.shape)) {
-          log(G, '主台的基础标记是 ' + bench.def.base.join('/') + '，造不出' + pd.shape + '（丢弃）');
-          continue;
-        }
         var added = 0;
         for (var n = 0; n < pd.amount; n++) {
-          if (bench.jars.length >= C.MAX_JARS) break;
-          bench.jars.push({ shape: pd.shape, liquid: null });
+          if (G.wh.jars.length >= WH_MAX_JARS) { G.wh.discardedJars++; continue; }
+          G.wh.jars.push({ shape: pd.shape, liquid: null });
           added++;
         }
-        if (added > 0) log(G, '主台产出 <b>' + added + '</b> 只空' + pd.shape);
-        else log(G, '主台罐位已满（' + C.MAX_JARS + '），' + pd.shape + '丢弃');
+        if (added > 0) log(G, '产出 <b>' + added + '</b> 只空' + pd.shape + ' → 仓库');
+        else log(G, '仓库罐位已满（' + WH_MAX_JARS + '），' + pd.shape + '丢弃');
       } else {
         var L = pd.liquid;
-        if (isBanned(bench.def, L)) { log(G, '主台禁' + L + '，产出的' + L + '被丢弃'); continue; }
-        var pcap = bench.def.pool;
-        var cur = bench.liquid[L] || 0;
-        var add = Math.min(pd.amount, Math.max(0, pcap - cur));
-        bench.liquid[L] = cur + add;
-        if (add > 0) log(G, '主台产出 <b>' + add + '</b> 份' + L);
-        else log(G, '主台' + L + '已满（' + pcap + '），产出被丢弃');
+        var cur = G.wh.liquid[L] || 0;
+        var accept = Math.min(pd.amount, Math.max(0, WH_MAX_LIQUIDS - cur));
+        G.wh.liquid[L] = cur + accept;
+        G.wh.discardedLiquid[L] = (G.wh.discardedLiquid[L] || 0) + (pd.amount - accept);
+        if (accept > 0) log(G, '产出 <b>' + accept + '</b> 份' + L + ' → 仓库');
+        else log(G, '仓库' + L + '已满（' + WH_MAX_LIQUIDS + '），产出被丢弃');
       }
+    }
+  }
+
+  /* 仓库 → 主台流入（原系统 Warehouse.FlowToMaster：罐子 3 / 每种液体 2）。
+     罐子：**优先给主台基础形状**，找不到就取第一只 —— 所以任何形状都能进主台；
+           基础标记约束的是**操作**（能否灌注/改形），不是**存储**（见 Workshop.ReplaceCapability 注释）。
+     液体：按主台的禁令与容量**部分填充**（被禁 ⇒ 一份也不进，留在仓库）。 */
+  function flowToMaster(G) {
+    var m = G.master;
+    var taken = 0, jarsIn = 0;
+    while (taken < 3 && G.wh.jars.length > 0) {
+      var pick = -1;
+      for (var k = 0; k < G.wh.jars.length; k++) {
+        if (isBaseMarked(m.def, G.wh.jars[k].shape)) { pick = k; break; }
+      }
+      if (pick < 0) pick = 0;
+      if (m.jars.length >= C.MAX_JARS) break;      /* 主台满了：留在仓库，下次再流 */
+      var jar = G.wh.jars.splice(pick, 1)[0];
+      m.jars.push(jar);
+      taken++; jarsIn++;
+    }
+    var liqIn = 0;
+    for (var i = 0; i < LIQUIDS.length; i++) {
+      var L = LIQUIDS[i];
+      var amount = Math.min(2, G.wh.liquid[L] || 0);
+      if (amount <= 0) continue;
+      if (isBanned(m.def, L) || m.def.pool === undefined) continue;   /* 被禁：留在仓库 */
+      var cap = (typeof m.def.pool === 'number') ? m.def.pool : 0;
+      var cur = m.liquid[L] || 0;
+      var accept = Math.min(amount, Math.max(0, cap - cur));
+      if (accept <= 0) continue;
+      m.liquid[L] = cur + accept;
+      G.wh.liquid[L] -= accept;
+      liqIn += accept;
+    }
+    if (jarsIn || liqIn) {
+      log(G, '仓库→主台：流入 ' + jarsIn + ' 只罐子' + (liqIn ? ' + ' + liqIn + ' 份液体' : ''));
     }
   }
 
@@ -521,6 +559,7 @@
       return;
     }
     produce(G);
+    flowToMaster(G);
     for (var i = 0; i < G.orders.length; i++) {
       var od = G.orders[i];
       if (od.done) continue;
@@ -641,6 +680,8 @@
     log: log,
     makeBench: makeBench,
     produce: produce,
+    newWarehouse: newWarehouse,
+    flowToMaster: flowToMaster,
     transferJar: transferJar
   };
 })();

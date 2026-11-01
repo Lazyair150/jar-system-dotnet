@@ -222,3 +222,46 @@ console.log('=== 迁徙重组 ===');
   if (bad) { console.log('  => 迁徙重组抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
   else console.log('  => 迁徙重组抽查 OK（5 份蜜 → 3 份进罐带走 + 2 份留池）');
 })();
+
+/* ============ 产线 → 仓库 → 主台（用户报的那处概念错误） ============
+   用户的判据：产线是**世界里的资源生产线**，产出**不依赖当前主台**；
+   罐子和液体是**流动的资源**，工作台只是承载它们并进行操作的载体。
+   错误实现（改前）：产线形状必须是主台基础标记，否则"造不出（丢弃）"——
+   等于把产线当成"命令主台生产"。 */
+console.log('=== 产线 → 仓库 → 主台 ===');
+(function () {
+  var bad = 0;
+  var G = ENG.newGame(0);                       /* 第一关主台 = 玄武（base 圆/方，禁酒） */
+  G.lines[0] = { prod: ENG.findProd('j三') };   /* 三角 ×1，三角**不是**玄武的基础标记 */
+  G.lines[1] = { prod: ENG.findProd('l酒') };   /* 酒 ×2，玄武**禁**酒 */
+  G.lines[2] = null;
+
+  ENG.produce(G);
+  var whShapes = G.wh.jars.map(function (j) { return j.shape; });
+  if (whShapes.indexOf('三角罐') < 0) { bad++; console.log('  ! 三角罐根本没被生产出来（产线被主台能力过滤了）'); }
+  if ((G.wh.liquid['酒'] || 0) !== 2) { bad++; console.log('  ! 酒应照常产出 2 份进仓库，实际 ' + G.wh.liquid['酒']); }
+
+  ENG.flowToMaster(G);
+  var inMaster = G.master.jars.map(function (j) { return j.shape; });
+  if (inMaster.indexOf('三角罐') < 0) { bad++; console.log('  ! 三角罐应能进主台（基础标记约束操作，不约束存储），实际 ' + JSON.stringify(inMaster)); }
+  if ((G.master.liquid['酒'] || 0) !== 0) { bad++; console.log('  ! 玄武禁酒，酒不该进主台'); }
+  if ((G.wh.liquid['酒'] || 0) !== 2) { bad++; console.log('  ! 被禁的酒应留在仓库等换台，实际 ' + G.wh.liquid['酒']); }
+
+  /* 流入上限：罐子每回合最多 3 只 */
+  var G2 = ENG.newGame(0);
+  G2.lines[0] = { prod: ENG.findProd('j圆') };
+  G2.lines[1] = { prod: ENG.findProd('j圆') };
+  G2.lines[2] = { prod: ENG.findProd('j圆') };
+  ENG.produce(G2);
+  var total = G2.wh.jars.length;
+  ENG.flowToMaster(G2);
+  if (G2.master.jars.length !== Math.min(3, total)) {
+    bad++; console.log('  ! 每回合应最多流入 3 只罐子，实际 ' + G2.master.jars.length + '（仓库原有 ' + total + '）');
+  }
+  if (G2.wh.jars.length !== Math.max(0, total - 3)) {
+    bad++; console.log('  ! 超出的罐子应留在仓库不丢，实际仓 ' + G2.wh.jars.length);
+  }
+
+  if (bad) { console.log('  => 产线/仓库抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
+  else console.log('  => 产线/仓库抽查 OK（三角罐能进玄武台、酒留在仓库、每回合最多流 3 罐）');
+})();

@@ -103,6 +103,7 @@
       master: ENG.makeBench(window.BENCHES[0]),
       sub: null,
       lines: [null, null, null],
+      wh: ENG.newWarehouse(),          /* 产线产出先进仓库，再由 flowToMaster 流入主台 */
       orders: [], log: [], over: null
     };
 
