@@ -63,8 +63,9 @@
     h += '<span class="pill">罐位 ' + b.jars.length + '/' + (side === 'master' ? C.MAX_JARS : C.MAX_SUB_JARS) + '</span>';
     /* 换台有代价：台上有资源时走 2 回合迁徙，期间不产出不结算、也不接受第二次换台。
        没有这个提示，玩家点了"换台"会觉得按钮坏了（能力要到迁徙结束才落定）。 */
-    if (G.migrating && G.migrating.side === side) {
-      h += '<span class="pill warn">迁徙中 → ' + esc(G.migrating.def.name) + ' 还剩' + G.migrating.turns + '回合</span>';
+    var mig = viewFrame ? viewFrame.migrating : G.migrating;
+    if (mig && mig.side === side) {
+      h += '<span class="pill warn">迁徙中 → ' + esc(mig.to) + ' 还剩' + mig.turns + '回合</span>';
     }
     h += '<button class="mini" data-act="pickbench" data-side="' + side + '">换台</button>';
     h += '</div>';
@@ -76,8 +77,11 @@
     h += '<div class="row">' + liquidChips(b) + '</div>';
     h += '<div class="row jars">';
     if (b.jars.length === 0) h += '<span class="empty">（没有罐子）</span>';
+    var focusUid = null;
+    var evNow = currentEvent();
+    if (evNow && evNow.uid !== undefined) focusUid = evNow.uid;
     for (var i = 0; i < b.jars.length; i++) {
-      h += jarChip(b.jars[i]);
+      h += jarChip(b.jars[i], (focusUid !== null && b.jars[i].uid === focusUid) ? 'focus' : '');
       /* 转移：物流动作（原系统 TransferCommand → TransferOut/TransferIn），不横置罐子，受目标台罐位限制 */
       if (G.sub) {
         h += '<button class="xfer" data-act="transfer" data-side="' + side + '" data-i="' + i + '" ' +
@@ -112,6 +116,23 @@
 
     /* 仓库：形状与禁令只在"与工作台打交道"时起作用，所以没流入的东西在这里等着。 */
     var byShape = {};
+    /* 仓库也按帧显示：播放时看到的是"那一刻仓库里有什么"，不是终态。 */
+    var whView = viewFrame ? viewFrame.wh : null;
+    if (whView) {
+      var wp = [];
+      for (var ws in whView.jars) if (whView.jars[ws] > 0) wp.push(ws + '×' + whView.jars[ws]);
+      var wlv = [];
+      for (var wi = 0; wi < LIQUIDS.length; wi++) {
+        var WL = LIQUIDS[wi];
+        if ((whView.liquid[WL] || 0) > 0) wlv.push(WL + '×' + whView.liquid[WL]);
+      }
+      var wsum = 0;
+      for (var wk in whView.jars) wsum += whView.jars[wk];
+      h += '<div class="whbar">仓库　罐 ' + wsum + (wp.length ? '（' + wp.join(' ') + '）' : '') +
+        '　液 ' + (wlv.length ? wlv.join(' ') : '无') +
+        (whView.discardedJars ? '　已丢弃罐 ' + whView.discardedJars : '') + '</div>';
+      return h;
+    }
     for (var k = 0; k < G.wh.jars.length; k++) {
       var s = G.wh.jars[k].shape;
       byShape[s] = (byShape[s] || 0) + 1;
@@ -188,6 +209,16 @@
      **不在这里推导任何规则** —— 一旦在这里补一句"如果……那就……"，规则就有了第二份实现。 */
   var pb = { queue: [], i: 0, timer: null, speed: 1, active: false };
 
+  /* 当前帧：播放到第 i 条时，世界的**那一刻**（引擎给的快照，UI 不插值）。
+     没有帧时（还没推进过）退回实时世界，这样开局界面照常可用。 */
+  var viewFrame = null;
+  function currentFrame() { return (pb.i > 0 && pb.queue[pb.i - 1]) ? pb.queue[pb.i - 1].snap : null; }
+  function currentEvent() { return (pb.i > 0) ? pb.queue[pb.i - 1] : null; }
+  function viewOf(snapBench) {
+    if (!snapBench) return null;
+    return { def: ENG.findBench(snapBench.id), jars: snapBench.jars, liquid: snapBench.liquid };
+  }
+
   var KIND_LABEL = {
     turnStart: '回合', produce: '产出', flow: '入库', flowLiquid: '入库',
     orderTry: '订单', op: '操作', deliver: '交付', orderBlocked: '受阻',
@@ -253,6 +284,37 @@
     return h;
   }
 
+  /* 一只罐子从 A 面板飞到 B 面板。
+     坐标全部现取（getBoundingClientRect），UI 不假设布局；无头环境没有这些 API 就直接不画。
+     这只是"表现"：即使它一帧都没画出来，世界也已经算完了（快照即真相）。 */
+  function flyFor(ev) {
+    if (!ev || typeof document.createElement !== 'function' || !document.body) return;
+    var fromId = null, toId = null;
+    if (ev.kind === 'flow') { fromId = 'linesPanel'; toId = 'masterPanel'; }
+    else if (ev.kind === 'deliver') { fromId = ev.side === 'sub' ? 'subPanel' : 'masterPanel'; toId = 'ordersPanel'; }
+    else if (ev.kind === 'transfer') { fromId = ev.from === 'master' ? 'masterPanel' : 'subPanel'; toId = ev.to === 'master' ? 'masterPanel' : 'subPanel'; }
+    if (!fromId || !toId) return;
+    var a = document.getElementById(fromId), b = document.getElementById(toId);
+    if (!a || !b || !a.getBoundingClientRect || !b.getBoundingClientRect) return;
+    var ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    if (!ra || !rb || (!ra.width && !rb.width)) return;
+    var chip = document.createElement('span');
+    chip.className = 'flychip' + (ev.liquid ? ' wet-' + (ev.liquid === '蜜' ? 'mi' : 'jiu') : '');
+    chip.textContent = SHORT[ev.shape] || ev.shape || '罐';
+    chip.style.left = (ra.right - 14) + 'px';
+    chip.style.top = (ra.top + ra.height / 2) + 'px';
+    document.body.appendChild(chip);
+    /* 下一帧再改终点，浏览器才会走 transition */
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () {
+        chip.style.transform = 'translate(' + (rb.left + rb.width / 2 - ra.right) + 'px,' +
+          (rb.top + rb.height / 2 - (ra.top + ra.height / 2)) + 'px) scale(.72)';
+        chip.style.opacity = '0';
+      });
+    }
+    setTimeout(function () { if (chip.parentNode) chip.parentNode.removeChild(chip); }, 520);
+  }
+
   function startPlayback(events) {
     pb.queue = events || [];
     pb.i = 0;
@@ -276,6 +338,7 @@
       pb.i++;
       if (pb.i >= pb.queue.length) { pb.active = false; render(); return; }
       render();
+      flyFor(pb.queue[pb.i - 1]);
       scheduleNext();
     }, 620 / pb.speed);
   }
@@ -307,9 +370,13 @@
     $('topbar').innerHTML = top;
     $('hintbar').innerHTML = lv.hint ? '<span class="lvhint">' + esc(lv.hint) + '</span>' : '';
 
-    $('masterPanel').innerHTML = benchCard(G.master, 'master');
-    if (G.sub) {
-      $('subPanel').innerHTML = benchCard(G.sub, 'sub');
+    viewFrame = currentFrame();
+    var masterView = viewFrame ? viewOf(viewFrame.master) : G.master;
+    var subView = viewFrame ? viewOf(viewFrame.sub) : G.sub;
+    if (viewFrame && !subView) { /* 帧里没有从台 ⇒ 那时还没装备 */ }
+    $('masterPanel').innerHTML = benchCard(masterView, 'master');
+    if (subView) {
+      $('subPanel').innerHTML = benchCard(subView, 'sub');
       $('subPanel').className = 'panel';
     } else {
       $('subPanel').innerHTML = '<div class="panel-hd"><span class="ptitle">从台</span></div>' +
@@ -409,6 +476,13 @@
     if (!el || el === document.body) return;
     var act = el.getAttribute('data-act');
 
+    /* 播放期间只允许控制播放本身。
+       理由：此时棋盘画的是**快照副本**，在副本上点"转移/换台"会去改真实世界 —— 屏幕上看到的和改到的不是一个东西。 */
+    if (pb.active && act.indexOf('pb') !== 0 && act !== 'turn') {
+      showToast('过程播放中：先「跳过」或等它放完');
+      return;
+    }
+
     if (act === 'turn') {
       if (pb.active) { showToast('过程正在播放中，可以点「跳过」'); return; }
       ENG.runTurn(G);
@@ -421,6 +495,7 @@
       stopPlayback();
       pb.i = Math.min(pb.queue.length, pb.i + 1);
       render();
+      flyFor(pb.queue[pb.i - 1]);
       return;
     }
     if (act === 'pbspeed') { pb.speed = pb.speed >= 4 ? 1 : pb.speed * 2; render(); return; }

@@ -144,3 +144,10 @@ button.big { padding: 10px 40px; font-size: 15px; }
 #stagePanel .evlist { margin-top:8px; max-height:96px; overflow:auto; font-size:11px; color:#8a847a; line-height:1.7; }
 #stagePanel .evlist div.on { color:#e8e2d6; }
 #stagePanel .evkind { display:inline-block; min-width:56px; color:#6b665e; }
+
+/* 当前被操作的罐子（播放中逐条高亮） */
+.jarchip.focus { outline: 2px solid var(--accent, #d9a441); outline-offset: 2px; box-shadow: 0 0 12px rgba(217,164,65,.45); }
+/* 飞行的罐子（表现层：即使它一帧都没画出来，世界也已经算完了） */
+.flychip { position: fixed; z-index: 90; padding: 2px 7px; border-radius: 999px; font-size: 12px;
+  background: #2d2a26; color: #f0e8d8; border: 1px solid var(--accent, #d9a441);
+  pointer-events: none; transition: transform .42s cubic-bezier(.4,0,.2,1), opacity .42s linear; }

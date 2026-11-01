@@ -321,3 +321,70 @@ console.log('=== 过程事件流 ===');
   if (bad) { console.log('  => 事件流抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
   else console.log('  => 事件流抽查 OK（首条 turnStart、产出→流入→订单→交付的顺序、交付台正确）');
 })();
+
+/* ============ 中间态快照（表现层按帧渲染的依据） ============
+   播放时棋盘画的是 G.events[i].snap，不是终态。所以三条性质必须成立：
+     ① 每个事件都有那一刻的快照；
+     ② 流入是"搬一只发一条"（相邻两帧的主台只差一只，uid 还是新的）；
+     ③ 交付之后那一帧里，这只罐子已经不在台上了（否则动画会画出一只"交付了还在"的罐子）。
+   还有一条隐性性质：uid 跨台不变（转移是搬同一个对象），否则动画会以为是两只罐子。 */
+console.log('=== 中间态快照 ===');
+(function () {
+  var bad = 0;
+  function fail(m) { bad++; console.log('  ! ' + m); }
+
+  var G = ENG.newGame(0);
+  G.lines[0] = { prod: ENG.findProd('j圆') };
+  G.lines[1] = { prod: ENG.findProd('j方') };
+  G.lines[2] = { prod: ENG.findProd('l蜜') };
+  ENG.runTurn(G);
+
+  (G.events || []).forEach(function (e, i) {
+    if (!e.snap) return fail('事件 #' + i + ' (' + e.kind + ') 没有快照');
+    if (!e.snap.master || !e.snap.wh) return fail('事件 #' + i + ' 快照缺 master/wh');
+    if (!Array.isArray(e.snap.master.jars)) return fail('事件 #' + i + ' 快照的罐子不是数组');
+  });
+
+  /* 流入一帧一只 */
+  var flows = (G.events || []).filter(function (e) { return e.kind === 'flow'; });
+  if (flows.length < 2) fail('本回合应当至少流入 2 只罐子，实际 ' + flows.length);
+  for (var i = 1; i < flows.length; i++) {
+    var prev = flows[i - 1].snap.master.jars.length;
+    var cur = flows[i].snap.master.jars.length;
+    if (cur !== prev + 1) fail('流入不是逐只发生的：第 ' + i + ' 帧主台 ' + prev + ' → ' + cur);
+  }
+  if (flows.length) {
+    var lastUid = flows[flows.length - 1].uid;
+    var has = flows[flows.length - 1].snap.master.jars.some(function (j) { return j.uid === lastUid; });
+    if (!has) fail('流入事件的 uid 不在该帧主台里');
+  }
+
+  /* 交付之后罐子已经不在台上 */
+  var delivers = (G.events || []).filter(function (e) { return e.kind === 'deliver'; });
+  if (!delivers.length) fail('第一关应当有交付事件');
+  delivers.forEach(function (d) {
+    var still = d.snap.master.jars.some(function (j) { return j.uid === d.uid; }) ||
+      (d.snap.sub && d.snap.sub.jars.some(function (j) { return j.uid === d.uid; }));
+    if (still) fail('交付事件 ' + d.shape + '(uid=' + d.uid + ') 之后该罐子还在台上');
+  });
+
+  /* 转移：uid 跨台不变 */
+  var G5 = ENG.newGame(4);
+  ENG.setBench(G5, 'sub', ENG.findBench('xuanwu'));
+  var j = G5.master.jars[0];
+  if (j) {
+    var uid = j.uid;
+    ENG.transferJar(G5, j, 'sub');
+    var mv = (G5.events || []).filter(function (e) { return e.kind === 'transfer'; }).pop();
+    if (!mv) fail('转移没有产生事件');
+    else {
+      if (mv.uid !== uid) fail('转移事件的 uid 变了（' + uid + ' → ' + mv.uid + '）');
+      var inSub = mv.snap.sub.jars.some(function (x) { return x.uid === uid; });
+      var inMaster = mv.snap.master.jars.some(function (x) { return x.uid === uid; });
+      if (!inSub || inMaster) fail('转移后那一帧：罐子应当只在从台（inSub=' + inSub + ' inMaster=' + inMaster + '）');
+    }
+  }
+
+  if (bad) { console.log('  => 快照抽查 FAIL ' + bad + ' 处'); process.exitCode = 1; }
+  else console.log('  => 快照抽查 OK（每帧都有那一刻的世界、流入逐只、交付即离台、转移 uid 不变）');
+})();

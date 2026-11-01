@@ -285,7 +285,7 @@
     for (var i = 0; i < C.MAX_LINES; i++) G.lines.push(null);
     G.master = makeBench(lv.benches.length ? findBench(lv.benches[0]) : window.BENCHES[0]);
     for (var k = 0; k < lv.startJars.length; k++) {
-      G.master.jars.push({ shape: lv.startJars[k].shape, liquid: lv.startJars[k].liquid });
+      G.master.jars.push(newJar(lv.startJars[k].shape, lv.startJars[k].liquid));
     }
     for (var l = 0; l < LIQUIDS.length; l++) {
       G.master.liquid[LIQUIDS[l]] = lv.startLiquid[LIQUIDS[l]] || 0;
@@ -303,6 +303,40 @@
     return G;
   }
 
+  /* ---------- 罐子身份 ----------
+     每只罐子一个进程内唯一 uid。**只给表现层用**：动画要认出"这只罐子从这里到了那里"。
+     内核同理：`Domain/Jar.Id` 是身份，`JarState` 是无身份纯值（求解器一个罐子地址都不记）。
+     uid 不参与任何规则判定 —— 规则只看形状与液体，所以 uid 不影响打手成绩、不影响对拍。 */
+  var _jarSeq = 0;
+  function newJar(shape, liquid) { return { uid: ++_jarSeq, shape: shape, liquid: liquid || null }; }
+
+  /* 中间态快照：每个事件拍一张"那一刻的世界"，UI 按帧渲染，**不自己插值**。
+     插值等于让 UI 补一份模拟；帧才是一份。快照刻意只带形状/液体/身份/液池，
+     不带 def 细则（def 用 id 引用，渲染时再解析）。 */
+  function benchSnap(b) {
+    if (!b) return null;
+    return {
+      id: b.def.id,
+      jars: b.jars.map(function (j) { return { uid: j.uid, shape: j.shape, liquid: j.liquid }; }),
+      liquid: JSON.parse(JSON.stringify(b.liquid || {}))
+    };
+  }
+
+  function worldSnap(G) {
+    var wh = { jars: {}, liquid: {}, discardedJars: G.wh.discardedJars };
+    for (var i = 0; i < G.wh.jars.length; i++) {
+      var s = G.wh.jars[i].shape;
+      wh.jars[s] = (wh.jars[s] || 0) + 1;
+    }
+    wh.liquid = JSON.parse(JSON.stringify(G.wh.liquid || {}));
+    return {
+      master: benchSnap(G.master),
+      sub: benchSnap(G.sub),
+      wh: wh,
+      migrating: G.migrating ? { side: G.migrating.side, to: G.migrating.def.name, turns: G.migrating.turns } : null
+    };
+  }
+
   /* ---------- 过程事件流：表现层唯一的契约 ----------
      引擎负责"发生了什么"，`G.events` 负责"按什么顺序说清楚"。
      UI 只消费这个数组：**不重新推导、不猜顺序** —— 把顺序猜第二遍正是"同一套规则写两遍"的老毛病。
@@ -310,6 +344,7 @@
      每个事件都必须能被一句中文讲出来（ui 侧的 describeEvent），讲不出来的事件说明字段不够。 */
   function emit(G, ev) {
     ev.turn = G.turn;
+    ev.snap = worldSnap(G);          /* 事件发生后那一刻的世界 */
     if (!G.events) G.events = [];
     G.events.push(ev);
     if (G.events.length > 400) G.events.shift();
@@ -339,7 +374,7 @@
         var added = 0;
         for (var n = 0; n < pd.amount; n++) {
           if (G.wh.jars.length >= WH_MAX_JARS) { G.wh.discardedJars++; continue; }
-          G.wh.jars.push({ shape: pd.shape, liquid: null });
+          G.wh.jars.push(newJar(pd.shape));
           added++;
         }
         if (added > 0) {
@@ -383,6 +418,9 @@
       var jar = G.wh.jars.splice(pick, 1)[0];
       m.jars.push(jar);
       taken++; jarsIn++;
+      /* 搬一只就发一条：快照是"那一刻"，所以逐帧看到的就是逐只流入。
+         如果攒到最后再一起发，每帧的主台都会同时出现三只罐 —— 那不是过程，那是结果。 */
+      emit(G, { kind: 'flow', from: 'warehouse', to: 'master', uid: jar.uid, shape: jar.shape });
     }
     var liqIn = 0;
     for (var i = 0; i < LIQUIDS.length; i++) {
@@ -401,11 +439,6 @@
     if (jarsIn || liqIn) {
       log(G, '仓库→主台：流入 ' + jarsIn + ' 只罐子' + (liqIn ? ' + ' + liqIn + ' 份液体' : ''));
     }
-    /* 事件里带上每只罐子的形状，UI 才能画出"这一只从仓库飞向主台"。 */
-    var flowed = G.master.jars.slice(G.master.jars.length - jarsIn);
-    for (var f = 0; f < flowed.length; f++) {
-      emit(G, { kind: 'flow', from: 'warehouse', to: 'master', shape: flowed[f].shape });
-    }
     if (liqIn > 0) emit(G, { kind: 'flowLiquid', from: 'warehouse', to: 'master', amount: liqIn });
   }
 
@@ -420,7 +453,7 @@
       removeJar(G.master, jar);
       G.sub.jars.push(jar);
       log(G, '转移：把罐子搬到从台');
-      emit(G, { kind: 'transfer', shape: jar.shape, liquid: jar.liquid, from: 'master', to: 'sub' });
+      emit(G, { kind: 'transfer', uid: jar.uid, shape: jar.shape, liquid: jar.liquid, from: 'master', to: 'sub' });
       return true;
     }
     if (G.sub.jars.indexOf(jar) < 0) return false;
@@ -428,7 +461,7 @@
     removeJar(G.sub, jar);
     G.master.jars.push(jar);
     log(G, '转移：把罐子搬回主台');
-    emit(G, { kind: 'transfer', shape: jar.shape, liquid: jar.liquid, from: 'sub', to: 'master' });
+    emit(G, { kind: 'transfer', uid: jar.uid, shape: jar.shape, liquid: jar.liquid, from: 'sub', to: 'master' });
     return true;
   }
 
@@ -538,7 +571,7 @@
       else if (op.op === 'reshape') { takeLiquid(G, op.costLiquid, 1); jar.shape = op.to; }
       else if (op.op === 'reshapefull') { jar.shape = op.to; jar.liquid = null; }
       emit(G, {
-        kind: 'op', order: od.idx, op: op.op,
+        kind: 'op', order: od.idx, op: op.op, uid: jar.uid,
         fromShape: before.shape, toShape: jar.shape,
         fromLiquid: before.liquid, toLiquid: jar.liquid,
         liquid: op.liquid || op.costLiquid || null,
@@ -552,9 +585,9 @@
       for (var j = 0; j < plan.steps.length; j++) {
         if (plan.steps[j].prep) continue;
         var dj = plan.steps[j].ref;
-        emit(G, { kind: 'deliver', order: od.idx, side: deliverySide, shape: dj.shape, liquid: dj.liquid });
         removeJar(G.master, dj);
         if (G.sub) removeJar(G.sub, dj);
+        emit(G, { kind: 'deliver', order: od.idx, side: deliverySide, uid: dj.uid, shape: dj.shape, liquid: dj.liquid });
         delivered++;
       }
       od.done = true;
