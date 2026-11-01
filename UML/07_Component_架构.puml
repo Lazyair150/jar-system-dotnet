@@ -106,37 +106,60 @@ package "L13 Bootstrap（装配）" as L13 {
 
 component "门面 JarSystem（实现 Rules.IWorldFacts）" as Facade
 
-' ---- 层间依赖：只画跨层的主要方向；同层内部关系见图 12 ----
+' ---- 真实层间依赖：按 `grep '^using JarSystem.Core.<层>'` 逐条得出（不是凭印象）----
+' 全部方向都是"引用更低的层"；`ArchitectureTests` 守的就是这张表。
 L1 --> L0
 L2 --> L1
+L3 --> L0
+L3 --> L1
 L3 --> L2
-L3 --> L1 : 规则读取经 RuleContext
+L4 --> L0
 L4 --> L1
+L5 --> L0
+L5 --> L1
 L5 --> L2
 L6 --> L1
 L6 --> L2
+L7 --> L0
+L7 --> L1
 L7 --> L2
-L7 --> L5
 L7 --> L6
+L8 --> L0
+L8 --> L1
 L8 --> L2
-L8 --> L7 : IOrderExecutionCompletion
+L8 --> L3
+L8 --> L6
+L8 --> L7
+L9 --> L0
+L9 --> L1
+L9 --> L2
 L9 --> L7
 L9 --> L8
-L9 --> L11
-L10 --> L9
-L11 --> L5
+L10 --> L1
+L10 --> L2
+L10 --> L7
+L11 --> L0
+L11 --> L1
+L11 --> L2
+L11 --> L6
 L11 --> L7
-L12 --> L2
-L12 --> L8 : ITickHandler
+L12 --> L0
+L12 --> L3
+L12 --> L7
+L12 --> L10
+L13 --> L0
 L13 --> L1
+L13 --> L3
 L13 --> L4
-L13 --> L8
-L13 --> L9
-L13 --> L12
-Facade --> L9
 Facade --> L11
+Facade --> L9
+Facade --> L10
 Facade --> L12
 Facade --> L13
+
+' ---- 运行时越层：**类型上不引用**，经门面拿实例，所以层序测试看不见 ----
+L9 ..> L11 : 运行时 _system.Executor（OrderService.cs:286）
+L9 ..> L12 : 运行时 _system.World（WorkshopService.cs:41）
 
 note as NLayerRule
   **层序是机器检查的，不是约定**
@@ -147,6 +170,20 @@ note as NLayerRule
 
   本轮把**双向环 7 → 0**，所以旧图里的两条「味道」（Domain→Services、
   Abstractions↔Solver/Orders）**都已消失**，不要再照旧图讨论它们。
+end note
+
+note as NFacadeGap
+  **层序测试守不住的一类依赖：经门面的运行时越层**
+  `Services`（L9）里有两处**不 `using` 上层**却直接调到上层实例：
+  · `Services/OrderService.cs:286` `_system.Executor.BeginSession(...)` → `Executor`（L11）
+  · `Services/WorkshopService.cs:41` `_system.World.NamePools` → `World`（L12）
+  它们走的是门面属性（`JarSystem.cs:166 public OrderExecutor Executor { get; }`），
+  因此 `ArchitectureTests` 的层序检查**看不出来**。图上画成虚线以区别于类型引用。
+
+  这不是"立刻要修"的缺陷 —— 门面本来就是装配面 —— 但它有一个具体风险：
+  **把 `Services` 的代码搬到别的程序集/进程时，这两条依赖会静默失效**，
+  而层序测试仍然全绿。要真正收口，得把这两处改成注入（构造时给接口），
+  而不是运行时从门面取实例。
 end note
 
 note as NMoved

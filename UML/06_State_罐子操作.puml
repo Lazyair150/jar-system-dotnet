@@ -77,4 +77,33 @@ note right of EmptyFree
     1 交付 Deliver 逐个 RemoveJar -> 计入 DeliveredJars
     2 容量溢出 -> **直接丢弃不回收** -> 计入 discardedJars
 end note
+
+note as NWhoUnlocks
+  **谁把罐子放回 Free（2026-11 补：这一层此前没画）**
+  `Domain/Workshop.ClearMarks()` 的调用点：
+  · `Orders/OrderEvent.cs:97-98`　`Begin()`　—— **每单开始**，主从各清一次
+  · `Orders/OrderEvent.cs:199-200` `Deliver()` —— 成功路径
+  · `Orders/OrderEvent.cs:207-208` `Fail()`　　—— 失败路径
+  · `Process/Execution/OrderExecutionSession.cs:335` —— 异步轨
+
+  `Jar.Mark()` 的调用点（共 7 处）：
+  · `Domain/Workshop.cs:282/293/303/314` —— 四个原子操作（POUR_IN / POUR_OUT / 两种改形）
+  · `Executor/GreedyPlanBuilder.cs:49/78` —— `use_existing`，即 MATCH 那一手
+  · `Executor/SolverStepApplier.cs:46`　　—— 求解路径落点
+
+  ⇒ 「一罐一操作」**不只靠本状态机维持**：`Workshop` 只负责"被操作就置位"，
+  真正保证"每只罐子每阶段只用一次"的是执行层不重复取用 + `Begin()` 兜底清零。
+  后果：若执行层新增一条"用掉一只罐子"的路径却忘了 `Mark()`，`Workshop` 不会拦。
+end note
+
+note as NLeavingWorld
+  **罐子 / 液体离开系统的两条路**
+  · **交付**：订单满足时 `OrderEvent.Deliver()` 从**从台** `RemoveJar` —— 这是设计意图。
+  · **溢出丢弃**：仓库上限 200 罐 / 200 液、工作台罐位与液池也有上限，超出的**直接丢弃并计数**。
+    计数可观测（不是"凭空蒸发"）：
+    `Production/Warehouse.cs:41` `DiscardedLiquids`（按液体）、`:47` `DiscardedJars`（`:79` 处 ++）；
+    门面 `JarSystem.cs:1005` `DiscardedJars()`、`:1008` `DiscardedLiquid(liquid)`；
+    并且该计数**进对外契约**（`getState` 可见）。排查"罐子去哪了"靠它，不靠猜。
+end note
+
 @enduml
