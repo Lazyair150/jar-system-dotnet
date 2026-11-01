@@ -6,4 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- 只对测试程序集开放 internal：`Orders/SlaveRollback` 是 internal，
+       它的类注释写着"混在事件对象里 ⇒ 无法单独测试"，2026-09 抽出后却一直没有测试。
+       要单独测它，除了开放可见性没有别的路（端到端也测不到"只回滚转移来的罐子"这条）。 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="JarSystem.Tests" />
+  </ItemGroup>
+
 </Project>
