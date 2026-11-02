@@ -18,6 +18,8 @@
   var frames = [];
   var sock = null;
   var lastState = null;
+  /* 页面自己的"待提交配置"，只为表单服务，不参与任何判定。 */
+  var ui = { cloneIdx: -1 };
   /* 每张订单各自一份可行性结论（key = 订单 id）。**页面不推导它**：只存内核给的答复。 */
   var FEAS = {};
   /* 「一回合」驱动的状态机：collect = 等可行性结果 → start = 已下单，等 tick → idle */
@@ -104,7 +106,19 @@
       '<span class="lbl">从台</span>' +
       '<select data-act="slave">' + opts(slaveIdx) + '</select></div>';
 
-    html += st.workshops.map(function (w) {
+    /* 配置面（A）：只用已有命令，不碰内核。
+       新建工作台按"复制一张现有卡片"来做 —— 因为 getState 没有下发形状词表，
+       让玩家自由勾标记就必须先把词表下发（属 B1 的 setWorkshopCapability）。
+       在那之前，卡片式复制是唯一不会骗人的做法：复制出来的卡与源卡规则完全一致。 */
+    if (st.workshops.length) {
+      html += '<div class="cmd"><span class="lbl">新建工作台</span>' +
+        '<select data-act="clonews">' + st.workshops.map(function (w, i) {
+          return '<option value="' + i + '">' + esc(w.name) + '</option>';
+        }).join('') + '</select>' +
+        '<button data-act="clonewsDo">复制这张卡</button></div>';
+    }
+
+    html += st.workshops.map(function (w, wi) {
       var tags = '';
       if (w.isMaster) tags += '<span class="tag master">主台</span>';
       if (w.isSlave) tags += '<span class="tag slave">从台</span>';
@@ -112,10 +126,44 @@
         return esc(j.shape) + (j.liquid ? ':' + esc(j.liquid) : '');
       }).join('、') || '（空）';
       var liq = Object.keys(w.liquids || {}).map(function (k) { return k + '×' + w.liquids[k]; }).join('、') || '（无）';
+      var mk = function (arr, cls) {
+        return (arr || []).map(function (m) { return '<span class="chip ' + cls + '">' + esc(m) + '</span>'; }).join('');
+      };
       return '<div class="ws"><div class="nm">' + esc(w.name) + tags + '</div>' +
+        '<div class="jars">基础 ' + (mk(w.baseMarks, 'b') || '（无）') + '</div>' +
+        '<div class="jars">附加 ' + (mk(w.additionalMarks, 'a') || '（无）') + '</div>' +
+        '<div class="jars">禁 ' + (mk(w.ban, 'x') || '（无）') + '</div>' +
         '<div class="jars">罐 ' + (w.jars || []).length + '/' + esc(w.maxJars) + '：' + jars + '</div>' +
-        '<div class="jars">液：' + liq + '</div></div>';
+        '<div class="jars">液 ' + (w.maxLiquids === undefined ? '' : '/' + esc(w.maxLiquids) + ' ') + '：' + liq + '</div>' +
+        '<div class="cmd"><span class="lbl">容量</span>' +
+        ['maxJars', 'maxLiquids'].map(function (k) {
+          var cur = k === 'maxJars' ? w.maxJars : w.maxLiquids;
+          var lab = k === 'maxJars' ? '罐' : '液';
+          return '<button data-act="cap" data-i="' + wi + '" data-k="' + k + '" data-d="-1">' + lab + ' −</button>' +
+            '<span class="lbl">' + esc(cur) + '</span>' +
+            '<button data-act="cap" data-i="' + wi + '" data-k="' + k + '" data-d="1">' + lab + ' ＋</button>';
+        }).join('') + '</div></div>';
     }).join('');
+
+    /* 产线卡：每张卡 = 内核里的一个生产者，卡面列出它产什么、多快。
+       速率只给 4 个档位（0 / 0.2 / 0.4 / 0.6），不是自由输入 —— 这是"有限可选项"那条设计原则。
+       页面上不落地任何"这张卡产多少"的规则：点档位只是发 updateProducerRate，世界怎么变由内核决定。 */
+    var RATES = [0, 0.2, 0.4, 0.6];
+    var ps = st.producerStatus || {};
+    var prods = (ps.producers || []);
+    var produceHtml = prods.length ? prods.map(function (p) {
+      var rows = Object.keys(p.rates || {}).map(function (s) {
+        var cur = (p.rates || {})[s];
+        return '<div class="cmd"><span class="lbl">' + esc(s) + '</span>' +
+          RATES.map(function (r) {
+            var on = Math.abs(cur - r) < 1e-9 ? ' on' : '';
+            return '<button class="chip' + on + '" data-act="rate" data-p="' + esc(p.name) +
+              '" data-s="' + esc(s) + '" data-r="' + r + '">' + r + '</button>';
+          }).join('') + '</div>';
+      }).join('');
+      return '<div class="card"><div class="cnm">' + esc(p.name) + '</div>' + rows + '</div>';
+    }).join('') : '<div class="empty">内核未报告生产者</div>';
+    html += '<div class="ws"><div class="nm">产线卡（生产者 · 每 tick 产量）</div>' + produceHtml + '</div>';
 
     var procs = (st.processes || []).map(function (p) {
       return '<div class="ord">过程 #' + esc(p.id) + ' ' + esc(p.kind) + ' ' + esc(p.subject) +
@@ -286,6 +334,34 @@
     if (act === 'start') { send('startOrder', { orderId: Number(id) }); return; }
     if (act === 'delete') { send('deleteOrder', { orderId: Number(id) }); return; }
     if (act === 'cancel') { send('cancelProcess', { processId: Number(id) }); return; }
+
+    /* ---- 配置面（A）：全部转发内核已有命令 ---- */
+    if (act === 'clonewsDo') {
+      var st0 = lastState; if (!st0 || !st0.workshops) return;
+      var sel = document.querySelector('select[data-act="clonews"]');
+      var si = sel ? Number(sel.value) : 0;
+      var src = st0.workshops[si]; if (!src) return;
+      send('createWorkshop', { name: src.name + '·副本', baseMarks: src.baseMarks || [],
+        additionalMarks: src.additionalMarks || [], ban: src.ban || [] });
+      return;
+    }
+    if (act === 'cap') {
+      var stc = lastState; if (!stc || !stc.workshops) return;
+      var wc = stc.workshops[Number(el.getAttribute('data-i'))]; if (!wc) return;
+      var key = el.getAttribute('data-k');
+      var cur = key === 'maxJars' ? wc.maxJars : wc.maxLiquids;
+      var nv = Math.max(1, Math.min(12, (cur || 0) + Number(el.getAttribute('data-d'))));
+      if (nv === cur) return;
+      var payload = { index: Number(el.getAttribute('data-i')), maxJars: wc.maxJars, maxLiquids: wc.maxLiquids };
+      payload[key] = nv;
+      send('updateWorkshopCapacity', payload);
+      return;
+    }
+    if (act === 'rate') {
+      send('updateProducerRate', { producerName: el.getAttribute('data-p'),
+        shape: el.getAttribute('data-s'), rate: Number(el.getAttribute('data-r')) });
+      return;
+    }
   });
 
   document.addEventListener('change', function (ev) {

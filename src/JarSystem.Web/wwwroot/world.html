@@ -56,12 +56,21 @@
   .ph-master.on { background:#7aa2f7; }
   .ph-xfer.on { background:#c8a03d; }
   .ph-slave.on { background:#8fd6a5; }
+  .chip { padding:0 5px; border-radius:4px; background:#26241d; color:#9b9585; font-size:11px; margin-right:3px; }
+  .chip.b { color:#8fb3ff; }
+  .chip.a { color:#8fd6a5; }
+  .chip.x { color:#e08a7e; }
+  button.chip { padding:1px 7px; font-size:11px; }
+  button.chip.on { background:#3a4a6b; color:#e8e3d6; border-color:#4f6f9f; }
+  .card { border:1px solid #2e2b24; border-radius:6px; padding:4px 6px; margin:4px 0; }
+  .card .cnm { font-weight:600; font-size:12px; margin-bottom:2px; }
 </style>
 </head>
 <body>
 <header>
   <h1>世界视图</h1>
-  <span class="hint">左侧是内核状态，中间是内核帧流，右侧是不变量检查 —— 全部来自内核，页面不做任何推导</span>
+  <span class="hint">左侧是内核状态与配置，中间是内核帧流，右侧是不变量检查 —— 全部来自内核，页面不做任何推导。
+    世界不会自己走：配置、派单、分析都不推进时间，只有你按「推进一回合」世界才动。</span>
   <span class="stat" id="conn">连接中…</span>
 </header>
 
@@ -75,7 +84,7 @@
     <h2>帧时间线（PresentationFeed）</h2>
     <div class="body" id="frames"><div class="empty">等待帧…</div></div>
     <div class="row">
-      <button data-act="tick">推进 1 刻</button>
+      <button data-act="tick">推进一回合</button>
       <button data-act="autoround">一回合（下所有可执行的单）</button>
       <button data-act="run">开始走时</button>
       <button data-act="pause">停时</button>
