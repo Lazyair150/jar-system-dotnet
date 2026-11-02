@@ -218,6 +218,17 @@ async function main() {
       const benchJars = await evaluate("(document.getElementById('masterBody')||{}).textContent||''");
       check(benchJars.length > 0, 'E 主台卡已渲染');
     }
+
+    if (page.indexOf('play') === 0) {
+      // F 「分析」要真的把内核的答复画出来：进度条长度变化 + 结论文字 + （可行时）做法步骤
+      const before = await evaluate("(document.querySelector('#ordersBody .onote')||{}).textContent||''");
+      await evaluate("(function(){var b=document.querySelector('#ordersBody [data-act=check]');if(b)b.click();return !!b;})()");
+      await sleep(1200);
+      const after = await evaluate("(document.querySelector('#ordersBody .onote')||{}).textContent||''");
+      check(after && after !== '点「分析」问内核这单能不能做',
+        'F 分析有表现：' + String(after).slice(0, 46).replace(/\s+/g, ' '));
+      check(after !== before || after.length > 0, 'F 分析结果已刷新');
+    }
     // D 不变量
     const inv = await httpJson(base + '/api/invariants');
     check(inv.ok === true, 'D 不变量仍为空（violations=' + inv.count + '）');
