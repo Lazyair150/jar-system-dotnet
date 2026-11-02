@@ -2,6 +2,7 @@
 global.window = global;
 require('./puzzle_data.js');
 require('./puzzle_engine.js');
+require('./event_text.js');
 
 var ENG = global.window.ENG;
 var B = function (id) { return ENG.findBench(id); };
@@ -640,5 +641,101 @@ console.log('=== 订单执行顺序 ===');
     problems.forEach(function (m) { console.log('  ! ' + m); });
     console.log('  => 帧信封抽查 FAIL ' + problems.length + ' 处');
     process.exitCode = 1;
+  }
+})();
+
+/* ===========================================================================
+   迁徙逐帧：换台不是"一句话换掉"，是一条能看见的时间线。
+
+   内核这边是 `WorkshopSwitchEvent.Execute() = Begin → RunReshape → RunTransfer`，
+   由 `SwitchProcessAdvancer` 一 tick 走一段；其中 `RunReshape`（SameBansCase）的用途是
+   "把游离液体尽量灌进**旧台基础形状**的空罐"，让新台靠这些装满的罐子带走液体容量。
+
+   原型以前把整段折成一条 `migrateReshape` 文字事件，于是玩家只看到"换台了"。
+   这一节钉住的正是那段被折叠的过程：**每灌一只罐子一帧**，而且每帧的快照里，
+   那只罐子必须**已经装着液体**（帧是投影，不是预告）。
+   =========================================================================== */
+console.log('=== 迁徙逐帧 ===');
+(function () {
+  var problems = [];
+  function bad(m) { problems.push(m); }
+
+  var G = ENG.newGame(1);                        /* 第二关：玄武台，能产圆/方 + 蜜 */
+  setup(G, { lines: [{ prod: 'j圆' }, { prod: 'j方' }, { prod: 'l蜜' }] });
+  for (var t = 0; t < 4; t++) ENG.runTurn(G);    /* 攒出罐子和液池里的蜜 */
+
+  var jarsBefore = G.master.jars.length;
+  var lqBefore = 0;
+  Object.keys(G.master.liquid).forEach(function (k) { lqBefore += G.master.liquid[k] || 0; });
+  if (jarsBefore < 2 || lqBefore < 1) bad('用例前提不成立：攒不出罐子/液体（罐 ' + jarsBefore + '，液 ' + lqBefore + '）');
+
+  var oldName = G.master.def.name;
+  ENG.setBench(G, 'master', ENG.findBench('zhuque'));
+  if (!G.migrating) bad('没有进入迁徙，这一节会空转');
+
+  /* ① 迁徙开始是**下一回合的第一帧**（换台是回合之间的玩家动作，那时上一回合已归档，
+        帧不能往历史里追加）。而且它不推进世界修订号 —— "已受理"不是"世界变了"，
+        修订号被它推进的话，缓存失效会跟着误判。 */
+  var startTick = G.turn;
+  ENG.runTurn(G);
+  var startTurn = ENG.framesOfTurn(G, startTick);
+  var startFrames = startTurn.filter(function (f) { return f.kind === 'migrateStart'; });
+  if (startFrames.length !== 1) bad('迁徙开始回合里 migrateStart 出现 ' + startFrames.length + ' 次（应为 1 次）');
+  if (startFrames.length) {
+    var before = startTurn.filter(function (f) { return f.seq < startFrames[0].seq; }).pop();
+    if (before && before.revision !== startFrames[0].revision) {
+      bad('migrateStart 推进了世界修订号 —— 它只表示"已受理"，世界还没变');
+    }
+  }
+
+  /* 走完迁徙（开始那一回合已经走过了） */
+  for (var t2 = 0; t2 < 4 && G.migrating; t2++) ENG.runTurn(G);
+  if (G.migrating) bad('迁徙没有在预期回合内结束');
+
+  /* ② 收官回合的帧序列：migrateReshape → migratePour×N → migrateTransfer → migrateDone */
+  var doneTurn = ENG.framesOfTurn(G, G.turn);
+  var kinds = doneTurn.map(function (f) { return f.kind; });
+  var pours = doneTurn.filter(function (f) { return f.kind === 'migratePour'; });
+  var idxReshape = kinds.indexOf('migrateReshape');
+  var idxTransfer = kinds.indexOf('migrateTransfer');
+  var idxDone = kinds.indexOf('migrateDone');
+  if (idxReshape < 0 || idxTransfer < 0 || idxDone < 0) {
+    bad('收官回合缺帧：' + kinds.join(','));
+  } else if (!(idxReshape < idxTransfer && idxTransfer < idxDone)) {
+    bad('三段顺序不对：' + kinds.join(','));
+  }
+  if (pours.length === 0) bad('这一回合一只罐子都没灌上 —— 用例没能覆盖"逐只"（检查液池与基础形状）');
+
+  /* ③ 逐只：每帧只多一只装满的罐子，且灌的液体是新台能接受的 */
+  pours.forEach(function (f) {
+    var filled = (f.snap.master.jars || []).filter(function (j) { return j.liquid === f.liquid; });
+    if (!filled.length) bad('migratePour 那一帧的快照里没有装着 ' + f.liquid + ' 的罐子 —— 帧说早了');
+    if (filled.length < f.index) bad('第 ' + f.index + ' 只灌完却只找到 ' + filled.length + ' 只满罐');
+  });
+  var seqs = pours.map(function (f) { return f.seq; });
+  for (var i = 1; i < seqs.length; i++) if (seqs[i] !== seqs[i - 1] + 1) bad('灌罐帧序号不连续：' + seqs[i - 1] + ' → ' + seqs[i]);
+
+  /* ④ 结束后：能力真的换了，且液池里被灌走的液体不再留在池子里 */
+  if (G.master.def !== ENG.findBench('zhuque')) bad('迁徙结束后主台能力没换');
+  var lqAfter = 0;
+  Object.keys(G.master.liquid).forEach(function (k) { lqAfter += G.master.liquid[k] || 0; });
+  var poured = pours.length;
+  if (lqBefore - poured !== lqAfter && lqBefore - poured > lqAfter) {
+    bad('液池账目对不上：迁徙前 ' + lqBefore + '、灌走 ' + poured + '、之后 ' + lqAfter);
+  }
+
+  /* ⑤ 每一帧都能被念出来（迁徙这段的措辞也不许露出裸 kind） */
+  doneTurn.concat(startTurn).forEach(function (f) {
+    var text = window.EVENT_TEXT.describe(f);
+    if (!text || text === f.kind) bad('事件 ' + f.kind + ' 没有被讲解');
+  });
+
+  if (problems.length) {
+    problems.forEach(function (m) { console.log('  ! ' + m); });
+    console.log('  => 迁徙逐帧抽查 FAIL ' + problems.length + ' 处');
+    process.exitCode = 1;
+  } else {
+    console.log('  => 迁徙逐帧抽查 OK（' + oldName + ' → 朱雀台；灌罐 ' + pours.length +
+      ' 帧逐只可见、三段顺序正确、帧内快照已落账）');
   }
 })();

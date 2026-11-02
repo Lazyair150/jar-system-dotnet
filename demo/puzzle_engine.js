@@ -357,7 +357,7 @@
      否则"修订号变了"就不再等于"世界变了"，缓存失效判定会跟着一起坏。 */
   var WORLD_KINDS = {
     produce: 1, flow: 1, flowLiquid: 1, op: 1, deliver: 1,
-    transfer: 1, backflow: 1, migrateReshape: 1, migrateDone: 1
+    transfer: 1, backflow: 1, migrateReshape: 1, migrateDone: 1, migratePour: 1, migrateTransfer: 1
   };
 
   /* 帧流信封。任何"世界"都必须带一个 —— 战斗引擎和流动对拍夹具都自己搭 G，
@@ -367,6 +367,16 @@
   }
 
   function emit(G, ev) {
+    /* 已经归档的回合段**不许再追加**。以前这条没有守卫，于是"回合之间"发生的动作
+       （比如玩家点换台）会把帧塞进上一回合的数组里 —— 历史跟着现在的操作一起变，
+       屏幕上完全看不出来。现在它会当场报错，而不是安静地改写历史。 */
+    if (G.feed && G.events && G.events.length) {
+      var lastSeq = G.events[G.events.length - 1].seq;
+      if (lastSeq && lastSeq <= G.feed.archivedSeq) {
+        throw new Error('emit: 回合之间不能往已归档的段里追加帧（#' + lastSeq +
+          ' 已归档）—— 请把这类动作作为下一回合的第一帧再发');
+      }
+    }
     if (!G.feed) {
       throw new Error('emit: 这个世界没有帧流信封（G.feed）—— 世界必须由 newGame/newBattle 建，或显式带 newFeed()');
     }
@@ -729,19 +739,25 @@
     archiveEvents(G);
     G.events = [];               /* 一回合一条时间线：消费方（UI）只读本回合 */
     if (G.migrating) {
+      if (G.migrating.emitStart) {
+        G.migrating.emitStart = false;
+        emit(G, { kind: 'migrateStart', side: G.migrating.side, from: (G.migrating.side === 'master' ? G.master : G.sub).def.name, to: G.migrating.def.name, turns: G.migrating.turns });
+      }
       G.migrating.turns--;
       if (G.migrating.turns > 0) {
-        log(G, '迁徙中…（还剩 ' + G.migrating.turns + ' 回合不产出）');
+        emit(G, { kind: 'migrateWait', side: G.migrating.side, turns: G.migrating.turns });
         return;
       }
       var m = G.migrating;
       G.migrating = null;
+      /* 三段各自成帧，对齐内核 WorkshopSwitchEvent 的 Begin → RunReshape → RunTransfer：
+         重组阶段内部又逐只罐子发帧（见 migrateReshape），所以玩家看到的是
+         "液体被灌进这几只罐子带走 → 台子换能力 → 迁徙完成"，而不是一句"换台了"。 */
       emit(G, { kind: 'migrateReshape', side: m.side, to: m.def.name });
       var packed = migrateReshape(G, m.side, m.def);
-      if (packed > 0) log(G, '迁徙重组：把 ' + packed + ' 份游离液体灌进旧台基础形状的空罐带走');
+      emit(G, { kind: 'migrateTransfer', side: m.side, to: m.def.name, packed: packed });
       applyBenchDef(G, m.side, m.def);
       emit(G, { kind: 'migrateDone', side: m.side, to: m.def.name });
-      log(G, '迁徙完成：' + (m.side === 'master' ? '主台' : '从台') + ' 换成 ' + m.def.name + '（本回合仍不产出）');
       return;
     }
     emit(G, { kind: 'turnStart' });
@@ -805,8 +821,9 @@
       log(G, '空台直接换：' + def.name);
       return applyBenchDef(G, side, def);
     }
-    G.migrating = { side: side, def: def, turns: 2 };
-    log(G, '换台迁徙开始（' + b.def.name + ' → ' + def.name + '，占 2 回合，期间不产出不结算）');
+    /* 不在这里发帧：换台是**回合之间**的玩家动作，此时上一回合已经被归档，
+       帧只能作为"下一回合的第一帧"出现（否则就是往历史里追加）。所以这里只登记意图。 */
+    G.migrating = { side: side, def: def, turns: 2, emitStart: true };
     return b;
   }
 
@@ -832,6 +849,10 @@
         b.liquid[L]--;
         jar.liquid = L;
         moved++;
+        /* 一罐一帧：这不是三条无聊的重复日志，而是"液体被灌进哪只罐子带走"的**逐只过程**。
+           挪到循环外只发一条合计，玩家就看不见是哪几只罐子替液池腾了位置 ——
+           而这恰好是迁徙唯一值得看的部分。帧里的快照拍的是这一只灌完之后的世界。 */
+        emit(G, { kind: 'migratePour', side: side, shape: jar.shape, liquid: L, index: moved });
       }
     }
     return moved;

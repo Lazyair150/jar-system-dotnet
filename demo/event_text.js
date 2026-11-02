@@ -14,6 +14,7 @@
     turnStart: '回合', produce: '产出', flow: '入库', flowLiquid: '入库',
     orderTry: '订单', op: '操作', deliver: '交付', orderBlocked: '受阻',
     transfer: '转移', migrateReshape: '重组', migrateDone: '换台', backflow: '回流',
+    migrateStart: '迁徙', migrateWait: '等待', migratePour: '灌罐', migrateTransfer: '搬运',
     battleStart: '开战', constraintIn: '约束', constraintFreed: '松绑',
     enemyDraw: '出题', enemySweep: '收回', damage: '伤害',
     deadlocked: '锁死', battleWin: '胜', battleLose: '败', note: '战报'
@@ -45,6 +46,16 @@
     if (ev.kind === 'deliver') return o + '交付 ' + shapeName(ev.shape) + (ev.liquid ? ':' + ev.liquid : '') + ' → ' + (ev.side === 'sub' ? '从台' : '主台');
     if (ev.kind === 'orderBlocked') return o + ev.reason;
     if (ev.kind === 'transfer') return '转移 ' + shapeName(ev.shape) + '：' + (ev.from === 'master' ? '主台 → 从台' : '从台 → 主台');
+    if (ev.kind === 'migrateStart') {
+      return '换台迁徙开始：' + ev.from + ' → ' + ev.to + '（占 ' + ev.turns + ' 回合，期间不产出不结算）';
+    }
+    if (ev.kind === 'migrateWait') return '迁徙中…（还剩 <b>' + ev.turns + '</b> 回合不产出）';
+    if (ev.kind === 'migratePour') {
+      return '重组：把 1 份 <b>' + ev.liquid + '</b> 灌进' + shapeName(ev.shape) + '带走（第 ' + ev.index + ' 只）';
+    }
+    if (ev.kind === 'migrateTransfer') {
+      return '搬运：' + (ev.side === 'master' ? '主台' : '从台') + '带着 ' + ev.packed + ' 只装满的罐子换到 ' + ev.to;
+    }
     if (ev.kind === 'migrateReshape') return '迁徙重组：把游离液体灌进旧台基础形状的空罐带走';
     if (ev.kind === 'migrateDone') return '迁徙完成：' + (ev.side === 'master' ? '主台' : '从台') + ' 换成 ' + ev.to;
     if (ev.kind === 'backflow') return '订单结束：从台残留回流主台';
