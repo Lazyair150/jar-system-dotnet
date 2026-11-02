@@ -876,6 +876,8 @@
     transferJar: transferJar,
     moveOrder: moveOrder,
     newFeed: newFeed,
+    /* 表现层唯一的发帧入口：战斗引擎也用同一个（一份世界，一条帧流） */
+    emitEvent: emit,
     framesSince: framesSince,
     frameWindow: frameWindow,
     framesOfTurn: framesOfTurn

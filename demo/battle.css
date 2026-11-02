@@ -158,3 +158,8 @@ button.primary:hover { background: #44684a; }
 .pickrow .pn { flex: 1; }
 .pickrow .pd { font-size: 11px; color: #7d7870; }
 .pickrow.cur { border-color: #568257; background: #24312a; }
+
+/* 战报现在是帧流的投影（见 battle_ui.js renderLog），所以沿用解谜页那套"
+   "事件行"的样式：kind 小标签 + 讲解文字 + 窗口丢弃提示。 */
+#log .evkind { display: inline-block; min-width: 52px; color: #6b665e; font-size: 12px; }
+#log .evdrop { color: #8a8479; font-style: italic; font-size: 12px; }

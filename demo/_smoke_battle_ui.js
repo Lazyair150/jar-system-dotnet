@@ -25,6 +25,7 @@ global.closestStub = null;
 
 require('./puzzle_data.js');
 require('./puzzle_engine.js');
+require('./event_text.js');
 require('./battle_data.js');
 require('./battle_engine.js');
 
@@ -93,6 +94,13 @@ for (var i = 0; i < 30; i++) {
   els.next._click();
   check(els.log.innerHTML.length > 0, '日志空了');
 }
+
+/* 战报必须是**帧流的投影**，不是一句结论：
+   ① 每条都带 kind 小标签（那标签来自 event_text.js 的 labels，界面不自己拼措辞）；
+   ② 内容里要看得到过程，而不是只有"赢了/输了"。 */
+check(els.log.innerHTML.indexOf('evkind') >= 0, '战报没有 kind 标签 —— 说明它没走 EVENT_TEXT');
+check(els.log.innerHTML.indexOf('它出了新题') >= 0 || els.log.innerHTML.indexOf('收入') >= 0 ||
+      els.log.innerHTML.indexOf('题') >= 0, '战报里看不到"题"这件事');
 
 check(els.turn.textContent.indexOf('回合') >= 0, '回合数没更新');
 check(els.over.className === 'show' || els.over.className === '', '结局面板状态异常');

@@ -226,43 +226,11 @@
     return { def: ENG.findBench(snapBench.id), jars: snapBench.jars, liquid: snapBench.liquid };
   }
 
-  var KIND_LABEL = {
-    turnStart: '回合', produce: '产出', flow: '入库', flowLiquid: '入库',
-    orderTry: '订单', op: '操作', deliver: '交付', orderBlocked: '受阻',
-    transfer: '转移', migrateReshape: '重组', migrateDone: '换台', backflow: '回流'
-  };
-
-  function shapeName(s) { return (typeof SHORT !== 'undefined' && SHORT[s]) ? SHORT[s] : s; }
-
-  function describe(ev) {
-    if (!ev) return '—';
-    var o = ev.order === undefined ? '' : '订单 #' + (ev.order + 1) + '：';
-    if (ev.kind === 'turnStart') return '第 ' + ev.turn + ' 回合开始';
-    if (ev.kind === 'produce') {
-      if (ev.item === 'jar') return ev.amount > 0 ? ('产线产出 <b>' + ev.amount + '</b> 只空' + ev.shape + ' → 仓库')
-        : ('仓库罐位满，' + ev.shape + ' ×' + ev.discarded + ' 丢弃');
-      return ev.amount > 0 ? ('产线产出 <b>' + ev.amount + '</b> 份' + ev.liquid + ' → 仓库')
-        : ('仓库' + ev.liquid + '已满，产出丢弃');
-    }
-    if (ev.kind === 'flow') return '仓库 → 主台：流入一只 ' + ev.shape + (ev.liquid ? '（' + ev.liquid + '）' : '');
-    if (ev.kind === 'flowLiquid') return '仓库 → 主台：液体流入 <b>' + ev.amount + '</b> 份';
-    if (ev.kind === 'orderTry') return o + '开始尝试执行（' + ev.cls + ' 类）';
-    if (ev.kind === 'op') {
-      if (ev.op === 'match') return o + shapeName(ev.fromShape) + ' 照用';
-      if (ev.op === 'pourin') return o + shapeName(ev.fromShape) + ' 灌注 <b>' + ev.liquid + '</b>';
-      if (ev.op === 'pourout') return o + shapeName(ev.fromShape) + ' 倒出 <b>' + ev.liquid + '</b> 回液池';
-      if (ev.op === 'reshape') return o + shapeName(ev.fromShape) + ' 改形成 ' + shapeName(ev.toShape) + '（耗 1 份' + ev.liquid + '）';
-      if (ev.op === 'reshapefull') return o + shapeName(ev.fromShape) + ' 改形成 ' + shapeName(ev.toShape) + '（罐内液体被吃掉）';
-      return o + '执行 ' + ev.op;
-    }
-    if (ev.kind === 'deliver') return o + '交付 ' + shapeName(ev.shape) + (ev.liquid ? ':' + ev.liquid : '') + ' → ' + (ev.side === 'sub' ? '从台' : '主台');
-    if (ev.kind === 'orderBlocked') return o + ev.reason;
-    if (ev.kind === 'transfer') return '转移 ' + shapeName(ev.shape) + '：' + (ev.from === 'master' ? '主台 → 从台' : '从台 → 主台');
-    if (ev.kind === 'migrateReshape') return '迁徙重组：把游离液体灌进旧台基础形状的空罐带走';
-    if (ev.kind === 'migrateDone') return '迁徙完成：' + (ev.side === 'master' ? '主台' : '从台') + ' 换成 ' + ev.to;
-    if (ev.kind === 'backflow') return '订单结束：从台残留回流主台';
-    return ev.kind;
-  }
+  /* 事件讲解器已搬到 event_text.js：解谜与战斗共用同一份措辞（一份世界，一套叙述）。 */
+  var EVENT_TEXT = window.EVENT_TEXT;
+  var describe = EVENT_TEXT.describe;
+  var shapeName = EVENT_TEXT.shapeName;
+  function kindLabel(k) { return EVENT_TEXT.label(k); }
 
   /* ---------- 跨回合回看 ----------
      回看的是**引擎留下的历史帧**（按序号向引擎要，每条都带世界快照），
@@ -355,7 +323,7 @@
       h += '<div class="evlist">';
       for (var i = Math.max(0, shown.length - 12); i < shown.length; i++) {
         var e = shown[i];
-        h += '<div' + (i === shown.length - 1 ? ' class="on"' : '') + '><span class="evkind">' + (KIND_LABEL[e.kind] || e.kind) + '</span>' +
+        h += '<div' + (i === shown.length - 1 ? ' class="on"' : '') + '><span class="evkind">' + kindLabel(e.kind) + '</span>' +
           describe(e).replace(/<b>/g, '').replace(/<\/b>/g, '') + '</div>';
       }
       h += '</div>';

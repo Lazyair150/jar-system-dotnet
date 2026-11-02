@@ -31,6 +31,7 @@ global.document = {
 
 require('./puzzle_data.js');
 require('./puzzle_engine.js');
+require('./event_text.js');
 require('./puzzle_ui.js');   /* 立即 boot() → render() */
 
 console.log('boot 完成，topbar 长度 =', els.topbar.innerHTML.length,

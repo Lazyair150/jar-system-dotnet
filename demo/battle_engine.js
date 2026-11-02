@@ -74,7 +74,11 @@
     return window.PRODS.map(function (p) { return p.id; });
   }
 
-  function log(B, html) { ENG.log(B.G, html); }
+  /* 战报不再是"另一条叙述"，而是**帧流的投影**：
+     每条战报都是一个 `note` 帧，和产出/流入/交付走同一条时间线、同一套信封（seq/tick/revision/快照）。
+     界面那边用 event_text.js 的同一份措辞去念，所以解谜与战斗不会讲出两种故事。 */
+  function emitB(B, ev) { ENG.emitEvent(B.G, ev); }
+  function log(B, html) { emitB(B, { kind: 'note', text: html }); }
 
   function makeOrder(tmpl) {
     return {
@@ -105,6 +109,7 @@
       lines: [null, null, null],
       wh: ENG.newWarehouse(),          /* 产线产出先进仓库，再由 flowToMaster 流入主台 */
       feed: ENG.newFeed(),             /* 帧信封：战斗与解谜共用同一条过程流 */
+      history: [],                     /* 回合历史：帧流按回合归档，战斗页也要能往前翻 */
       rev: 0,
       orders: [], log: [], over: null
     };
@@ -125,10 +130,13 @@
       stats: { done: 0, dmg: 0, turns: 0 }
     };
 
+    /* 开战帧必须排在最前：它之后才是它出题/预告约束。
+       顺序在这里是可观察的语义（"先宣战，再出题"），写反了界面就会先看到题、再看到敌人。 */
+    emitB(B, { kind: 'battleStart', enemy: en.name, hp: en.hp });
     applyConstraints(B);
     drawOrders(B, en.draw);
     B.preview = nextPreview(B);
-    log(B, '遭遇 <b>' + en.name + '</b>（' + en.hp + ' 点）。它下一回合会：<' + constraintText(B.preview) + '>');
+    emitB(B, { kind: 'note', text: '它下一回合会：&lt;' + constraintText(B.preview) + '&gt;' });
     return B;
   }
 
@@ -156,10 +164,10 @@
       var od = makeOrder(tmpl);
       if (G.orders.length >= BC.FIELD_MAX) {
         var dropped = G.orders.shift();
-        log(B, '场上满了，订单「' + (dropped.label || '?') + '」被挤掉');
+        emitB(B, { kind: 'enemyDraw', count: 1, label: dropped.label || '?', note: 'squeeze' });
       }
       G.orders.push(od);
-      log(B, '它出了新题：<b>' + od.label + '</b>（面值 ' + od.value + '，' + od.cls + ' 类）');
+      emitB(B, { kind: 'enemyDraw', count: 1, label: od.label, value: od.value, cls: od.cls });
     }
     reindex(G);
   }
@@ -175,7 +183,7 @@
     for (var i = 0; i < G.orders.length; i++) {
       var od = G.orders[i];
       if (!od.done && reqsImpossible(B, od.reqs)) {
-        log(B, '「' + od.label + '」已经做不出来了，它把题收了回去');
+        emitB(B, { kind: 'enemySweep', count: 1, label: od.label });
         continue;
       }
       kept.push(od);
@@ -285,7 +293,7 @@
     if (B.preview) {
       B.constraints.push(B.preview);
       B.planIdx++;
-      log(B, '<b style="color:#c8553d">' + constraintText(B.preview) + '</b> 生效了');
+      emitB(B, { kind: 'constraintIn', text: constraintText(B.preview) });
       B.preview = null;
       applyConstraints(B);
     }
@@ -305,7 +313,7 @@
       B.stats.done += doneNow.length;
       B.stats.dmg += dmg;
       B.hp -= dmg;
-      log(B, '<b style="color:#5aa86b">吃掉 ' + doneNow.length + ' 张题，造成 ' + dmg + ' 点伤害</b>（剩 ' + Math.max(0, B.hp) + '）');
+      emitB(B, { kind: 'damage', count: doneNow.length, dmg: dmg, hp: Math.max(0, B.hp) });
 
       /* 夺回：完成订单就松一条约束（松最新的那条） */
       var freed = 0;
@@ -313,7 +321,7 @@
         if (!B.constraints.length) break;
         var gone = B.constraints.pop();
         freed++;
-        log(B, '松开了 <b>' + constraintText(gone) + '</b>');
+        emitB(B, { kind: 'constraintFreed', text: constraintText(gone) });
       }
       if (freed) applyConstraints(B);
 
@@ -329,7 +337,7 @@
     if (B.hp <= 0) {
       B.status = 'win';
       B.msg = '打穿了 ' + B.enemy.name + '（用了 ' + B.stats.turns + ' 回合）';
-      log(B, '<b style="color:#5aa86b">' + B.msg + '</b>');
+      emitB(B, { kind: 'battleWin', enemy: B.enemy.name, turns: B.stats.turns });
       return B;
     }
 
@@ -343,10 +351,10 @@
       if (B.deadStreak >= 2) {
         B.status = 'lose';
         B.msg = '被锁死了 —— 场上没有任何一张题还能往上长';
-        log(B, '<b style="color:#e05a4e">' + B.msg + '</b>');
+        emitB(B, { kind: 'battleLose', enemy: B.enemy.name, turns: B.stats.turns });
         return B;
       }
-      log(B, '<b style="color:#c8553d">所有题都长不动了。再这样一回合就输了。</b>');
+      emitB(B, { kind: 'deadlocked', fatal: false });
     } else {
       B.deadStreak = 0;
     }

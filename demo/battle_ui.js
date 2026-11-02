@@ -7,6 +7,8 @@
   var BENCHES = window.BENCHES;
   var PRODS = window.PRODS;
   var C = window.C;
+  var ENG = window.ENG;
+  var EVENT_TEXT = window.EVENT_TEXT;
 
   var B = null;
   var picker = null;   /* { kind:'bench'|'prod'|'enemy', side, slot } */
@@ -146,10 +148,24 @@
     $('lines').innerHTML = html;
   }
 
+  /* 战报 = 帧流的投影，不是另一条叙述。
+     以前这里读 `B.G.log`（一串手拼的 HTML），于是同一件事在解谜界面与战斗界面有两种说法；
+     现在两边都从 `ENG.framesSince` 取帧、用同一份 `EVENT_TEXT.describe` 去念。
+     `framesSince` 覆盖"历史里还留着的回合 + 当前回合"，所以战斗日志天然只有最近几回合
+     —— 这与内核 `ProcessJournal` 的有界口径一致（丢了要能看出来，见 `frameWindow().dropped`）。 */
   function renderLog() {
     var el = $('log');
-    var html = B.G.log.slice(-60).map(function (h) { return '<div>' + h + '</div>'; }).join('');
-    el.innerHTML = html;
+    var frames = ENG.framesSince(B.G, 0);
+    var shown = frames.slice(-80);
+    var html = shown.map(function (f) {
+      return '<div><span class="evkind">' + EVENT_TEXT.label(f.kind) + '</span> ' +
+        EVENT_TEXT.describe(f) + '</div>';
+    }).join('');
+    var w = ENG.frameWindow ? ENG.frameWindow(B.G) : null;
+    if (w && w.dropped) {
+      html = '<div class="evdrop">（更早的 ' + w.dropped + ' 帧已经滚出窗口）</div>' + html;
+    }
+    el.innerHTML = html || '<div class="evdrop">还没有过程。</div>';
     el.scrollTop = el.scrollHeight;
   }
 
