@@ -7,7 +7,7 @@ interface StateDto {
   workshops?: WorkshopStateDto[];
   orders?: OrderStateDto[];
   warehouse?: WarehouseStateDto;
-  producerStatus?: { producers?: { name?: string; rates?: Record<string, number> }[]; generators?: { shape?: string; rate?: number; accumulated?: number; producers?: number }[]; warehouse?: { jars?: number; liquids?: Record<string, number> } };
+  producerStatus?: { producers?: { name?: string; rates?: Record<string, number> }[]; generators?: { shape?: string; rate?: number; accumulated?: number; producers?: number }[]; liquidRates?: Record<string, number>; warehouse?: { jars?: number; liquids?: Record<string, number> } };
   globalState?: GlobalStateDto;
   eventHistory?: Record<string, unknown>[];
   worldRevision?: number;
@@ -123,7 +123,7 @@ interface ProcessStateDto {
   lastJournalSeq?: number;
 }
 
-type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setWorkshopCapability" | "moveOrder" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "restartLevel" | "updateProducerRate" | "startTick" | "stopTick" | "setAutoCheck" | "startOrder" | "cancelProcess" | "setTickInterval";
+type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setWorkshopCapability" | "moveOrder" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "restartLevel" | "updateProducerRate" | "updateLiquidRate" | "startTick" | "stopTick" | "setAutoCheck" | "startOrder" | "cancelProcess" | "setTickInterval";
 type MessageType = "init" | "state" | "orderExecuted" | "workshopSwitched" | "feasibilityResult" | "allFeasibilityResults" | "autoCheckResults" | "autoCheckChanged" | "error" | "world" | "frame" | "tickIntervalChanged";
 
 interface RequirementPayload { shape: string; liquid?: string | null; }
@@ -214,6 +214,12 @@ interface UpdateProducerRatePayload {
   rate?: number;
 }
 
+/** `updateLiquidRate` 的载荷 */
+interface UpdateLiquidRatePayload {
+  liquid?: string;
+  rate?: number;
+}
+
 /** `setAutoCheck` 的载荷 */
 interface SetAutoCheckPayload {
   enabled?: boolean;
@@ -271,6 +277,7 @@ interface CommandPayloadMap {
   "checkFeasibility": CheckFeasibilityPayload;
   "deleteOrder": DeleteOrderPayload;
   "updateProducerRate": UpdateProducerRatePayload;
+  "updateLiquidRate": UpdateLiquidRatePayload;
   "setAutoCheck": SetAutoCheckPayload;
   "createRandomOrder": CreateRandomOrderPayload;
   "createRandomWorkshop": CreateRandomWorkshopPayload;

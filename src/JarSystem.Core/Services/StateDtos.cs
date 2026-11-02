@@ -198,6 +198,13 @@ public sealed class ProducerStatusDto
 {
     [JsonPropertyName("producers")] public List<ProducerInfoDto> Producers { get; init; } = new();
     [JsonPropertyName("generators")] public List<GeneratorStatusDto> Generators { get; init; } = new();
+
+    /// <summary>
+    /// 每种液体每 tick 产出几份（键序 = 词表顺序）。罐子有生产者的速率，液体同样有，
+    /// 只是它不属于任何一个生产者 —— 它是"世界自己产"的资源，所以单独一格。
+    /// 键序固定才能让契约快照逐行可比。
+    /// </summary>
+    [JsonPropertyName("liquidRates")] public Dictionary<string, int> LiquidRates { get; init; } = new();
     [JsonPropertyName("warehouse")] public ProducerWarehouseDto Warehouse { get; init; } = new();
 }
 

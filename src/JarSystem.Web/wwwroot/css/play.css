@@ -82,6 +82,10 @@ button.big { padding: 10px 44px; font-size: 15px; }
 .rates { display: flex; gap: 4px; }
 .rates button { flex: 1; padding: 4px 0; font-size: 12px; }
 .rates button.on { background: var(--gold); color: #1a1a1a; border-color: var(--gold); font-weight: 700; }
+.linesep { font-size: 12px; color: var(--dim); margin: 10px 0 6px; letter-spacing: .08em; }
+.liqcard .lh b { color: #f0c060; }
+.liqcard .lh b:first-child { }
+.liqcard .rates button.on { background: #b08830; color: #1a1a1a; border-color: #b08830; }
 
 /* 订单 */
 .order { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--panel2); }

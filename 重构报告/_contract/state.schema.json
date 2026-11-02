@@ -368,6 +368,12 @@
                 "additionalProperties": false
               }
             },
+            "liquidRates": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
             "warehouse": {
               "type": "object",
               "properties": {

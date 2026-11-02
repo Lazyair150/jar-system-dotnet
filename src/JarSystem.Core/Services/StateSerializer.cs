@@ -46,6 +46,10 @@ internal static class StateSerializer
                     Producers = g.Producers.Count
                 })
                 .ToList(),
+            // 液体也是资源：速率同样投影出来，页面才能像产线卡一样给液体做卡。
+            LiquidRates = system.Vocabulary.Liquids.ToDictionary(
+                liquid => liquid,
+                liquid => system.LiquidProductionRate.GetValueOrDefault(liquid)),
             Warehouse = new ProducerWarehouseDto
             {
                 Jars = system.ProducerModule.Warehouse.JarCount,

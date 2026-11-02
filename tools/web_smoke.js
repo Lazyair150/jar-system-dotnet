@@ -211,6 +211,8 @@ async function main() {
     if (page.indexOf('play') === 0) {
       const orderCards = await evaluate("document.querySelectorAll('#ordersBody .order').length");
       check(orderCards > 0, 'E 关卡开局就有订单卡（' + orderCards + ' 张）');
+      const liquidCards = await evaluate("document.querySelectorAll('#linesBody .liqcard').length");
+      check(liquidCards > 0, 'E 液体也有供应卡（' + liquidCards + ' 张）');
       const lineCards = await evaluate("document.querySelectorAll('#linesBody .linecard').length");
       check(lineCards > 0, 'E 产线卡可配置（' + lineCards + ' 张）');
       const bars = await evaluate("document.querySelectorAll('#ordersBody .obar').length");

@@ -587,6 +587,11 @@ public class JarSystem : Rules.IWorldFacts
             throw new DomainValidationException("没有这个液体: " + liquid);
         if (rate < 0)
             throw new DomainValidationException("液体产出速率不能为负: " + rate);
+        // 上界与生产者速率同一条护栏：液体也是资源，速率是"每 tick 产几份"，
+        // 大到没有意义的数值只可能是输入错误（与 WorldOptions.Validate 的 MAX_PRODUCER_RATE 一致）。
+        if (rate > Constants.MAX_PRODUCER_RATE)
+            throw new DomainValidationException(
+                "液体产出速率超出上限（" + Constants.MAX_PRODUCER_RATE + " 份/tick）: " + rate);
         _liquidProductionRate[liquid] = rate;
     }
 

@@ -189,6 +189,7 @@
 
   /* ---------------- 产线卡 ---------------- */
   var RATES = [0, 0.2, 0.4, 0.6];
+  var LIQUID_RATES = [0, 1, 2, 3];
 
   function renderLines() {
     var ps = state.producerStatus || { producers: [] };
@@ -208,8 +209,22 @@
           '<span>· ' + esc(p.name) + '</span></div><div class="rates">' + btns + '</div></div>';
       });
     });
-    $('linesBody').innerHTML = html || '<div class="empty">这个世界没有生产者</div>';
-    $('linesHint').textContent = '每张卡决定这个形状每回合产几只 · 已开工 ' + active + ' 条';
+    // 液体也是资源：它不属于任何生产者，是"世界自己产"的，所以单独一组卡。
+    // 速率是整数份/tick（内核里就是 int），档位 0~3 足够表达玩法。
+    var liquidRates = (ps.liquidRates || {});
+    var liquidCards = Object.keys(liquidRates).map(function (liquid) {
+      var rate = liquidRates[liquid] || 0;
+      var btns = LIQUID_RATES.map(function (r) {
+        var on = rate === r;
+        return '<button data-act="lrate" data-l="' + esc(liquid) + '" data-r="' + r + '" class="' + (on ? 'on' : '') + '">' + r + '</button>';
+      }).join('');
+      return '<div class="linecard liqcard"><div class="lh"><b>' + esc(liquid) + '</b>' +
+        '<span>· 世界自产</span></div><div class="rates">' + btns + '</div></div>';
+    }).join('');
+
+    $('linesBody').innerHTML = (html || '<div class="empty">这个世界没有生产者</div>') +
+      (liquidCards ? '<div class="linesep">液体</div><div class="lines">' + liquidCards + '</div>' : '');
+    $('linesHint').textContent = '每张卡决定每回合产多少（罐子按形状、液体按品种）· 罐子已开工 ' + active + ' 条';
   }
 
   /* ---------------- 订单 ---------------- */
@@ -385,6 +400,9 @@
       case 'setmaster': closePicker(); send('setMaster', { index: +t.getAttribute('data-idx') }); break;
       case 'setslave': closePicker(); send('setSlave', { index: +t.getAttribute('data-idx') }); break;
       case 'noslave': send('setSlave', { index: -1 }); break;
+      case 'lrate':
+        send('updateLiquidRate', { liquid: t.getAttribute('data-l'), rate: +t.getAttribute('data-r') });
+        break;
       case 'rate':
         send('updateProducerRate', {
           producerName: t.getAttribute('data-p'),
