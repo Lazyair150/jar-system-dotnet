@@ -110,23 +110,63 @@ Object.keys(byVal).sort().forEach(function (v) {
   console.log('  面值 ' + v + ' × ' + byVal[v].length + '：' + byVal[v].join(' / '));
 });
 
-console.log('\n===== 自动驾驶（应该能赢）=====');
+/* ============ 难度基线：能赢 / 摆烂必输 ============
+
+   这一节原来是两条 console.log（"应该能赢" / "应该会被锁死输掉"）—— 只有打印，没有断言。
+   后果实测过：「贪食」在 6 个种子里基线打手只赢 1 次、锁死输 5 次，而屏幕上那一行
+   「贪食 → LOSE」看起来就像"这次运气不好"，没人会去追。凡报数字而不断言的检查，
+   最后都会变成噪声（本仓库在"下界抽查"上踩过一次，这里是第二次）。
+
+   所以这里把它钉成三条**失败即红**的断言：
+   ① 基线打手必须在**每一个**种子上都赢（不是"平均能赢"）；
+   ② 摆烂必须在每一个种子上都输给锁死判定（否则"什么都不做也能赢"）；
+   ③ 赢的时候必须还有约束没被解除（平均 >= 1）—— 否则说明敌人被削平了。
+      反面样本：把 a10 换成 a4 的池子虽然也 6/6，但赢时剩余约束 0.0，等于没打过硬仗。 */
+console.log('\n===== 难度基线（能赢 / 摆烂必输）=====');
+var DIFF_SEEDS = [1000, 1097, 1194, 1291, 1388, 1485];   /* 与 _sweep.js 同一组种子，便于对照 */
+var diffFails = [];
 window.ENEMIES.forEach(function (e) {
-  var B = runBattle(e.id, true, 40);
-  console.log('  ' + e.name + ' → ' + B.status.toUpperCase() +
-    '  hp=' + Math.max(0, B.hp) + '/' + B.maxHp +
-    '  回合=' + B.stats.turns + '  吃掉=' + B.stats.done + '  剩余约束=' + B.constraints.length);
+  var win = 0, dead = 0, cons = 0, turns = 0;
+  DIFF_SEEDS.forEach(function (sd) {
+    seed = sd;
+    var B = runBattle(e.id, true, 40);
+    if (B.status === 'win') win++;
+    if (B.status === 'lose' && /锁死/.test(B.msg || '')) dead++;
+    cons += B.constraints.length;
+    turns += B.stats.turns;
+  });
+  var avgCons = cons / DIFF_SEEDS.length;
+  console.log('  ' + e.name + ' → 赢 ' + win + '/' + DIFF_SEEDS.length +
+    '  锁死输 ' + dead + '  平均回合 ' + (turns / DIFF_SEEDS.length).toFixed(1) +
+    '  赢时剩余约束 ' + avgCons.toFixed(1));
+  if (win !== DIFF_SEEDS.length) {
+    diffFails.push(e.name + '：基线打手只赢 ' + win + '/' + DIFF_SEEDS.length +
+      ' —— 这不是运气不好，而是这条敌人对看得懂规则但不算精的玩家过不去');
+  }
+  if (avgCons < 1) {
+    diffFails.push(e.name + '：赢时剩余约束只有 ' + avgCons.toFixed(1) +
+      ' 条（应 >= 1）—— 敌人被削平了，赢了也没打过硬仗');
+  }
+
+  var lose = 0;
+  DIFF_SEEDS.forEach(function (sd) {
+    seed = sd;
+    var B = runBattle(e.id, false, 40);
+    if (B.status === 'lose') lose++;
+  });
+  console.log('    摆烂对照 → 输 ' + lose + '/' + DIFF_SEEDS.length);
+  if (lose !== DIFF_SEEDS.length) {
+    diffFails.push(e.name + '：摆烂竟然赢了 ' + (DIFF_SEEDS.length - lose) + ' 次 —— 锁死判定漏了');
+  }
 });
 
-console.log('\n===== 摆烂（应该会被锁死输掉）=====');
-window.ENEMIES.forEach(function (e) {
-  var B = runBattle(e.id, false, 40);
-  console.log('  ' + e.name + ' → ' + B.status.toUpperCase() +
-    '  hp=' + Math.max(0, B.hp) + '/' + B.maxHp +
-    '  回合=' + B.stats.turns + '  约束=' + B.constraints.length +
-    (B.msg ? '  「' + B.msg + '」' : ''));
-});
-
+if (diffFails.length) {
+  diffFails.forEach(function (m) { console.log('  ! ' + m); });
+  console.log('  => 难度基线 FAIL ' + diffFails.length + ' 处');
+  process.exitCode = 1;
+} else {
+  console.log('  => 难度基线 OK（两敌全胜、摆烂全输、且赢时仍有约束未解除）');
+}
 console.log('\n===== 锁死不误判抽查 =====');
 var ok = 0, bad = 0;
 for (var s = 0; s < 5; s++) {
