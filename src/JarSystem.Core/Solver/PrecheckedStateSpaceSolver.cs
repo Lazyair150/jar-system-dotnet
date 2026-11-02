@@ -53,6 +53,8 @@ public sealed class PrecheckedStateSpaceSolver : ISolver, IWorkBudgetedSolver
         Dictionary<string, int> liquids,
         int transferBudget = int.MaxValue)
     {
+        // 口径统一在这里（见 SolverInput）：禁液不是资源。
+        liquids = SolverInput.UsableLiquids(liquids, workshopInfo.Capability);
         var reason = SolverPrecheck.ProveInfeasible(requirements, workshopInfo, jars, liquids, transferBudget);
         if (reason != null)
         {

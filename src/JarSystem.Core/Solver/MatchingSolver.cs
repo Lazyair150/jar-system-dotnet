@@ -60,6 +60,8 @@ namespace JarSystem.Core.Solver
         public SolverResult Solve(List<Requirement> requirements, WorkshopInfo workshopInfo,
             List<JarState> jars, Dictionary<string, int> liquids, int transferBudget = int.MaxValue)
         {
+            // 口径统一在这里（见 SolverInput）：禁液不是资源。
+            liquids = SolverInput.UsableLiquids(liquids, workshopInfo.Capability);
             // 第 0 层：能一步证伪的廉价必要条件（罐子数容量 + 需求↔罐子二分图匹配）。
             var cheap = SolverPrecheck.ProveInfeasible(requirements, workshopInfo, jars, liquids, transferBudget);
             if (cheap != null)

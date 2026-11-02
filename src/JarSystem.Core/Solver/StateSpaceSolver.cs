@@ -100,6 +100,8 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     public SolverResult Solve(List<Requirement> requirements, WorkshopInfo workshopInfo,
         List<JarState> jars, Dictionary<string, int> liquids, int transferBudget = int.MaxValue)
     {
+        // 口径统一在这里：被禁液体存得住但取不出，对求解器不是资源（见 SolverInput）。
+        liquids = SolverInput.UsableLiquids(liquids, workshopInfo.Capability);
         Stats = new SolverStats();
         BestPartialPath = new();
         // 没人显式给过预算（例如直接构造求解器的实验/脚本）时，按"单次求解"给一份完整预算，

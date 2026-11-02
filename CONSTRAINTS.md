@@ -55,7 +55,7 @@ weakened or skipped. `AGENTS.md` states the operative rule: do not **silently** 
 | Godot host | Release build, zero compiler warnings | `dotnet build hosts/godot/Jar/jar.csproj -c Release` | every verification |
 | Legacy suite | 0 bugs / 2000 random + 0 bugs / 3000 capacity | `test/JarSystem.Test` | every verification |
 | Determinism | At least 32 deterministic cases; no reduction | `verify.bat` log + `quality-gate.ps1` | every verification |
-| Focused suite | At least 171 xUnit tests; 0 failed/skipped/not-run | `test/JarSystem.Tests` | every verification |
+| Focused suite | At least 177 xUnit tests; 0 failed/skipped/not-run |
 | Contract snapshot | Exactly 226 state-key lines against the checked-in baseline | `--dump-contract` + `fc` | every verification |
 | Schema | 11 DTO types, `degraded=0`, current known `loose=1` only | `--dump-schema` | every verification |
 | Config/world equivalence | Byte-identical to built-in world | `CONFIG-WORLD-MATCH` | every verification |
