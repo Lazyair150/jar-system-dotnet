@@ -276,6 +276,16 @@ public sealed class CommandDispatcher
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
 
+            case "loadLevel":
+            {
+                // **换关**（S1 的页面内换关）：起一局新世界，不重启进程。
+                // 关卡的 world / 提示 / 回合上限都来自 config/levels/*.json（见 LevelCatalog）；
+                // 核心不认识"关卡"，所以这件事由宿主做，这里只把序号递过去。
+                svc.LoadLevel(JsonArgs.JI(dataEl, "index"));
+                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = svc.System.GetState() }));
+                break;
+            }
+
             case "updateLiquidRate":
             {
                 // 液体产出速率（每 tick 几份）。规则住在核心唯一写入口（SetLiquidProductionRateCore）：

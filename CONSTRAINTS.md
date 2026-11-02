@@ -59,7 +59,7 @@ weakened or skipped. `AGENTS.md` states the operative rule: do not **silently** 
 | Contract snapshot | Exactly 242 state-key lines against the checked-in baseline | `--dump-contract` + `fc` | every verification |
 | Schema | 11 DTO types, `degraded=0`, current known `loose=1` only | `--dump-schema` | every verification |
 | Config/world equivalence | Byte-identical to built-in world | `CONFIG-WORLD-MATCH` | every verification |
-| Protocol | 26 commands / 13 messages, payload guards pass | `--check-protocol` | every verification |
+| Protocol | 27 commands / 13 messages, payload guards pass | `--check-protocol` | every verification |
 | Solver | Production solver agrees with reference solver | `SOLVER-OK` | every verification |
 | Modifier differential | 400 scenarios / 1600 checks agree | `MODDIFF-OK` | every verification |
 | Replay | State, command log, and process journal are byte-identical | `REPLAY-OK` | every verification |

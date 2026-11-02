@@ -19,6 +19,11 @@
   var feas = {};          /* orderId → feasibilityResult（内核答复，页面只存不算） */
   var levels = [];
   var MAX_LOG = 200;
+  var logFilter = 'all';    /* 'all' | 'exec' | 委托 id：记录栏筛选（页面自己的视图状态） */
+  var folded = {};          /* 记录 k → true：这一条被折成了一行 */
+  var logKey = 1;           /* 记录的唯一键（seq 会重复：本地记录没有 seq） */
+  var pendingFlow = null;   /* 推进前抓下的仓库罐子位置（"罐子流进主台"的动画用） */
+  var pendingLevelSwitch = false; /* 刚发了换关命令：等内核的 state 回来再重取关卡清单 */
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -64,6 +69,8 @@
         case 'state':
           state = d;
           render();
+          // 换关的回包：先拿到新世界的 state，再重取关卡清单（否则页头还写着上一关）
+          if (pendingLevelSwitch) { pendingLevelSwitch = false; loadLevels(); }
           if (!askedAll) { askedAll = true; send('checkAllFeasibility', {}); }
           break;
         case 'frame':
@@ -502,7 +509,7 @@
     entries.forEach(function (e) {
       if (e.seq === undefined || stepSeen[e.seq]) return;
       stepSeen[e.seq] = true;
-      logs.push({ seq: e.seq, tick: e.tick, orderId: d.subjectId, text: stepText(e), tone: toneOf(e.kind) });
+      logs.push({ k: logKey++, seq: e.seq, tick: e.tick, orderId: d.subjectId, kind: e.kind, text: stepText(e), tone: toneOf(e.kind) });
       added++;
     });
     if (!added) return;
@@ -513,20 +520,110 @@
   }
 
   function addLocalLog(text, tone) {
-    logs.push({ seq: 0, tick: (state && state.turns) ? state.turns.used : 0, text: text, tone: tone || '' });
+    logs.push({ k: logKey++, seq: 0, tick: (state && state.turns) ? state.turns.used : 0, text: text, tone: tone || '' });
     if (logs.length > MAX_LOG) logs = logs.slice(-MAX_LOG);
+    flushLogs();
+  }
+
+  /* 记录栏：筛选条 + 折行。筛选只是"看哪些"，不改数据本身。 */
+  var EXEC_KINDS = ['started', 'step_begin', 'step_applied', 'phase', 'succeeded', 'failed', 'aborted', 'blocked', 'resumed', 'grace_expired'];
+  function isExecKind(kind) { return EXEC_KINDS.indexOf(kind) >= 0; }
+
+  function renderLogbar() {
+    var bar = $('logbar');
+    if (!bar) return;
+    var ids = [];
+    logs.forEach(function (l) { if (l.orderId !== undefined && ids.indexOf(l.orderId) < 0) ids.push(l.orderId); });
+    var html = '<button class="mini' + (logFilter === 'all' ? ' on' : '') + '" data-act="logfilter" data-f="all">全部</button>' +
+      '<button class="mini' + (logFilter === 'exec' ? ' on' : '') + '" data-act="logfilter" data-f="exec">只看执行</button>';
+    ids.sort(function (a, b) { return a - b; }).forEach(function (id) {
+      html += '<button class="mini' + (logFilter === id ? ' on' : '') + '" data-act="logfilter" data-f="' + id + '">委托 #' + esc(id) + '</button>';
+    });
+    bar.innerHTML = html;
+  }
+
+  function toggleFold(key) {
+    if (key === null || key === undefined) return;
+    folded[key] = !folded[key];
     flushLogs();
   }
 
   function flushLogs() {
     var el = $('logBody');
-    if (!logs.length) { el.innerHTML = '<div class="empty">还没有记录</div>'; return; }
-    el.innerHTML = logs.slice(-MAX_LOG).map(function (l) {
-      var cls = 'ln' + (l.tone ? ' ' + l.tone : '');
+    renderLogbar();
+    var shown = logs.filter(function (l) {
+      if (logFilter === 'exec') return isExecKind(l.kind);
+      if (logFilter !== 'all') return l.orderId === logFilter;
+      return true;
+    });
+    if (!shown.length) {
+      el.innerHTML = '<div class="empty">' + (logs.length ? '这个筛选下没有记录' : '还没有记录') + '</div>';
+      return;
+    }
+    // 只有"原本就在底部"时才自动跟到底，否则玩家往上翻会被拽回去
+    var atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    el.innerHTML = shown.slice(-MAX_LOG).map(function (l) {
+      var cls = 'ln' + (l.tone ? ' ' + l.tone : '') + (folded[l.k] ? ' fold' : '');
       var who = l.orderId !== undefined ? ('<span class="lwho">委托 #' + esc(l.orderId) + '</span> ') : '';
-      return '<div class="' + cls + '"><b>t' + esc(l.tick) + '</b> ' + who + esc(l.text) + '</div>';
+      return '<div class="' + cls + '" data-k="' + esc(l.k) + '" title="点一下折起/展开">' +
+        '<b>t' + esc(l.tick) + '</b> ' + who + esc(l.text) + '</div>';
     }).join('');
-    el.scrollTop = el.scrollHeight;
+    if (atBottom || logFilter !== 'all') el.scrollTop = el.scrollHeight;
+  }
+
+  /* 罐子流动画：推进前抓下仓库里罐子的位置，状态回来后把"少掉的那几只"从仓库飞到主台。
+     只画位移，不改数据——数据永远来自内核返回的 state。 */
+  function captureStageJars() {
+    if (!state) return null;
+    var stage = $('stageBody'), master = $('masterBody');
+    if (!stage || !master) return null;
+    var chips = stage.querySelectorAll('.jarchip');
+    if (!chips.length) return null;
+    return {
+      rects: Array.prototype.map.call(chips, function (c) { return c.getBoundingClientRect(); }),
+      to: master.getBoundingClientRect()
+    };
+  }
+
+  function runFlowAnimation(flow) {
+    if (!flow || !state) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var after = (state.warehouse && state.warehouse.jarList) ? state.warehouse.jarList.length : 0;
+    var moved = Math.max(0, flow.rects.length - after);
+    if (!moved) return;
+    var n = Math.min(moved, flow.rects.length);
+    for (var i = 0; i < n; i++) {
+      (function (rect, k) {
+        var g = document.createElement('div');
+        g.className = 'ghost';
+        g.style.left = rect.left + 'px';
+        g.style.top = rect.top + 'px';
+        g.style.width = rect.width + 'px';
+        g.style.height = rect.height + 'px';
+        document.body.appendChild(g);
+        var dx = (flow.to.left + flow.to.width / 2) - (rect.left + rect.width / 2);
+        var dy = (flow.to.top + 20) - (rect.top + rect.height / 2);
+        if (g.animate) {
+          g.animate([
+            { transform: 'translate(0,0) scale(1)', opacity: 1 },
+            { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.85)', opacity: .2 }
+          ], { duration: 520, delay: k * 70, easing: 'cubic-bezier(.3,.85,.35,1)', fill: 'forwards' });
+        }
+        setTimeout(function () { g.remove(); }, 640 + k * 70);
+      })(flow.rects[i], i);
+    }
+  }
+
+  function loadLevels() {
+    return fetch('/api/levels')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        levels = (d.levels || []).map(function (l) {
+          return { index: l.index, name: l.name, hint: l.hint, turns: l.turns, current: l.index === d.current ? d.current : null };
+        });
+        renderTop();
+      })
+      .catch(function () { /* 没有关卡端点就按沙盒显示 */ });
   }
 
   /* ---------------- 渲染总入口 ---------------- */
@@ -543,6 +640,7 @@
       renderOrders();
       renderStage();
       flushLogs();
+      if (pendingFlow) { var flow = pendingFlow; pendingFlow = null; runFlowAnimation(flow); }
     });
   }
 
@@ -571,16 +669,21 @@
         '<span class="on">第 ' + l.index + ' 关 · ' + esc(l.name) + '</span>' +
         '<span class="od">' + esc(l.hint || '') + '（' + l.turns + ' 回合）</span></button>';
     }).join('');
-    openPicker('关卡选择（切关要重启宿主：run.bat 里加 --level N）', html);
+    openPicker('关卡选择（换关会重开一局：旧订单与记录都会清空）', html);
   }
 
   /* ---------------- 事件 ---------------- */
   document.addEventListener('click', function (ev) {
+    // 记录行可点：折成一行 / 展开（长摘要会把别的记录挤下去）
+    var ln = ev.target.closest('.ln');
+    if (ln) { toggleFold(ln.getAttribute('data-k')); return; }
+
     var t = ev.target.closest('[data-act]');
     if (!t) return;
     var act = t.getAttribute('data-act');
     switch (act) {
       case 'advance':
+        pendingFlow = captureStageJars();
         send('manualTick', { count: 1 });
         setTimeout(function () { send('checkAllFeasibility', {}); }, 260);
         break;
@@ -591,7 +694,26 @@
         break;
       case 'levels': openLevels(); break;
       case 'closepicker': closePicker(); break;
-      case 'gotolevel': closePicker(); toast('换关请重启：run.bat 里 --level ' + t.getAttribute('data-idx')); break;
+      case 'gotolevel':
+      {
+        var idx = +t.getAttribute('data-idx');
+        closePicker();
+        // 换关 = 起一局新世界（内核侧 LoadLevel）：旧世界的订单、过程、记录都不再有效，
+        // 所以页面上属于上一局的缓存必须整批丢掉，否则会画出"上一关的订单还挂着"的假象。
+        logs = []; stepSeen = {}; subjectBy = {}; feas = {};
+        folded = {}; logFilter = 'all'; pendingFlow = null;
+        pendingLevelSwitch = true;
+        send('loadLevel', { index: idx });
+        toast('换到第 ' + idx + ' 关…');
+        break;
+      }
+      case 'logfilter':
+      {
+        var f = t.getAttribute('data-f');
+        logFilter = (f === 'all' || f === 'exec') ? f : +f;
+        flushLogs();
+        break;
+      }
       case 'pickmaster': openPicker('选择主台', benchOptions('setmaster')); break;
       case 'pickslave': openPicker('选择从台', benchOptions('setslave')); break;
       case 'setmaster': closePicker(); send('setMaster', { index: +t.getAttribute('data-idx') }); break;
@@ -626,15 +748,7 @@
   });
 
   /* ---------------- 启动 ---------------- */
-  fetch('/api/levels')
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      levels = (d.levels || []).map(function (l) {
-        return { index: l.index, name: l.name, hint: l.hint, turns: l.turns, current: l.index === d.current ? d.current : null };
-      });
-      renderTop();
-    })
-    .catch(function () { /* 没有关卡端点就按沙盒显示 */ });
+  loadLevels();
 
   connect();
 })();

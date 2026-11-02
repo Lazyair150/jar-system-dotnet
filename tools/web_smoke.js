@@ -104,6 +104,25 @@ function wsConnect(urlString, onMessage) {
   });
 }
 
+// 用一条 WS 命令把宿主切到某一关：冒烟自己也要可重复——上一轮把世界换到第 N 关，
+// 这一轮若还从第 N 关开始，H 组（推进到可执行再开始）的前提就不成立了。
+function switchLevel(base, index) {
+  return new Promise((resolve, reject) => {
+    const url = base.replace(/^http/, 'ws') + '/ws';
+    const s = new WebSocket(url);
+    let done = false;
+    const finish = (err) => { if (done) return; done = true; try { s.close(); } catch { /* 已关 */ } err ? reject(err) : resolve(); };
+    s.onerror = () => finish(new Error('换关 WS 连不上'));
+    s.onopen = () => s.send(JSON.stringify({ type: 'loadLevel', data: { index: index } }));
+    s.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === 'state') finish();
+      if (m.type === 'error') finish(new Error('换关失败: ' + JSON.stringify(m.data)));
+    };
+    setTimeout(() => finish(new Error('换关超时')), 5000);
+  });
+}
+
 async function main() {
   const browser = findBrowser();
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarsys-smoke-'));
@@ -125,6 +144,9 @@ async function main() {
   };
 
   try {
+    // 先把世界摆回第 1 关（可重复；第 1 关是"学会改形"，H 组才推进得到可执行的单）
+    try { await switchLevel(base, 1); } catch { /* 没有关卡端点就当沙盒，继续 */ }
+
     // 等 DevTools 端点起来
     let version = null;
     for (let i = 0; i < 40 && !version; i++) {
@@ -284,6 +306,28 @@ async function main() {
       check(after && after !== '点「分析」问内核这单能不能做',
         'F 分析有表现：' + String(after).slice(0, 46).replace(/\s+/g, ' '));
       check(after !== before || after.length > 0, 'F 分析结果已刷新');
+
+      // I 页面内换关（不重启宿主）：点「关卡选择」→ 选第 2 关 → 页头与内核都换了，且记录被清空
+      //    （换关是新的一局：上一关的订单与记录不该继续挂着）
+      const lvBefore = await evaluate("(document.getElementById('lvname')||{}).textContent||''");
+      const logsBefore = await evaluate("document.querySelectorAll('#logBody .ln').length");
+      // 换到"和当前不同"的那一关（上一次冒烟可能已经把它换走了，写死序号会变成"原地不动"）
+      const cur = await evaluate("(function(){return fetch('/api/levels').then(function(r){return r.json()}).then(function(d){return d&&d.current;});})()");
+      const target = (Number(cur) % 6) + 1;
+      await evaluate("(function(){var b=document.querySelector('[data-act=\"levels\"]');if(b)b.click();return !!b;})()");
+      await sleep(200);
+      const picked = await evaluate(
+        "(function(){var b=document.querySelector('#pickbox [data-act=\"gotolevel\"][data-idx=\"" + target + "\"]');" +
+        "if(!b) return 'missing'; b.click(); return 'clicked';})()");
+      await sleep(1500);
+      const lvAfter = await evaluate("(document.getElementById('lvname')||{}).textContent||''");
+      const logsAfter = await evaluate("document.querySelectorAll('#logBody .ln').length");
+      const curLevel = await evaluate("(function(){return fetch('/api/levels').then(function(r){return r.json()}).then(function(d){return d&&d.current;});})()");
+      check(picked === 'clicked' && lvAfter && lvAfter !== lvBefore && Number(curLevel) === target,
+        'I 页面内换关：' + String(lvBefore).slice(0, 12) + ' → ' + String(lvAfter).slice(0, 12) + '（内核第 ' + curLevel + ' 关）');
+      check(logsBefore === 0 || logsAfter === 0,
+        'I 换关后记录清空（' + logsBefore + ' → ' + logsAfter + '）');
+      try { await switchLevel(base, 1); } catch { /* 收尾失败不影响结果 */ }
     }
     // D 不变量
     const inv = await httpJson(base + '/api/invariants');

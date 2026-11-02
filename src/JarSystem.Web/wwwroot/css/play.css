@@ -2,6 +2,13 @@
   --bg: #14161a; --panel: #1d2027; --panel2: #252932; --line: #333844;
   --txt: #e6e8ee; --dim: #8b93a5; --gold: #d9a441;
   --red: #e05a4e; --green: #5aa86b; --blue: #5b8fd6; --purple: #9a6fd6;
+
+  /* 设计 token：间距 / 字号 / 圆角 / 动效。所有组件只引用这里，
+     改一处就是改全套（避免每个组件各写一份像素值）。 */
+  --sp-1: 4px; --sp-1h: 6px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 20px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 10px;
+  --dur: 140ms; --dur-slow: 520ms;
 }
 * { box-sizing: border-box; }
 body {
@@ -10,14 +17,14 @@ body {
 }
 button {
   font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel2);
-  color: var(--txt); padding: 5px 12px; border-radius: 6px; transition: .12s;
+  color: var(--txt); padding: var(--sp-1) var(--sp-3); border-radius: var(--r-md); transition: var(--dur);
 }
 button:hover:not(:disabled) { background: #313743; border-color: #4a5262; }
 button:disabled { opacity: .35; cursor: not-allowed; }
-button.mini { padding: 3px 9px; font-size: 12px; }
+button.mini { padding: 3px 9px; font-size: var(--fs-sm); }
 button.primary { background: var(--gold); color: #1a1a1a; border-color: var(--gold); font-weight: 600; }
 button.primary:hover:not(:disabled) { background: #e8b757; }
-button.big { padding: 10px 44px; font-size: 15px; }
+button.big { padding: 10px 44px; font-size: var(--fs-lg); }
 
 #app { max-width: 1240px; margin: 0 auto; padding: 12px 16px 104px; }
 
@@ -26,10 +33,10 @@ button.big { padding: 10px 44px; font-size: 15px; }
   display: flex; align-items: center; gap: 12px; padding: 9px 14px; margin-bottom: 12px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; flex-wrap: wrap;
 }
-#topbar .lvname { font-weight: 700; color: var(--gold); font-size: 15px; }
+#topbar .lvname { font-weight: 700; color: var(--gold); font-size: var(--fs-lg); }
 #topbar .turn { color: var(--dim); }
 #topbar .spacer { flex: 1; }
-.pill { font-size: 12px; padding: 2px 9px; border-radius: 20px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); }
+.pill { font-size: var(--fs-sm); padding: 2px 9px; border-radius: 20px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); }
 .pill.warn { color: #e0c169; border-color: rgba(224, 193, 105, .55); background: rgba(224, 193, 105, .12); }
 .pill.good { color: var(--green); border-color: rgba(90, 168, 107, .55); background: rgba(90, 168, 107, .12); }
 .result { font-weight: 700; padding: 2px 10px; border-radius: 20px; }
@@ -48,15 +55,15 @@ button.big { padding: 10px 44px; font-size: 15px; }
 @media (max-width: 920px) { .cols { grid-template-columns: 1fr; } }
 .col { display: flex; flex-direction: column; gap: 12px; }
 
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 13px; }
 .panel-hd { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
 .ptitle { font-weight: 700; font-size: 14px; }
 .bname { color: var(--gold); font-weight: 600; }
-.hint { font-size: 12px; color: var(--dim); }
-.marks { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin-bottom: 6px; }
+.hint { font-size: var(--fs-sm); color: var(--dim); }
+.marks { display: flex; gap: 14px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--dim); margin-bottom: 6px; }
 .marks .mk.ban { color: #c98a3a; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
-.empty { color: var(--dim); font-size: 12px; }
+.empty { color: var(--dim); font-size: var(--fs-sm); }
 
 /* 罐子 */
 .jarchip, .reqchip {
@@ -69,7 +76,7 @@ button.big { padding: 10px 44px; font-size: 15px; }
 .wet-mi { background: #3a2f14; border-color: #b08830; color: #f0c060; }
 .wet-jiu { background: #2a2438; border-color: #7a5fc0; color: #b79adf; }
 
-.liq { font-size: 12px; padding: 1px 8px; border-radius: 20px; border: 1px solid var(--line); background: var(--panel2); }
+.liq { font-size: var(--fs-sm); padding: 1px 8px; border-radius: 20px; border: 1px solid var(--line); background: var(--panel2); }
 .liq-mi { border-color: #b08830; color: #f0c060; }
 .liq-jiu { border-color: #7a5fc0; color: #b79adf; }
 .liq.banned { opacity: .45; text-decoration: line-through; }
@@ -77,12 +84,12 @@ button.big { padding: 10px 44px; font-size: 15px; }
 /* 产线 */
 .lines { display: flex; gap: 8px; flex-wrap: wrap; }
 .linecard { flex: 1; min-width: 168px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); }
-.linecard .lh { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); margin-bottom: 6px; }
+.linecard .lh { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--dim); margin-bottom: 6px; }
 .linecard .lh b { color: var(--txt); font-size: 13px; }
 .rates { display: flex; gap: 4px; }
-.rates button { flex: 1; padding: 4px 0; font-size: 12px; }
+.rates button { flex: 1; padding: 4px 0; font-size: var(--fs-sm); }
 .rates button.on { background: var(--gold); color: #1a1a1a; border-color: var(--gold); font-weight: 700; }
-.linesep { font-size: 12px; color: var(--dim); margin: 10px 0 6px; letter-spacing: .08em; }
+.linesep { font-size: var(--fs-sm); color: var(--dim); margin: 10px 0 6px; letter-spacing: .08em; }
 .liqcard .lh b { color: #f0c060; }
 .liqcard .lh b:first-child { }
 .liqcard .rates button.on { background: #b08830; color: #1a1a1a; border-color: #b08830; }
@@ -92,19 +99,19 @@ button.big { padding: 10px 44px; font-size: 15px; }
 .order.done { opacity: .55; border-color: rgba(90, 168, 107, .5); }
 .ohead { display: flex; align-items: center; gap: 8px; }
 .oid { font-weight: 700; color: var(--dim); }
-.ocls { font-size: 11px; padding: 1px 7px; border-radius: 20px; background: rgba(91, 143, 214, .18); color: var(--blue); border: 1px solid rgba(91, 143, 214, .5); }
+.ocls { font-size: var(--fs-xs); padding: 1px 7px; border-radius: 20px; background: rgba(91, 143, 214, .18); color: var(--blue); border: 1px solid rgba(91, 143, 214, .5); }
 .ocls.b { background: rgba(154, 111, 214, .18); color: var(--purple); border-color: rgba(154, 111, 214, .5); }
 .oprog { margin-left: auto; font-weight: 700; color: var(--gold); }
-.obadge { font-size: 11px; padding: 1px 8px; border-radius: 20px; background: rgba(90, 168, 107, .2); color: var(--green); }
-.obar { height: 4px; background: #161920; border-radius: 4px; margin: 6px 0; overflow: hidden; }
-.obar i { display: block; height: 100%; background: var(--gold); border-radius: 4px; transition: width .18s; }
+.obadge { font-size: var(--fs-xs); padding: 1px 8px; border-radius: 20px; background: rgba(90, 168, 107, .2); color: var(--green); }
+.obar { height: 4px; background: #161920; border-radius: var(--r-sm); margin: 6px 0; overflow: hidden; }
+.obar i { display: block; height: 100%; background: var(--gold); border-radius: var(--r-sm); transition: width .18s; }
 .obar.bad i { background: var(--red); }
 .oreqs { display: flex; gap: 6px; flex-wrap: wrap; }
-.onote { font-size: 12px; color: var(--dim); margin-top: 6px; }
+.onote { font-size: var(--fs-sm); color: var(--dim); margin-top: 6px; }
 .onote.good { color: var(--green); }
 .onote.bad { color: var(--red); }
 .oplan { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-top: 7px; padding-top: 7px; border-top: 1px dashed rgba(255, 255, 255, .07); }
-.oplan .olab { font-size: 11px; color: var(--dim); margin-right: 2px; }
+.oplan .olab { font-size: var(--fs-xs); color: var(--dim); margin-right: 2px; }
 .oplan .opc { font-size: 11.5px; padding: 1px 7px; border-radius: 20px; background: rgba(217, 164, 65, .1); border: 1px solid rgba(217, 164, 65, .35); color: #d8bc85; }
 
 /* 记录 */
@@ -125,7 +132,7 @@ button.big { padding: 10px 44px; font-size: 15px; }
 .pickbox .ph { font-weight: 700; margin-bottom: 12px; color: var(--gold); }
 .pickbox .opt { display: block; width: 100%; text-align: left; margin-bottom: 7px; padding: 9px 12px; }
 .pickbox .opt .on { display: block; font-weight: 600; }
-.pickbox .opt .od { display: block; font-size: 12px; color: var(--dim); margin-top: 2px; }
+.pickbox .opt .od { display: block; font-size: var(--fs-sm); color: var(--dim); margin-top: 2px; }
 .pickbox .opt.close { text-align: center; color: var(--dim); margin-top: 12px; }
 
 /* 轻提示 */
@@ -140,14 +147,14 @@ button.big { padding: 10px 44px; font-size: 15px; }
 /* 中央仓库 */
 .stage { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .stage .big { font-size: 26px; font-weight: 700; color: var(--gold); }
-.stage .lab { font-size: 12px; color: var(--dim); }
+.stage .lab { font-size: var(--fs-sm); color: var(--dim); }
 
 /* 中央仓库：逐只罐子（顺序 = 流入主台时的取用顺序） */
 .jarrow { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 6px; }
 .jarchip {
   min-width: 30px; text-align: center;
-  padding: 3px 6px; font-size: 12px;
-  border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 6px; font-size: var(--fs-sm);
+  border: 1px solid var(--line); border-radius: var(--r-md);
   background: var(--jar); color: var(--ink);
 }
 
@@ -158,7 +165,7 @@ button.big { padding: 10px 44px; font-size: 15px; }
   border-radius: 8px;
   background: rgba(95, 160, 255, .08);
 }
-.oexec .ohead2 { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.oexec .ohead2 { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
 .oexec .run { color: #6aa6ff; font-weight: 700; }
 .oexec .who { color: var(--dim); }
 .oexec .odoing { margin-top: 6px; font-size: 13px; color: var(--ink); }
@@ -177,3 +184,19 @@ button.big { padding: 10px 44px; font-size: 15px; }
 .jarchip.new { animation: jarIn .28s ease-out; border-color: var(--gold); }
 @keyframes liqIn { from { opacity: .3; transform: scale(0.95); } to { opacity: 1; transform: none; } }
 .liq.up { animation: liqIn .3s ease-out; }
+
+/* 记录栏：筛选条 + 折行（S1 打磨） */
+.logbar { display: flex; gap: var(--sp-1); flex-wrap: wrap; padding: var(--sp-1) 0 var(--sp-2); }
+.logbar button.on { background: var(--gold); color: #1a1a1a; border-color: var(--gold); font-weight: 600; }
+.log .ln { cursor: pointer; }
+.log .ln.fold {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--dim);
+}
+/* 罐子从仓库飞进主台的 ghost（纯装饰，不参与布局、不持有数据） */
+.ghost {
+  position: fixed; z-index: 60; pointer-events: none;
+  border: 1px solid var(--gold); border-radius: var(--r-sm);
+  background: rgba(217, 164, 65, .28);
+}
+@media (prefers-reduced-motion: reduce) { .ghost { display: none; } }

@@ -31,7 +31,7 @@ string[] ProtocolCommands =
     "updateWorkshopCapacity",
         "setWorkshopCapability",
         "moveOrder", "setMaster", "setSlave", "executeOrder", "deleteOrder",
-    "checkFeasibility", "checkAllFeasibility", "manualTick", "reset", "restartLevel", "updateProducerRate", "updateLiquidRate",
+    "checkFeasibility", "checkAllFeasibility", "manualTick", "reset", "restartLevel", "loadLevel", "updateProducerRate", "updateLiquidRate",
     "startTick", "stopTick", "setAutoCheck",
     // P4：过程的两条命令（异步轨的开始 / 取消）
     "startOrder", "cancelProcess",
@@ -104,6 +104,7 @@ string[] ProtocolMessages =
     ("createRandomOrder", "CreateRandomOrderPayload", []),
     ("createRandomWorkshop", "CreateRandomWorkshopPayload", []),
     ("getState", "GetStatePayload", []),    ("restartLevel", "RestartLevelPayload", []),
+    ("loadLevel", "LoadLevelPayload", [("index", "number")]),
     ("getSteps", "GetStepsPayload", [("subject", "string"), ("subjectId", "number")]),
     ("checkAllFeasibility", "CheckAllFeasibilityPayload", []),
     ("manualTick", "ManualTickPayload", []),

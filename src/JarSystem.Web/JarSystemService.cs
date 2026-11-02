@@ -18,13 +18,22 @@ public class JarSystemService
     /// <summary>场景里"开局即生效"的修饰器作用域（持有到宿主结束；区间到点仍由栈自动摘除）。</summary>
     private readonly List<JarSystem.Core.Domain.ModifierScope> _scenarioScopes = new();
 
-    public JarSystem.Core.JarSystem System { get; }
+    private readonly JarSystem.Core.Abstractions.ISystemLog? _log;
+    private readonly PresentationObserver? _observer;
+
+    /// <summary>
+    /// 当前这局世界。除了构造时装配，还可以**换关**（<see cref="LoadLevel"/>）——
+    /// 换关 = 起一局新世界，所以这里是可替换的引用，而不是 readonly 字段。
+    /// 所有消费者（命令、HTTP 端点、两个后台服务）都用 <c>svc.System</c> 现取，
+    /// 因此替换后无需逐个重新接线。
+    /// </summary>
+    public JarSystem.Core.JarSystem System { get; private set; }
 
     /// <summary>
     /// 本进程选中的关卡（`--level N`）；null = 走 `config/world.json` 或内核默认世界。
     /// 关只是"打包好的一份世界 + 提示 + 回合上限"，核心不认识它（见 <see cref="LevelCatalog"/>）。
     /// </summary>
-    public LevelInfo? Level { get; }
+    public LevelInfo? Level { get; private set; }
 
     /// <summary>
     /// **推进间隔（毫秒）**——宿主侧时间参数（P5）：表示"世界 tick 与墙钟的映射"。
@@ -43,12 +52,43 @@ public class JarSystemService
         PresentationObserver? observer = null,
         LevelInfo? level = null)
     {
+        _log = log;
+        _observer = observer;
         Level = level;
         System = new JarSystem.Core.JarSystem(log: log, world: level?.World ?? LoadWorldOrNull());
         // 订阅核心的帧流（`PresentationFeed`）：宿主只**转发**，不再自己定义一套词汇。
         if (observer != null) System.Presentation.Subscribe(observer);
-        if (level != null) DeployLevelOrders(level);
+        if (level != null) DeployLevelOrders(System, level);
         LoadScenarioOrThrow();
+    }
+
+    /// <summary>
+    /// **换关**：起一局新世界（不重启进程）。
+    ///
+    /// 为什么这件事只能由宿主做：核心不认识"关卡"，一关只是"打包好的一份 <see cref="JarSystem.Core.Config.WorldOptions"/> +
+    /// 提示 + 回合上限"；换关 = 丢掉旧世界、按关卡的 world 起一局新的、再按模板派单、按信封摆台。
+    /// 旧世界连同它的过程、订单、日志一起消失（这正是"换一关"的语义）。
+    ///
+    /// 调用方必须持有 <see cref="Gate"/>（命令分派器已经这么做），否则可能与推进/后台检查并发。
+    /// </summary>
+    /// <param name="index">关卡序号（<see cref="LevelCatalog.Discover"/> 的 1 起位置）。不存在即拒绝。</param>
+    /// <exception cref="JarSystem.Core.Domain.DomainValidationException">关卡不存在。</exception>
+    public void LoadLevel(int index)
+    {
+        var levels = LevelCatalog.Discover();
+        var target = levels.FirstOrDefault(l => l.Index == index)
+            ?? throw new JarSystem.Core.Domain.DomainValidationException(
+                "没有第 " + index + " 关（本仓库共 " + levels.Count + " 关）");
+
+        var next = new JarSystem.Core.JarSystem(log: _log, world: target.World);
+        if (_observer != null) next.Presentation.Subscribe(_observer);
+        System = next;
+        Level = target;
+
+        // 上一局的开局法令作用域属于旧世界，不能带过来。
+        _scenarioScopes.Clear();
+
+        DeployLevelOrders(next, target);
     }
 
     /// <summary>
@@ -66,19 +106,19 @@ public class JarSystemService
     public void RestartLevel()
     {
         System.Reset();
-        if (Level != null) DeployLevelOrders(Level);
+        if (Level != null) DeployLevelOrders(System, Level);
     }
 
-    private void DeployLevelOrders(LevelInfo level)
+    private static void DeployLevelOrders(JarSystem.Core.JarSystem sys, LevelInfo level)
     {
         // 先摆台（信封给的 master / slave），再派单：台位是这一关的起手，
         // 摆好之后再派单，订单的分析结果才是有意义的（否则开局全是"没有主台"）。
-        if (level.Master is { } master) System.SetMasterIndex(master);
-        System.SetSlaveIndex(level.Slave);
+        if (level.Master is { } master) sys.SetMasterIndex(master);
+        sys.SetSlaveIndex(level.Slave);
 
         foreach (var template in level.World.OrderTemplates)
         {
-            var (ok, error) = System.CreateOrderFromTemplate(template.Name);
+            var (ok, error) = sys.CreateOrderFromTemplate(template.Name);
             if (!ok)
                 throw new InvalidOperationException(
                     "关卡「" + level.Name + "」的模板「" + template.Name + "」派单失败：" + error);
