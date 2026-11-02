@@ -1,39 +1,61 @@
-• cd D:\codex\jar-system-dotnet
-  dotnet run --project src\JarSystem.Web --urls http://localhost:3457
+起步（2026-11 现状）
 
-  等输出中出现 Now listening on: http://localhost:3457 后，打开浏览器访问 http://localhost:3457
-  即可。端口可以换成其他值。
+一、跑起来看
+
+  双击 run.bat（或在本目录 cmd 里）：
+
+    run.bat
+
+  它做三件事：杀掉旧进程 → dotnet run --launch-profile http → 6 秒后打开浏览器。
+  默认地址 http://localhost:5289/world.html（世界视图）。
+
+  想换端口或指定关卡，手打：
+
+    taskkill /f /im dotnet.exe
+    dotnet run --project src\JarSystem.Web --urls http://127.0.0.1:5299 -- --level 3
+
+  --level N 选第 N 关（1..6，按 config\levels\ 文件名顺序）；不给就是出厂沙盒
+  config\world.json（不判胜、回合不限）。
 
 
-  1. 先杀掉旧进程：
+二、world.html 上有什么
 
-  taskkill /f /im dotnet.exe
+  - 世界状态：每台工作台的 基础/附加/禁 标记、罐位与液池、池里有什么；
+    每张订单的独立进度条（以当前资源这单能走到哪一步）、开始/删除/上下移；
+    产线卡（每个形状 4 档速率）；新建工作台=复制现有卡片。
+  - 帧时间线：内核每做一件事广播一帧（seq / tick / revision / kind / op / 主体）。
+    页面只显示帧，不推导任何东西。
+  - 不变量面板：内核自查有没有自相矛盾（挂空台、两单抢一个过程、罐子 id 跨台…）。
+  - 命令面板：「推进一回合」按一次，世界才动一次。世界不会自己走。
 
-  2. 重新编译 + 启动：
+  旧版的 demo/ 原型已退役（见 demo/_退役/README.md）：规则只住内核。
 
-  cd D:\codex\jar-system-dotnet
-  dotnet run --project src\JarSystem.Web --urls http://localhost:3457
 
-  3. 浏览器打开 http://localhost:3457
+三、改内容 / 做新关
 
-• 编译通过，0 错误 0 警告。已经回退到最干净的设计：
+  关卡 = 一份世界 + 提示 + 回合上限 + 目标单数，全在 config\levels\*.json：
+    { "name": "…", "hint": "…", "turns": 9, "goal": 1, "world": { … 与 config\world.json 同构 … } }
+  改完直接重启，启动时会校验：任何一关坏了当场拒绝启动，不会玩到第 5 关才炸。
 
-  回退内容：
 
-  - 去掉 SignalR Hub（删除 Hubs 目录和引用）
-  - 去掉 HTTP API 端点（/api/state、/api/command）
-  - 去掉内嵌 HTML 方式
-  - 恢复原始 WebSocket 通信（/ws）
-  - app.js 直接使用原版 Node.js 项目的代码，只改了 WebSocket 路径为 /ws
+四、验证
 
-  现在在你的 CMD 里：
+  全门禁（唯一完整回路，约几分钟）：
 
-  cd D:\codex\jar-system-dotnet
+    set CI=1
+    重构报告\verify.bat
 
-  taskkill /f /im dotnet.exe
+  两个必需结论：VERDICT=OK 与 QUALITY-OK。重点看 REPLAY-OK 那行的四个数字
+  （commands / stateBytes / logBytes / journalBytes）——纯重构时它们不该变。
 
-  dotnet run --project src\JarSystem.Web --urls http://localhost:3457
+  只跑测试：
 
-  然后浏览器打开 http://localhost:3457。这个版本和原始 Node.js 项目的前后端通信方式完全一致（原生
-  WebSocket），不同之处只在于服务端从 Node.js 换成了
-  .NET。如果这个版本仍然不行，那问题可能不在通信方式本身，需要进一步排查浏览器环境或服务端逻辑。
+    dotnet run --project test\JarSystem.Tests\JarSystem.Tests.csproj -c Release
+
+  网页冒烟（真点按钮，需要本机有 Chrome/Edge）：
+
+    dotnet run --project src\JarSystem.Web --urls http://127.0.0.1:5299 -- --level 1
+    node tools\web_smoke.js http://127.0.0.1:5299
+
+  注意：门禁跑之前先 taskkill /f /im dotnet.exe，否则宿主进程会锁住 bin 下的 dll，
+  门禁会报一串 MSB3061/MSB3026 和 QUALITY-FAIL（不是代码问题）。
