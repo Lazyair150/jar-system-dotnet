@@ -43,6 +43,11 @@
            padding:3px 9px; font-size:12px; cursor:pointer; }
   button:hover { border-color:#4a463b; }
   .row { display:flex; gap:6px; flex-wrap:wrap; padding:6px 10px; border-top:1px solid var(--line); }
+  .cmd { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:6px 0; }
+  .cmd .lbl { color:var(--dim); font-size:12px; }
+  select { background:#26241d; color:var(--ink); border:1px solid var(--line); border-radius:6px;
+           padding:2px 6px; font-size:12px; }
+  .ord button { margin-left:6px; padding:1px 7px; font-size:11px; }
 </style>
 </head>
 <body>
@@ -62,9 +67,11 @@
     <h2>帧时间线（PresentationFeed）</h2>
     <div class="body" id="frames"><div class="empty">等待帧…</div></div>
     <div class="row">
-      <button id="btn-tick">推进 1 刻</button>
-      <button id="btn-state">刷新状态</button>
-      <button id="btn-clear">清空列表</button>
+      <button data-act="tick">推进 1 刻</button>
+      <button data-act="run">开始走时</button>
+      <button data-act="pause">停时</button>
+      <button data-act="refresh">刷新状态</button>
+      <button data-act="clear">清空列表</button>
     </div>
   </section>
 
