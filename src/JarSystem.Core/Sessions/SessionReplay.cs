@@ -77,10 +77,10 @@ public static class SessionReplay
                 s.UpdateProducerRate(c.Name ?? "", c.BaseMarks is { Count: > 0 } ? c.BaseMarks[0] : "", c.DoubleA ?? 0);
                 break;
             case WorldOps.UpdateLiquidProductionRate:
-                s.UpdateLiquidProductionRate(c.Ban is { Count: > 0 } ? c.Ban[0] : "", c.IntA ?? 0);
+                s.UpdateLiquidProductionRate(c.Ban is { Count: > 0 } ? c.Ban[0] : "", c.DoubleA ?? 0);
                 break;
             case WorldOps.SetLiquidProductionRate:
-                s.SetLiquidProductionRate(c.Ban is { Count: > 0 } ? c.Ban[0] : "", c.IntA ?? 0);
+                s.SetLiquidProductionRate(c.Ban is { Count: > 0 } ? c.Ban[0] : "", c.DoubleA ?? 0);
                 break;
             case WorldOps.SetFlowSettings: s.SetFlowSettings(c.IntA ?? 0, c.IntB ?? 0); break;
             case WorldOps.SetAutoCheck: s.SetAutoCheck(c.Flag ?? false); break;

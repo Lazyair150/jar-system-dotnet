@@ -141,3 +141,12 @@ button.big { padding: 10px 44px; font-size: 15px; }
 .stage { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .stage .big { font-size: 26px; font-weight: 700; color: var(--gold); }
 .stage .lab { font-size: 12px; color: var(--dim); }
+
+/* 中央仓库：逐只罐子（顺序 = 流入主台时的取用顺序） */
+.jarrow { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 6px; }
+.jarchip {
+  min-width: 30px; text-align: center;
+  padding: 3px 6px; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--jar); color: var(--ink);
+}

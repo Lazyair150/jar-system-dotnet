@@ -38,7 +38,10 @@ public class JarSystem : Rules.IWorldFacts
     private readonly List<Workshop> _workshops = new();
     private readonly List<Order> _orders = new();
     private readonly List<Dictionary<string, object?>> _eventHistory = new();
-    private readonly Dictionary<string, int> _liquidProductionRate;
+    // 液体产能是**概念体**（Production.LiquidProduction）：带累加器，因此能表达 0.5 份/tick。
+    // 罐子的产能属于生产者（ShapeProductionLine），液体的产能属于世界自己 —— 概念不同，
+    // 但"每 tick 产多少、能不能调、小数怎么攒"是同一套定点累加。
+    private readonly Production.LiquidProduction _liquidProduction;
 
     // ---- 真只读包装（2026-09-16 全量只读化）----
     // 只把私有容器以 IReadOnly* 接口交出去是**不够**的：调用方可以 `((List<Workshop>)sys.Workshops).Clear()`
@@ -49,7 +52,7 @@ public class JarSystem : Rules.IWorldFacts
     private readonly IReadOnlyList<Order> _ordersView;
     private readonly IReadOnlyList<Dictionary<string, object?>> _eventHistoryView;
     private readonly IReadOnlyList<WorldCommand> _commandLogView;
-    private readonly IReadOnlyDictionary<string, int> _liquidProductionRateView;
+    private readonly IReadOnlyDictionary<string, double> _liquidProductionRateView;
 
     // ---- 会话日志（Event Sourcing 切片）：每次"改世界"的意图都追加一条 ----
     private readonly List<WorldCommand> _commandLog = new();
@@ -97,8 +100,15 @@ public class JarSystem : Rules.IWorldFacts
     public OrderTemplateLibrary OrderTemplates { get; }
     public IReadOnlyList<Dictionary<string, object?>> EventHistory => _eventHistoryView;
 
-    /// <summary>每 tick 的液体产出速率（酒/蜜）。**不参与 JSON 契约**；修改请用 <see cref="SetLiquidProductionRate"/>。</summary>
-    public IReadOnlyDictionary<string, int> LiquidProductionRate => _liquidProductionRateView;
+    /// <summary>
+    /// 每 tick 的液体产出速率（键序 = 词表顺序）。**它是概念的只读投影**，修改请用
+    /// <see cref="SetLiquidProductionRate"/> / <see cref="UpdateLiquidProductionRate"/>（规则住在
+    /// <see cref="Production.LiquidProduction.SetRate"/>，只有一份）。
+    /// </summary>
+    public IReadOnlyDictionary<string, double> LiquidProductionRate => _liquidProductionRateView;
+
+    /// <summary>液体产能这个概念体本身（速率、累加器、本 tick 会不会产出）。</summary>
+    public Production.LiquidProduction LiquidProduction => _liquidProduction;
 
     // ---- 程序集内可变视图（仅供 Services/Bootstrap 使用；外部看不到） ----
     internal List<Workshop> WorkshopList => _workshops;
@@ -361,9 +371,10 @@ public class JarSystem : Rules.IWorldFacts
         JarIds = jarIds ?? DefaultIdGenerators.Jars;
         OrderIds = orderIds ?? DefaultIdGenerators.Orders;
         FlowSettings = (World.Flow.JarCount, World.Flow.LiquidAmount);
-        _liquidProductionRate = DefaultLiquidRates();
-        // 速率视图必须**在字段赋值之后**建（readonly 字段的确定性赋值；提前读它编译不过）
-        _liquidProductionRateView = new ReadOnlyDictionary<string, int>(_liquidProductionRate);
+        // 液体产能必须在 Vocabulary 建好之后（键序=词表顺序）；强度修饰器此时还没建，
+        // 所以先用直通，等 Modifiers 建好后再把强度入口接上（见下方 AttachLiquidIntensity）。
+        _liquidProduction = new Production.LiquidProduction(Vocabulary, null, DefaultLiquidRates());
+        _liquidProductionRateView = _liquidProduction.Rates;
         Rng = randomSeed.HasValue ? new Random(randomSeed.Value) : new Random();
         Bus = new WorldBus();
         // 帧流只是总线的**只读投影**：它订阅总线、存帧，从不回写世界。
@@ -374,6 +385,7 @@ public class JarSystem : Rules.IWorldFacts
         // 第一个真实反应器：世界资源一变，待定订单的可行性缓存就不再成立。
         // 它排进下一个 tick 的批再清 —— 信号分发时世界还处在"改到一半"的状态，不能此刻读。
         Modifiers = new ModifierStack();
+        _liquidProduction.AttachIntensity(Modifiers);
         ProducerModule = new ProducerModule(Vocabulary, Modifiers, JarPool);
         ProducerModule.ProducerSlots = World.ProducerSlots;   /* 0 = 不限：出厂沙盒；关卡文件显式给上限 */
         // P3b 设计裁决：求解器实现**一行不改**，把"修饰器带来的新规则"统一收在这一层装饰器里。
@@ -564,10 +576,10 @@ public class JarSystem : Rules.IWorldFacts
     /// 设置某液体的每 tick 产出速率（不参与 JSON 契约）。
     /// **未知液体与负数会被拒绝** —— 校验住在唯一写入口，见 <see cref="SetLiquidProductionRateCore"/>。
     /// </summary>
-    public void SetLiquidProductionRate(string liquid, int rate)
+    public void SetLiquidProductionRate(string liquid, double rate)
     {
         SetLiquidProductionRateCore(liquid, rate);
-        Record(WorldOps.SetLiquidProductionRate, ban: new List<string> { liquid }, intA: rate);
+        Record(WorldOps.SetLiquidProductionRate, ban: new List<string> { liquid }, doubleA: rate);
     }
 
     /// <summary>
@@ -581,19 +593,7 @@ public class JarSystem : Rules.IWorldFacts
     /// 未知液体名会被**插入成幻影液体**：它随后进入产出循环，而回放/存档的输入是**外部数据**
     /// ⇒ 能够造出一个手工不可达的世界（审查中 4 位专家独立指出）。
     /// </summary>
-    internal void SetLiquidProductionRateCore(string liquid, int rate)
-    {
-        if (!_liquidProductionRate.ContainsKey(liquid))
-            throw new DomainValidationException("没有这个液体: " + liquid);
-        if (rate < 0)
-            throw new DomainValidationException("液体产出速率不能为负: " + rate);
-        // 上界与生产者速率同一条护栏：液体也是资源，速率是"每 tick 产几份"，
-        // 大到没有意义的数值只可能是输入错误（与 WorldOptions.Validate 的 MAX_PRODUCER_RATE 一致）。
-        if (rate > Constants.MAX_PRODUCER_RATE)
-            throw new DomainValidationException(
-                "液体产出速率超出上限（" + Constants.MAX_PRODUCER_RATE + " 份/tick）: " + rate);
-        _liquidProductionRate[liquid] = rate;
-    }
+    internal void SetLiquidProductionRateCore(string liquid, double rate) => _liquidProduction.SetRate(liquid, rate);
 
     /// <summary>
     /// 设置主台流入参数（每次流入的罐子数与液体量）。
@@ -1059,10 +1059,10 @@ public class JarSystem : Rules.IWorldFacts
         });
     }
 
-    public void UpdateLiquidProductionRate(string liquid, int rate)
+    public void UpdateLiquidProductionRate(string liquid, double rate)
     {
         _productionService.UpdateLiquidProductionRate(liquid, rate);
-        Record(WorldOps.UpdateLiquidProductionRate, ban: new List<string> { liquid }, intA: rate);
+        Record(WorldOps.UpdateLiquidProductionRate, ban: new List<string> { liquid }, doubleA: rate);
         AddConfigEvent("liquid_rate", new Dictionary<string, object?>
         {
             ["liquid"] = liquid,
@@ -1087,8 +1087,7 @@ public class JarSystem : Rules.IWorldFacts
         Presentation.Clear(); // 帧流是旧世界的投影：重来后从头开始（接收方保留，宿主不必重连）
         Time.Reset();         // 世界重建 ⇒ 时间回到"尚未开始"（tick 由 Processes.Clear 归零）
         ClearWorkshopsCore(); ClearOrdersCore(); CurrentEvent = null; _eventHistory.Clear();
-        _liquidProductionRate.Clear();
-        foreach (var kv in DefaultLiquidRates()) _liquidProductionRate[kv.Key] = kv.Value;  // S3：按配置恢复速率
+        _liquidProduction.Reset(DefaultLiquidRates());   // S3：按配置恢复速率（累加器一起清）
         FlowSettings = (World.Flow.JarCount, World.Flow.LiquidAmount);                      // S3：按配置恢复流入
         AutoCheckEnabled = false;
         ResetProducerModuleCore(); InitializeDefault();
@@ -1099,9 +1098,9 @@ public class JarSystem : Rules.IWorldFacts
     /// 默认液体产出速率：按**词表**逐个取，速率来自世界配置（未列出者按 1）。
     /// 键的插入顺序 = 词表顺序 —— 契约快照里 `liquids` 的键序依赖它。
     /// </summary>
-    private Dictionary<string, int> DefaultLiquidRates()
+    private Dictionary<string, double> DefaultLiquidRates()
     {
-        var rates = new Dictionary<string, int>();
+        var rates = new Dictionary<string, double>();
         foreach (var liquid in Vocabulary.Liquids)
             rates[liquid] = World.Flow.LiquidRate.TryGetValue(liquid, out var r) ? r : 1;
         return rates;

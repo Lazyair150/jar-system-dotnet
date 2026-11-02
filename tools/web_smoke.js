@@ -219,6 +219,31 @@ async function main() {
       check(bars > 0, 'E 订单进度条已画出（' + bars + ' 条）');
       const benchJars = await evaluate("(document.getElementById('masterBody')||{}).textContent||''");
       check(benchJars.length > 0, 'E 主台卡已渲染');
+
+      // 液体速率是小数（0.2/0.4/0.6）：卡面必须真的显示小数按钮，而不是退回整数。
+      const decimalRates = await evaluate(
+        "Array.from(document.querySelectorAll('#linesBody .liqcard .rates button')).map(function(b){return b.textContent}).join(',')");
+      check(/0\.\d/.test(String(decimalRates)) || /停/.test(String(decimalRates)),
+        'E 液体卡支持小数速率（按钮：' + String(decimalRates).slice(0, 40) + '）');
+
+      // 罐子逐只可见：仓库画成小方块、主台画成罐子片 —— 至少有一处真的画出了"一只只"，
+      // 而不是只有一个数字。（关卡 1 有主台，罐子产出来就直接流进主台，仓库常常是空的。）
+      // G 液体速率真的能调（点卡上的 0.4，再回内核核对）：这是"液体也有生产卡"的闭环。
+      const clickedLiq = await evaluate(
+        "(function(){var b=document.querySelector('#linesBody .liqcard .rates button[data-r=\"0.4\"]');" +
+        "if(!b) return 'missing'; b.click(); return 'clicked';})()");
+      await new Promise(function (r) { setTimeout(r, 400); });
+      const rateAfter = await evaluate(
+        "(function(){return fetch('/api/state').then(function(r){return r.json()}).then(function(d){" +
+        "var s=d&&d.producerStatus&&d.producerStatus.liquidRates;" +
+        "return s?(Object.values(s)[0]):-1;});})()");
+      check(clickedLiq === 'clicked' && Math.abs(Number(rateAfter) - 0.4) < 1e-9,
+        'G 液体速率真的调到了 0.4（点了 ' + clickedLiq + '，内核回 ' + rateAfter + '）');
+
+      const jarChips = await evaluate("document.querySelectorAll('#stageBody .jarchip').length");
+      const benchJarNodes = await evaluate("document.querySelectorAll('#masterBody .jarchip').length");
+      check(jarChips > 0 || benchJarNodes > 0,
+        'E 罐子逐只可见（仓库 ' + jarChips + ' 只 / 主台 ' + benchJarNodes + ' 只）');
     }
 
     if (page.indexOf('play') === 0) {

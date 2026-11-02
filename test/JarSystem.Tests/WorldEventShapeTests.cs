@@ -57,7 +57,8 @@ public class WorldEventShapeTests
 
         var liquid = sys.EventHistory.Single(e => (string?)e["type"] == "liquid_rate");
         Assert.Equal("酒", liquid["liquid"]);
-        Assert.Equal(4, liquid["rate"]);
+        // 液体速率已是小数（0.4 份/tick 必须能表达）——事件里存 double，断言按 double 比。
+        Assert.Equal(4.0, (double)liquid["rate"]!);
 
         // 三条事件都必须带时间戳，而且这里是**意图时间**（可记录/可回放），不是读墙钟做判定。
         Assert.All(sys.EventHistory, e => Assert.True(e.ContainsKey("timestamp")));

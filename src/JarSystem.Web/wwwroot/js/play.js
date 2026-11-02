@@ -189,7 +189,9 @@
 
   /* ---------------- 产线卡 ---------------- */
   var RATES = [0, 0.2, 0.4, 0.6];
-  var LIQUID_RATES = [0, 1, 2, 3];
+  // 液体档位与罐子对齐：分子是速率、分母是 10 ⇒ 0 / 0.2 / 0.4 / 0.6 份每 tick。
+  // （内核用千分之一定点累加，0.2 就是 5 tick 产一份，不需要浮点。）
+  var LIQUID_RATES = [0, 2, 4, 6];
 
   function renderLines() {
     var ps = state.producerStatus || { producers: [] };
@@ -210,16 +212,22 @@
       });
     });
     // 液体也是资源：它不属于任何生产者，是"世界自己产"的，所以单独一组卡。
-    // 速率是整数份/tick（内核里就是 int），档位 0~3 足够表达玩法。
+    // 速率与罐子同为小数（累加器攒够一份才出货），卡面同时显示"攒了多少"——
+    // 这就是"为什么这一回合没产液体"的直接答案。
     var liquidRates = (ps.liquidRates || {});
+    var liquidAcc = (ps.liquidAccumulated || {});
     var liquidCards = Object.keys(liquidRates).map(function (liquid) {
       var rate = liquidRates[liquid] || 0;
+      var acc = liquidAcc[liquid] || 0;
       var btns = LIQUID_RATES.map(function (r) {
-        var on = rate === r;
-        return '<button data-act="lrate" data-l="' + esc(liquid) + '" data-r="' + r + '" class="' + (on ? 'on' : '') + '">' + r + '</button>';
+        var shown = r / 10;
+        var on = Math.abs(rate - shown) < 1e-9;
+        return '<button data-act="lrate" data-l="' + esc(liquid) + '" data-r="' + (r / 10) +
+          '" class="' + (on ? 'on' : '') + '">' + (shown === 0 ? '停' : shown.toFixed(1)) + '</button>';
       }).join('');
       return '<div class="linecard liqcard"><div class="lh"><b>' + esc(liquid) + '</b>' +
-        '<span>· 世界自产</span></div><div class="rates">' + btns + '</div></div>';
+        '<span>· 世界自产 · 攒 ' + acc.toFixed(2) + '</span></div>' +
+        '<div class="rates">' + btns + '</div></div>';
     }).join('');
 
     $('linesBody').innerHTML = (html || '<div class="empty">这个世界没有生产者</div>') +
@@ -308,8 +316,15 @@
       return '<span class="liq' + (k === '蜜' ? ' liq-mi' : (k === '酒' ? ' liq-jiu' : '')) + '">' +
         esc(k) + ' ×' + esc(wh.liquids[k]) + '</span>';
     }).join(' ');
+    // 逐只罐子：玩家要能看出"下一回合会流进主台的是哪几只"，光有数字做不到。
+    // 顺序 = 流入时的取用顺序（主台基础形状优先），所以画出来的顺序就是将被拿走的那几只。
+    var jarChips = (wh.jarList || []).map(function (j) {
+      var short = (j.shape || '').replace('罐', '');
+      return '<span class="jarchip" title="' + esc(j.shape) + '">' + esc(short) + '</span>';
+    }).join('');
     $('stageBody').innerHTML =
       '<div><span class="big">' + esc(wh.jars || 0) + '</span> <span class="lab">只罐子</span></div>' +
+      (jarChips ? '<div class="jarrow">' + jarChips + '</div>' : '<div class="empty">仓库里还没有罐子</div>') +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' + (liqs || '<span class="empty">没有液体</span>') + '</div>' +
       (wh.discardedJars ? '<div class="lab">溢出丢弃 ' + esc(wh.discardedJars) + ' 只</div>' : '');
   }

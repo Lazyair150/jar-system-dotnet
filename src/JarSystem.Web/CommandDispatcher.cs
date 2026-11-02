@@ -253,7 +253,7 @@ public sealed class CommandDispatcher
                 // 液体产出速率（每 tick 几份）。规则住在核心唯一写入口（SetLiquidProductionRateCore）：
                 // 未知液体 / 负数 / 超上限都会抛 DomainValidationException，这里只把话转给客户端。
                 var liquid = JsonArgs.JS(dataEl, "liquid") ?? "";
-                var rate = JsonArgs.JI(dataEl, "rate");
+                var rate = JsonArgs.JD(dataEl, "rate");
                 sys.UpdateLiquidProductionRate(liquid, rate);
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;

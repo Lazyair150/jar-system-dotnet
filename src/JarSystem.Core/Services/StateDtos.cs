@@ -168,6 +168,13 @@ public sealed class OrderStateDto
 public sealed class WarehouseStateDto
 {
     [JsonPropertyName("jars")] public int Jars { get; init; }
+
+    /// <summary>
+    /// 仓库里**每一只**罐子（顺序 = 流入时主台取用的顺序：先主台基础形状、再按先进先出）。
+    /// 只有数量时页面画不出"一仓库的小方块"，玩家也就看不出下一回合会流进哪几只。
+    /// 这只是同一份状态的另一种投影，不是第二个真相源。
+    /// </summary>
+    [JsonPropertyName("jarList")] public List<JarStateDto> JarList { get; init; } = new();
     [JsonPropertyName("liquids")] public Dictionary<string, int> Liquids { get; init; } = new();
     [JsonPropertyName("discardedJars")] public int DiscardedJars { get; init; }
     [JsonPropertyName("discardedLiquids")] public Dictionary<string, int> DiscardedLiquids { get; init; } = new();
@@ -204,7 +211,10 @@ public sealed class ProducerStatusDto
     /// 只是它不属于任何一个生产者 —— 它是"世界自己产"的资源，所以单独一格。
     /// 键序固定才能让契约快照逐行可比。
     /// </summary>
-    [JsonPropertyName("liquidRates")] public Dictionary<string, int> LiquidRates { get; init; } = new();
+    [JsonPropertyName("liquidRates")] public Dictionary<string, double> LiquidRates { get; init; } = new();
+
+    /// <summary>每种液体眼下攒了多少（0 ≤ 值 &lt; 1）。有了它，"为什么这回合没产"就有直接答案。</summary>
+    [JsonPropertyName("liquidAccumulated")] public Dictionary<string, double> LiquidAccumulated { get; init; } = new();
     [JsonPropertyName("warehouse")] public ProducerWarehouseDto Warehouse { get; init; } = new();
 }
 

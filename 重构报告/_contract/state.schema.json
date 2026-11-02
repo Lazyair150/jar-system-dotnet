@@ -308,6 +308,12 @@
             "jars": {
               "type": "integer"
             },
+            "jarList": {
+              "type": "array",
+              "items": {
+                "$ref": "#/properties/workshops/items/properties/jars/items"
+              }
+            },
             "liquids": {
               "type": "object",
               "additionalProperties": {
@@ -371,7 +377,13 @@
             "liquidRates": {
               "type": "object",
               "additionalProperties": {
-                "type": "integer"
+                "type": "number"
+              }
+            },
+            "liquidAccumulated": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
               }
             },
             "warehouse": {
@@ -1024,6 +1036,36 @@
       "properties": {
         "jars": {
           "type": "integer"
+        },
+        "jarList": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "shape": {
+                "type": "string"
+              },
+              "liquid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "isMarked": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "liquids": {
           "type": "object",

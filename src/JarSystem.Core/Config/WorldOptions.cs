@@ -144,7 +144,11 @@ public sealed class WorldOptions
         foreach (var kv in Flow.LiquidRate)
         {
             if (!Liquids.Contains(kv.Key)) r.Errors.Add("flow.liquidRate 含未知液体: " + kv.Key);
-            if (kv.Value < 0) r.Errors.Add("flow.liquidRate[" + kv.Key + "] 不能为负");
+            if (double.IsNaN(kv.Value) || double.IsInfinity(kv.Value))
+                r.Errors.Add("flow.liquidRate[" + kv.Key + "] 必须是有限数");
+            else if (kv.Value < 0) r.Errors.Add("flow.liquidRate[" + kv.Key + "] 不能为负");
+            else if (kv.Value > Constants.MAX_PRODUCER_RATE)
+                r.Errors.Add("flow.liquidRate[" + kv.Key + "] 超出上限 " + Constants.MAX_PRODUCER_RATE);
         }
 
         // ---- 初始库存 ----
@@ -272,7 +276,7 @@ public sealed class WorldOptions
             {
                 JarCount = 3,
                 LiquidAmount = 2,
-                LiquidRate = new Dictionary<string, int> { [Constants.LIQUIDS[0]] = 1, [Constants.LIQUIDS[1]] = 1 }
+                LiquidRate = new Dictionary<string, double> { [Constants.LIQUIDS[0]] = 1, [Constants.LIQUIDS[1]] = 1 }
             },
             NamePools = new NamePoolOptions
             {
@@ -329,7 +333,7 @@ public sealed class FlowOptions
     [JsonPropertyName("liquidAmount")] public int LiquidAmount { get; set; } = 2;
 
     /// <summary>每 tick 各液体的产出速率（键 = 液体名；未列出者按 1）。</summary>
-    [JsonPropertyName("liquidRate")] public Dictionary<string, int> LiquidRate { get; set; } = new();
+    [JsonPropertyName("liquidRate")] public Dictionary<string, double> LiquidRate { get; set; } = new();
 }
 
 /// <summary>生产者（名称 + 各形状速率）。</summary>

@@ -23,6 +23,16 @@ internal static class StateSerializer
         {
             // 仓库这一块现在归 Production.Warehouse 管（2026-09 从 ProducerModule 抽出）
             Jars = system.ProducerModule.Warehouse.JarCount,
+            // 逐只罐子：id/shape/liquid。顺序就是流入主台时的取用顺序（主台基础形状优先）。
+            JarList = system.ProducerModule.Warehouse.Jars
+                .Select(j => new JarStateDto
+                {
+                    Id = j.Id,
+                    Shape = j.Shape,
+                    Liquid = j.Liquid,
+                    Description = j.Shape + (string.IsNullOrEmpty(j.Liquid) ? "" : ":" + j.Liquid)
+                })
+                .ToList(),
             Liquids = system.ProducerModule.Warehouse.LiquidWarehouse.ToDictionary(kv => kv.Key, kv => kv.Value),
             DiscardedJars = system.ProducerModule.Warehouse.DiscardedJars,
             DiscardedLiquids = system.ProducerModule.Warehouse.DiscardedLiquids.ToDictionary(kv => kv.Key, kv => kv.Value)
@@ -50,6 +60,9 @@ internal static class StateSerializer
             LiquidRates = system.Vocabulary.Liquids.ToDictionary(
                 liquid => liquid,
                 liquid => system.LiquidProductionRate.GetValueOrDefault(liquid)),
+            LiquidAccumulated = system.Vocabulary.Liquids.ToDictionary(
+                liquid => liquid,
+                liquid => system.LiquidProduction.Accumulated.GetValueOrDefault(liquid)),
             Warehouse = new ProducerWarehouseDto
             {
                 Jars = system.ProducerModule.Warehouse.JarCount,

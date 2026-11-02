@@ -8,42 +8,66 @@ using Xunit;
 namespace JarSystem.Tests;
 
 /// <summary>
-/// **液体也是资源，因此它也有生产速率**（每 tick 几份）。
+/// **液体也是资源**：它有速率、有累加器、能被玩家调，和罐子一样。
 ///
-/// 这一组测试钉住四件事：
-/// 1 速率真的决定"每 tick 产多少"（不是只改一个数字）；
-/// 2 速率设为 0 就停产；
-/// 3 写入口的护栏只有一份：未知液体 / 负数 / 超上限一律拒绝（回放与存档是外部数据，
-///   放行就能造出手工不可达的世界）；
-/// 4 状态面把速率交给客户端（页面要能像产线卡一样给液体做卡）。
-///
-/// 罐子的产能属于**生产者**（按形状、有累积器、有产线槽上限），液体的产能属于**世界**
-/// （按品种、整数份）。两者概念不同，但"每 tick 产多少、玩家能调"这件事必须一样。
+/// 与罐子的差别只在"谁产"：罐子的产能属于**生产者**（按形状、有产线槽上限），
+/// 液体的产能属于**世界自己**（按品种、没有机器）。但"每 tick 产多少"必须是同一套：
+/// 千分之一定点累加 ⇒ 0.5 份/tick 就是两 tick 产一份，且逐 tick 结果与平台无关。
 /// </summary>
 public sealed class LiquidProductionRateTests
 {
-    private static JarSystem.Core.JarSystem NewSystem()
-    {
-        // 词表顺序固定为 酒 → 蜜（见 Constants.LIQUIDS），这里按名字取，不按下标。
-        var world = WorldOptions.Default;
-        return new JarSystem.Core.JarSystem(randomSeed: 7, world: world);
-    }
+    private static JarSystem.Core.JarSystem NewSystem() => new(randomSeed: 7, world: WorldOptions.Default);
 
     private static int WarehouseLiquid(JarSystem.Core.JarSystem sys, string liquid)
         => sys.ProducerModule.Warehouse.LiquidWarehouse.GetValueOrDefault(liquid);
 
+    private static string FirstLiquid(JarSystem.Core.JarSystem sys) => sys.Vocabulary.Liquids[0];
+
     [Fact]
-    public void TheRateDecidesHowMuchIsProducedEachTick()
+    public void AnIntegerRateProducesThatManyEachTick()
     {
         var sys = NewSystem();
-        var liquid = sys.Vocabulary.Liquids[0];
+        var liquid = FirstLiquid(sys);
         var before = WarehouseLiquid(sys, liquid);
 
         sys.SetLiquidProductionRate(liquid, 3);
         sys.Tick(2);
 
-        // 两 tick × 3 份 = 6 份（默认世界里主台为空时不流入仓库，见 ProductionService.TickStep）。
         Assert.Equal(before + 6, WarehouseLiquid(sys, liquid));
+    }
+
+    [Fact]
+    public void AFractionalRateAccumulatesAndPaysOutWholeUnits()
+    {
+        var sys = NewSystem();
+        var liquid = FirstLiquid(sys);
+        var before = WarehouseLiquid(sys, liquid);
+
+        sys.SetLiquidProductionRate(liquid, 0.5);
+        sys.Tick(1);
+        Assert.Equal(before, WarehouseLiquid(sys, liquid));
+        Assert.Equal(0.5, sys.LiquidProduction.Accumulated[liquid], 3);
+
+        sys.Tick(1);
+        Assert.Equal(before + 1, WarehouseLiquid(sys, liquid));
+        Assert.Equal(0.0, sys.LiquidProduction.Accumulated[liquid], 3);
+
+        sys.Tick(2);
+        Assert.Equal(before + 2, WarehouseLiquid(sys, liquid));
+    }
+
+    [Fact]
+    public void AFifthOfATickPaysOutOneUnitEveryFiveTicks()
+    {
+        var sys = NewSystem();
+        var liquid = FirstLiquid(sys);
+        var before = WarehouseLiquid(sys, liquid);
+
+        sys.SetLiquidProductionRate(liquid, 0.2);
+        for (int i = 0; i < 4; i++) sys.Tick(1);
+        Assert.Equal(before, WarehouseLiquid(sys, liquid));
+        sys.Tick(1);
+        Assert.Equal(before + 1, WarehouseLiquid(sys, liquid));
     }
 
     [Fact]
@@ -57,49 +81,96 @@ public sealed class LiquidProductionRateTests
         sys.Tick(3);
 
         Assert.Equal(before, WarehouseLiquid(sys, liquid));
+        Assert.Equal(0.0, sys.LiquidProduction.Accumulated[liquid]);
     }
 
     [Fact]
     public void TheWriteDoorRejectsUnknownLiquidNegativeAndAbsurdRates()
     {
         var sys = NewSystem();
-        var liquid = sys.Vocabulary.Liquids[0];
+        var liquid = FirstLiquid(sys);
 
-        // 未知液体：绝不允许被插入成"幻影液体"（它会进产出循环 ⇒ 手工不可达的世界）。
         Assert.Throws<DomainValidationException>(() => sys.SetLiquidProductionRate("水", 1));
-        Assert.Throws<DomainValidationException>(() => sys.SetLiquidProductionRate(liquid, -1));
+        Assert.Throws<DomainValidationException>(() => sys.SetLiquidProductionRate(liquid, -0.1));
         Assert.Throws<DomainValidationException>(
-            () => sys.SetLiquidProductionRate(liquid, (int)Constants.MAX_PRODUCER_RATE + 1));
+            () => sys.SetLiquidProductionRate(liquid, Constants.MAX_PRODUCER_RATE + 1));
+        Assert.Throws<DomainValidationException>(() => sys.SetLiquidProductionRate(liquid, double.NaN));
 
-        // 被拒之后世界一点没被改动。
-        Assert.Equal(1, sys.LiquidProductionRate[liquid]);
+        Assert.Equal(1.0, sys.LiquidProductionRate[liquid], 3);
     }
 
     [Fact]
-    public void TheStateCarriesTheLiquidRates()
+    public void TheStateCarriesTheRatesAndTheAccumulators()
     {
         var sys = NewSystem();
-        var liquid = sys.Vocabulary.Liquids[0];
-        sys.SetLiquidProductionRate(liquid, 2);
+        var liquid = FirstLiquid(sys);
+        sys.SetLiquidProductionRate(liquid, 0.5);
+        sys.Tick(1);
 
         var status = sys.GetState().ProducerStatus;
 
-        // 键序 = 词表顺序：契约快照按行比较，顺序变了就是一次显式重基线。
         Assert.Equal(sys.Vocabulary.Liquids, status.LiquidRates.Keys.ToList());
-        Assert.Equal(2, status.LiquidRates[liquid]);
+        Assert.Equal(sys.Vocabulary.Liquids, status.LiquidAccumulated.Keys.ToList());
+        Assert.Equal(0.5, status.LiquidRates[liquid], 3);
+        Assert.Equal(0.5, status.LiquidAccumulated[liquid], 3);
     }
 
     [Fact]
     public void OneIntentWritesOneLogEntry()
     {
         var sys = NewSystem();
-        var liquid = sys.Vocabulary.Liquids[0];
+        var liquid = FirstLiquid(sys);
 
         var before = sys.CommandLog.Count(c => c.Op == "updateLiquidProductionRate");
-        sys.UpdateLiquidProductionRate(liquid, 2);
+        sys.UpdateLiquidProductionRate(liquid, 0.4);
         var after = sys.CommandLog.Count(c => c.Op == "updateLiquidProductionRate");
 
-        // 转发的服务层不许再记一条：同一次意图记两条，回放会把日志越滚越长。
         Assert.Equal(before + 1, after);
+        // 回放读 doubleA：退回 intA 会让"0.4 份/tick"在回放里变成 0。
+        Assert.Equal(0.4, sys.CommandLog[sys.CommandLog.Count - 1].DoubleA ?? 0, 3);
+    }
+
+    [Fact]
+    public void TheWarehouseExposesEveryJarNotJustTheCount()
+    {
+        var sys = NewSystem();
+        sys.Tick(3);
+
+        var warehouse = sys.GetState().Warehouse;
+
+        Assert.Equal(warehouse.Jars, warehouse.JarList.Count);
+        Assert.NotEmpty(warehouse.JarList);
+        Assert.All(warehouse.JarList, j => Assert.False(string.IsNullOrEmpty(j.Shape)));
+        Assert.Equal(
+            sys.ProducerModule.Warehouse.Jars.Select(j => j.Id).ToList(),
+            warehouse.JarList.Select(j => j.Id).ToList());
+    }
+
+    [Fact]
+    public void TheWarehouseListShrinksByExactlyWhatFlowedIntoTheMaster()
+    {
+        var sys = new JarSystem.Core.JarSystem(randomSeed: 11, world: WorldOptions.Default);
+        sys.Tick(3);   // 先攒一批罐子
+
+        // 关掉所有产线：这一 tick 仓库里"少了多少只"就只可能来自流入。
+        foreach (var producer in sys.ProducerModule.Producers.Values)
+            foreach (var shape in producer.Rates.Keys.ToList())
+                sys.UpdateProducerRate(producer.Name, shape, 0);
+
+        var before = sys.GetState().Warehouse;
+        Assert.True(before.JarList.Count > 0, "用例前提：仓库里得有罐子");
+        Assert.Equal(before.Jars, before.JarList.Count);
+
+        var masterJarsBefore = sys.Workshops[0].Jars.Count;
+        sys.SetMasterIndex(0);
+        sys.Tick(1);
+
+        var after = sys.GetState().Warehouse;
+        var moved = sys.Workshops[0].Jars.Count - masterJarsBefore;
+
+        // 恒等式：仓库少了多少只 = 主台多了多少只（产线已关，没有新罐子补进来）。
+        Assert.True(moved > 0, "设了主台之后应当有罐子流进去");
+        Assert.Equal(before.JarList.Count - moved, after.Jars);
+        Assert.Equal(after.Jars, after.JarList.Count);
     }
 }

@@ -28,15 +28,11 @@ internal sealed class ProductionService
     {
         _system.ProducerModule.Tick(1);
         // S0（数据驱动）：按**词表**产出，不再写死 酒/蜜 两个名字。
-        // 液体仍然固定为 2 种（这是语义），这里去掉的只是"名字重复出现在逻辑里"。
-        // 顺序仍是词表顺序（酒 → 蜜），因此行为与重构前逐次相同。
-        foreach (var liquid in _system.Vocabulary.Liquids)
-        {
-            // P3b：强度修饰器可折减产出速率（整数千分比；无修饰器时恒等 ⇒ 行为不变）
-            var rate = _system.Modifiers.ApplyIntensity(
-                "liquid:" + liquid, _system.LiquidProductionRate.GetValueOrDefault(liquid));
-            if (rate > 0) _system.ProducerModule.Warehouse.ProduceLiquid(liquid, rate);
-        }
+        // 液体的产能现在是一个概念体（Production.LiquidProduction）：它自己攒累加器，
+        // 因此 0.5 份/tick = 两 tick 产一份，而且小数不靠浮点（千分之一定点）。
+        // 顺序 = 词表顺序 ⇒ 与重构前逐次相同（默认速率 1.0 时每 tick 恰好 1 份）。
+        foreach (var (liquid, amount) in _system.LiquidProduction.Tick())
+            _system.ProducerModule.Warehouse.ProduceLiquid(liquid, amount);
     }
 
     /// <summary>
@@ -63,7 +59,7 @@ internal sealed class ProductionService
     public void UpdateProducerRate(string name, string shape, double rate) =>
         _system.ProducerModule.UpdateRate(name, shape, rate);
 
-    public void UpdateLiquidProductionRate(string liquid, int rate)
+    public void UpdateLiquidProductionRate(string liquid, double rate)
     {
         // 注意：走 **Core**（不写日志）—— 会话日志由门面的 UpdateLiquidProductionRate 记一条即可，
         // 否则同一次宿主意图会被记两条（回放时日志越滚越长）。
