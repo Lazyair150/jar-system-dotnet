@@ -33,6 +33,40 @@
     if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: type, data: data || {} }));
   }
 
+  /* 阶段条：B 类订单的执行分三段（主台阶段 → 跨台转移 → 从台阶段）。
+     三段的**边界**不来自任何规则，而是内核 feasibilityResult 里自报的：
+     `masterPath.length`（主台段步数）、`transferJarIds` / `transferLiquids`（转移内容）、
+     `solverPath.length`（总步数）。页面只把这些数字画成颜色与文字。 */
+  function phaseStrip(feas, proc) {
+    if (!feas) return '';
+    var masterLen = (feas.masterPath || []).length;
+    var total = (feas.solverPath || []).length;
+    if (!masterLen || !total) return '';                 /* 没有主台段 ⇒ A 类或单段路径，不画 */
+    var slaveLen = Math.max(0, total - masterLen);
+    var cur = proc ? (proc.currentStep || 0) : 0;
+    var segs = [
+      { cls: 'ph-master', n: masterLen, label: '主台阶段 ' + masterLen + ' 步' },
+      { cls: 'ph-xfer', n: 0, label: '转移 ' + ((feas.transferJarIds || []).length) + ' 只罐' },
+      { cls: 'ph-slave', n: slaveLen, label: '从台阶段 ' + slaveLen + ' 步' }
+    ];
+    var done = Math.min(cur, masterLen);
+    var inSlave = cur > masterLen;
+    var html = '<div class="phases">';
+    segs.forEach(function (s) {
+      var on = s.cls === 'ph-master' ? (cur > 0 && !inSlave)
+        : (s.cls === 'ph-xfer' ? (cur >= masterLen && !inSlave && cur > 0)
+          : inSlave);
+      html += '<span class="ph ' + s.cls + (on ? ' on' : '') + '">' + esc(s.label) + '</span>';
+    });
+    html += '</div>';
+    var liq = Object.keys(feas.transferLiquids || {}).map(function (k) {
+      return k + '×' + feas.transferLiquids[k];
+    }).join('、');
+    html += '<div class="jars">' + (done ? '主台段已完成 ' + done + '/' + masterLen : '主台段未开始') +
+      (liq ? '；转移液体：' + esc(liq) : '') + '</div>';
+    return html;
+  }
+
   /* ---------------- 帧时间线 ---------------- */
   function renderFrames() {
     var el = $('frames');
@@ -110,6 +144,9 @@
         '<button data-act="start" data-id="' + esc(o.id) + '">开始</button>' +
         '<button data-act="delete" data-id="' + esc(o.id) + '">删除</button>' +
         '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        phaseStrip(feas, (st.processes || []).filter(function (p) {
+          return p.kind === 'order_execution' && p.subjectId === o.id;
+        })[0]) +
         (note ? '<div class="jars">' + esc(note) + '</div>' : '') + '</div>';
     }).join('') || '<div class="empty">没有订单（先点下面的「随机派单」）</div>';
 
