@@ -91,6 +91,7 @@ public static class WorldOps
     public const string CreateWorkshop = "createWorkshop";
     public const string CreateRandomWorkshop = "createRandomWorkshop";
     public const string UpdateWorkshopCapacity = "updateWorkshopCapacity";
+    public const string SetWorkshopCapability = "setWorkshopCapability";
     public const string SetMasterIndex = "setMasterIndex";
     public const string SetSlaveIndex = "setSlaveIndex";
     public const string SetMaster = "setMaster";

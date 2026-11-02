@@ -95,6 +95,17 @@ public sealed class CommandDispatcher
                 break;
             }
 
+            case "setWorkshopCapability":
+            {
+                var idx = JsonArgs.JI(dataEl, "index");
+                // 合法性由核心校验（WorkshopService.SetWorkshopCapability 抛 DomainValidationException）：
+                // 索引、词表、以及"新禁令会不会锁死池里已有的液体"三条都只有内核知道。
+                sys.SetWorkshopCapability(idx, JsonArgs.JL(dataEl, "baseMarks"),
+                    JsonArgs.JL(dataEl, "additionalMarks"), JsonArgs.JL(dataEl, "ban"));
+                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                break;
+            }
+
             case "setMaster":
             {
                 var newIdx = JsonArgs.JI(dataEl, "index");

@@ -633,6 +633,23 @@ public class JarSystem : Rules.IWorldFacts
         return result;
     }
 
+    /// <summary>
+    /// 更换工作台的能力参数（标记 / 禁令）。语义边界见
+    /// <see cref="Workshop.ReplaceCapability"/>：只换规则参数，不动罐子与游离液体。
+    ///
+    /// 为什么这个入口必须存在：`createWorkshop` 只能在装配期决定标记与禁令，
+    /// 之后玩家就没有任何办法"把这张卡换成另一种台子"。而"换台/换卡"是玩法的一部分
+    /// （demo 的关卡就是靠换台把禁令绕开）。它同时也是表达器的 B1：
+    /// 没有它，页面只能"复制现有卡片"，无法让玩家自由挑标记。
+    /// </summary>
+    public void SetWorkshopCapability(int index, List<string>? baseMarks = null,
+        List<string>? additionalMarks = null, List<string>? ban = null)
+    {
+        _workshopService.SetWorkshopCapability(index, baseMarks, additionalMarks, ban);
+        Record(WorldOps.SetWorkshopCapability, intA: index,
+            baseMarks: baseMarks, additionalMarks: additionalMarks, ban: ban);
+    }
+
     // ============================================================
     // 订单
     // ============================================================

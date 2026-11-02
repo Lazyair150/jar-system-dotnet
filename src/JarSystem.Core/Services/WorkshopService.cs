@@ -62,6 +62,46 @@ internal sealed class WorkshopService
             ids: _system.JarIds, vocabulary: _system.Vocabulary, modifiers: _system.Modifiers));
     }
 
+
+    /// <summary>
+    /// 更换工作台的能力参数（标记 / 禁令）—— 运行期"换一套规则"的唯一入口。
+    ///
+    /// 三条拒绝条件都是**世界自洽**的要求，不是输入校验：
+    /// ① 索引无效；
+    /// ② 标记或禁令不在词表内（世界只有这些形状与液体，写进去永远无法被满足）；
+    /// ③ **新禁令会锁死已在池中的液体** —— `IsBanned` 同时挡住 PourIn / PourOut / 空罐改形成本 /
+    ///    满罐自耗，池里存着该液体时它就再也倒不出来，世界当场违反 `BANNED-LIQUID-STORED`。
+    ///    所以先要求把池子腾空（倒进罐子、或换台），再改禁令。
+    ///
+    /// 只换规则参数，**不动**罐子与游离液体：资源搬迁是 `SetMaster` 切换事件的职责。
+    /// 换完允许存在"形状不在新标记里"的罐子 —— 标记约束的是操作合法性，不是存储合法性。
+    /// </summary>
+    public void SetWorkshopCapability(int index, List<string>? baseMarks, List<string>? additionalMarks, List<string>? ban)
+    {
+        var ws = _system.Workshops.ElementAtOrDefault(index);
+        if (ws == null) throw new DomainValidationException("无效工作台索引: " + index);
+
+        var baseList = baseMarks ?? new List<string>();
+        var addList = additionalMarks ?? new List<string>();
+        var banList = ban ?? new List<string>();
+
+        foreach (var s in baseList)
+            if (!_system.Vocabulary.IsValidShape(s)) throw new DomainValidationException("无效形状: " + s);
+        foreach (var s in addList)
+            if (!_system.Vocabulary.IsValidShape(s)) throw new DomainValidationException("无效形状: " + s);
+        foreach (var l in banList)
+            if (!_system.Vocabulary.IsValidLiquid(l)) throw new DomainValidationException("无效液体: " + l);
+
+        var stranded = new List<string>();
+        foreach (var l in banList)
+            if (ws.LiquidStorage.TryGetValue(l, out var n) && n > 0) stranded.Add(l + " ×" + n);
+        if (stranded.Count > 0)
+            throw new DomainValidationException(
+                "新禁令会锁死已在池中的液体（" + string.Join("、", stranded) + "）：先把它们倒空或换台再改");
+
+        ws.ReplaceCapability(new WorkshopCapability(baseList, addList, banList));
+    }
+
     /// <summary>调整工作台容量；溢出资源直接丢弃并计数（仓库单向流动，不回流中央仓库）。</summary>
     public object? UpdateWorkshopCapacity(int index, int? maxJars, int? maxLiquids)
     {
