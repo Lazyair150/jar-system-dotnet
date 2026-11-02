@@ -41,9 +41,8 @@ string[] ProtocolMessages =
 [
     "init", "state", "orderExecuted", "workshopSwitched", "feasibilityResult",
     "allFeasibilityResults", "autoCheckResults", "autoCheckChanged", "error", "world",
-    // P4：过程的五条消息（由 Web 壳的 ProcessObserver 发出；见 过程系统/00_Phase0_接口规格.md §3.3）
-    "processStarted", "processProgressed", "processBlocked", "processResumed", "processFinished"
-,
+    // S1：表现层帧（取代原 P4 的 5 条 process* —— 一份世界、一套词汇）
+    "frame",
     // P5：推进节奏变更回包
     "tickIntervalChanged"
 ];
@@ -65,13 +64,8 @@ string[] ProtocolMessages =
     ("feasibilityResult", ["orderId", "result"]),
     ("autoCheckChanged", ["enabled"]),
     ("error", ["message"]),
-    // P4：过程消息（由 ProcessObserver.cs 发出；键集合见 过程系统/00_Phase0_接口规格.md §3.3）
-    ("processStarted", ["id", "kind", "subject", "totalSteps", "deadlineTick"]),
-    ("processProgressed", ["id", "currentStep", "totalSteps", "tick"]),
-    ("processBlocked", ["id", "currentStep", "reason", "graceTicks"]),
-    ("processResumed", ["id", "currentStep", "tick"]),
-    ("processFinished", ["id", "outcome", "currentStep", "reason"])
-    ,
+    // S1：表现层帧（由 PresentationObserver.cs 转发核心 PresentationFeed 的帧）
+    ("frame", ["seq", "kind", "op", "subject", "subjectId", "tick", "revision"]),
     ("tickIntervalChanged", ["intervalMs"])
 ];
 
@@ -1931,14 +1925,14 @@ void CheckProtocol()
     var autoCheckService = ReadSource(Path.Combine("src", "JarSystem.Web", "AutoCheckBackgroundService.cs"));
     // P4：过程观察者也发消息（5 条过程消息）⇒ 把它的源码一并纳入名字与载荷键的扫描范围，
     // 否则"新消息名只活在它自己的文件里"就会绕开守卫（这正是守卫要防的漂移）。
-    var processObserver = ReadSource(Path.Combine("src", "JarSystem.Web", "ProcessObserver.cs"));
+    var presentationObserver = ReadSource(Path.Combine("src", "JarSystem.Web", "PresentationObserver.cs"));
 
     var commands = Matches(dispatcher, "case \"([A-Za-z]+)\":");
     var messages = Matches(dispatcher, "type = \"([A-Za-z]+)\"")
         .Concat(Matches(hub, "type = \"([A-Za-z]+)\""))
         .Concat(Matches(tickService, "type = \"([A-Za-z]+)\""))
         .Concat(Matches(autoCheckService, "type = \"([A-Za-z]+)\""))
-        .Concat(Matches(processObserver, "type = \"([A-Za-z]+)\""))
+        .Concat(Matches(presentationObserver, "type = \"([A-Za-z]+)\""))
         .ToList();
 
     int failures = 0;
@@ -1950,7 +1944,7 @@ void CheckProtocol()
     //   · JsonArgs.cs：通过 ParseReqs/JS/JI… 间接读的键（requirements 就在 ParseReqs 里）
     // 注意：错误信息保持**纯 ASCII** —— 它们会进日志并被 findstr 回显到 GBK 控制台，
     // 含中文会导致 findstr "写入错误"（真实踩过）。
-    var payloadSources = dispatcher + ReadSource(Path.Combine("src", "JarSystem.Web", "JsonArgs.cs")) + processObserver;
+    var payloadSources = dispatcher + ReadSource(Path.Combine("src", "JarSystem.Web", "JsonArgs.cs")) + presentationObserver;
     var payloadKeys = CommandPayloads.SelectMany(c => c.Fields.Select(f => f.Key)).Distinct().ToList();
     var unknownPayloadKeys = payloadKeys.Where(k => !payloadSources.Contains("\"" + k + "\"")).ToList();
     foreach (var k in unknownPayloadKeys)

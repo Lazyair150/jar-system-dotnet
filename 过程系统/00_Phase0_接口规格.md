@@ -97,6 +97,11 @@ PlanSource     = solver | greedy | mixed | manual      （**仅进 Journal，不
 
 ### 3.3 新增消息（服务端 → 客户端，冻结：5 条）
 
+> **状态：已被 S1 取代（2026-11）。** 这 5 条 `process*` 消息是宿主自己翻译的词汇表，
+> 现已由核心帧流的一条 `frame` 消息取代（`Presentation/PresentationFeed` +
+> `src/JarSystem.Web/PresentationObserver.cs`），`--check-protocol` 的期望集合同步为
+> `commands=21, messages=12`。本节保留作历史记录：它记录了"过程对外可见"这件事最初的形状。
+
 沿用既有 `{ "type": ..., "data": {...} }` 一元结构；键名全部 `[JsonPropertyName]` 钉死。
 
 | 消息 | 载荷键 |

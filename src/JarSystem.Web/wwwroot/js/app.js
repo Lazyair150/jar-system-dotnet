@@ -244,27 +244,12 @@ function handleMessage(event) {
       autoCheckEnabled = data.enabled;
       document.getElementById('btn-auto-check').textContent = autoCheckEnabled ? '⏹ 停止自检' : '🔍 自动检测';
       break;
-    // P4：过程消息（异步轨的生命周期）。数据本身已在 state.processes 里，
-    // 这里只需"记一笔 + 让界面刷新"——消息的价值是**时机**（比每 2 秒一次的 state 更及时）。
-    case 'processStarted':
-      log(`⏱ 过程 #${data.id} 开始：${data.subject}`, 'info');
-      scheduleUI();
-      break;
-    case 'processProgressed':
-      log(`⚙ 过程 #${data.id} 推进：${data.currentStep}/${data.totalSteps}（第 ${data.tick} 刻）`, 'info');
-      scheduleUI();
-      break;
-    case 'processBlocked':
-      log(`⛔ 过程 #${data.id} 被阻断：${data.reason}`, 'fail');
-      scheduleUI();
-      break;
-    case 'processResumed':
-      log(`▶ 过程 #${data.id} 恢复（第 ${data.tick} 刻）`, 'success');
-      scheduleUI();
-      break;
-    case 'processFinished':
-      log(`🏁 过程 #${data.id} 结束：${data.outcome}${data.reason ? '（' + data.reason + '）' : ''}`,
-        data.outcome === 'succeeded' ? 'success' : 'fail');
+    // S1：表现层帧（核心 PresentationFeed 的投影，取代原 P4 的 5 条 process* 消息）。
+    // 帧里只有引用（kind / op / subject / tick / revision），明细回查 state
+    // （state.processes / state.workshops / state.orders）。
+    case 'frame':
+      log(`⏱ 帧 #${data.seq} t${data.tick} r${data.revision} ${data.kind}:${data.op}` +
+        (data.subject ? `（${data.subject}${data.subjectId != null ? ' #' + data.subjectId : ''}）` : ''), 'info');
       scheduleUI();
       break;
     // P5：推进节奏（宿主侧时间参数）——只改"多久推一次"，不影响任何判定。

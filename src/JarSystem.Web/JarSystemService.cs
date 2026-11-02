@@ -27,11 +27,12 @@ public class JarSystemService
     public int TickIntervalMs { get; set; } = 2000;
 
     /// <param name="log">核心的可观测性出口（由宿主注入，见 <see cref="JarSystemHosting"/>）；null 时核心用默认控制台日志。</param>
-    /// <param name="observer">过程观察者（P4；null = 不通知表现层，行为与今天一致）。</param>
-    public JarSystemService(JarSystem.Core.Abstractions.ISystemLog? log = null, ProcessObserver? observer = null)
+    /// <param name="observer">表现层帧的推送器（S1；null = 不推送帧，行为与今天一致）。</param>
+    public JarSystemService(JarSystem.Core.Abstractions.ISystemLog? log = null, PresentationObserver? observer = null)
     {
         System = new JarSystem.Core.JarSystem(log: log, world: LoadWorldOrNull());
-        if (observer != null) System.Processes.Observer = observer;
+        // 订阅核心的帧流（`PresentationFeed`）：宿主只**转发**，不再自己定义一套词汇。
+        if (observer != null) System.Presentation.Subscribe(observer);
         LoadScenarioOrThrow();
     }
 
