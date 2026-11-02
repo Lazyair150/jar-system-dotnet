@@ -325,6 +325,83 @@ public class Workshop
         j.ClearLiquid(); AddLiquid(l); j.Mark(); return (true, null, l);
     }
 
+    // ============================================================
+    // 「这只罐子现在能改形成什么」的唯一说法（原则4 的第二笔欠账）
+    //
+    // 在这之前，这个问题的答案散在三处：
+    //   - 方向：WorkshopCapability.CanTransform（只答"形状上通不通"）；
+    //   - 成本：ReshapeEmpty 里 TryPayReshapeCost（空罐要付 1 份池中液体）；
+    //   - 自耗：ReshapeFull 里 ClearLiquid + CheckLiquid（满罐吃罐内液体，读法 B：也算"使用"）。
+    // 于是"能不能改形"没有单一入口：规则表、求解器、页面各自拼一遍，中文文案各写一份。
+    //
+    // 现在它是一次**请求-回应**：问工作台"这只罐子改成 to 行不行"，拿结构化回应。
+    // 执行仍然是 ReshapeEmpty / ReshapeFull 两个人的事（它们负责记账与打标记），
+    // 新入口只回答"行不行、为什么不行" —— 判定与执行分离，但判定只有一处。
+    // ============================================================
+
+    /// <summary>改形请求的回应（方向／标记／成本／禁令各有一个稳定码）。</summary>
+    public readonly struct ReshapeGrant
+    {
+        private ReshapeGrant(bool granted, string? code, string? reason)
+        {
+            Granted = granted; Code = code; Reason = reason;
+        }
+
+        /// <summary>能不能改。</summary>
+        public bool Granted { get; }
+
+        /// <summary>稳定码：<c>marked</c> / <c>direction</c> / <c>no-cost-liquid</c> / <c>banned</c> / <c>suppressed</c>。</summary>
+        public string? Code { get; }
+
+        /// <summary>人读理由（与执行者返回的文案逐字一致，免得同一个"不行"有五种说法）。</summary>
+        public string? Reason { get; }
+
+        internal static ReshapeGrant Yes() => new(true, null, null);
+        internal static ReshapeGrant No(string code, string? reason) => new(false, code, reason);
+    }
+
+    /// <summary>
+    /// 这只罐子此刻能不能改形成 <paramref name="to"/>。**不改世界**。
+    ///
+    /// 空罐：形状方向合法 + 池里至少有一份可取用的改形成本液体（具体付哪一种由执行者定，
+    /// 所以"成本被抑制"要到执行时才判，这里只回答"有没有得付"）。
+    /// 满罐：形状方向合法 + 罐内液体**可取用**（禁令挡自耗 —— 读法 B：自耗也算使用）。
+    /// </summary>
+    public ReshapeGrant CanReshapeTo(Jar jar, string to)
+    {
+        if (jar.IsMarked) return ReshapeGrant.No("marked", "罐子已被操作");
+        if (!CanTransform(jar.Shape, to))
+            return ReshapeGrant.No("direction", "无法从" + jar.Shape + "转化为" + to);
+
+        if (jar.IsEmpty())
+        {
+            foreach (var l in _liquidStorage.Keys)
+                if (HasUsableLiquid(l)) return ReshapeGrant.Yes();
+            return ReshapeGrant.No("no-cost-liquid", "没有可支付的改形成本液体");
+        }
+
+        // 顺序与 ReshapeFull 一致：先看抑制，再看禁令（这样同一个"不行"给出同一句话）。
+        if (_rules.SuppressionReason("RESHAPE", jar.Shape, jar.Liquid) is { } suppressed)
+            return ReshapeGrant.No("suppressed", suppressed);
+        var touch = CheckLiquid(jar.Liquid!);
+        if (!touch.Granted) return ReshapeGrant.No("banned", touch.Reason);
+        return ReshapeGrant.Yes();
+    }
+
+    /// <summary>
+    /// 这只罐子此刻能改形成的**全部形状**（方向 ∩ 标记 ∩ 成本 ∩ 禁令）。
+    ///
+    /// 候选来自 <see cref="WorkshopCapability.GetPossibleTransforms"/> —— 方向的唯一来源，
+    /// 所以"能改形成什么"不会与规则表说的那两个方向打架。
+    /// </summary>
+    public IReadOnlyList<string> ReshapeTargets(Jar jar)
+    {
+        var result = new List<string>();
+        foreach (var to in GetPossibleTransforms(jar.Shape))
+            if (CanReshapeTo(jar, to).Granted) result.Add(to);
+        return result;
+    }
+
     public (bool Success, string? Reason) ReshapeEmpty(Jar j, string to, string cost)
     {
         if (j.IsMarked) return (false, "罐子已被操作");
