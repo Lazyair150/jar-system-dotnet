@@ -18,6 +18,11 @@
   var frames = [];
   var sock = null;
   var lastState = null;
+  /* 每张订单各自一份可行性结论（key = 订单 id）。**页面不推导它**：只存内核给的答复。 */
+  var FEAS = {};
+  /* 「一回合」驱动的状态机：collect = 等可行性结果 → start = 已下单，等 tick → idle */
+  var autoState = 'idle';
+  var autoRound = 0;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -88,17 +93,24 @@
       var reqs = (o.requirements || []).map(function (r) {
         return esc(r.shape) + (r.liquid ? ':' + esc(r.liquid) : '');
       }).join(' + ');
-      var feas = o.feasibility || o.feasible;
-      var feasTxt = o.feasibility
-        ? (o.feasibility.feasible ? '可行' : (o.feasibility.undetermined ? '未判定' : '不可行'))
-        : '未分析';
+      var feas = FEAS[o.id] || o.feasibility || null;
+      var total = (o.requirements || []).length || 1;
+      var pct, feasTxt, note = '';
+      if (!feas) { pct = 0; feasTxt = '未分析'; }
+      else if (feas.feasible) { pct = 100; feasTxt = '可行（进度拉满）'; }
+      else {
+        pct = Math.max(0, Math.min(99, Math.round(100 * (feas.directCount || 0) / total)));
+        feasTxt = feas.undetermined ? '未判定' : '不可行';
+        note = feas.blockage || feas.reason || '';
+      }
       return '<div class="ord">#' + (i + 1) + '（id ' + esc(o.id) + '）[' + esc(o.type) + '] ' + reqs +
         ' <span class="tag">' + esc(o.status) + '</span>' +
         ' <span class="tag">' + esc(feasTxt) + '</span>' +
         '<button data-act="check" data-id="' + esc(o.id) + '">分析</button>' +
         '<button data-act="start" data-id="' + esc(o.id) + '">开始</button>' +
         '<button data-act="delete" data-id="' + esc(o.id) + '">删除</button>' +
-        (feas === undefined ? '' : '') + '</div>';
+        '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        (note ? '<div class="jars">' + esc(note) + '</div>' : '') + '</div>';
     }).join('') || '<div class="empty">没有订单（先点下面的「随机派单」）</div>';
 
     html += '<div class="ws" style="border-top:1px solid #2e2b24;margin-top:6px;padding-top:6px">' +
@@ -163,11 +175,19 @@
         return;
       }
       if (msg.type === 'state') { renderState(data); return; }
+      if (msg.type === 'allFeasibilityResults') {
+        (Array.isArray(data) ? data : []).forEach(function (x) { if (x && x.orderId != null) FEAS[x.orderId] = x.result; });
+        renderState(lastState);
+        if (autoState === 'collect') driveAutoRound();
+        return;
+      }
       if (msg.type === 'feasibilityResult') {
+        if (data.orderId != null) FEAS[data.orderId] = data.result;
         frames.push({ seq: '-', tick: '-', revision: '-', kind: 'note',
           op: '可行性 #' + (data.orderId) + ' → ' + (data.result && data.result.feasible ? '可行' : '不可行/未判定') +
               (data.result && data.result.reason ? '（' + data.result.reason + '）' : '') });
         renderFrames();
+        renderState(lastState);
         return;
       }
       if (msg.type === 'error') {
@@ -183,6 +203,34 @@
   }
 
   /* ---------------- 交互：点击 → 内核命令 ---------------- */
+  /* 「一回合」= 让内核先分析、把**当前完整可执行**的单都下下去，再推一刻，然后重新分析。
+     注意：页面只决定**什么时候问、问完发什么命令**；"谁能执行"完全来自 checkFeasibility 的答复。 */
+  function startAutoRound() {
+    if (autoState !== 'idle') return;
+    autoState = 'collect';
+    autoRound = 0;
+    send('checkAllFeasibility');
+  }
+
+  function driveAutoRound() {
+    autoState = 'idle';
+    var started = 0;
+    (lastState && lastState.orders ? lastState.orders : []).forEach(function (o) {
+      var f = FEAS[o.id];
+      if (!f || !f.feasible) return;
+      if (o.status === '执行中') return;            /* 内核状态词表：执行中（Constants.OrderStatus.EXECUTING） */
+      send('startOrder', { orderId: o.id });
+      started++;
+    });
+    frames.push({ seq: '-', tick: '-', revision: '-', kind: 'note',
+      op: '一回合：' + (started ? ('下 ' + started + ' 单') : '没有可完整执行的单') });
+    renderFrames();
+    if (!started) return;
+    send('manualTick');
+    autoRound++;
+    if (autoRound < 3) { autoState = 'collect'; setTimeout(function () { send('checkAllFeasibility'); }, 400); }
+  }
+
   document.addEventListener('click', function (ev) {
     var el = ev.target.closest('[data-act]');
     if (!el) return;
@@ -192,6 +240,7 @@
     if (act === 'random') { send('createRandomOrder'); return; }
     if (act === 'checkAll') { send('checkAllFeasibility'); return; }
     if (act === 'tick') { send('manualTick'); return; }
+    if (act === 'autoround') { startAutoRound(); return; }
     if (act === 'run') { send('startTick'); return; }
     if (act === 'pause') { send('stopTick'); return; }
     if (act === 'refresh') { send('getState'); pollInvariants(); return; }

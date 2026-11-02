@@ -48,6 +48,8 @@
   select { background:#26241d; color:var(--ink); border:1px solid var(--line); border-radius:6px;
            padding:2px 6px; font-size:12px; }
   .ord button { margin-left:6px; padding:1px 7px; font-size:11px; }
+  .bar { height:5px; background:#26241d; border-radius:3px; overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; background:#5aa86b; }
 </style>
 </head>
 <body>
@@ -68,6 +70,7 @@
     <div class="body" id="frames"><div class="empty">等待帧…</div></div>
     <div class="row">
       <button data-act="tick">推进 1 刻</button>
+      <button data-act="autoround">一回合（下所有可执行的单）</button>
       <button data-act="run">开始走时</button>
       <button data-act="pause">停时</button>
       <button data-act="refresh">刷新状态</button>
