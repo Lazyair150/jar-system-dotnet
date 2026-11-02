@@ -59,6 +59,7 @@
   ],
   "producerSlots": 0,
   "turnLimit": 0,
+  "goalOrders": 0,
   "workshops": [
     {
       "name": "\u7384\u6B66\u53F0",

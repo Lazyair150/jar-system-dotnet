@@ -288,6 +288,17 @@ public class JarSystem : Rules.IWorldFacts
     /// </summary>
     public TurnBudget Turns => new(World.TurnLimit, Processes.Clock.Tick);
 
+    /// <summary>已经成功交付的订单数（判胜的分子；失败与进行中的都不算）。</summary>
+    public int CompletedOrders => _orders.Count(o => o.Status == Config.Constants.OrderStatus.SUCCESS);
+
+    /// <summary>
+    /// **这一局的结局**（赢／输／还在打）。判据只有一处 —— <see cref="LevelGoal.Judge"/>：
+    /// 目标单数来自 <see cref="Config.WorldOptions.GoalOrders"/>，已用回合来自 <see cref="Turns"/>。
+    /// 页面只显示，不自己算"我赢了吗"。
+    /// </summary>
+    public LevelOutcome Outcome => LevelGoal.Judge(World.GoalOrders, CompletedOrders, Turns);
+
+
 
     /// <summary>
     /// **世界信息总线**：世界每次变化在这里发一条信号，关心它的模块从同一个地方收到。

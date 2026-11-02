@@ -508,6 +508,24 @@
             }
           },
           "additionalProperties": false
+        },
+        "level": {
+          "type": "object",
+          "properties": {
+            "goalOrders": {
+              "type": "integer"
+            },
+            "completedOrders": {
+              "type": "integer"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

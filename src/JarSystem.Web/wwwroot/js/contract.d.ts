@@ -13,6 +13,7 @@ interface StateDto {
   worldRevision?: number;
   processes?: ProcessStateDto[];
   turns?: { used?: number; limit?: number; exhausted?: boolean };
+  level?: { goalOrders?: number; completedOrders?: number; outcome?: string; reason?: string };
 }
 
 interface WorkshopStateDto {

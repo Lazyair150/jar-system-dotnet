@@ -16,6 +16,7 @@
   header #level { margin-left:auto; }
   header .stat + .stat { margin-left:12px; }
   header .stat.bad { color:#e0574c; font-weight:600; }
+  header .stat.good { color:#72c07d; font-weight:600; }
   .wrap { display:grid; grid-template-columns: 340px 1fr 320px; gap:12px; padding:12px 18px 24px; align-items:start; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   .panel h2 { font-size:12px; margin:0; padding:8px 10px; border-bottom:1px solid var(--line);
@@ -76,6 +77,7 @@
     世界不会自己走：配置、派单、分析都不推进时间，只有你按「推进一回合」世界才动。</span>
   <span class="stat" id="level">关卡 —</span>
   <span class="stat" id="turns">回合 —</span>
+  <span class="stat" id="goal">目标 —</span>
   <span class="stat" id="conn">连接中…</span>
 </header>
 <div class="hint" id="levelhint" style="padding:0 18px 10px"></div>

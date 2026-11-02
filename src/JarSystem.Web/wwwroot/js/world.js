@@ -87,15 +87,40 @@
   /* ---------------- 世界状态 + 命令面板 ---------------- */
   /* 回合预算：数字全部来自内核 getState 的 `turns`（used / limit / exhausted）。
      页面不数回合、不猜"还剩几个" —— 上限与是否用完都由内核判定，超限时内核直接拒绝推进。 */
+  /* 目标与结局：数字全部来自内核 getState 的 `level`（goalOrders / completedOrders / outcome）。
+     判胜只有内核算（`LevelGoal.Judge`），页面只显示结论 —— 界面算出来的"你赢了"
+     和内核算出来的必须永远是同一句话。 */
+  function renderGoal(st) {
+    var tag = $('goal');
+    if (!tag) return;
+    var lv = st && st.level;
+    if (!lv) { tag.textContent = '目标 —'; tag.className = 'stat'; return; }
+    if (!lv.goalOrders) { tag.textContent = '无目标（沙盒）'; tag.className = 'stat'; return; }
+    var tail = lv.outcome === 'won' ? ' · 本关通过' : lv.outcome === 'lost' ? ' · 本关失败' : '';
+    tag.textContent = '目标 ' + lv.completedOrders + ' / ' + lv.goalOrders + ' 单' + tail;
+    tag.className = 'stat' + (lv.outcome === 'won' ? ' good' : lv.outcome === 'lost' ? ' bad' : '');
+    if (lv.reason) tag.title = lv.reason;
+  }
+
   function renderTurns(st) {
     var tag = $('turns');
     if (!tag) return;
     var t = st && st.turns;
-    if (!t || !t.limit) { tag.textContent = '回合不限'; tag.className = 'stat'; return; }
+    var over = !!(st && st.level && st.level.outcome && st.level.outcome !== 'inProgress');
+    if (!t || !t.limit) {
+      tag.textContent = '回合不限';
+      tag.className = 'stat';
+      setAdvanceDisabled(over);
+      return;
+    }
     tag.textContent = '回合 ' + t.used + ' / ' + t.limit + (t.exhausted ? ' · 已用完（本关失败）' : '');
     tag.className = 'stat' + (t.exhausted ? ' bad' : '');
-    /* 用完了就把"推进"类按钮关掉：让"推不动"在按钮上就能看见，而不是点了才发现被拒。 */
-    var blocked = !!t.exhausted;
+    /* 用完了、或这一局已经结束，就把"推进"类按钮关掉：
+       让"推不动"在按钮上就能看见，而不是点了才发现被拒。 */
+    setAdvanceDisabled(t.exhausted || over);
+  }
+
+  function setAdvanceDisabled(blocked) {
     document.querySelectorAll('[data-act="tick"],[data-act="autoround"],[data-act="run"]').forEach(function (b) {
       b.disabled = blocked;
     });
@@ -104,6 +129,7 @@
   function renderState(st) {
     lastState = st;
     renderTurns(st);
+    renderGoal(st);
     var el = $('state');
     if (!st || !st.workshops) { el.innerHTML = '<div class="empty">没有状态</div>'; return; }
 

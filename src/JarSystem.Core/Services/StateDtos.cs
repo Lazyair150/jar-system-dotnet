@@ -43,6 +43,24 @@ public sealed class StateDto
     /// 由内核算好，客户端不推：一回合 = 一个 tick，`limit = 0` 表示这个世界没有上限。
     /// </summary>
     [JsonPropertyName("turns")] public TurnStateDto Turns { get; init; } = new();
+
+    /// <summary>
+    /// **一局的结局**（新增键）：目标单数、已完成单数、赢/输/进行中与理由。
+    /// 判据在内核（<c>LevelGoal.Judge</c>），客户端只显示 —— 界面算出来的"你赢了"
+    /// 与内核算出来的必须永远是同一句话。
+    /// </summary>
+    [JsonPropertyName("level")] public LevelStateDto Level { get; init; } = new();
+}
+
+/// <summary>一局的结局（4 键）：客户端不自己判胜。</summary>
+public sealed class LevelStateDto
+{
+    /// <summary>要做成几单算赢（0 = 无目标）。</summary>
+    [JsonPropertyName("goalOrders")] public int GoalOrders { get; init; }
+    [JsonPropertyName("completedOrders")] public int CompletedOrders { get; init; }
+    /// <summary>`inProgress` / `won` / `lost`（世界语言，直接显示）。</summary>
+    [JsonPropertyName("outcome")] public string Outcome { get; init; } = "inProgress";
+    [JsonPropertyName("reason")] public string Reason { get; init; } = "";
 }
 
 /// <summary>回合预算（3 键）：客户端只显示，不自己算"还剩几个"。</summary>

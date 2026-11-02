@@ -60,6 +60,18 @@ public sealed class WorldOptions
     /// </summary>
     [JsonPropertyName("turnLimit")] public int TurnLimit { get; set; }
 
+    /// <summary>
+    /// **目标订单数**（玩法规则，住内核）：这一局要做成几单算赢。
+    /// **默认 0 = 无目标**（出厂沙盒不判胜）——关卡的关卡文件把它写成 1 或更多
+    /// （见 <c>GameHost/LevelCatalog.cs</c>：关卡信封的 `goal` 就是这里的值）。
+    ///
+    /// 为什么不数"所有订单都完成了"：订单是玩家派出来的，场上可能一单都没有
+    /// （"全部完成"就会假成立）。判胜必须对着一个**作者给的目标**，
+    /// 否则空场开局第一帧就算赢。
+    /// </summary>
+    [JsonPropertyName("goalOrders")] public int GoalOrders { get; set; }
+
+
 
     /// <summary>工作台清单（装配顺序 = 列表顺序 ⇒ 主从下标与契约快照的顺序）。</summary>
     [JsonPropertyName("workshops")] public List<WorkshopOptions> Workshops { get; set; } = new();
@@ -126,6 +138,7 @@ public sealed class WorldOptions
         if (DefaultMaxJars <= 0) r.Errors.Add("defaultMaxJars 必须为正数");
         if (DefaultMaxLiquids <= 0) r.Errors.Add("defaultMaxLiquids 必须为正数");
         if (TurnLimit < 0) r.Errors.Add("turnLimit 不能为负（0 表示不限）");
+        if (GoalOrders < 0) r.Errors.Add("goalOrders 不能为负（0 表示无目标）");
         if (Flow.JarCount < 0) r.Errors.Add("flow.jarCount 不能为负");
         if (Flow.LiquidAmount < 0) r.Errors.Add("flow.liquidAmount 不能为负");
         foreach (var kv in Flow.LiquidRate)

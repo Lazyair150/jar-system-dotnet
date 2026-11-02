@@ -227,3 +227,7 @@ state.processes = <empty>
 state.turns.used = 3
 state.turns.limit = 0
 state.turns.exhausted = False
+state.level.goalOrders = 0
+state.level.completedOrders = 1
+state.level.outcome = inProgress
+state.level.reason = 

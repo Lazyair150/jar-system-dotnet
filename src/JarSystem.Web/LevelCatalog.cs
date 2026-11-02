@@ -79,8 +79,22 @@ public static class LevelCatalog
         if (turns <= 0)
             throw new InvalidOperationException("关卡 " + file + " 缺少正的 turns（这一关要几回合内完成）");
 
+        // **目标单数也只有一个来源**：关卡信封上的 goal（做成几单算赢）。
+        var goal = root.TryGetProperty("goal", out var g) && g.ValueKind == JsonValueKind.Number
+            ? g.GetInt32()
+            : 0;
+
+        if (goal <= 0)
+            throw new InvalidOperationException(
+                "关卡 " + file + " 缺少正的 goal（这一关要做成几单算赢；没有目标就永远判不了胜）");
+
         if (!root.TryGetProperty("world", out var worldEl) || worldEl.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException("关卡 " + file + " 缺少 world 对象（应与 config/world.json 同构）");
+
+        // 目标单数与回合上限一样，只许写在信封上：world 块里再写一遍，两边立刻会漂移。
+        if (worldEl.TryGetProperty("goalOrders", out _))
+            throw new InvalidOperationException(
+                "关卡 " + file + " 的 world 块里不要写 goalOrders：目标单数只写在信封的 goal 上");
 
         var world = WorldOptionsJson.FromJson(worldEl.GetRawText());
 
@@ -88,6 +102,9 @@ public static class LevelCatalog
         // 世界里也允许有 turnLimit（自由世界用），但关卡文件不让作者写两遍 ——
         // 写了两份的第一天就开始漂移，而"最多几回合"是这一关的难度本身。
         world.TurnLimit = turns;
+
+        // 目标单数同理：信封给，内核的 WorldOptions.GoalOrders 只是它的落点。
+        world.GoalOrders = goal;
 
         var report = world.Validate();
         foreach (var warning in report.Warnings) Console.Error.WriteLine("[level] warning: " + warning);

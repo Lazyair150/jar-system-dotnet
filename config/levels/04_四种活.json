@@ -1,7 +1,8 @@
 {
   "name": "第四关 · 四种活",
   "hint": "改形的方向由标记决定：基础→其它基础、基础→附加都可以，附加→基础（退回）也可以，但附加不能直接跳到另一个附加。这一关把四种活都摆上：照用、灌液、空罐改形（付池中液体）、满罐自耗改形。",
-  "turns": 14,
+  "turns": 11,
+  "goal": 1,
   "world": {
     "shapes": ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"],
     "liquids": ["酒", "蜜"],
@@ -20,7 +21,7 @@
       { "name": "玄武台", "baseMarks": ["圆罐", "方罐"], "additionalMarks": ["三角罐"], "ban": ["酒"] },
       { "name": "朱雀台", "baseMarks": ["高罐"], "additionalMarks": ["长罐"], "ban": ["酒"] },
       { "name": "青龙台", "baseMarks": ["三角罐", "长罐"], "additionalMarks": ["扁罐"], "ban": ["蜜"] },
-      { "name": "白虎台", "baseMarks": ["扁罐", "鼓罐"], "additionalMarks": ["尖罐"], "ban": ["酒"] }
+      { "name": "白虎台", "baseMarks": ["扁罐", "鼓罐"], "additionalMarks": ["尖罐"], "ban": ["蜜"] }
     ],
     "orderTemplates": [
       { "name": "三件套", "type": "A", "requirements": [{ "shape": "尖罐", "liquid": null }, { "shape": "扁罐", "liquid": null }, { "shape": "鼓罐", "liquid": "酒" }] },

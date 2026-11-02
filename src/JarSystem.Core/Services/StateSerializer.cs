@@ -91,6 +91,15 @@ internal static class StateSerializer
             Used = system.Turns.Used,
             Limit = system.Turns.Limit,
             Exhausted = system.Turns.IsExhausted
+        },
+
+        // 一局的结局：判据在内核（LevelGoal.Judge），这里只搬结论。
+        Level = new LevelStateDto
+        {
+            GoalOrders = system.World.GoalOrders,
+            CompletedOrders = system.CompletedOrders,
+            Outcome = system.Outcome.Name,
+            Reason = system.Outcome.Reason
         }
     };
 
