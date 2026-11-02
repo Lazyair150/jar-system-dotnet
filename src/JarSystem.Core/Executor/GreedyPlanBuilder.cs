@@ -51,7 +51,8 @@ internal sealed class GreedyPlanBuilder
         var emp = FindJar(w.Jars, j => j.Shape == s && j.IsEmpty() && !j.IsMarked);
         if (emp != null)
         {
-            if (w.IsBanned(lq)) return (false, null, "工作台禁" + lq);
+            var grant = w.Liquid.Check(lq);
+            if (!grant.Granted) return (false, null, grant.Reason);
             if (w.LiquidStorage.GetValueOrDefault(lq) < 1) return (false, null, "液体" + lq + "不足");
             var cr = ev.ExecuteCommand(new PourInCommand(emp, lq), w);
             if (cr.Success) return (true, new ExecutionLogEntry { Phase = loc, Action = "pourIn", Jar = emp.GetDescription(), Liquid = lq }, null);
@@ -60,8 +61,8 @@ internal sealed class GreedyPlanBuilder
 
         if (w.LiquidStorage.GetValueOrDefault(lq) < 1)
         {
-            var sf = FindJar(w.Jars, j => j.Liquid == lq && !j.IsMarked && !w.IsBanned(lq));
-            if (sf != null && w.LiquidStorage.GetValueOrDefault(lq) < w.MaxLiquids)
+            var sf = FindJar(w.Jars, j => j.Liquid == lq && !j.IsMarked && !w.Liquid.IsBanned(lq));
+            if (sf != null && w.Liquid.CanStore(lq, 1, w.LiquidStorage.GetValueOrDefault(lq)).Granted)
             {
                 var r = ev.ExecuteCommand(new PourOutCommand(sf, w), w);
                 if (r.Success) return TryFull(req, w, loc, ev);
@@ -80,14 +81,14 @@ internal sealed class GreedyPlanBuilder
         var sr = FindJar(w.Jars, j => j.IsEmpty() && !j.IsMarked && w.CanTransform(j.Shape, s));
         if (sr != null)
         {
-            var cl = Constants.LIQUIDS.FirstOrDefault(l => !w.IsBanned(l) && w.LiquidStorage.GetValueOrDefault(l) >= 1);
+            var cl = Constants.LIQUIDS.FirstOrDefault(l => w.Liquid.CanPay(l, 1, w.LiquidStorage.GetValueOrDefault(l)).Granted);
             if (cl != null)
             {
                 var cr = ev.ExecuteCommand(new ReshapeEmptyCommand(sr, s, cl), w);
                 if (cr.Success) return (true, new ExecutionLogEntry { Phase = loc, Action = "reshape", Jar = sr.GetDescription(), Liquid = s }, null);
                 return (false, null, cr.Reason);
             }
-            var sf = FindJar(w.Jars, j => j.Liquid != null && !j.IsMarked && !w.IsBanned(j.Liquid) && w.LiquidStorage.GetValueOrDefault(j.Liquid) < w.MaxLiquids);
+            var sf = FindJar(w.Jars, j => j.Liquid != null && !j.IsMarked && !w.Liquid.IsBanned(j.Liquid) && w.Liquid.CanStore(j.Liquid!, 1, w.LiquidStorage.GetValueOrDefault(j.Liquid!)).Granted);
             if (sf != null)
             {
                 var r = ev.ExecuteCommand(new PourOutCommand(sf, w), w);
@@ -95,7 +96,7 @@ internal sealed class GreedyPlanBuilder
             }
         }
 
-        var fs = FindJar(w.Jars, j => j.Liquid != null && !j.IsMarked && !w.IsBanned(j.Liquid) && w.CanTransform(j.Shape, s));
+        var fs = FindJar(w.Jars, j => j.Liquid != null && !j.IsMarked && !w.Liquid.IsBanned(j.Liquid) && w.CanTransform(j.Shape, s));
         if (fs != null)
         {
             var rr = w.ReshapeFull(fs, s);
@@ -105,7 +106,7 @@ internal sealed class GreedyPlanBuilder
         // 就简原则: only pour out from full jars when no free liquid is available
         if (!HasFreeLiquid(w))
         {
-            var pa = FindJar(w.Jars, j => j.Liquid != null && !j.IsMarked && !w.IsBanned(j.Liquid) && w.LiquidStorage.GetValueOrDefault(j.Liquid) < w.MaxLiquids);
+            var pa = FindJar(w.Jars, j => j.Liquid != null && !j.IsMarked && !w.Liquid.IsBanned(j.Liquid) && w.Liquid.CanStore(j.Liquid!, 1, w.LiquidStorage.GetValueOrDefault(j.Liquid!)).Granted);
             if (pa != null)
             {
                 var r = ev.ExecuteCommand(new PourOutCommand(pa, w), w);

@@ -170,49 +170,19 @@ public class Workshop
     // 调用方不再需要知道实现是"字典 + 上限 + 禁令表"，只需要读 return。
     // ============================================================
 
-    /// <summary>动用什么液体（能力查询结果）。<see cref="Code"/> 是稳定码，<see cref="Reason"/> 是给人看的话。</summary>
-    public readonly struct LiquidGrant
-    {
-        internal LiquidGrant(bool granted, string? code, string? reason)
-        {
-            Granted = granted; Code = code; Reason = reason;
-        }
-
-        public bool Granted { get; }
-        /// <summary>banned / insufficient / over-capacity / (null = 允许)</summary>
-        public string? Code { get; }
-        public string? Reason { get; }
-
-        public static LiquidGrant Yes() => new(true, null, null);
-    }
+    /// <summary>本台的液体规则纯值（禁令 + 每液容量）。规则在 <see cref="LiquidRules"/>，库存仍在本类里。</summary>
+    public LiquidRules Liquid => new(_capability, MaxLiquids);
 
     /// <summary>能不能碰这种液体（禁令门）。**禁令不是"存储上限"，是"这整种液体在本台不可用"**。</summary>
-    public LiquidGrant CheckLiquid(string liquid) =>
-        IsBanned(liquid) ? new LiquidGrant(false, "banned", "工作台禁" + liquid) : LiquidGrant.Yes();
+    public LiquidGrant CheckLiquid(string liquid) => Liquid.Check(liquid);
 
     /// <summary>能不能从池子里取出 amount 份（禁令 + 库存）。倒液、付改形成本都走这里。</summary>
-    public LiquidGrant CanUseLiquid(string liquid, int amount)
-    {
-        var touch = CheckLiquid(liquid);
-        if (!touch.Granted) return touch;
-        if (amount <= 0) return LiquidGrant.Yes();
-        var have = _liquidStorage.GetValueOrDefault(liquid);
-        return have >= amount
-            ? LiquidGrant.Yes()
-            : new LiquidGrant(false, "insufficient", "液体" + liquid + "不足");
-    }
+    public LiquidGrant CanUseLiquid(string liquid, int amount) =>
+        Liquid.CanPay(liquid, amount, _liquidStorage.GetValueOrDefault(liquid));
 
     /// <summary>能不能往池子里放 amount 份（禁令 + 容量）。仓库流入、倒空回池都走这里。</summary>
-    public LiquidGrant CanStoreLiquid(string liquid, int amount)
-    {
-        var touch = CheckLiquid(liquid);
-        if (!touch.Granted) return touch;
-        if (amount <= 0) return LiquidGrant.Yes();
-        var have = _liquidStorage.GetValueOrDefault(liquid);
-        return have + amount <= MaxLiquids
-            ? LiquidGrant.Yes()
-            : new LiquidGrant(false, "over-capacity", "液体" + liquid + "存储已满");
-    }
+    public LiquidGrant CanStoreLiquid(string liquid, int amount) =>
+        Liquid.CanStore(liquid, amount, _liquidStorage.GetValueOrDefault(liquid));
 
     /// <summary>是否有可用（未被禁且有库存）的游离液体。</summary>
     public bool HasUsableLiquid(string l) => CanUseLiquid(l, 1).Granted;

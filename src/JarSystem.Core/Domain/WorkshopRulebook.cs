@@ -115,6 +115,9 @@ public static class WorkshopRulebook
     public static bool IsAllowed(RuleContext rules, int maxLiquids, in JarFacts jar,
         in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids)
     {
+        // 液体规则只有一份：禁令 + 容量。以前这里和 Workshop / GreedyPlanBuilder 各自拼一遍。
+        var liquidRules = new LiquidRules(rules.Capability, maxLiquids);
+
         // 四个执行方法共同的第二道门（第一道是"罐子存在"）：已被操作过的罐子一律不能再动
         // （"一罐一操作"就是靠它落地的，见 Workshop.cs 各方法的首行）
         if (jar.IsMarked) return false;
@@ -127,18 +130,16 @@ public static class WorkshopRulebook
                 if (liquid == null) return false;
                 if (jar.Liquid != null) return false;                       // 罐子必须为空
                 if (!rules.IsBaseMarked(jar.Shape)) return false;           // 形状必须是本台基础标记
-                if (rules.IsBanned(liquid)) return false;
                 if (rules.SuppressionReason("POUR_IN", jar.Shape, liquid) != null) return false;
-                return Count(liquids, liquid) >= 1;                         // 游离液体够付
+                return liquidRules.CanPay(liquid, 1, Count(liquids, liquid)).Granted;   // 禁令 + 游离液体够付
             }
 
             case WorkshopOperationKind.PourOut:
             {
                 var liquid = jar.Liquid;
                 if (liquid == null) return false;                           // 罐子必须为满
-                if (rules.IsBanned(liquid)) return false;
                 if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) != null) return false;
-                return Count(liquids, liquid) < maxLiquids;                 // 该液体自己的存储没满
+                return liquidRules.CanStore(liquid, 1, Count(liquids, liquid)).Granted;  // 禁令 + 该液体自己的存储没满
             }
 
             case WorkshopOperationKind.ReshapeEmpty:
@@ -149,8 +150,7 @@ public static class WorkshopRulebook
                 if (jar.Liquid != null) return false;                       // 必须为空罐
                 if (!rules.CanTransform(jar.Shape, target)) return false;
                 if (rules.SuppressionReason("RESHAPE", jar.Shape, cost) != null) return false;
-                if (rules.IsBanned(cost)) return false;                     // 被禁液体不能当成本
-                return Count(liquids, cost) >= 1;
+                return liquidRules.CanPay(cost, 1, Count(liquids, cost)).Granted;      // 禁令 + 成本够付
             }
 
             case WorkshopOperationKind.ReshapeFull:
@@ -163,7 +163,7 @@ public static class WorkshopRulebook
                 if (rules.SuppressionReason("RESHAPE", jar.Shape, liquid) != null) return false;
                 // 罐内液体被禁 ⇒ 改形会"把被禁液体凭空消化掉"，因此整条拒绝
                 // （Workshop.ReshapeFull 是把液体取出来发现被禁再回滚，结果同样是失败）
-                return !rules.IsBanned(liquid);
+                return !liquidRules.IsBanned(liquid);
             }
 
             default:
