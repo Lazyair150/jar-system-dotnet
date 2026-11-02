@@ -115,8 +115,10 @@ public static class WorkshopRulebook
     public static bool IsAllowed(RuleContext rules, int maxLiquids, in JarFacts jar,
         in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids)
     {
-        // 液体规则只有一份：禁令 + 容量。以前这里和 Workshop / GreedyPlanBuilder 各自拼一遍。
+        // 液体与改形的规则各只有一份：LiquidRules / ReshapeRules。
+        // 以前这里和 Workshop / GreedyPlanBuilder 各自拼一遍（改动一处分家三处）。
         var liquidRules = new LiquidRules(rules.Capability, maxLiquids);
+        var reshapeRules = new ReshapeRules(rules.Capability, liquidRules);
 
         // 四个执行方法共同的第二道门（第一道是"罐子存在"）：已被操作过的罐子一律不能再动
         // （"一罐一操作"就是靠它落地的，见 Workshop.cs 各方法的首行）
@@ -152,9 +154,9 @@ public static class WorkshopRulebook
                 var cost = op.CostLiquid;
                 if (target == null || cost == null) return false;
                 if (jar.Liquid != null) return false;                       // 必须为空罐
-                if (!rules.CanTransform(jar.Shape, target)) return false;
+                if (!reshapeRules.CanTransform(jar.Shape, target)) return false;
                 if (rules.SuppressionReason("RESHAPE", jar.Shape, cost) != null) return false;
-                return liquidRules.CanPay(cost, 1, Count(liquids, cost)).Granted;      // 禁令 + 成本够付
+                return reshapeRules.PayCost(cost, liquids).Granted;               // 禁令 + 成本够付
             }
 
             case WorkshopOperationKind.ReshapeFull:
@@ -163,11 +165,11 @@ public static class WorkshopRulebook
                 if (target == null) return false;
                 var liquid = jar.Liquid;
                 if (liquid == null) return false;                           // 必须为满罐
-                if (!rules.CanTransform(jar.Shape, target)) return false;
+                if (!reshapeRules.CanTransform(jar.Shape, target)) return false;
                 if (rules.SuppressionReason("RESHAPE", jar.Shape, liquid) != null) return false;
                 // 罐内液体被禁 ⇒ 改形会"把被禁液体凭空消化掉"，因此整条拒绝
-                // （Workshop.ReshapeFull 是把液体取出来发现被禁再回滚，结果同样是失败）
-                return !liquidRules.IsBanned(liquid);
+                // （执行侧是把液体取出来发现被禁再回滚，结果同样是失败）
+                return reshapeRules.SelfConsume(liquid).Granted;
             }
 
             default:

@@ -335,30 +335,9 @@ public class Workshop
     // 于是"能不能改形"没有单一入口：规则表、求解器、页面各自拼一遍，中文文案各写一份。
     //
     // 现在它是一次**请求-回应**：问工作台"这只罐子改成 to 行不行"，拿结构化回应。
-    // 执行仍然是 ReshapeEmpty / ReshapeFull 两个人的事（它们负责记账与打标记），
-    // 新入口只回答"行不行、为什么不行" —— 判定与执行分离，但判定只有一处。
+    // 规则本身现在住在 ReshapeRules（纯值），活工作台与规则表问同一份实现。
+    // 这里仍是**只读询问**：不改世界，只回答"行不行、为什么不行"；动手请走 TryReshape。
     // ============================================================
-
-    /// <summary>改形请求的回应（方向／标记／成本／禁令各有一个稳定码）。</summary>
-    public readonly struct ReshapeGrant
-    {
-        private ReshapeGrant(bool granted, string? code, string? reason)
-        {
-            Granted = granted; Code = code; Reason = reason;
-        }
-
-        /// <summary>能不能改。</summary>
-        public bool Granted { get; }
-
-        /// <summary>稳定码：<c>marked</c> / <c>direction</c> / <c>no-cost-liquid</c> / <c>banned</c> / <c>suppressed</c>。</summary>
-        public string? Code { get; }
-
-        /// <summary>人读理由（与执行者返回的文案逐字一致，免得同一个"不行"有五种说法）。</summary>
-        public string? Reason { get; }
-
-        internal static ReshapeGrant Yes() => new(true, null, null);
-        internal static ReshapeGrant No(string code, string? reason) => new(false, code, reason);
-    }
 
     /// <summary>
     /// 这只罐子此刻能不能改形成 <paramref name="to"/>。**不改世界**。
@@ -373,19 +352,15 @@ public class Workshop
         if (!CanTransform(jar.Shape, to))
             return ReshapeGrant.No("direction", "无法从" + jar.Shape + "转化为" + to);
 
-        if (jar.IsEmpty())
-        {
-            foreach (var l in _liquidStorage.Keys)
-                if (HasUsableLiquid(l)) return ReshapeGrant.Yes();
-            return ReshapeGrant.No("no-cost-liquid", "没有可支付的改形成本液体");
-        }
+        // 规则都在 ReshapeRules 里（与规则表同一份实现），这里只负责"按执行者的顺序问一遍"。
+        var reshape = new ReshapeRules(_capability, Liquid);
+
+        if (jar.IsEmpty()) return reshape.PayCost(null, _liquidStorage);
 
         // 顺序与 ReshapeFull 一致：先看抑制，再看禁令（这样同一个"不行"给出同一句话）。
         if (_rules.SuppressionReason("RESHAPE", jar.Shape, jar.Liquid) is { } suppressed)
             return ReshapeGrant.No("suppressed", suppressed);
-        var touch = CheckLiquid(jar.Liquid!);
-        if (!touch.Granted) return ReshapeGrant.No("banned", touch.Reason);
-        return ReshapeGrant.Yes();
+        return reshape.SelfConsume(jar.Liquid);
     }
 
     /// <summary>
