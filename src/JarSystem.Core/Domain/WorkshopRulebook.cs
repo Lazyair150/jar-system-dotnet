@@ -139,7 +139,11 @@ public static class WorkshopRulebook
                 var liquid = jar.Liquid;
                 if (liquid == null) return false;                           // 罐子必须为满
                 if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) != null) return false;
-                return liquidRules.CanStore(liquid, 1, Count(liquids, liquid)).Granted;  // 禁令 + 该液体自己的存储没满
+                // 倒出要**两问**：①这种液体在本台能不能取用（禁令）；②池子里这一格还放不放得下（容量）。
+                // 2026-11 起 CanStore 只答后者（存储不再受禁令约束），所以禁令必须在这里显式问一次 ——
+                // 否则"被禁的酒能倒出"会变成规则表的错误承诺（差分对拍当场抓到了这一条）。
+                if (!liquidRules.Check(liquid).Granted) return false;
+                return liquidRules.CanStore(liquid, 1, Count(liquids, liquid)).Granted;
             }
 
             case WorkshopOperationKind.ReshapeEmpty:

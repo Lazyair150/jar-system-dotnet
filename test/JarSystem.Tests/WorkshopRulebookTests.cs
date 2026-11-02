@@ -59,9 +59,9 @@ public class WorkshopRulebookTests
         Assert.True(w.AddJar(jar), "罐子放不进工作台（罐位不足？）");
         foreach (var (l, n) in storage)
         {
-            // 被禁液体本来就不该进账目：AddLiquid 会拒收，这里断言这个拒收确实发生
-            var accepted = w.AddLiquid(l, n);
-            Assert.Equal(!w.IsBanned(l), accepted);
+            // 2026-11 起**禁液也能存进来**（禁令只约束取用，不约束存储）。这里只需要"存得下就存进去"；
+            // 存不下的情形由 CanStore 自己拦住，不是本组测试的关注点。
+            Assert.True(w.AddLiquid(l, n), "液体存不进工作台（容量不足？）");
         }
         return w;
     }

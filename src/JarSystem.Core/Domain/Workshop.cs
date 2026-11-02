@@ -173,14 +173,15 @@ public class Workshop
     /// <summary>本台的液体规则纯值（禁令 + 每液容量）。规则在 <see cref="LiquidRules"/>，库存仍在本类里。</summary>
     public LiquidRules Liquid => new(_capability, MaxLiquids);
 
-    /// <summary>能不能碰这种液体（禁令门）。**禁令不是"存储上限"，是"这整种液体在本台不可用"**。</summary>
+    /// <summary>能不能<strong>取用</strong>这种液体（禁令门）。**禁令不是"存储上限"：禁液能存进来、能随罐子转移，
+    /// 但倒不出、付不了改形成本、满罐自耗也不行**。</summary>
     public LiquidGrant CheckLiquid(string liquid) => Liquid.Check(liquid);
 
     /// <summary>能不能从池子里取出 amount 份（禁令 + 库存）。倒液、付改形成本都走这里。</summary>
     public LiquidGrant CanUseLiquid(string liquid, int amount) =>
         Liquid.CanPay(liquid, amount, _liquidStorage.GetValueOrDefault(liquid));
 
-    /// <summary>能不能往池子里放 amount 份（禁令 + 容量）。仓库流入、倒空回池都走这里。</summary>
+    /// <summary>能不能往池子里放 amount 份（**只问容量**：存储不受禁令约束）。仓库流入、倒空回池都走这里。</summary>
     public LiquidGrant CanStoreLiquid(string liquid, int amount) =>
         Liquid.CanStore(liquid, amount, _liquidStorage.GetValueOrDefault(liquid));
 
@@ -197,7 +198,7 @@ public class Workshop
 
     public bool AddLiquid(string l, int n = 1)
     {
-        if (!CanStoreLiquid(l, n).Granted) return false;   /* 禁令 + 容量：唯一说法在上面 */
+        if (!CanStoreLiquid(l, n).Granted) return false;   /* 容量：唯一说法在上面（禁令只约束取用） */
         _liquidStorage[l] = _liquidStorage.GetValueOrDefault(l) + n;
         return true;
     }
@@ -210,13 +211,14 @@ public class Workshop
         return true;
     }
 
-    /// <summary>容量感知地接收液体：返回实际接收量（被禁液体或容量已满一律拒收，不做部分接收之外的补偿）。</summary>
+    /// <summary>容量感知地接收液体：返回实际接收量（容量已满则部分接收，装不下的由调用方丢弃并计数）。</summary>
     public int TryReceiveLiquid(string l, int amount)
     {
-        // 只问禁令，**不问容量**：接收语义是"能装多少装多少"，装不下的由调用方丢弃并计数
+        // **只问容量，不问禁令**：接收语义是"能装多少装多少"，装不下的由调用方丢弃并计数
         // （规则.txt「中央仓库单向流动」：溢出直接丢弃，不回收）。用 CanStoreLiquid 会变成"全有或全无"，
         // 那会把部分接收这件事从世界里抹掉 —— 既有测试当场抓到了。
-        if (amount <= 0 || !CheckLiquid(l).Granted) return 0;
+        // 禁令不在这一层拦：被禁液体也能流进来（那一格仍然存在），只是之后取不出来（见 CheckLiquid）。
+        if (amount <= 0) return 0;
         var cur = _liquidStorage.GetValueOrDefault(l);
         var accepted = Math.Min(amount, Math.Max(0, MaxLiquids - cur));
         if (accepted <= 0) return 0;

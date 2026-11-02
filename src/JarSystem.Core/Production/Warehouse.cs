@@ -102,7 +102,8 @@ public sealed class Warehouse
     public int LiquidCount(string liquid) => _liquidWarehouse.GetValueOrDefault(liquid, 0);
 
     /// <summary>
-    /// 仓库 → 主台流入：罐子优先给"主台基础形状"（带主台容量检查），液体按主台的禁令与容量**部分填充**。
+    /// 仓库 → 主台流入：罐子优先给"主台基础形状"（带主台容量检查），液体按主台的**容量**部分填充
+    /// （被禁的液体同样会流入 —— 那一格仍然存在，只是取不出来）。
     /// 返回本次实际流入的罐子与液体（与抽取前逐字一致）。
     /// </summary>
     public (List<Jar> Jars, Dictionary<string, int> Liquids) FlowToMaster(
@@ -130,7 +131,7 @@ public sealed class Warehouse
             }
         }
 
-        // 2. 液体转移（禁令与容量由工作台的意图方法统一裁决）
+        // 2. 液体转移（容量由工作台的意图方法裁决；禁令只约束取用，不约束存储）
         var transferredLiquids = new Dictionary<string, int>();
         foreach (var kv in _liquidWarehouse.ToList())
         {

@@ -12,7 +12,7 @@ namespace JarSystem.Tests;
 /// 求解器是静态/纯值的，拿不到活的 Workshop。过去它们各自拼 "禁令 + 数量 + 上限"，
 /// 同一条规则五六个说法。现在规则收敛成这个纯函数：**禁令在构造时给，账目由调用方传**。
 ///
-/// 本组测试钉它的三件性质：①禁令压过其余一切；②容量 &lt;= 0 表示不限；
+/// 本组测试钉它的三件性质：①禁令压过**取用**侧的一切（但不影响存储侧）；②容量 &lt;= 0 表示不限；
 /// ③它和活的工作台给出**同一批结论**（否则"只有一个说法"就只是口号）。
 /// </summary>
 public class LiquidRulesTests
@@ -32,12 +32,22 @@ public class LiquidRulesTests
     }
 
     [Fact]
-    public void BanOutranksStockAndCapacity()
+    public void BanOutranksStockOnTheUseSide()
     {
         var rules = new LiquidRules(Cap(new List<string> { "酒" }), capacity: 2);
         Assert.Equal("banned", rules.CanPay("酒", 1, 0).Code);
-        Assert.Equal("banned", rules.CanStore("酒", 1, 99).Code);
+        Assert.Equal("banned", rules.CanPay("酒", 1, 99).Code);   // 库存再多也取不出来
         Assert.Equal("工作台禁酒", rules.CanPay("酒", 1, 0).Reason);
+    }
+
+    [Fact]
+    public void BanDoesNotAffectTheStorageSide()
+    {
+        // 存储只问容量：被禁的液体能进来、能留着，只是取不出来（2026-11 语义）。
+        var rules = new LiquidRules(Cap(new List<string> { "酒" }), capacity: 2);
+        Assert.True(rules.CanStore("酒", 1, 0).Granted);
+        Assert.True(rules.CanStore("酒", 2, 0).Granted);
+        Assert.Equal("over-capacity", rules.CanStore("酒", 1, 2).Code);   // 满了才是满
     }
 
     [Fact]
