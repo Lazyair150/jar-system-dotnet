@@ -79,6 +79,30 @@ app.MapGet("/api/state", async (HttpContext ctx, JarSystemService svc) =>
     finally { svc.Gate.Release(); }
 });
 
+// 世界不变量端点（S2）：与 `/api/state` 共用**同一串行闸门与同一条来源校验**。
+// 它只读（`WorldInvariants.Check` 不改世界、不推进时间），所以任何时刻都能问一次；
+// 页面把它当作"这个状态是否自相矛盾"的唯一答案来源 —— 页面自己不判断。
+app.MapGet("/api/invariants", async (HttpContext ctx, JarSystemService svc) =>
+{
+    if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
+    {
+        Console.Error.WriteLine("[api] 拒绝来自非本机来源的 /api/invariants: " + ctx.Request.Headers.Origin);
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+    await svc.Gate.WaitAsync();
+    try
+    {
+        var violations = JarSystem.Core.Services.WorldInvariants.Check(svc.System);
+        return Results.Json(new
+        {
+            ok = violations.Count == 0,
+            count = violations.Count,
+            violations = violations.Select(v => new { code = v.Code, message = v.Message, severity = v.Severity })
+        }, JsonArgs.Options);
+    }
+    finally { svc.Gate.Release(); }
+});
+
 // ============================================================
 // 场景编辑器后端（P5）：载入 / 校验 / 保存 `config/scenario.json`
 //

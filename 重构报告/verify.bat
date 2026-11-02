@@ -147,6 +147,9 @@ if "%JSOK%"=="0" echo JS-SKIPPED no-node >> "%LOG%"
 if "%JSOK%"=="1" node --check "src\JarSystem.Web\wwwroot\js\app.js" >> "%LOG%" 2>&1
 if "%JSOK%"=="1" if errorlevel 1 echo JS-SYNTAX-ERROR app.js >> "%LOG%"
 if "%JSOK%"=="1" if errorlevel 1 set "JSERR=1"
+if "%JSOK%"=="1" node --check "src\JarSystem.Web\wwwroot\js\world.js" >> "%LOG%" 2>&1
+if "%JSOK%"=="1" if errorlevel 1 echo JS-SYNTAX-ERROR world.js >> "%LOG%"
+if "%JSOK%"=="1" if errorlevel 1 set "JSERR=1"
 if "%JSOK%"=="1" node --check "src\JarSystem.Web\wwwroot\js\canvas.js" >> "%LOG%" 2>&1
 if "%JSOK%"=="1" if errorlevel 1 echo JS-SYNTAX-ERROR canvas.js >> "%LOG%"
 if "%JSOK%"=="1" if errorlevel 1 set "JSERR=1"

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>世界视图 · 帧流与不变量</title>
+<style>
+  :root { --bg:#14130f; --panel:#1d1b16; --line:#2e2b24; --ink:#e8e3d6; --dim:#9b9585;
+          --ok:#5aa86b; --warn:#c8a03d; --bad:#e05a4e; --accent:#7aa2f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:13px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  header { display:flex; gap:14px; align-items:baseline; padding:12px 18px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:15px; margin:0; font-weight:600; letter-spacing:.02em; }
+  header .hint { color:var(--dim); font-size:12px; }
+  header .stat { margin-left:auto; color:var(--dim); font-size:12px; }
+  .wrap { display:grid; grid-template-columns: 340px 1fr 320px; gap:12px; padding:12px 18px 24px; align-items:start; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .panel h2 { font-size:12px; margin:0; padding:8px 10px; border-bottom:1px solid var(--line);
+              color:var(--dim); font-weight:600; letter-spacing:.06em; }
+  .body { padding:8px 10px; max-height: calc(100vh - 120px); overflow:auto; }
+  .ws { border-bottom:1px dashed var(--line); padding:6px 0; }
+  .ws:last-child { border-bottom:0; }
+  .ws .nm { font-weight:600; }
+  .tag { display:inline-block; font-size:11px; padding:0 5px; border-radius:4px; margin-left:6px;
+         background:#26241d; color:var(--dim); }
+  .tag.master { background:#1f2a1f; color:var(--ok); }
+  .tag.slave { background:#1f232c; color:var(--accent); }
+  .jars { color:var(--dim); font-size:12px; }
+  .ord { padding:4px 0; border-bottom:1px dashed var(--line); font-size:12px; }
+  .ord:last-child { border-bottom:0; }
+  .frame { font-family: ui-monospace, Consolas, monospace; font-size:12px; padding:1px 0; color:#c9c3b4; }
+  .frame .seq { color:#6b665e; }
+  .frame .k-worldChanged { color:#8fb3ff; }
+  .frame .k-processChanged { color:#8fd6a5; }
+  .frame .k-timePaused { color:#e0c56a; }
+  .frame .k-timeResumed { color:#e0c56a; }
+  .vio { padding:5px 6px; border-radius:5px; margin:4px 0; background:#2a1c1a; border:1px solid #4a2b26; }
+  .vio .code { font-family: ui-monospace, Consolas, monospace; color:#ff9b8f; font-size:12px; }
+  .vio .msg { color:#e6cfcb; font-size:12px; }
+  .okbox { color:var(--ok); padding:6px; }
+  .empty { color:var(--dim); padding:6px; }
+  button { background:#26241d; color:var(--ink); border:1px solid var(--line); border-radius:6px;
+           padding:3px 9px; font-size:12px; cursor:pointer; }
+  button:hover { border-color:#4a463b; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; padding:6px 10px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>世界视图</h1>
+  <span class="hint">左侧是内核状态，中间是内核帧流，右侧是不变量检查 —— 全部来自内核，页面不做任何推导</span>
+  <span class="stat" id="conn">连接中…</span>
+</header>
+
+<div class="wrap">
+  <section class="panel">
+    <h2>世界状态（getState）</h2>
+    <div class="body" id="state"><div class="empty">等待内核状态…</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>帧时间线（PresentationFeed）</h2>
+    <div class="body" id="frames"><div class="empty">等待帧…</div></div>
+    <div class="row">
+      <button id="btn-tick">推进 1 刻</button>
+      <button id="btn-state">刷新状态</button>
+      <button id="btn-clear">清空列表</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>不变量（/api/invariants）</h2>
+    <div class="body" id="violations"><div class="empty">检查中…</div></div>
+  </section>
+</div>
+
+<script src="js/world.js"></script>
+</body>
+</html>
