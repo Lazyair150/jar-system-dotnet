@@ -92,7 +92,25 @@ internal sealed class OrderService : IOrderExecutionCompletion
 
     public object? DeleteOrder(int index)
     {
-        if (index >= 0 && index < _system.Orders.Count) { _system.OrderList.RemoveAt(index); return new { success = true }; }
+        if (index >= 0 && index < _system.Orders.Count)
+        {
+            var order = _system.Orders[index];
+
+            // 订单不能从运行中的过程脚底下消失：过程持有 subjectId，订单没了它就指向不存在的东西
+            // （世界不变量 PROCESS-ORDER-MISSING）。这里**拒绝**而不是偷偷取消过程——
+            // 取消需要调用方知道，否则"删了订单却发现过程也停了"同样是意外。
+            var active = _system.Processes.ActiveProcesses
+                .FirstOrDefault(p => p.Kind == ProcessKinds.OrderExecution && p.SubjectId == order.Id);
+            if (active != null)
+                return new
+                {
+                    success = false,
+                    reason = "订单 #" + order.Id + " 正在执行中（过程 #" + active.Id + "）：先取消过程，再删除订单"
+                };
+
+            _system.OrderList.RemoveAt(index);
+            return new { success = true };
+        }
         return new { success = false, reason = "无效索引" };
     }
 

@@ -481,6 +481,12 @@ public class JarSystem : Rules.IWorldFacts
     /// <summary>清空订单。</summary>
     public void ClearOrders()
     {
+        // 清空订单表前，先结束**服务于这些订单**的过程：否则过程持有 subjectId 却指向不存在的订单
+        // （世界不变量 PROCESS-ORDER-MISSING，随机属性测试抓到的形状）。
+        // 走 CancelProcess 而不是直接删过程，是为了让"取消"这件事照常进日志与过程日志。
+        foreach (var p in Processes.ActiveProcesses.ToList())
+            if (p.Kind == ProcessKinds.OrderExecution) CancelProcess(p.Id, "订单表被清空");
+
         ClearOrdersCore();
         Record(WorldOps.ClearOrders);
     }
@@ -500,6 +506,11 @@ public class JarSystem : Rules.IWorldFacts
         if (index.HasValue && (index.Value < 0 || index.Value >= _workshops.Count))
             throw new ArgumentOutOfRangeException(nameof(index), "主台下标越界: " + index.Value + "（工作台数 " + _workshops.Count + "）");
         CurrentMaster = index;
+
+        // 主台与从台不能是同一台。`SetMaster`（事件轨）早就是这么做的，直接改下标这条路径必须有同样的一致性，
+        // 否则世界会停在一个"从台就是主台"的状态上（世界不变量 SLAVE-EQUALS-MASTER）。
+        if (index.HasValue && CurrentSlave == index.Value) CurrentSlave = null;
+
         Record(WorldOps.SetMasterIndex, intA: index);
     }
 
@@ -508,6 +519,9 @@ public class JarSystem : Rules.IWorldFacts
     {
         if (index.HasValue && (index.Value < 0 || index.Value >= _workshops.Count))
             throw new ArgumentOutOfRangeException(nameof(index), "从台下标越界: " + index.Value + "（工作台数 " + _workshops.Count + "）");
+        if (index.HasValue && index.Value == CurrentMaster)
+            throw new DomainValidationException("从台不能与主台相同（索引 " + index.Value + "）");
+
         CurrentSlave = index;
         Record(WorldOps.SetSlaveIndex, intA: index);
     }
@@ -723,6 +737,18 @@ public class JarSystem : Rules.IWorldFacts
             return (false, "工作台正在迁徙，暂不能开始订单", null);
 
         var order = orderIndex >= 0 && orderIndex < _orders.Count ? _orders[orderIndex] : null;
+
+        // **同一张订单不允许两个并行过程**（世界不变量 PROCESS-DUPLICATE-FOR-SUBJECT）：
+        // 两个过程会各自按自己的计划改同一个工作台，且各自终局一次 —— 结果无法解释。
+        // 随机属性测试抓到的形状：对同一张订单连按两次「开始」。
+        if (order != null)
+        {
+            var running = Processes.ActiveProcesses
+                .FirstOrDefault(p => p.Kind == ProcessKinds.OrderExecution && p.SubjectId == order.Id);
+            if (running != null)
+                return (false, "订单 #" + order.Id + " 已经在执行中（过程 #" + running.Id + "）", running.Id);
+        }
+
         var (run, session, error) = BeginOrderProcess(orderIndex, order, deadlineTicks);
         if (session == null)
         {
