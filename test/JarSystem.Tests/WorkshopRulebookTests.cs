@@ -86,8 +86,8 @@ public class WorkshopRulebookTests
         {
             WorkshopOperationKind.PourIn => w.PourIn(jar, op.TargetLiquid!).Success,
             WorkshopOperationKind.PourOut => w.PourOut(jar).Success,
-            WorkshopOperationKind.ReshapeEmpty => w.ReshapeEmpty(jar, op.TargetShape!, op.CostLiquid!).Success,
-            _ => w.ReshapeFull(jar, op.TargetShape!).Success
+            WorkshopOperationKind.ReshapeEmpty => w.TryReshape(jar, op.TargetShape!, ReshapeMode.Empty, op.CostLiquid).Success,
+            _ => w.TryReshape(jar, op.TargetShape!, ReshapeMode.Full).Success
         };
     }
 

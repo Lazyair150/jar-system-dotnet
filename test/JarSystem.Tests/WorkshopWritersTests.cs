@@ -12,7 +12,7 @@ namespace JarSystem.Tests;
 ///
 /// 背景：求解器只做推理、不碰真实工作台；真正改世界的是三类**主体** ——
 /// 玩家的手工命令、执行器（按计划/贪心）、以及换台与回溯。它们共用同一组
-/// <c>Workshop</c> 端口（PourIn / PourOut / ReshapeEmpty / ReshapeFull /
+/// <c>Workshop</c> 端口（PourIn / PourOut / TryReshape /
 /// AddJar / RemoveJar / TransferIn / TransferOut / AddLiquid / TryReceiveLiquid）。
 ///
 /// 这组测试钉三件事，都是"结构而不是数量"，所以不会随重构天天漂：
@@ -28,7 +28,7 @@ public class WorkshopWritersTests
     /// <summary>所有会改真实工作台的端口名。</summary>
     private static readonly string[] Ports =
     {
-        "PourIn", "PourOut", "ReshapeEmpty", "ReshapeFull",
+        "PourIn", "PourOut", "TryReshape",
         "AddJar", "RemoveJar", "TransferIn", "TransferOut",
         "AddLiquid", "TryReceiveLiquid"
     };

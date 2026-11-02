@@ -402,7 +402,51 @@ public class Workshop
         return result;
     }
 
-    public (bool Success, string? Reason) ReshapeEmpty(Jar j, string to, string cost)
+    // ============================================================
+    // 改形的**唯一入口**（判定 + 执行合为一处）
+    //
+    // 之前是两扇门：ReshapeEmpty(罐, 目标, 成本) 与 ReshapeFull(罐, 目标)。
+    // 调用方必须自己先判断"这罐子空不空"，判错了就得到一个看起来像规则拒绝的错误。
+    // 现在是一扇门：TryReshape(罐, 目标, mode, 成本) —— mode = Auto 时按罐子此刻状态自选，
+    // 需要严格区分的调用方（命令、换台、执行器步骤）显式传 Empty / Full，语义与从前逐字相同。
+    //
+    // 与 CanReshapeTo 的分工：CanReshapeTo 是**只读询问**（不改世界、给结构化理由），
+    // TryReshape 是**动手**。两者共用同一套规则（方向 / 标记 / 禁令 / 成本），
+    // 由 WorkshopReshapeTests 的对拍逐例保证它们不会说法不一。
+    // ============================================================
+
+    /// <summary>
+    /// 把 <paramref name="j"/> 改形成 <paramref name="to"/>。
+    ///
+    /// <para><b>mode</b>：<see cref="ReshapeMode.Auto"/> 按罐子此刻状态自选空/满两条路；
+    /// 传 <see cref="ReshapeMode.Empty"/> / <see cref="ReshapeMode.Full"/> 则严格要求那一种
+    /// （用于命令、换台等本来就已判定过状态的路径，语义与旧的 ReshapeEmpty/ReshapeFull 一致）。</para>
+    ///
+    /// <para><b>costLiquid</b>：空罐改形的成本液体。为 null 时由工作台自己挑一份**可取用**的
+    /// （顺序按液池键序，确定性）；显式给了但那一种付不了 ⇒ **直接失败，不悄悄换一份**
+    /// —— 换一份会让"我让你付蜜、它却吃了酒"这种事静默发生。</para>
+    /// </summary>
+    public (bool Success, string? Reason) TryReshape(
+        Jar j, string to, ReshapeMode mode = ReshapeMode.Auto, string? costLiquid = null)
+    {
+        if (mode == ReshapeMode.Auto) mode = j.IsEmpty() ? ReshapeMode.Empty : ReshapeMode.Full;
+
+        if (mode == ReshapeMode.Full) return ReshapeFullCore(j, to);
+
+        var cost = costLiquid ?? FirstUsableCostLiquid();
+        if (cost == null) return (false, "没有可支付的改形成本液体");
+        return ReshapeEmptyCore(j, to, cost);
+    }
+
+    /// <summary>按液池键序找第一份"取得到"的液体（空罐改形的成本）。</summary>
+    private string? FirstUsableCostLiquid()
+    {
+        foreach (var l in _liquidStorage.Keys)
+            if (HasUsableLiquid(l)) return l;
+        return null;
+    }
+
+    private (bool Success, string? Reason) ReshapeEmptyCore(Jar j, string to, string cost)
     {
         if (j.IsMarked) return (false, "罐子已被操作");
         if (!j.IsEmpty()) return (false, "必须为空罐");
@@ -412,7 +456,7 @@ public class Workshop
         j.Reshape(to); j.Mark(); return (true, null);
     }
 
-    public (bool Success, string? Reason) ReshapeFull(Jar j, string to)
+    private (bool Success, string? Reason) ReshapeFullCore(Jar j, string to)
     {
         if (j.IsMarked) return (false, "罐子已被操作");
         if (j.IsEmpty()) return (false, "必须为满罐");

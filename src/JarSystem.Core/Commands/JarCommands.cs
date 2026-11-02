@@ -63,7 +63,7 @@ public class ReshapeEmptyCommand : Command
     public override CommandResult Execute(Workshop workshop, ICommandJournal? journal)
     {
         Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var (success, reason) = workshop.ReshapeEmpty(Jar, TargetShape, CostLiquid);
+        var (success, reason) = workshop.TryReshape(Jar, TargetShape, ReshapeMode.Empty, CostLiquid);
         Executed = success;
         var result = new CommandResult { Success = success, Reason = reason };
         Result = result;

@@ -50,7 +50,7 @@ public class ModifierProjectionTests
         var jar = new Jar("三角罐", "酒");
         Assert.True(workshop.AddJar(jar), "罐子放不进工作台");
 
-        var (ok, reason) = workshop.ReshapeFull(jar, "方罐");
+        var (ok, reason) = workshop.TryReshape(jar, "方罐", ReshapeMode.Full);
         Assert.True(ok, "真执行应当允许满罐改形（抑制只针对灌入）：" + reason);
         Assert.Equal("方罐", jar.Shape);
         Assert.Null(jar.Liquid);
@@ -132,7 +132,7 @@ public class ModifierProjectionTests
             var b = new Jar("三角罐", "酒");
             Assert.True(w.AddJar(a), "罐子放不进工作台");
             Assert.True(w.AddJar(b), "罐子放不进工作台");
-            var (reshapeOk, reshapeReason) = w.ReshapeFull(a, "方罐");
+            var (reshapeOk, reshapeReason) = w.TryReshape(a, "方罐", ReshapeMode.Full);
             var (pourOutOk, _, _) = w.PourOut(b);
             return (reshapeOk, pourOutOk, reshapeReason);
         }

@@ -106,7 +106,7 @@ public class LiquidGrantTests
         Assert.Equal("工作台禁酒", pourInShort.Reason);      // 禁令仍然先于库存
 
         w.AddJar(bomb);
-        var fullBanned = w.ReshapeFull(bomb, "方罐");
+        var fullBanned = w.TryReshape(bomb, "方罐", ReshapeMode.Full);
         Assert.False(fullBanned.Success);
         Assert.Equal("工作台禁酒", fullBanned.Reason);
         Assert.Equal("酒", bomb.Liquid);                     // 被拒时液体放回罐里

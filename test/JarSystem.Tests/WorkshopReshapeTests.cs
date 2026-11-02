@@ -13,7 +13,7 @@ namespace JarSystem.Tests;
 /// <see cref="Workshop.ReshapeTargets"/>）。
 ///
 /// 为什么要它：这个问题的答案原先散在三处 —— 方向（<see cref="WorkshopCapability.CanTransform"/>）、
-/// 空罐改形的成本（<c>ReshapeEmpty</c> 的 <c>TryPayReshapeCost</c>）、满罐自耗（<c>ReshapeFull</c>
+/// 空罐改形的成本（<c>TryReshape(..., ReshapeMode.Empty)</c> 的 TryPayReshapeCost）、满罐自耗（<c>ReshapeMode.Full</c>
 /// 先清空再问禁令，读法 B：自耗也算"使用"）。规则表、求解器、页面各自拼一遍，中文文案也各写一份。
 ///
 /// 本组测试的做法是**拿执行器当 oracle**（与 `SolverExecutorParityTests` 同一纪律）：
@@ -200,11 +200,11 @@ public class WorkshopReshapeTests
                 fresh.AddJar(j);
                 fresh.AddLiquid("酒", 1);
                 fresh.AddLiquid("蜜", 1);
-                if (fresh.ReshapeEmpty(j, to, cost).Success) return true;
+                if (fresh.TryReshape(j, to, ReshapeMode.Empty, cost).Success) return true;
             }
             return false;
         }
 
-        return bench.ReshapeFull(jar, to).Success;
+        return bench.TryReshape(jar, to, ReshapeMode.Full).Success;
     }
 }

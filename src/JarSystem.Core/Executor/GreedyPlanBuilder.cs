@@ -99,7 +99,7 @@ internal sealed class GreedyPlanBuilder
         var fs = FindJar(w.Jars, j => j.Liquid != null && !j.IsMarked && !w.Liquid.IsBanned(j.Liquid) && w.CanTransform(j.Shape, s));
         if (fs != null)
         {
-            var rr = w.ReshapeFull(fs, s);
+            var rr = w.TryReshape(fs, s, ReshapeMode.Full);
             if (rr.Success) return (true, new ExecutionLogEntry { Phase = loc, Action = "reshape_full", Jar = fs.GetDescription(), Liquid = s }, null);
         }
 

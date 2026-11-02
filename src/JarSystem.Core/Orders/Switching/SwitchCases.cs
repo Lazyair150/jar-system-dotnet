@@ -121,7 +121,7 @@ internal sealed class DifferentBansCase : ISwitchCase
                                 oldMaster.CanTransform(j.Shape, target));
                         if (sourceJar == null) break;
 
-                        var result = oldMaster.ReshapeEmpty(sourceJar, target, costLiquid);
+                        var result = oldMaster.TryReshape(sourceJar, target, ReshapeMode.Empty, costLiquid);
                         if (result.Success)
                             log.Add("reshape_empty", $"{sourceJar.GetDescription()} → {target} (消耗{costLiquid})");
                         else break;
@@ -143,7 +143,7 @@ internal sealed class DifferentBansCase : ISwitchCase
                     if (fullJar == null) break;
 
                     var liquid = fullJar.Liquid;
-                    var result = oldMaster.ReshapeFull(fullJar, target);
+                    var result = oldMaster.TryReshape(fullJar, target, ReshapeMode.Full);
                     if (result.Success)
                         log.Add("reshape_full", $"{fullJar.GetDescription()} → {target} (自耗{liquid})");
                     else break;
@@ -176,7 +176,7 @@ internal sealed class DifferentBansCase : ISwitchCase
                         if (pourResult.Success)
                         {
                             log.Add("pour_out", $"从 {pourSource.GetDescription()} 倒出 {pourResult.Liquid}");
-                            var reshapeResult = oldMaster.ReshapeEmpty(emptySource, target, pourResult.Liquid!);
+                            var reshapeResult = oldMaster.TryReshape(emptySource, target, ReshapeMode.Empty, pourResult.Liquid);
                             if (reshapeResult.Success)
                                 log.Add("reshape_empty", $"{emptySource.GetDescription()} → {target} (消耗{pourResult.Liquid})");
                         }

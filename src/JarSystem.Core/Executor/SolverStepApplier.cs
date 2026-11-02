@@ -78,12 +78,12 @@ internal sealed class SolverStepApplier
                 bool full = reshapeMode == "full" || (reshapeMode == null && !jar.IsEmpty());
                 if (full)
                 {
-                    var rf = w.ReshapeFull(jar, ts);
+                    var rf = w.TryReshape(jar, ts, ReshapeMode.Full);
                     if (!rf.Success) return (false, null, rf.Reason);
                     return (true, new ExecutionLogEntry { Phase = phase, Action = "reshape_full", Jar = jar.GetDescription(), Liquid = ts }, null);
                 }
                 var cst = step.CostLiquid;
-                var re = w.ReshapeEmpty(jar, ts, cst!);
+                var re = w.TryReshape(jar, ts, ReshapeMode.Empty, cst);
                 if (!re.Success) return (false, null, re.Reason);
                 return (true, new ExecutionLogEntry { Phase = phase, Action = "reshape", Jar = jar.GetDescription(), Liquid = ts }, null);
             }

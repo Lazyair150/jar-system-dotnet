@@ -98,9 +98,9 @@ public class OrderLimitAndFailureCostTests
         master.AddLiquid("蜜", 2);
 
         // 主台上"已经发生"的两件事：一次改形（付掉 1 份蜜）、一次灌液。
-        // 注意「一罐一操作」：ReshapeEmpty 会给罐子打标记，所以灌液必须用另一只罐子 ——
+        // 注意「一罐一操作」：空罐改形会给罐子打标记，所以灌液必须用另一只罐子 ——
         // 这不是测试的将就，而是领域规则本身（见 `_test_engine.js` 的同名约束）。
-        var (reshaped, reshapeReason) = master.ReshapeEmpty(jar, "三角罐", "蜜");
+        var (reshaped, reshapeReason) = master.TryReshape(jar, "三角罐", ReshapeMode.Empty, "蜜");
         Assert.True(reshaped, "改形失败：" + reshapeReason);
         var (poured, pourReason) = master.PourIn(jar2, "蜜");
         Assert.True(poured, "灌液失败：" + pourReason);
