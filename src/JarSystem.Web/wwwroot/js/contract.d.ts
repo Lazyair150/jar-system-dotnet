@@ -121,7 +121,7 @@ interface ProcessStateDto {
   lastJournalSeq?: number;
 }
 
-type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setWorkshopCapability" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "updateProducerRate" | "startTick" | "stopTick" | "setAutoCheck" | "startOrder" | "cancelProcess" | "setTickInterval";
+type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setWorkshopCapability" | "moveOrder" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "updateProducerRate" | "startTick" | "stopTick" | "setAutoCheck" | "startOrder" | "cancelProcess" | "setTickInterval";
 type MessageType = "init" | "state" | "orderExecuted" | "workshopSwitched" | "feasibilityResult" | "allFeasibilityResults" | "autoCheckResults" | "autoCheckChanged" | "error" | "world" | "frame" | "tickIntervalChanged";
 
 interface RequirementPayload { shape: string; liquid?: string | null; }
@@ -153,6 +153,12 @@ interface SetWorkshopCapabilityPayload {
   baseMarks?: string[];
   additionalMarks?: string[];
   ban?: string[];
+}
+
+/** `moveOrder` 的载荷 */
+interface MoveOrderPayload {
+  orderId?: number;
+  dir?: number;
 }
 
 /** `setMaster` 的载荷 */
@@ -249,6 +255,7 @@ interface CommandPayloadMap {
   "createWorkshop": CreateWorkshopPayload;
   "updateWorkshopCapacity": UpdateWorkshopCapacityPayload;
   "setWorkshopCapability": SetWorkshopCapabilityPayload;
+  "moveOrder": MoveOrderPayload;
   "setMaster": SetMasterPayload;
   "setSlave": SetSlavePayload;
   "executeOrder": ExecuteOrderPayload;

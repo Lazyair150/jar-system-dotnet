@@ -95,6 +95,16 @@ public sealed class CommandDispatcher
                 break;
             }
 
+            case "moveOrder":
+            {
+                // 执行顺序是内核状态（谁先跑决定谁先拿稀缺资源），不是页面排版。
+                var oid = JsonArgs.JI(dataEl, "orderId");
+                var dir = JsonArgs.JI(dataEl, "dir");
+                sys.MoveOrder(oid, dir);
+                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                break;
+            }
+
             case "setWorkshopCapability":
             {
                 var idx = JsonArgs.JI(dataEl, "index");

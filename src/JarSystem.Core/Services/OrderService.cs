@@ -90,6 +90,31 @@ internal sealed class OrderService : IOrderExecutionCompletion
         return CreateOrder(requirements, rand.NextDouble() > 0.5 ? Constants.OrderType.A : Constants.OrderType.B);
     }
 
+    /// <summary>
+    /// 调整订单在**执行顺序**里的位置（上移 / 下移一格）。
+    ///
+    /// 为什么这件事归内核：执行顺序不是界面排版，而是**世界状态的一部分** ——
+    /// 谁先跑，会决定谁先拿走稀缺的罐子与液体（demo 第六关「抢资源」就是靠这个）。
+    /// 若顺序只存在于页面数组里，换个客户端就是另一个世界，回放也无法复现。
+    ///
+    /// 参数用 orderId 而不是下标：交换会让两个订单的下标都变，只有 Id 是稳定身份。
+    /// </summary>
+    /// <param name="dir">负 = 上移（更早执行），正 = 下移；越界时返回 false 且不动世界。</param>
+    public bool MoveOrder(int orderId, int dir)
+    {
+        var list = _system.OrderList;
+        var at = -1;
+        for (var i = 0; i < list.Count; i++)
+            if (list[i].Id == orderId) { at = i; break; }
+        if (at < 0) throw new DomainValidationException("无效订单 id: " + orderId);
+
+        var to = at + Math.Sign(dir);
+        if (dir == 0 || to < 0 || to >= list.Count) return false;   // 边界：什么也不做
+
+        (list[at], list[to]) = (list[to], list[at]);
+        return true;
+    }
+
     public object? DeleteOrder(int index)
     {
         if (index >= 0 && index < _system.Orders.Count)

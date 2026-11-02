@@ -188,6 +188,8 @@
       return '<div class="ord">#' + (i + 1) + '（id ' + esc(o.id) + '）[' + esc(o.type) + '] ' + reqs +
         ' <span class="tag">' + esc(o.status) + '</span>' +
         ' <span class="tag">' + esc(feasTxt) + '</span>' +
+        '<button data-act="move" data-id="' + esc(o.id) + '" data-dir="-1" title="上移：更早执行">↑</button>' +
+        '<button data-act="move" data-id="' + esc(o.id) + '" data-dir="1" title="下移：更晚执行">↓</button>' +
         '<button data-act="check" data-id="' + esc(o.id) + '">分析</button>' +
         '<button data-act="start" data-id="' + esc(o.id) + '">开始</button>' +
         '<button data-act="delete" data-id="' + esc(o.id) + '">删除</button>' +
@@ -333,6 +335,8 @@
     if (act === 'check') { send('checkFeasibility', { orderId: Number(id) }); return; }
     if (act === 'start') { send('startOrder', { orderId: Number(id) }); return; }
     if (act === 'delete') { send('deleteOrder', { orderId: Number(id) }); return; }
+    // 执行顺序由内核保存：页面只发"把这张单上移/下移一格"，不自己改数组。
+    if (act === 'move') { send('moveOrder', { orderId: Number(id), dir: Number(el.getAttribute('data-dir')) }); return; }
     if (act === 'cancel') { send('cancelProcess', { processId: Number(id) }); return; }
 
     /* ---- 配置面（A）：全部转发内核已有命令 ---- */

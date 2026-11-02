@@ -101,6 +101,7 @@ public static class WorldOps
     public const string CreateOrder = "createOrder";
     public const string CreateRandomOrder = "createRandomOrder";
     public const string DeleteOrder = "deleteOrder";
+    public const string MoveOrder = "moveOrder";
     public const string CheckFeasibility = "checkFeasibility";
     public const string CheckAllFeasibility = "checkAllFeasibility";
     public const string ExecuteOrder = "executeOrder";

@@ -677,6 +677,20 @@ public class JarSystem : Rules.IWorldFacts
         return result;
     }
 
+    /// <summary>
+    /// 调整订单的执行顺序（上移 / 下移一格）。
+    ///
+    /// 执行顺序是世界状态而不是界面排版：它决定谁先拿走稀缺的罐子与液体。
+    /// 用 orderId 而不是下标 —— 交换会让两个订单的下标都变，Id 才稳定。
+    /// 越界不报错、直接返回 false（已经在最前面不是错误，是事实），也就不往日志里写空意图。
+    /// </summary>
+    public bool MoveOrder(int orderId, int dir)
+    {
+        if (!_orderService.MoveOrder(orderId, dir)) return false;
+        Record(WorldOps.MoveOrder, intA: orderId, intB: dir);
+        return true;
+    }
+
     public object? DeleteOrder(int index)
     {
         var result = _orderService.DeleteOrder(index);
