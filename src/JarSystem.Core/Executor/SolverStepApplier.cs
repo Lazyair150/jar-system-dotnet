@@ -40,6 +40,14 @@ internal sealed class SolverStepApplier
         if (jar.Liquid != expLiquid)
             return (false, null, "罐子液体状态不符");
 
+        // 「一罐一操作」（Domain/Jar.cs:10）：同一只罐子在一份计划里只能被操作一次。
+        // 这一道守卫必须住在**执行器**，不能只靠下游的 Workshop 判定 ——
+        // `MATCH` 分支直接 `jar.Mark()`，而 Mark 是幂等的：没有这里，
+        // 一条把同一只罐子 MATCH 两次的计划会"满足"两条需求，
+        // 于是求解器的"可行"变成假的（玩家看到一张做不出来的订单被判可行）。
+        if (jar.IsMarked)
+            return (false, null, "罐子已被操作过（一罐一操作）: " + jar.GetDescription());
+
         switch (type)
         {
             case "MATCH":
