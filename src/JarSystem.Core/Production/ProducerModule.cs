@@ -224,6 +224,16 @@ public class ProducerModule
     /// <item>速率必须是 0~<see cref="Constants.MAX_PRODUCER_RATE"/> 的有限数 —— 否则产出循环会被放大到 OOM。</item>
     /// </list>
     /// </summary>
+    /// <summary>
+    /// 产线卡槽容量（0 = 不限）。由门面从 <c>WorldOptions.ProducerSlots</c> 灌入；
+    /// 只在运行期"新开一条产线"时生效，装配期（<see cref="RegisterProducer"/>）不受约束 ——
+    /// 世界文件是作者意图，装配不该被自己声明的上限拒绝。
+    /// </summary>
+    public int ProducerSlots { get; set; }
+
+    /// <summary>已装备的产线条数（速率 &gt; 0 的 (生产者, 形状) 对）。</summary>
+    public int UsedSlots => _producers.Values.Sum(p => p.Rates.Values.Count(r => r > 0));
+
     public void UpdateRate(string name, string shape, double rate)
     {
         if (!_producers.TryGetValue(name, out var p))
@@ -232,6 +242,12 @@ public class ProducerModule
             throw new DomainValidationException("没有这个形状: " + shape);
         if (double.IsNaN(rate) || double.IsInfinity(rate) || rate < 0 || rate > Constants.MAX_PRODUCER_RATE)
             throw new DomainValidationException($"速率必须是 0 到 {Constants.MAX_PRODUCER_RATE} 之间的有限数，收到: {rate}");
+
+        // 第四条规则：卡槽上限。只在"从 0 开到 >0"时占槽 —— 已装备的那条改速率不算新条。
+        var alreadyActive = p.Rates.TryGetValue(shape, out var before) && before > 0;
+        if (rate > 0 && !alreadyActive && ProducerSlots > 0 && UsedSlots >= ProducerSlots)
+            throw new DomainValidationException(
+                $"产线槽已满（{ProducerSlots} 条）：先把一条产线的速率降到 0，再开新的");
 
         p.SetRate(shape, rate);
         _generators[shape].UpdateRate(name, rate);

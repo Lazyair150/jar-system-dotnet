@@ -163,7 +163,14 @@
       }).join('');
       return '<div class="card"><div class="cnm">' + esc(p.name) + '</div>' + rows + '</div>';
     }).join('') : '<div class="empty">内核未报告生产者</div>';
-    html += '<div class="ws"><div class="nm">产线卡（生产者 · 每 tick 产量）</div>' + produceHtml + '</div>';
+    /* 已装备多少条产线由页面从 state 数出来（速率 > 0 的 (生产者, 形状) 对）；
+       **上限**来自内核的 ProducerSlots，页面拿不到，也不该猜 —— 超了内核会拒绝并说清原因。 */
+    var usedLines = 0;
+    prods.forEach(function (p) {
+      Object.keys(p.rates || {}).forEach(function (sh) { if ((p.rates || {})[sh] > 0) usedLines++; });
+    });
+    html += '<div class="ws"><div class="nm">产线卡（已装备 ' + usedLines +
+      ' 条 · 上限由世界规则决定，超了内核会拒绝）</div>' + produceHtml + '</div>';
 
     var procs = (st.processes || []).map(function (p) {
       return '<div class="ord">过程 #' + esc(p.id) + ' ' + esc(p.kind) + ' ' + esc(p.subject) +

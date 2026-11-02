@@ -40,6 +40,14 @@ public sealed class WorldOptions
 
     /// <summary>生产者及其速率（键 = 形状名）。</summary>
     [JsonPropertyName("producers")] public List<ProducerOptions> Producers { get; set; } = new();
+    /// <summary>
+    /// **产线卡槽容量**（玩法规则，住内核）：同时"装备"着的产线条数上限。
+    /// 一"条"= 一个 (生产者, 形状) 且速率 &gt; 0；空槽合法。
+    /// **默认 0 = 不限** —— 出厂沙盒不该被关卡规则约束；关卡文件显式写 3（见 关卡化 S1/S5）。
+    /// 校验住在 <see cref="Production.ProducerModule.UpdateRate"/>（数据在这里 ⇒ 规则在这里），
+    /// 页面限制不算数：别的客户端可以绕过页面，回放也不约束它。
+    /// </summary>
+    [JsonPropertyName("producerSlots")] public int ProducerSlots { get; set; }
 
     /// <summary>工作台清单（装配顺序 = 列表顺序 ⇒ 主从下标与契约快照的顺序）。</summary>
     [JsonPropertyName("workshops")] public List<WorkshopOptions> Workshops { get; set; } = new();
