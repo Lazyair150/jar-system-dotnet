@@ -1,0 +1,30 @@
+{
+  "name": "第四关 · 四种活",
+  "hint": "改形的方向由标记决定：基础→其它基础、基础→附加都可以，附加→基础（退回）也可以，但附加不能直接跳到另一个附加。这一关把四种活都摆上：照用、灌液、空罐改形（付池中液体）、满罐自耗改形。",
+  "turns": 14,
+  "world": {
+    "shapes": ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"],
+    "liquids": ["酒", "蜜"],
+    "defaultMaxJars": 6,
+    "defaultMaxLiquids": 5,
+    "flow": { "jarCount": 3, "liquidAmount": 2, "liquidRate": { "酒": 1, "蜜": 1 } },
+    "initialStock": { "酒": 4, "蜜": 4 },
+    "producerSlots": 3,
+    "producers": [
+      { "name": "陶工甲", "rates": { "圆罐": 0.4, "方罐": 0.3 } },
+      { "name": "陶工乙", "rates": { "高罐": 0.5, "长罐": 0.2 } },
+      { "name": "陶工A", "rates": { "三角罐": 0.6, "扁罐": 0.3 } },
+      { "name": "陶工B", "rates": { "鼓罐": 0.4, "尖罐": 0.3 } }
+    ],
+    "workshops": [
+      { "name": "玄武台", "baseMarks": ["圆罐", "方罐"], "additionalMarks": ["三角罐"], "ban": ["酒"] },
+      { "name": "朱雀台", "baseMarks": ["高罐"], "additionalMarks": ["长罐"], "ban": ["酒"] },
+      { "name": "青龙台", "baseMarks": ["三角罐", "长罐"], "additionalMarks": ["扁罐"], "ban": ["蜜"] },
+      { "name": "白虎台", "baseMarks": ["扁罐", "鼓罐"], "additionalMarks": ["尖罐"], "ban": ["酒"] }
+    ],
+    "orderTemplates": [
+      { "name": "三件套", "type": "A", "requirements": [{ "shape": "尖罐", "liquid": null }, { "shape": "扁罐", "liquid": null }, { "shape": "鼓罐", "liquid": "酒" }] },
+      { "name": "高长", "type": "A", "requirements": [{ "shape": "高罐", "liquid": null }, { "shape": "长罐", "liquid": "酒" }] }
+    ]
+  }
+}

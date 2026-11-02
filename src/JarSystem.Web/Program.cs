@@ -31,7 +31,28 @@ if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URL
 }
 
 // P5：核心与组合根由宿主侧的扩展方法注册（容器、日志生态只出现在宿主层；核心保持零依赖）
-builder.Services.AddJarSystem();
+// 关卡（`--level N`）：只做"选一份世界"这件事；关卡文件本身在 config/levels/*.json（见 LevelCatalog）。
+var levelIndex = ParseLevelArg(args);
+var levels = LevelCatalog.Discover();
+LevelInfo? selectedLevel = null;
+if (levelIndex is { } want)
+{
+    selectedLevel = levels.FirstOrDefault(l => l.Index == want);
+    if (selectedLevel == null)
+    {
+        Console.Error.WriteLine("[level] 没有第 " + want + " 关（共 " + levels.Count + " 关）");
+        Environment.Exit(2);
+        return;
+    }
+    Console.WriteLine("[level] " + selectedLevel.Index + "/" + levels.Count + " " + selectedLevel.Name
+        + "（" + selectedLevel.Turns + " 回合）");
+}
+else if (levels.Count > 0)
+{
+    Console.WriteLine("[level] 未指定 --level，共 " + levels.Count + " 关；用 --level N 选一关（当前用 config/world.json）");
+}
+
+builder.Services.AddJarSystem(selectedLevel);
 var app = builder.Build();
 
 // 立刻解析组合根：让"世界配置校验失败"发生在**启动时**，而不是第一个请求进来时才炸
@@ -77,6 +98,35 @@ app.MapGet("/api/state", async (HttpContext ctx, JarSystemService svc) =>
     // 而不是靠"两边都记得同步"。键名输出不变（契约 DTO 全部由 [JsonPropertyName] 钉死，命名策略只作用于未标注成员）。
     try { return Results.Json(svc.System.GetState(), JsonArgs.Options); }
     finally { svc.Gate.Release(); }
+});
+
+// 关卡目录端点：只读，报告"有哪些关、当前在玩哪一关"。
+// 页面拿它显示关卡名/提示/回合上限；**判定仍在核心**（回合上限只是页面与宿主的约定，
+// 核心不认识"关"这个概念）。来源校验与 `/api/state` 同一判据。
+app.MapGet("/api/levels", (HttpContext ctx, JarSystemService svc) =>
+{
+    if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
+    {
+        Console.Error.WriteLine("[api] 拒绝来自非本机来源的 /api/levels: " + ctx.Request.Headers.Origin);
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+    return Results.Json(new
+    {
+        current = svc.Level?.Index,
+        count = levels.Count,
+        levels = levels.Select(l => new
+        {
+            index = l.Index,
+            name = l.Name,
+            hint = l.Hint,
+            turns = l.Turns,
+            workshops = l.World.Workshops.Count,
+            producers = l.World.Producers.Count,
+            producerSlots = l.World.ProducerSlots,
+            maxJars = l.World.DefaultMaxJars,
+            maxLiquids = l.World.DefaultMaxLiquids
+        })
+    }, JsonArgs.Options);
 });
 
 // 世界不变量端点（S2）：与 `/api/state` 共用**同一串行闸门与同一条来源校验**。
@@ -205,6 +255,29 @@ static async Task<(bool Ok, string Text, string? Error)> ReadBodyWithinLimitAsyn
         buffer.Write(chunk, 0, read);
     }
     return (true, Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length), null);
+}
+
+// `--level N`（也接受 `--level=N`）。解析失败按 0 处理会被误当成"第 0 关"，所以非法值直接报错退出。
+static int? ParseLevelArg(string[] arguments)
+{
+    for (int i = 0; i < arguments.Length; i++)
+    {
+        var a = arguments[i];
+        string? raw = null;
+        if (a.Equals("--level", StringComparison.OrdinalIgnoreCase) && i + 1 < arguments.Length)
+            raw = arguments[i + 1];
+        else if (a.StartsWith("--level=", StringComparison.OrdinalIgnoreCase))
+            raw = a.Substring("--level=".Length);
+
+        if (raw == null) continue;
+        if (!int.TryParse(raw, out var n) || n <= 0)
+        {
+            Console.Error.WriteLine("[level] --level 需要一个正整数，收到: " + raw);
+            Environment.Exit(2);
+        }
+        return n;
+    }
+    return null;
 }
 
 static string? FindWebRoot()

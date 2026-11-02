@@ -1,0 +1,24 @@
+{
+  "name": "第一关 · 学会改形",
+  "hint": "玄武台的基础标记是圆罐、方罐，三角罐是它的附加标记 —— 所以圆罐能改成三角罐，但要付 1 份蜜。先看清这一关能做什么，再决定产线。",
+  "turns": 3,
+  "world": {
+    "shapes": ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"],
+    "liquids": ["酒", "蜜"],
+    "defaultMaxJars": 6,
+    "defaultMaxLiquids": 5,
+    "flow": { "jarCount": 3, "liquidAmount": 2, "liquidRate": { "酒": 1, "蜜": 1 } },
+    "initialStock": { "蜜": 3 },
+    "producerSlots": 3,
+    "producers": [
+      { "name": "陶工甲", "rates": { "圆罐": 0.4, "方罐": 0.3 } }
+    ],
+    "workshops": [
+      { "name": "玄武台", "baseMarks": ["圆罐", "方罐"], "additionalMarks": ["三角罐"], "ban": ["酒"] }
+    ],
+    "orderTemplates": [
+      { "name": "空双罐", "type": "A", "requirements": [{ "shape": "圆罐", "liquid": null }, { "shape": "方罐", "liquid": null }] },
+      { "name": "三角改形", "type": "A", "requirements": [{ "shape": "方罐", "liquid": null }, { "shape": "三角罐", "liquid": null }] }
+    ]
+  }
+}

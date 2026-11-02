@@ -1,0 +1,26 @@
+{
+  "name": "第三关 · 禁令逼你换台",
+  "hint": "玄武台禁酒、青龙台禁蜜：同一只罐子在禁它的台上既装不进、也倒不出、连改形成本都付不了。所以圆罐的活在玄武、长罐:酒的活在青龙 —— 换台不是可选项，是禁令规定的。",
+  "turns": 10,
+  "world": {
+    "shapes": ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"],
+    "liquids": ["酒", "蜜"],
+    "defaultMaxJars": 6,
+    "defaultMaxLiquids": 5,
+    "flow": { "jarCount": 3, "liquidAmount": 2, "liquidRate": { "酒": 1, "蜜": 1 } },
+    "initialStock": { "酒": 2, "蜜": 2 },
+    "producerSlots": 3,
+    "producers": [
+      { "name": "陶工甲", "rates": { "圆罐": 0.4, "方罐": 0.3 } },
+      { "name": "陶工A", "rates": { "三角罐": 0.6, "长罐": 0.3 } }
+    ],
+    "workshops": [
+      { "name": "玄武台", "baseMarks": ["圆罐", "方罐"], "additionalMarks": ["三角罐"], "ban": ["酒"] },
+      { "name": "青龙台", "baseMarks": ["三角罐", "长罐"], "additionalMarks": ["扁罐"], "ban": ["蜜"] }
+    ],
+    "orderTemplates": [
+      { "name": "长罐灌酒", "type": "A", "requirements": [{ "shape": "长罐", "liquid": null }, { "shape": "长罐", "liquid": "酒" }] },
+      { "name": "双罐对开", "type": "A", "requirements": [{ "shape": "圆罐", "liquid": null }, { "shape": "三角罐", "liquid": null }] }
+    ]
+  }
+}

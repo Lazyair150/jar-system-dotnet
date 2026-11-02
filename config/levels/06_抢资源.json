@@ -1,0 +1,23 @@
+{
+  "name": "第六关 · 抢资源",
+  "hint": "两张订单一模一样，都要一只三角罐。三角罐是玄武台的附加标记：拿圆罐改形，每次付 1 份蜜。开局只有 1 份蜜，四回合内补不出第二份 —— 先做哪一张，另一张就做不成。",
+  "turns": 4,
+  "world": {
+    "shapes": ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"],
+    "liquids": ["酒", "蜜"],
+    "defaultMaxJars": 6,
+    "defaultMaxLiquids": 5,
+    "flow": { "jarCount": 3, "liquidAmount": 1, "liquidRate": { "酒": 0, "蜜": 0 } },
+    "initialStock": { "蜜": 1 },
+    "producerSlots": 3,
+    "producers": [
+      { "name": "陶工甲", "rates": { "圆罐": 0.5 } }
+    ],
+    "workshops": [
+      { "name": "玄武台", "baseMarks": ["圆罐", "方罐"], "additionalMarks": ["三角罐"], "ban": ["酒"] }
+    ],
+    "orderTemplates": [
+      { "name": "一只三角罐", "type": "A", "requirements": [{ "shape": "三角罐", "liquid": null }] }
+    ]
+  }
+}

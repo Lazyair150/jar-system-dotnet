@@ -21,6 +21,12 @@ public class JarSystemService
     public JarSystem.Core.JarSystem System { get; }
 
     /// <summary>
+    /// 本进程选中的关卡（`--level N`）；null = 走 `config/world.json` 或内核默认世界。
+    /// 关只是"打包好的一份世界 + 提示 + 回合上限"，核心不认识它（见 <see cref="LevelCatalog"/>）。
+    /// </summary>
+    public LevelInfo? Level { get; }
+
+    /// <summary>
     /// **推进间隔（毫秒）**——宿主侧时间参数（P5）：表示"世界 tick 与墙钟的映射"。
     /// 判定永远只认逻辑 tick，因此改它只影响推进的**节奏**，不影响任何判定结果。
     /// </summary>
@@ -28,9 +34,17 @@ public class JarSystemService
 
     /// <param name="log">核心的可观测性出口（由宿主注入，见 <see cref="JarSystemHosting"/>）；null 时核心用默认控制台日志。</param>
     /// <param name="observer">表现层帧的推送器（S1；null = 不推送帧，行为与今天一致）。</param>
-    public JarSystemService(JarSystem.Core.Abstractions.ISystemLog? log = null, PresentationObserver? observer = null)
+    /// <param name="level">
+    /// 选中的关卡（`--level N`）。给了就用它的世界（已在 <see cref="LevelCatalog"/> 里校验过）；
+    /// 没给才去读 `config/world.json`，再没有就用内核默认世界。核心不认识"关卡"这个概念。
+    /// </param>
+    public JarSystemService(
+        JarSystem.Core.Abstractions.ISystemLog? log = null,
+        PresentationObserver? observer = null,
+        LevelInfo? level = null)
     {
-        System = new JarSystem.Core.JarSystem(log: log, world: LoadWorldOrNull());
+        Level = level;
+        System = new JarSystem.Core.JarSystem(log: log, world: level?.World ?? LoadWorldOrNull());
         // 订阅核心的帧流（`PresentationFeed`）：宿主只**转发**，不再自己定义一套词汇。
         if (observer != null) System.Presentation.Subscribe(observer);
         LoadScenarioOrThrow();

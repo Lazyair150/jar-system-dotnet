@@ -1,0 +1,26 @@
+{
+  "name": "第二关 · 从台与装液",
+  "hint": "圆罐:蜜 要在玄武台的圆罐上灌蜜（玄武禁酒、不忌蜜）；高罐只有朱雀台认它是基础标记。有些订单一张台做不完，得让从台接手。",
+  "turns": 6,
+  "world": {
+    "shapes": ["圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐"],
+    "liquids": ["酒", "蜜"],
+    "defaultMaxJars": 6,
+    "defaultMaxLiquids": 5,
+    "flow": { "jarCount": 3, "liquidAmount": 2, "liquidRate": { "酒": 1, "蜜": 1 } },
+    "initialStock": { "蜜": 4 },
+    "producerSlots": 3,
+    "producers": [
+      { "name": "陶工甲", "rates": { "圆罐": 0.4, "方罐": 0.3 } },
+      { "name": "陶工乙", "rates": { "高罐": 0.5, "长罐": 0.2 } }
+    ],
+    "workshops": [
+      { "name": "玄武台", "baseMarks": ["圆罐", "方罐"], "additionalMarks": ["三角罐"], "ban": ["酒"] },
+      { "name": "朱雀台", "baseMarks": ["高罐"], "additionalMarks": ["长罐"], "ban": ["酒"] }
+    ],
+    "orderTemplates": [
+      { "name": "灌蜜圆罐", "type": "A", "requirements": [{ "shape": "圆罐", "liquid": null }, { "shape": "圆罐", "liquid": "蜜" }] },
+      { "name": "高罐灌蜜", "type": "B", "requirements": [{ "shape": "高罐", "liquid": null }, { "shape": "高罐", "liquid": "蜜" }] }
+    ]
+  }
+}

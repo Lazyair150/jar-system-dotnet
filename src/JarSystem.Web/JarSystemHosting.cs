@@ -16,10 +16,15 @@ using Microsoft.Extensions.Logging;
 public static class JarSystemHosting
 {
     /// <summary>注册核心、组合根、WebSocket 出口与两个后台循环；日志出口用宿主的 <c>ILogger</c> 承载。</summary>
-    public static IServiceCollection AddJarSystem(this IServiceCollection services)
+    /// <param name="level">选中的关卡（`--level N`）；null = 用 <c>config/world.json</c> 或内核默认世界。</param>
+    public static IServiceCollection AddJarSystem(this IServiceCollection services, LevelInfo? level = null)
     {
         services.AddSingleton<ISystemLog>(sp => new LoggerSystemLog(sp.GetRequiredService<ILogger<JarSystemService>>()));
-        services.AddSingleton<JarSystemService>();
+        // 关卡（--level N）：null = 用 config/world.json 或内核默认世界。关只是打包好的世界，核心不认识它。
+        services.AddSingleton<JarSystemService>(sp => new JarSystemService(
+            sp.GetRequiredService<ISystemLog>(),
+            sp.GetRequiredService<PresentationObserver>(),
+            level));
 
         // 推送出口与命令分派（P5：由容器持有，后台循环才能拿到同一个 sink 广播）
         services.AddSingleton<WebSocketHub>();
