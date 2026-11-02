@@ -13,6 +13,7 @@
     <span class="lvname" id="lvname">载入中…</span>
     <span class="turn" id="turns">回合 – / –</span>
     <span class="pill" id="goal">目标 –</span>
+    <span class="pill run" id="busy" style="display:none">执行中 0</span>
     <span class="pill" id="conn">连接中…</span>
     <span class="spacer"></span>
     <button class="mini" data-act="restart">重开本关</button>
@@ -72,7 +73,7 @@
       </div>
 
       <div class="panel" id="logPanel">
-        <div class="panel-hd"><span class="ptitle">记录</span><span class="hint">内核做了什么就显示什么</span></div>
+        <div class="panel-hd"><span class="ptitle">记录</span><span class="hint">内核过程日志的原文投影：谁 · 第几步 · 做了什么</span></div>
         <div class="log" id="logBody"></div>
       </div>
     </div>

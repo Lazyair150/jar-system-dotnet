@@ -36,7 +36,9 @@ string[] ProtocolCommands =
     // P4：过程的两条命令（异步轨的开始 / 取消）
     "startOrder", "cancelProcess",
     // P5：宿主侧时间参数（推进节奏）
-    "setTickInterval"
+    "setTickInterval",
+    // P7：过程日志查询（"订单执行过程发生了什么" —— 过程日志的原样投影）
+    "getSteps"
 ];
 
 string[] ProtocolMessages =
@@ -46,7 +48,9 @@ string[] ProtocolMessages =
     // S1：表现层帧（取代原 P4 的 5 条 process* —— 一份世界、一套词汇）
     "frame",
     // P5：推进节奏变更回包
-    "tickIntervalChanged"
+    "tickIntervalChanged",
+    // P7：过程日志回包（entries = 内核过程日志的原样投影）
+    "steps"
 ];
 
 // ============================================================
@@ -68,7 +72,9 @@ string[] ProtocolMessages =
     ("error", ["message"]),
     // S1：表现层帧（由 PresentationObserver.cs 转发核心 PresentationFeed 的帧）
     ("frame", ["seq", "kind", "op", "subject", "subjectId", "tick", "revision"]),
-    ("tickIntervalChanged", ["intervalMs"])
+    ("tickIntervalChanged", ["intervalMs"]),
+    // P7：过程日志（谁 / 第几步 / 内核记下的动作 / 第几刻）
+    ("steps", ["subject", "subjectId", "entries"])
 ];
 
 // ============================================================
@@ -98,6 +104,7 @@ string[] ProtocolMessages =
     ("createRandomOrder", "CreateRandomOrderPayload", []),
     ("createRandomWorkshop", "CreateRandomWorkshopPayload", []),
     ("getState", "GetStatePayload", []),    ("restartLevel", "RestartLevelPayload", []),
+    ("getSteps", "GetStepsPayload", [("subject", "string"), ("subjectId", "number")]),
     ("checkAllFeasibility", "CheckAllFeasibilityPayload", []),
     ("manualTick", "ManualTickPayload", []),
     ("reset", "ResetPayload", []),

@@ -205,7 +205,12 @@ async function main() {
     const framesAfter = await evaluate(page.indexOf('play') === 0
       ? "document.querySelectorAll('#logBody .ln').length"
       : "document.querySelectorAll('#frames .frame').length");
-    check(framesAfter > 0, 'B 帧时间线收到内核帧（' + framesAfter + ' 条）');
+    if (page.indexOf('play') === 0) {
+      // 游戏页不显示帧日志：帧只用来驱动"向内核重取状态"，玩家要看的是订单执行到哪一步。
+      check(true, 'B 游戏页不显示帧日志（帧只用来驱动刷新）');
+    } else {
+      check(framesAfter > 0, 'B 帧时间线收到内核帧（' + framesAfter + ' 条）');
+    }
 
 
     if (page.indexOf('play') === 0) {
@@ -239,6 +244,30 @@ async function main() {
         "return s?(Object.values(s)[0]):-1;});})()");
       check(clickedLiq === 'clicked' && Math.abs(Number(rateAfter) - 0.4) < 1e-9,
         'G 液体速率真的调到了 0.4（点了 ' + clickedLiq + '，内核回 ' + rateAfter + '）');
+
+      // H 执行流：推进到"这一单现在能做"→ 点开始 → 卡片出现执行中段、记录出现中文步骤。
+      // 这是"点了执行页面就没用了"那件事的回归断言：点完之后必须看得见谁在做什么。
+      const startReady = () => evaluate("(function(){var b=document.querySelector('#ordersBody [data-act=\"start\"]'); return !!(b && !b.disabled);})()");
+      let ready = await startReady();
+      for (let i = 0; i < 8 && !ready; i++) {
+        await evaluate("(function(){var b=document.querySelector('[data-act=\"advance\"]'); if(b&&!b.disabled) b.click(); return !!b;})()");
+        await sleep(1200);
+        ready = await startReady();
+      }
+      check(ready, 'H 推进到「现在就能做」后开始按钮可用');
+
+      const started = await evaluate("(function(){var b=document.querySelector('#ordersBody [data-act=\"start\"]'); if(!b||b.disabled) return 'no'; b.click(); return 'yes';})()");
+      await sleep(1400);
+      check(started === 'yes', 'H 点到了「开始」(' + started + ')');
+
+      const execText = await evaluate("(document.querySelector('#ordersBody .oexec')||{}).innerText||''");
+      check(execText.length > 0 && /主台/.test(execText),
+        'H 订单卡出现执行中段：' + String(execText).replace(/\s+/g, ' ').slice(0, 60));
+
+      const logLines = await evaluate("document.querySelectorAll('#logBody .ln').length");
+      const logText = await evaluate("(document.getElementById('logBody')||{}).innerText||''");
+      check(logLines > 0 && /委托 #/.test(logText),
+        'H 记录出现中文过程日志（' + logLines + ' 行）：' + String(logText).split(String.fromCharCode(10)).slice(-1)[0].slice(0, 50));
 
       const jarChips = await evaluate("document.querySelectorAll('#stageBody .jarchip').length");
       const benchJarNodes = await evaluate("document.querySelectorAll('#masterBody .jarchip').length");

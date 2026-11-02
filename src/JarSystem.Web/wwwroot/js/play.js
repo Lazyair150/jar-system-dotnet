@@ -64,19 +64,23 @@
         case 'state':
           state = d;
           render();
+          if (!askedAll) { askedAll = true; send('checkAllFeasibility', {}); }
           break;
         case 'frame':
-          logLine(d.kind, d.op, d.subject, d.tick);
+          handleFrame(d);
+          break;
+        case 'steps':
+          mergeSteps(d);
           break;
         case 'allFeasibilityResults':
-          applyFeas(d.results || []);
+          applyFeas(asList(d));
           renderOrders();
           break;
         case 'feasibilityResult':
           if (d.orderId !== undefined && d.result) { feas[d.orderId] = d.result; renderOrders(); }
           break;
         case 'autoCheckResults':
-          applyFeas(d.results || []);
+          applyFeas(asList(d));
           renderOrders();
           break;
         case 'orderExecuted':
@@ -93,6 +97,13 @@
     var el = $('conn');
     el.textContent = ok ? '已连接' : '断开';
     el.className = 'pill' + (ok ? ' good' : ' warn');
+  }
+
+  /* 内核这两条回包的 data 是数组本身；早期代码按 { results: [...] } 取，导致订单卡永远拿不到结果。 */
+  function asList(d) {
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.results)) return d.results;
+    return [];
   }
 
   function applyFeas(results) {
@@ -119,6 +130,13 @@
     } else {
       goalEl.textContent = '不判胜（沙盒）';
       goalEl.className = 'pill';
+    }
+
+    var running = (state.processes || []).filter(function (p) { return p.kind === 'order_execution'; }).length;
+    var busy = $('busy');
+    if (busy) {
+      busy.style.display = running ? '' : 'none';
+      busy.textContent = '执行中 ' + running;
     }
 
     var over = g.outcome === 'won' || g.outcome === 'lost' || (t.limit > 0 && t.used >= t.limit);
@@ -279,9 +297,20 @@
         html += '<div class="onote">点「分析」问内核这单能不能做</div>';
       }
 
+      var canStart = !!(f && f.feasible);
+      var proc = findProcess(o.id);
+      if (proc && proc.subject) {
+        subjectBy[o.id] = proc.subject;
+        requestSteps(o.id);
+      }
+      if (proc) html += execBlock(o, proc);
+
       html += '<div class="row">' +
         '<button class="mini" data-act="check" data-i="' + i + '">分析</button>' +
-        '<button class="mini" data-act="start" data-i="' + i + '"' + (isDone ? ' disabled' : '') + '>开始</button>' +
+        '<button class="mini' + (canStart ? ' primary' : '') + '" data-act="start" data-i="' + i + '"' +
+        ((isDone || proc || !canStart) ? ' disabled' : '') + ' title="' +
+        (canStart ? '内核确认现在能做，点它开始执行' : '还做不了：先在进度条上看缺什么') + '">' +
+        (proc ? '执行中' : (canStart ? '开始' : '还做不了')) + '</button>' +
         '<button class="mini" data-act="up" data-id="' + esc(o.id) + '">↑</button>' +
         '<button class="mini" data-act="down" data-id="' + esc(o.id) + '">↓</button>' +
         '<button class="mini" data-act="del" data-id="' + esc(o.id) + '">删除</button>' +
@@ -291,10 +320,57 @@
     $('ordersBody').innerHTML = html;
   }
 
+  /* 这一单正在进行的过程（state.processes 只列进行中的过程）。 */
+  function findProcess(orderId) {
+    var list = state.processes || [];
+    for (var k = 0; k < list.length; k++) {
+      if (list[k].kind === 'order_execution' && list[k].subjectId === orderId) return list[k];
+    }
+    return null;
+  }
+
+  /* 这一单最近做的一步（过程日志里的最后一条），没有就用内核给的计划顶替。 */
+  function lastStepOf(orderId) {
+    for (var k = logs.length - 1; k >= 0; k--) {
+      if (logs[k].orderId === orderId) return logs[k];
+    }
+    return null;
+  }
+
+  function planAt(order, step) {
+    var f = feas[order.id];
+    if (!f || !f.solverPath || !step) return '';
+    var s = f.solverPath[step - 1];
+    return s ? describeStep(s) : '';
+  }
+
+  /* 谁 / 在做什么 / 第几步 / 还剩几刻 / 卡在哪 —— 全部来自 state.processes。 */
+  function execBlock(o, p) {
+    var gs = state.globalState || {};
+    var slaveTxt = (o.type === 'B' && gs.slaveName) ? (' · 从台 ' + gs.slaveName) : '';
+    var last = lastStepOf(o.id);
+    var doing;
+    if (last) doing = last.text.replace(/^第 \d+ 步 · /, '');
+    else if (p.currentStep) doing = planAt(o, p.currentStep);
+    else doing = planAt(o, 1) ? ('下一步：' + planAt(o, 1)) : '等资源就绪';
+    var pct = p.totalSteps ? Math.round((p.currentStep || 0) * 100 / p.totalSteps) : 0;
+    var out = '<div class="oexec">' +
+      '<div class="ohead2"><span class="run">● 执行中</span>' +
+      '<span class="who">主台 ' + esc(gs.masterName || '（未布置）') + slaveTxt + '</span>' +
+      '<span class="oprog">第 ' + esc(p.currentStep || 0) + ' / ' + esc(p.totalSteps || 0) + ' 步</span></div>' +
+      '<div class="obar run"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="odoing">正在做：' + esc(doing || '等资源就绪') +
+      (p.remainingTicks ? ' · 还剩 ' + esc(p.remainingTicks) + ' 刻' : '') + '</div>';
+    if (p.blockedReason) out += '<div class="onote bad">卡住：' + esc(p.blockedReason) + '</div>';
+    return out + '</div>';
+  }
+
   /* 内核给的求解步骤 → 一句人话。**只做措辞，不做判断**。 */
   function describeStep(s) {
     if (!s) return '?';
     if (typeof s === 'string') return s;
+    // 内核给每一步写了 description（和执行日志同一句话）—— 页面只转述，不再自造措辞
+    if (s.description) return String(s.description);
     var op = s.op || s.operation || '';
     var jar = s.jarId !== undefined ? ('罐 ' + s.jarId) : '';
     var to = s.targetShape || s.shape || '';
@@ -327,22 +403,128 @@
       (jarChips ? '<div class="jarrow">' + jarChips + '</div>' : '<div class="empty">仓库里还没有罐子</div>') +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' + (liqs || '<span class="empty">没有液体</span>') + '</div>' +
       (wh.discardedJars ? '<div class="lab">溢出丢弃 ' + esc(wh.discardedJars) + ' 只</div>' : '');
+    pulseStage(wh);
   }
 
-  /* ---------------- 记录 ---------------- */
-  var logs = [];
-  function logLine(kind, op, subject, tick) {
-    logs.push({ kind: kind, op: op, subject: subject, tick: tick });
-    if (logs.length > MAX_LOG) logs = logs.slice(-MAX_LOG);
-    var el = $('logBody');
-    el.scrollTop = el.scrollHeight;
+  /* 入库闪一下：只比较前后两次数值，不做任何推断。 */
+  var prevStage = null;
+  function pulseStage(wh) {
+    var jars = wh.jars || 0;
+    var liquids = wh.liquids || {};
+    if (prevStage) {
+      var addedJars = jars - prevStage.jars;
+      if (addedJars > 0) {
+        var chips = $('stageBody').querySelectorAll('.jarchip');
+        for (var k = Math.max(0, chips.length - addedJars); k < chips.length; k++) {
+          chips[k].classList.add('new');
+        }
+      }
+      Object.keys(liquids).forEach(function (key) {
+        if (liquids[key] > (prevStage.liquids[key] || 0)) {
+          $('stageBody').querySelectorAll('.liq').forEach(function (el) {
+            if (el.textContent.indexOf(key) === 0) el.classList.add('up');
+          });
+        }
+      });
+    }
+    prevStage = { jars: jars, liquids: JSON.parse(JSON.stringify(liquids)) };
   }
+
+  /* ---------------- 记录：内核过程日志的中文投影 ---------------- */
+  /* 这份表只做措辞。内核记的是"做了什么"（pourIn / step_applied / blocked…），
+     玩家要看的是"谁在为哪一单做哪一步"，两者一一对应、不新增判断。 */
+  var OP_ZH = {
+    plan_accepted: '定下做法', started: '开工', step_begin: '准备一步', step_applied: '做了一步',
+    step_skipped: '跳过一步', blocked: '卡住了', resumed: '恢复', grace_expired: '宽限到期',
+    failed: '失败', succeeded: '成功', aborted: '中止', modifier_on: '法令生效',
+    modifier_off: '法令结束', phase: '阶段',
+    pourIn: '灌液', pourOut: '倒空', reshape: '改形', reshape_full: '满罐改形',
+    use_existing: '直接用', transfer: '搬到从台', transferJar: '搬罐', transferLiquid: '搬液',
+    match: '正好可用', skip: '跳过'
+  };
+
+  var askedAll = false;   // 首屏只问一次"每单现在能不能做"
+  var subjectBy = {};    // subjectId → subject（过程日志按 (subject, subjectId) 成对查询）
+  var stepSeen = {};     // seq → true（去重：同一份日志会被反复拉取）
+  var logs = [];
+  var lastStepAt = {};   // orderId → 最近一步的时间戳（节流）
+  var stateTimer = null;
+
+  function opZh(op, kind) {
+    if (op && OP_ZH[op]) return OP_ZH[op];
+    if (kind && OP_ZH[kind]) return OP_ZH[kind];
+    return op || kind || '';
+  }
+
+  function toneOf(kind) {
+    if (kind === 'succeeded' || kind === 'started') return 'ok';
+    if (kind === 'failed' || kind === 'aborted' || kind === 'blocked' || kind === 'grace_expired') return 'bad';
+    if (kind === 'phase' || kind === 'modifier_on' || kind === 'modifier_off') return 'phase';
+    return '';
+  }
+
+  /* 内核 summary 形如「pourIn 陶工(圆罐)#1 蜜」：把开头的英文动作名换成中文，其余原样。 */
+  function stepText(e) {
+    var op = e.operation || '';
+    var detail = String(e.summary || '');
+    if (op && detail.indexOf(op) === 0) detail = detail.slice(op.length).trim();
+    var head = e.stepIndex ? ('第 ' + e.stepIndex + ' 步 · ') : '';
+    return head + opZh(op, e.kind) + (detail ? ' ' + detail : '');
+  }
+
+  function handleFrame(d) {
+    if (d.subject !== undefined && d.subject !== null && d.subjectId !== undefined && d.subjectId !== null) {
+      subjectBy[d.subjectId] = d.subject;
+      requestSteps(d.subjectId);
+    }
+    // 帧只说"世界变了"，画什么要问内核再画一遍（页面不做增量推断）
+    if (d.kind === 'worldChanged' || d.kind === 'processChanged') refreshState();
+  }
+
+  function refreshState() {
+    if (stateTimer) return;
+    stateTimer = setTimeout(function () { stateTimer = null; send('getState', {}); }, 120);
+  }
+
+  function requestSteps(orderId) {
+    var subject = subjectBy[orderId];
+    if (!subject) return;
+    var now = Date.now();
+    if (lastStepAt[orderId] && now - lastStepAt[orderId] < 350) return;
+    lastStepAt[orderId] = now;
+    send('getSteps', { subject: subject, subjectId: orderId });
+  }
+
+  function mergeSteps(d) {
+    if (d.subject !== undefined && d.subjectId !== undefined) subjectBy[d.subjectId] = d.subject;
+    var entries = d.entries || [];
+    var added = 0;
+    entries.forEach(function (e) {
+      if (e.seq === undefined || stepSeen[e.seq]) return;
+      stepSeen[e.seq] = true;
+      logs.push({ seq: e.seq, tick: e.tick, orderId: d.subjectId, text: stepText(e), tone: toneOf(e.kind) });
+      added++;
+    });
+    if (!added) return;
+    logs.sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+    if (logs.length > MAX_LOG) logs = logs.slice(-MAX_LOG);
+    flushLogs();
+    renderOrders();
+  }
+
+  function addLocalLog(text, tone) {
+    logs.push({ seq: 0, tick: (state && state.turns) ? state.turns.used : 0, text: text, tone: tone || '' });
+    if (logs.length > MAX_LOG) logs = logs.slice(-MAX_LOG);
+    flushLogs();
+  }
+
   function flushLogs() {
     var el = $('logBody');
     if (!logs.length) { el.innerHTML = '<div class="empty">还没有记录</div>'; return; }
     el.innerHTML = logs.slice(-MAX_LOG).map(function (l) {
-      return '<div class="ln"><b>t' + esc(l.tick) + '</b> ' + esc(l.kind) + ' · ' + esc(l.op) +
-        (l.subject ? ' · ' + esc(l.subject) : '') + '</div>';
+      var cls = 'ln' + (l.tone ? ' ' + l.tone : '');
+      var who = l.orderId !== undefined ? ('<span class="lwho">委托 #' + esc(l.orderId) + '</span> ') : '';
+      return '<div class="' + cls + '"><b>t' + esc(l.tick) + '</b> ' + who + esc(l.text) + '</div>';
     }).join('');
     el.scrollTop = el.scrollHeight;
   }
@@ -426,7 +608,11 @@
         });
         break;
       case 'check': send('checkFeasibility', { orderIndex: +t.getAttribute('data-i') }); break;
-      case 'start': send('startOrder', { index: +t.getAttribute('data-i') }); break;
+      case 'start':
+        send('startOrder', { index: +t.getAttribute('data-i') });
+        addLocalLog('让内核开始做这一单', 'phase');
+        setTimeout(function () { send('getState', {}); send('checkAllFeasibility', {}); }, 400);
+        break;
       case 'del': send('deleteOrder', { orderId: +t.getAttribute('data-id') }); break;
       case 'up': send('moveOrder', { orderId: +t.getAttribute('data-id'), dir: -1 }); break;
       case 'down': send('moveOrder', { orderId: +t.getAttribute('data-id'), dir: 1 }); break;

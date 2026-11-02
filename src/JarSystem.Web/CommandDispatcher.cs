@@ -218,6 +218,34 @@ public sealed class CommandDispatcher
                 break;
             }
 
+            case "getSteps":
+            {
+                // 「订单执行过程发生了什么」= 过程日志的**原样**投影：谁（subject）、哪一步（stepIndex）、
+                // 内核记下的动作（operation）、发生时世界的第几刻（tick）。
+                // 页面负责措辞（把 pourIn/reshape 说成人话），内核只说事实。
+                var subject = JsonArgs.JS(dataEl, "subject") ?? "";
+                var subjectId = JsonArgs.JI(dataEl, "subjectId");
+                // 投影成扁平 DTO 再塞进 data：data 字面量里不能再有嵌套对象字面量，
+                // 否则协议守卫的反向提取会认不出这条消息的键集合。
+                var stepDtos = sys.StepsFor(subject, subjectId)
+                    .Select(e => new StepEntryDto
+                    {
+                        Seq = e.Seq,
+                        Tick = e.Tick,
+                        Kind = e.Kind,
+                        StepIndex = e.StepIndex,
+                        Operation = e.Operation,
+                        Summary = e.Summary
+                    })
+                    .ToList();
+                await _sink.SendAsync(ws, JsonArgs.J(new
+                {
+                    type = "steps",
+                    data = new { subject, subjectId, entries = stepDtos }
+                }));
+                break;
+            }
+
             case "checkFeasibility":
             {
                 var idx = ResolveOrderIndex(svc, dataEl);
@@ -314,4 +342,24 @@ public sealed class CommandDispatcher
         // 兼容旧参数 orderIndex
         return JsonArgs.JI(d, "orderIndex");
     }
+}
+
+/// <summary>
+/// 一条过程日志的对外投影：内核记什么就带什么，多一个字段都不加。
+/// 单独声明成类型（而不是匿名对象）是为了让 data 字面量保持扁平 —— 协议守卫靠
+/// 按「消息类型 + data 字面量」做浅层解析来核对回包键集合（所以注释里也不能出现那个模式）。
+/// </summary>
+internal sealed class StepEntryDto
+{
+    public long Seq { get; init; }
+
+    public int Tick { get; init; }
+
+    public string Kind { get; init; } = "";
+
+    public int? StepIndex { get; init; }
+
+    public string? Operation { get; init; }
+
+    public string? Summary { get; init; }
 }

@@ -150,3 +150,30 @@ button.big { padding: 10px 44px; font-size: 15px; }
   border: 1px solid var(--line); border-radius: 6px;
   background: var(--jar); color: var(--ink);
 }
+
+/* 订单卡：正在执行那一段（谁 · 在做什么 · 第几步 · 还剩几刻 · 卡在哪） */
+.oexec {
+  margin: 8px 0 6px; padding: 8px 10px;
+  border: 1px solid rgba(95, 160, 255, .45);
+  border-radius: 8px;
+  background: rgba(95, 160, 255, .08);
+}
+.oexec .ohead2 { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.oexec .run { color: #6aa6ff; font-weight: 700; }
+.oexec .who { color: var(--dim); }
+.oexec .odoing { margin-top: 6px; font-size: 13px; color: var(--ink); }
+.obar.run { height: 6px; margin: 6px 0 4px; }
+.obar.run > i { background: #5fa0ff; }
+.pill.run { color: #6aa6ff; border-color: rgba(95, 160, 255, .5); background: rgba(95, 160, 255, .12); }
+
+/* 记录：按条目上色（成功/失败/阶段），委托号单独一列 */
+.ln.ok { color: #7fd18b; }
+.ln.bad { color: #e8837a; }
+.ln.phase { color: #d8b96a; }
+.ln .lwho { color: var(--dim); }
+
+/* 入库闪一下：纯视觉反馈，数值不动 */
+@keyframes jarIn { from { transform: translateY(-6px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+.jarchip.new { animation: jarIn .28s ease-out; border-color: var(--gold); }
+@keyframes liqIn { from { opacity: .3; transform: scale(0.95); } to { opacity: 1; transform: none; } }
+.liq.up { animation: liqIn .3s ease-out; }

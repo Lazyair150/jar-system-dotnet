@@ -124,8 +124,8 @@ interface ProcessStateDto {
   lastJournalSeq?: number;
 }
 
-type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setWorkshopCapability" | "moveOrder" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "restartLevel" | "updateProducerRate" | "updateLiquidRate" | "startTick" | "stopTick" | "setAutoCheck" | "startOrder" | "cancelProcess" | "setTickInterval";
-type MessageType = "init" | "state" | "orderExecuted" | "workshopSwitched" | "feasibilityResult" | "allFeasibilityResults" | "autoCheckResults" | "autoCheckChanged" | "error" | "world" | "frame" | "tickIntervalChanged";
+type CommandName = "getState" | "createOrder" | "createRandomOrder" | "createWorkshop" | "createRandomWorkshop" | "updateWorkshopCapacity" | "setWorkshopCapability" | "moveOrder" | "setMaster" | "setSlave" | "executeOrder" | "deleteOrder" | "checkFeasibility" | "checkAllFeasibility" | "manualTick" | "reset" | "restartLevel" | "updateProducerRate" | "updateLiquidRate" | "startTick" | "stopTick" | "setAutoCheck" | "startOrder" | "cancelProcess" | "setTickInterval" | "getSteps";
+type MessageType = "init" | "state" | "orderExecuted" | "workshopSwitched" | "feasibilityResult" | "allFeasibilityResults" | "autoCheckResults" | "autoCheckChanged" | "error" | "world" | "frame" | "tickIntervalChanged" | "steps";
 
 interface RequirementPayload { shape: string; liquid?: string | null; }
 
@@ -242,6 +242,12 @@ interface GetStatePayload {
 interface RestartLevelPayload {
 }
 
+/** `getSteps` 的载荷 */
+interface GetStepsPayload {
+  subject?: string;
+  subjectId?: number;
+}
+
 /** `checkAllFeasibility` 的载荷 */
 interface CheckAllFeasibilityPayload {
 }
@@ -284,6 +290,7 @@ interface CommandPayloadMap {
   "createRandomWorkshop": CreateRandomWorkshopPayload;
   "getState": GetStatePayload;
   "restartLevel": RestartLevelPayload;
+  "getSteps": GetStepsPayload;
   "checkAllFeasibility": CheckAllFeasibilityPayload;
   "manualTick": ManualTickPayload;
   "reset": ResetPayload;
