@@ -158,8 +158,64 @@ public class Workshop
 
     public bool HasJarCapacity() => _jars.Count < MaxJars;
 
+    // ============================================================
+    // 「动用液体」的唯一说法（原则4：规则 = 概念体的能力）
+    //
+    // 在这之前，"能不能用这份液体"是**每个调用方自己拼**的：
+    //   - Workshop 内部：IsBanned + GetValueOrDefault + MaxLiquids，四处各写一遍；
+    //   - WorkshopRulebook / GreedyPlanBuilder / 求解器：各自再拼一遍。
+    // 于是"禁令"这个规则有四五种说法，改一处漏三处（B1 的"先倒空再禁"守卫就是这么来的）。
+    //
+    // 现在它收敛成**向工作台发请求、拿回应**：can 什么、为什么不行、用哪句话解释。
+    // 调用方不再需要知道实现是"字典 + 上限 + 禁令表"，只需要读 return。
+    // ============================================================
+
+    /// <summary>动用什么液体（能力查询结果）。<see cref="Code"/> 是稳定码，<see cref="Reason"/> 是给人看的话。</summary>
+    public readonly struct LiquidGrant
+    {
+        internal LiquidGrant(bool granted, string? code, string? reason)
+        {
+            Granted = granted; Code = code; Reason = reason;
+        }
+
+        public bool Granted { get; }
+        /// <summary>banned / insufficient / over-capacity / (null = 允许)</summary>
+        public string? Code { get; }
+        public string? Reason { get; }
+
+        public static LiquidGrant Yes() => new(true, null, null);
+    }
+
+    /// <summary>能不能碰这种液体（禁令门）。**禁令不是"存储上限"，是"这整种液体在本台不可用"**。</summary>
+    public LiquidGrant CheckLiquid(string liquid) =>
+        IsBanned(liquid) ? new LiquidGrant(false, "banned", "工作台禁" + liquid) : LiquidGrant.Yes();
+
+    /// <summary>能不能从池子里取出 amount 份（禁令 + 库存）。倒液、付改形成本都走这里。</summary>
+    public LiquidGrant CanUseLiquid(string liquid, int amount)
+    {
+        var touch = CheckLiquid(liquid);
+        if (!touch.Granted) return touch;
+        if (amount <= 0) return LiquidGrant.Yes();
+        var have = _liquidStorage.GetValueOrDefault(liquid);
+        return have >= amount
+            ? LiquidGrant.Yes()
+            : new LiquidGrant(false, "insufficient", "液体" + liquid + "不足");
+    }
+
+    /// <summary>能不能往池子里放 amount 份（禁令 + 容量）。仓库流入、倒空回池都走这里。</summary>
+    public LiquidGrant CanStoreLiquid(string liquid, int amount)
+    {
+        var touch = CheckLiquid(liquid);
+        if (!touch.Granted) return touch;
+        if (amount <= 0) return LiquidGrant.Yes();
+        var have = _liquidStorage.GetValueOrDefault(liquid);
+        return have + amount <= MaxLiquids
+            ? LiquidGrant.Yes()
+            : new LiquidGrant(false, "over-capacity", "液体" + liquid + "存储已满");
+    }
+
     /// <summary>是否有可用（未被禁且有库存）的游离液体。</summary>
-    public bool HasUsableLiquid(string l) => !IsBanned(l) && _liquidStorage.GetValueOrDefault(l) >= 1;
+    public bool HasUsableLiquid(string l) => CanUseLiquid(l, 1).Granted;
 
     /// <summary>支付 1 单位改形成本。</summary>
     public bool TryPayReshapeCost(string l)
@@ -171,10 +227,8 @@ public class Workshop
 
     public bool AddLiquid(string l, int n = 1)
     {
-        if (IsBanned(l)) return false;
-        var c = _liquidStorage.GetValueOrDefault(l);
-        if (c + n > MaxLiquids) return false;
-        _liquidStorage[l] = c + n;
+        if (!CanStoreLiquid(l, n).Granted) return false;   /* 禁令 + 容量：唯一说法在上面 */
+        _liquidStorage[l] = _liquidStorage.GetValueOrDefault(l) + n;
         return true;
     }
 
@@ -189,7 +243,10 @@ public class Workshop
     /// <summary>容量感知地接收液体：返回实际接收量（被禁液体或容量已满一律拒收，不做部分接收之外的补偿）。</summary>
     public int TryReceiveLiquid(string l, int amount)
     {
-        if (amount <= 0 || IsBanned(l)) return 0;
+        // 只问禁令，**不问容量**：接收语义是"能装多少装多少"，装不下的由调用方丢弃并计数
+        // （规则.txt「中央仓库单向流动」：溢出直接丢弃，不回收）。用 CanStoreLiquid 会变成"全有或全无"，
+        // 那会把部分接收这件事从世界里抹掉 —— 既有测试当场抓到了。
+        if (amount <= 0 || !CheckLiquid(l).Granted) return 0;
         var cur = _liquidStorage.GetValueOrDefault(l);
         var accepted = Math.Min(amount, Math.Max(0, MaxLiquids - cur));
         if (accepted <= 0) return 0;
@@ -276,7 +333,8 @@ public class Workshop
         if (j.IsMarked) return (false, "罐子已被操作");
         if (!j.IsEmpty()) return (false, "罐子不为空");
         if (!_capability.IsBaseMarked(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
-        if (IsBanned(l)) return (false, "工作台禁" + l);
+        var touchIn = CheckLiquid(l);
+        if (!touchIn.Granted) return (false, touchIn.Reason);
         if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
         if (!RemoveLiquid(l)) return (false, "液体" + l + "不足");
         j.PourIn(l); j.Mark(); return (true, null);
@@ -287,9 +345,11 @@ public class Workshop
         if (j.IsMarked) return (false, "罐子已被操作", null);
         if (j.IsEmpty()) return (false, "罐子为空", null);
         var l = j.Liquid!;
-        if (IsBanned(l)) return (false, "工作台禁" + l, null);
+        var touchOut = CheckLiquid(l);
+        if (!touchOut.Granted) return (false, touchOut.Reason, null);
         if (_rules.SuppressionReason("POUR_OUT", j.Shape, l) is { } suppressed) return (false, suppressed, null);
-        if (_liquidStorage.GetValueOrDefault(l) >= MaxLiquids) return (false, "液体" + l + "存储已满", null);
+        var storeOut = CanStoreLiquid(l, 1);
+        if (!storeOut.Granted) return (false, storeOut.Reason, null);
         j.ClearLiquid(); AddLiquid(l); j.Mark(); return (true, null, l);
     }
 
@@ -310,7 +370,8 @@ public class Workshop
         if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
         if (_rules.SuppressionReason("RESHAPE", j.Shape, j.Liquid) is { } suppressed) return (false, suppressed);
         var l = j.ClearLiquid();
-        if (IsBanned(l!)) { j.PourIn(l!); return (false, "工作台禁" + l); }
+        var touch = CheckLiquid(l!);
+        if (!touch.Granted) { j.PourIn(l!); return (false, touch.Reason); }
         j.Reshape(to); j.Mark(); return (true, null);
     }
 
