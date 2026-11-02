@@ -20,6 +20,7 @@ const os = require('os');
 const path = require('path');
 
 const base = process.argv[2] || 'http://127.0.0.1:5299';
+const page = process.argv[3] || 'play.html';
 const target = new URL(base);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -145,7 +146,7 @@ async function main() {
       browserWs.send({ id: msgId, method, params: params || {} });
     });
 
-    const { result: tab } = await send('Target.createTarget', { url: base + '/world.html' });
+    const { result: tab } = await send('Target.createTarget', { url: base + '/' + page });
     const { result: attached } = await send('Target.attachToTarget', { targetId: tab.targetId, flatten: true });
     const sessionId = attached.sessionId;
 
@@ -165,22 +166,26 @@ async function main() {
       return res.result && res.result.result && res.result.result.value;
     };
 
-    // A 渲染出内核状态
-    const stateText = await evaluate("(document.getElementById('state')||{}).textContent||''");
+    // A 渲染出内核状态（世界视图看 #state，游戏页看主台卡）
+    const stateSel = page.indexOf('play') === 0 ? 'masterBody' : 'state';
+    const stateText = await evaluate("(document.getElementById('" + stateSel + "')||{}).textContent||''");
     check(stateText.length > 20 && !stateText.includes('等待内核状态'), 'A 世界状态已渲染：' + String(stateText).slice(0, 40).replace(/\s+/g, ' '));
 
-    const levelText = await evaluate("(document.getElementById('level')||{}).textContent||''");
-    check(/第\s*\d+\s*\/\s*\d+\s*关/.test(levelText), 'A 页头显示关卡：' + levelText);
+    const levelText = await evaluate("((document.getElementById('level')||document.getElementById('lvname')||{}).textContent)||''");
+    const levelOk = page.indexOf('play') === 0 ? levelText.length > 2 : /第\s*\d+\s*\/\s*\d+\s*关/.test(levelText);
+    check(levelOk, 'A 页头显示关卡：' + levelText);
 
     const turnsBefore = (await httpJson(base + '/api/state')).turns;
 
     // B 帧时间线（此刻可能还是空的：接上 WebSocket 才会有帧，先记个数，点完再判）
-    const framesBefore = await evaluate("document.querySelectorAll('#frames .frame').length");
+    const framesBefore = await evaluate(page.indexOf('play') === 0
+      ? "document.querySelectorAll('#logBody .ln').length"
+      : "document.querySelectorAll('#frames .frame').length");
     check(framesBefore >= 0, 'B 帧时间线就位（当前 ' + framesBefore + ' 条）');
 
     // C 点「推进一回合」
     const clicked = await evaluate(`(function(){
-      var b = document.querySelector('[data-act="tick"]');
+      var b = document.querySelector('[data-act="' + (location.pathname.indexOf('play') >= 0 ? 'advance' : 'tick') + '"]');
       if (!b) return 'no-button';
       if (b.disabled) return 'disabled';
       b.click();
@@ -197,9 +202,22 @@ async function main() {
     check(pageTurns.includes(String(turnsAfter.used)), 'C 页头回合数跟上了内核：' + pageTurns);
 
     // B 推进之后必须有帧进来：没有就是 WebSocket 没连上，或者页面没在收帧。
-    const framesAfter = await evaluate("document.querySelectorAll('#frames .frame').length");
+    const framesAfter = await evaluate(page.indexOf('play') === 0
+      ? "document.querySelectorAll('#logBody .ln').length"
+      : "document.querySelectorAll('#frames .frame').length");
     check(framesAfter > 0, 'B 帧时间线收到内核帧（' + framesAfter + ' 条）');
 
+
+    if (page.indexOf('play') === 0) {
+      const orderCards = await evaluate("document.querySelectorAll('#ordersBody .order').length");
+      check(orderCards > 0, 'E 关卡开局就有订单卡（' + orderCards + ' 张）');
+      const lineCards = await evaluate("document.querySelectorAll('#linesBody .linecard').length");
+      check(lineCards > 0, 'E 产线卡可配置（' + lineCards + ' 张）');
+      const bars = await evaluate("document.querySelectorAll('#ordersBody .obar').length");
+      check(bars > 0, 'E 订单进度条已画出（' + bars + ' 条）');
+      const benchJars = await evaluate("(document.getElementById('masterBody')||{}).textContent||''");
+      check(benchJars.length > 0, 'E 主台卡已渲染');
+    }
     // D 不变量
     const inv = await httpJson(base + '/api/invariants');
     check(inv.ok === true, 'D 不变量仍为空（violations=' + inv.count + '）');

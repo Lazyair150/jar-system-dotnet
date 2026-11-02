@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>陶罐解谜</title>
+<link rel="stylesheet" href="css/play.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="topbar">
+    <span class="lvname" id="lvname">载入中…</span>
+    <span class="turn" id="turns">回合 – / –</span>
+    <span class="pill" id="goal">目标 –</span>
+    <span class="pill" id="conn">连接中…</span>
+    <span class="spacer"></span>
+    <button class="mini" data-act="restart">重开本关</button>
+    <button class="mini" data-act="levels">关卡选择</button>
+    <a class="mini" href="world.html" style="color:var(--dim);text-decoration:none;border:1px solid var(--line);padding:4px 9px;border-radius:6px">世界视图</a>
+  </div>
+
+  <div id="hintbar"><span class="lvhint" id="lvhint"></span></div>
+
+  <div class="cols">
+    <div class="col">
+      <div class="panel" id="masterPanel">
+        <div class="panel-hd">
+          <span class="ptitle">主台</span>
+          <span class="bname" id="masterName">（未布置）</span>
+          <span class="spacer" style="flex:1"></span>
+          <button class="mini" data-act="pickmaster">换主台</button>
+        </div>
+        <div id="masterBody"></div>
+      </div>
+
+      <div class="panel" id="subPanel">
+        <div class="panel-hd">
+          <span class="ptitle">从台</span>
+          <span class="bname" id="subName">（不用从台）</span>
+          <span class="hint" id="subHint"></span>
+          <span class="spacer" style="flex:1"></span>
+          <button class="mini" data-act="pickslave">换从台</button>
+          <button class="mini" data-act="noslave">撤掉从台</button>
+        </div>
+        <div id="subBody"></div>
+      </div>
+
+      <div class="panel" id="linesPanel">
+        <div class="panel-hd">
+          <span class="ptitle">产线</span>
+          <span class="hint" id="linesHint">每张卡决定这个形状每回合产几只</span>
+        </div>
+        <div class="lines" id="linesBody"></div>
+      </div>
+
+      <div class="panel" id="stagePanel">
+        <div class="panel-hd"><span class="ptitle">中央仓库</span><span class="hint">每回合按产线推进，先进仓库，再流向主台</span></div>
+        <div class="stage" id="stageBody"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel" id="ordersPanel">
+        <div class="panel-hd">
+          <span class="ptitle">订单</span>
+          <span class="hint" id="ordersHint">进度 = 以当前资源这一单能走到哪一步</span>
+          <span class="spacer" style="flex:1"></span>
+          <button class="mini" data-act="neworder">随机派一单</button>
+        </div>
+        <div id="ordersBody"><div class="empty">还没有订单</div></div>
+      </div>
+
+      <div class="panel" id="logPanel">
+        <div class="panel-hd"><span class="ptitle">记录</span><span class="hint">内核做了什么就显示什么</span></div>
+        <div class="log" id="logBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="bottomBar">
+    <button class="primary big" data-act="advance" id="advanceBtn">推进一回合</button>
+  </div>
+</div>
+
+<div id="picker" class="hidden"><div class="pickbox" id="pickbox"></div></div>
+<div id="toast"></div>
+
+<script src="js/play.js"></script>
+</body>
+</html>

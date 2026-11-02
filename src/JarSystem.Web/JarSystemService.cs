@@ -47,7 +47,42 @@ public class JarSystemService
         System = new JarSystem.Core.JarSystem(log: log, world: level?.World ?? LoadWorldOrNull());
         // 订阅核心的帧流（`PresentationFeed`）：宿主只**转发**，不再自己定义一套词汇。
         if (observer != null) System.Presentation.Subscribe(observer);
+        if (level != null) DeployLevelOrders(level);
         LoadScenarioOrThrow();
+    }
+
+    /// <summary>
+    /// 关卡开局派单：每个模板各派一单。
+    ///
+    /// 为什么由宿主做：核心不认识"关卡"，而"这一关开局桌上有几张单"是关卡内容的一部分。
+    /// 不派单的话，打开关卡看到的是一个空桌子——没有单可做，进度条与判胜都无从谈起。
+    /// 失败即拒绝启动：模板名是从已校验过的世界来的，真失败说明世界与派单口径不一致，
+    /// 静默跳过只会让玩家面对一张没有订单的桌子而不知为什么。
+    /// </summary>
+    /// <summary>
+    /// 重开本关：把世界推回开局，再按模板重新派单。
+    /// 只在宿主层做——"这一关开局是什么样"是关卡内容，核心不认识关卡。
+    /// </summary>
+    public void RestartLevel()
+    {
+        System.Reset();
+        if (Level != null) DeployLevelOrders(Level);
+    }
+
+    private void DeployLevelOrders(LevelInfo level)
+    {
+        // 先摆台（信封给的 master / slave），再派单：台位是这一关的起手，
+        // 摆好之后再派单，订单的分析结果才是有意义的（否则开局全是"没有主台"）。
+        if (level.Master is { } master) System.SetMasterIndex(master);
+        System.SetSlaveIndex(level.Slave);
+
+        foreach (var template in level.World.OrderTemplates)
+        {
+            var (ok, error) = System.CreateOrderFromTemplate(template.Name);
+            if (!ok)
+                throw new InvalidOperationException(
+                    "关卡「" + level.Name + "」的模板「" + template.Name + "」派单失败：" + error);
+        }
     }
 
     /// <summary>

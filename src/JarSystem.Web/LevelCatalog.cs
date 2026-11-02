@@ -27,7 +27,18 @@ using JarSystem.Core.Config;
 /// </code>
 /// 序号取**文件名排序后的位置**（1 起），不写进文件里 —— 这样插一关不必回头改所有后续文件。
 /// </summary>
-public sealed record LevelInfo(int Index, string Name, string Hint, int Turns, WorldOptions World, string Path);
+public sealed record LevelInfo(int Index, string Name, string Hint, int Turns, WorldOptions World, string Path)
+{
+    /// <summary>
+    /// 开局的主台下标（信封的 `master`；null = 不预设，让玩家自己挑）。
+    /// 为什么不放进 WorldOptions：台子是这一关的**摆放**，不是世界规则；
+    /// 核心不认识"开局该选哪台"，只有关卡知道。
+    /// </summary>
+    public int? Master { get; init; }
+
+    /// <summary>开局的从台下标（信封的 `slave`；null = 不用从台）。</summary>
+    public int? Slave { get; init; }
+}
 
 /// <summary>扫描并解析 <c>config/levels/</c>。</summary>
 public static class LevelCatalog
@@ -115,6 +126,22 @@ public static class LevelCatalog
                 "关卡 " + file + " 的世界校验失败：" + report.Errors.Count + " 个错误，已拒绝启动");
         }
 
-        return new LevelInfo(index, name, hint, turns, world, file);
+        // 开局台位也写在信封上：关卡知道"这一关从哪两台开始"，即它的起手是很具体的内容。
+        // 越界在这里就拒绝，而不是等玩家点开那一刻才炸。
+        int? ReadBench(string key)
+        {
+            if (!root.TryGetProperty(key, out var el) || el.ValueKind != JsonValueKind.Number) return null;
+            var at = el.GetInt32();
+            if (at < 0 || at >= world.Workshops.Count)
+                throw new InvalidOperationException(
+                    "关卡 " + file + " 的 " + key + " = " + at + " 超出工作台范围（0.." + (world.Workshops.Count - 1) + "）");
+            return at;
+        }
+
+        return new LevelInfo(index, name, hint, turns, world, file)
+        {
+            Master = ReadBench("master"),
+            Slave = ReadBench("slave")
+        };
     }
 }

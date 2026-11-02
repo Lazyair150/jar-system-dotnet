@@ -55,11 +55,11 @@ weakened or skipped. `AGENTS.md` states the operative rule: do not **silently** 
 | Godot host | Release build, zero compiler warnings | `dotnet build hosts/godot/Jar/jar.csproj -c Release` | every verification |
 | Legacy suite | 0 bugs / 2000 random + 0 bugs / 3000 capacity | `test/JarSystem.Test` | every verification |
 | Determinism | At least 32 deterministic cases; no reduction | `verify.bat` log + `quality-gate.ps1` | every verification |
-| Focused suite | At least 212 xUnit tests; 0 failed/skipped/not-run |
+| Focused suite | At least 213 xUnit tests; 0 failed/skipped/not-run |
 | Contract snapshot | Exactly 229 state-key lines against the checked-in baseline | `--dump-contract` + `fc` | every verification |
 | Schema | 11 DTO types, `degraded=0`, current known `loose=1` only | `--dump-schema` | every verification |
 | Config/world equivalence | Byte-identical to built-in world | `CONFIG-WORLD-MATCH` | every verification |
-| Protocol | 23 commands / 12 messages, payload guards pass | `--check-protocol` | every verification |
+| Protocol | 24 commands / 12 messages, payload guards pass | `--check-protocol` | every verification |
 | Solver | Production solver agrees with reference solver | `SOLVER-OK` | every verification |
 | Modifier differential | 400 scenarios / 1600 checks agree | `MODDIFF-OK` | every verification |
 | Replay | State, command log, and process journal are byte-identical | `REPLAY-OK` | every verification |

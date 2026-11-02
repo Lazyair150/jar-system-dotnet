@@ -62,6 +62,35 @@ public class LevelCatalogTests
         return (n.GetString()!, h.GetString()!, turns, world);
     }
 
+
+    [Fact]
+    public void EveryLevelDeclaresItsOpeningBenches()
+    {
+        // 关卡开局必须已经摆好台：没有主台时所有订单分析都是"没有主台"，
+        // 玩家打开页面看到一张什么都做不了的桌子。台位是这一关的起手，写在信封上。
+        // 这里只读**文件**（宿主才认识 LevelInfo），所以用 JsonDocument 直接看数据。
+        foreach (var file in LevelFiles())
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(file, System.Text.Encoding.UTF8));
+            var root = doc.RootElement;
+            var name = Path.GetFileName(file);
+
+            Assert.True(root.TryGetProperty("master", out var masterEl) && masterEl.ValueKind == JsonValueKind.Number,
+                name + " 没有写 master：开局的桌子是空的，打开页面什么都做不了");
+
+            var benches = root.GetProperty("world").GetProperty("workshops").GetArrayLength();
+            var master = masterEl.GetInt32();
+            Assert.InRange(master, 0, benches - 1);
+
+            if (root.TryGetProperty("slave", out var slaveEl) && slaveEl.ValueKind == JsonValueKind.Number)
+            {
+                var slave = slaveEl.GetInt32();
+                Assert.InRange(slave, 0, benches - 1);
+                Assert.NotEqual(master, slave);
+            }
+        }
+    }
+
     [Fact]
     public void SixLevelsExistInPlayOrder()
     {

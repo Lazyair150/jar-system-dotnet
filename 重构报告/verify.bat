@@ -153,6 +153,9 @@ if "%JSOK%"=="1" if errorlevel 1 set "JSERR=1"
 if "%JSOK%"=="1" node --check "src\JarSystem.Web\wwwroot\js\canvas.js" >> "%LOG%" 2>&1
 if "%JSOK%"=="1" if errorlevel 1 echo JS-SYNTAX-ERROR canvas.js >> "%LOG%"
 if "%JSOK%"=="1" if errorlevel 1 set "JSERR=1"
+if "%JSOK%"=="1" node --check "src\JarSystem.Web\wwwroot\js\play.js" >> "%LOG%" 2>&1
+if "%JSOK%"=="1" if errorlevel 1 echo JS-SYNTAX-ERROR play.js >> "%LOG%"
+if "%JSOK%"=="1" if errorlevel 1 set "JSERR=1"
 if "%JSOK%"=="1" if "%JSERR%"=="0" echo JS-OK >> "%LOG%"
 
 rem  P5 sub-check: scenario data gate (kept INSIDE step 7, so the nine-step shape is unchanged).

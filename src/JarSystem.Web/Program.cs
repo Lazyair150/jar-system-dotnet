@@ -35,6 +35,15 @@ if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URL
 var levelIndex = ParseLevelArg(args);
 var levels = LevelCatalog.Discover();
 LevelInfo? selectedLevel = null;
+
+// 不给 --level 时的默认：第一关。
+// 为什么默认走关卡而不是出厂沙盒（config/world.json）：那个沙盒没有回合上限、不判胜，
+// 打开就是"随便玩玩"，而玩家第一次运行看到的应该是第一关（有目标、有回合数）。
+// 想回到沙盒：dotnet run --project src\JarSystem.Web -- --sandbox
+var sandbox = args.Any(a => a.Equals("--sandbox", StringComparison.OrdinalIgnoreCase));
+if (!sandbox && levelIndex is null && levels.Count > 0)
+    levelIndex = levels[0].Index;
+
 if (levelIndex is { } want)
 {
     selectedLevel = levels.FirstOrDefault(l => l.Index == want);
@@ -49,7 +58,7 @@ if (levelIndex is { } want)
 }
 else if (levels.Count > 0)
 {
-    Console.WriteLine("[level] 未指定 --level，共 " + levels.Count + " 关；用 --level N 选一关（当前用 config/world.json）");
+    Console.WriteLine("[level] 出厂沙盒（config/world.json）：不判胜、回合不限。共 " + levels.Count + " 关，用 --level N 选一关");
 }
 
 builder.Services.AddJarSystem(selectedLevel);

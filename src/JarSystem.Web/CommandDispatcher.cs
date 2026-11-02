@@ -242,6 +242,12 @@ public sealed class CommandDispatcher
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
 
+            case "restartLevel":
+                // 重开本关 = 世界回到开局 + 按关卡模板重新派单（派单在宿主，见 JarSystemService.RestartLevel）。
+                svc.RestartLevel();
+                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                break;
+
             case "updateProducerRate":
             {
                 var rate = JsonArgs.JD(dataEl, "rate");
