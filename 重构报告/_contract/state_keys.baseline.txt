@@ -224,3 +224,6 @@ state.eventHistory[0].operations[0].amount = null
 state.eventHistory[0].operations[0].reason = null
 state.worldRevision = 11
 state.processes = <empty>
+state.turns.used = 3
+state.turns.limit = 0
+state.turns.exhausted = False

@@ -85,8 +85,25 @@
   }
 
   /* ---------------- 世界状态 + 命令面板 ---------------- */
+  /* 回合预算：数字全部来自内核 getState 的 `turns`（used / limit / exhausted）。
+     页面不数回合、不猜"还剩几个" —— 上限与是否用完都由内核判定，超限时内核直接拒绝推进。 */
+  function renderTurns(st) {
+    var tag = $('turns');
+    if (!tag) return;
+    var t = st && st.turns;
+    if (!t || !t.limit) { tag.textContent = '回合不限'; tag.className = 'stat'; return; }
+    tag.textContent = '回合 ' + t.used + ' / ' + t.limit + (t.exhausted ? ' · 已用完（本关失败）' : '');
+    tag.className = 'stat' + (t.exhausted ? ' bad' : '');
+    /* 用完了就把"推进"类按钮关掉：让"推不动"在按钮上就能看见，而不是点了才发现被拒。 */
+    var blocked = !!t.exhausted;
+    document.querySelectorAll('[data-act="tick"],[data-act="autoround"],[data-act="run"]').forEach(function (b) {
+      b.disabled = blocked;
+    });
+  }
+
   function renderState(st) {
     lastState = st;
+    renderTurns(st);
     var el = $('state');
     if (!st || !st.workshops) { el.innerHTML = '<div class="empty">没有状态</div>'; return; }
 

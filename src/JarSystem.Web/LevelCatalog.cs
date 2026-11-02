@@ -83,6 +83,12 @@ public static class LevelCatalog
             throw new InvalidOperationException("关卡 " + file + " 缺少 world 对象（应与 config/world.json 同构）");
 
         var world = WorldOptionsJson.FromJson(worldEl.GetRawText());
+
+        // **回合上限只有一个来源**：关卡信封上的 turns。
+        // 世界里也允许有 turnLimit（自由世界用），但关卡文件不让作者写两遍 ——
+        // 写了两份的第一天就开始漂移，而"最多几回合"是这一关的难度本身。
+        world.TurnLimit = turns;
+
         var report = world.Validate();
         foreach (var warning in report.Warnings) Console.Error.WriteLine("[level] warning: " + warning);
         if (!report.IsValid)

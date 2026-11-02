@@ -105,6 +105,28 @@ public class LevelCatalogTests
     }
 
     [Fact]
+    public void TheTurnLimitIsWrittenOnce()
+    {
+        // 回合上限只有一个来源：关卡信封上的 `turns`（宿主 LevelCatalog 把它灌进世界的 TurnLimit，
+        // 内核据此硬停并判失败，见 TurnBudgetTests）。
+        // 所以**不许**在 world 块里再写一份 `turnLimit` —— 两份值的第一天就开始漂移，
+        // 而"最多几回合"正是这一关的难度本身。
+        var problems = new List<string>();
+        foreach (var file in LevelFiles())
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(file));
+            var root = doc.RootElement;
+            Assert.True(root.TryGetProperty("world", out var worldEl), Path.GetFileName(file) + " 缺少 world");
+            if (worldEl.TryGetProperty("turnLimit", out _))
+                problems.Add(Path.GetFileName(file) + "：world 里不要再写 turnLimit，回合上限只写在信封的 turns 上");
+
+            var turns = root.GetProperty("turns").GetInt32();
+            if (turns <= 0) problems.Add(Path.GetFileName(file) + "：turns 必须是正数");
+        }
+        Assert.True(problems.Count == 0, string.Join("\n  ", problems));
+    }
+
+    [Fact]
     public void EveryLevelCanProduceAtLeastOneShape()
     {
         // 防空转：一个"没有任何生产者"的关卡在 UI 上看起来像坏了，其实是数据写错了。

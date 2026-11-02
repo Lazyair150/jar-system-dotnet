@@ -493,6 +493,21 @@
             },
             "additionalProperties": false
           }
+        },
+        "turns": {
+          "type": "object",
+          "properties": {
+            "used": {
+              "type": "integer"
+            },
+            "limit": {
+              "type": "integer"
+            },
+            "exhausted": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

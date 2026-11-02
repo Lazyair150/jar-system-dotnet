@@ -282,6 +282,14 @@ public class JarSystem : Rules.IWorldFacts
     public int WorldRevision => _logSeq;
 
     /// <summary>
+    /// **回合预算**（关卡规则）：上限来自 <see cref="Config.WorldOptions.TurnLimit"/>（0 = 不限），
+    /// 已用来自世界时钟。一回合 = 一个 tick —— 让"最多推几回合"和"推了多少"用同一把尺子，
+    /// 否则上限与执行各算各的，界面和世界迟早对不上。
+    /// </summary>
+    public TurnBudget Turns => new(World.TurnLimit, Processes.Clock.Tick);
+
+
+    /// <summary>
     /// **世界信息总线**：世界每次变化在这里发一条信号，关心它的模块从同一个地方收到。
     ///
     /// 它同时是过程管线的**事件源**（`ProcessSystem.EventSource`）—— 于是反应器请求的
@@ -1006,6 +1014,12 @@ public class JarSystem : Rules.IWorldFacts
         // 「不补算」的同一个道理：世界没有往前走，就不该留下"走过了"的记录。
         if (Time.State == WorldTimeState.Paused)
             return 0;
+
+        // 回合预算（关卡规则）：超限时**整个请求都不生效** —— 不是"走一部分再停"。
+        // 世界停在一个规则上不该到达的位置，比干脆不动更糟：玩家会以为自己推进成功了。
+        var turns = Turns;
+        if (!turns.Allows(count))
+            throw new DomainValidationException(turns.ReasonIfBlocked(count));
 
         for (int i = 0; i < count; i++)
         {

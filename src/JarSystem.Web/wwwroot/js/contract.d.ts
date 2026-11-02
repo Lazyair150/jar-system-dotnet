@@ -12,6 +12,7 @@ interface StateDto {
   eventHistory?: Record<string, unknown>[];
   worldRevision?: number;
   processes?: ProcessStateDto[];
+  turns?: { used?: number; limit?: number; exhausted?: boolean };
 }
 
 interface WorkshopStateDto {

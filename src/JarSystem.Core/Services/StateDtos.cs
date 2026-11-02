@@ -37,6 +37,22 @@ public sealed class StateDto
     /// 异步轨的过程在多个 tick 之间活着，这里就是它们的进度）。元素见 <see cref="ProcessStateDto"/>。
     /// </summary>
     [JsonPropertyName("processes")] public List<ProcessStateDto> Processes { get; init; } = new();
+
+    /// <summary>
+    /// **回合预算**（关卡规则，新增键）：这一局还剩几回合、上限是多少、是否已经用完。
+    /// 由内核算好，客户端不推：一回合 = 一个 tick，`limit = 0` 表示这个世界没有上限。
+    /// </summary>
+    [JsonPropertyName("turns")] public TurnStateDto Turns { get; init; } = new();
+}
+
+/// <summary>回合预算（3 键）：客户端只显示，不自己算"还剩几个"。</summary>
+public sealed class TurnStateDto
+{
+    [JsonPropertyName("used")] public int Used { get; init; }
+    /// <summary>0 = 不限。</summary>
+    [JsonPropertyName("limit")] public int Limit { get; init; }
+    /// <summary>已经用完 —— 再推进也不会生效（内核会拒绝，见 <c>JarSystem.Tick</c>）。</summary>
+    [JsonPropertyName("exhausted")] public bool Exhausted { get; init; }
 }
 
 /// <summary>

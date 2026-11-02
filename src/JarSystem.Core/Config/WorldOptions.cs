@@ -49,6 +49,18 @@ public sealed class WorldOptions
     /// </summary>
     [JsonPropertyName("producerSlots")] public int ProducerSlots { get; set; }
 
+    /// <summary>
+    /// **回合上限**（玩法规则，住内核）：这一局最多能推进几回合，到了就**硬停并判失败**。
+    /// **默认 0 = 不限** —— 出厂沙盒不该被关卡规则约束；关卡文件把它写成作者要的那几回合
+    /// （见 <c>GameHost/LevelCatalog.cs</c>：一关文件里的 `turns` 就是这里的值）。
+    ///
+    /// 为什么住内核而不是住页面：页面限制可被别的客户端绕过，且"还能不能再推一回合"是玩家
+    /// 真正要对抗的东西 —— 它必须和执行在同一个地方，否则界面说没回合了、世界却照走。
+    /// 执行点见 <see cref="JarSystem.Tick"/>：超限**整个请求都不生效**（不是走一半）。
+    /// </summary>
+    [JsonPropertyName("turnLimit")] public int TurnLimit { get; set; }
+
+
     /// <summary>工作台清单（装配顺序 = 列表顺序 ⇒ 主从下标与契约快照的顺序）。</summary>
     [JsonPropertyName("workshops")] public List<WorkshopOptions> Workshops { get; set; } = new();
 
@@ -113,6 +125,7 @@ public sealed class WorldOptions
         // ---- 容量与流入 ----
         if (DefaultMaxJars <= 0) r.Errors.Add("defaultMaxJars 必须为正数");
         if (DefaultMaxLiquids <= 0) r.Errors.Add("defaultMaxLiquids 必须为正数");
+        if (TurnLimit < 0) r.Errors.Add("turnLimit 不能为负（0 表示不限）");
         if (Flow.JarCount < 0) r.Errors.Add("flow.jarCount 不能为负");
         if (Flow.LiquidAmount < 0) r.Errors.Add("flow.liquidAmount 不能为负");
         foreach (var kv in Flow.LiquidRate)

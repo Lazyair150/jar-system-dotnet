@@ -65,8 +65,7 @@ internal static class StateSerializer
         EventHistory = system.EventHistory.TakeLast(JarSystem.MaxEventHistory).ToList(),
 
         // P4：世界修订号 + 活动过程（进行中的过程才有内容；同步轨通常为空）
-        WorldRevision = system.WorldRevision,
-        Processes = system.Processes.ActiveProcesses.Select(p => new ProcessStateDto
+        WorldRevision = system.WorldRevision,        Processes = system.Processes.ActiveProcesses.Select(p => new ProcessStateDto
         {
             Id = p.Id,
             Kind = p.Kind,
@@ -84,7 +83,15 @@ internal static class StateSerializer
                 : null,
             BlockedReason = p.BlockedReason,
             LastJournalSeq = p.LastJournalSeq
-        }).ToList()
+        }).ToList(),
+
+        // 回合预算：上限来自世界的关卡规则，已用来自世界时钟 —— 客户端只显示，不自己算。
+        Turns = new TurnStateDto
+        {
+            Used = system.Turns.Used,
+            Limit = system.Turns.Limit,
+            Exhausted = system.Turns.IsExhausted
+        }
     };
 
     private static WorkshopStateDto SerializeWorkshop(JarSystem system, Workshop ws, int index) => new()
