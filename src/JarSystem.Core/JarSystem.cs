@@ -222,6 +222,49 @@ public class JarSystem : Rules.IWorldFacts
     public ProcessJournal Journal => Processes.Journal;
 
     /// <summary>
+    /// **按主体回看过程步骤**（B2「步骤可观测」）：帧只带引用
+    /// （<c>PresentationFrame.Subject</c> / <c>.SubjectId</c>），这是配上它的另一半 ——
+    /// 消费方拿到一帧之后，用它把"发生了什么"查出来。
+    ///
+    /// <para>
+    /// **它不是第二个真相源**：数据全部来自 <see cref="Journal"/>（过程日志本来就是步骤的唯一记录），
+    /// 本方法只做两件事 —— 把主体映射成过程 id（<see cref="ProcessSystem.TryGetProcessId"/>），
+    /// 再按"步骤下标升序、同下标按序号"排好。删掉它世界一步都不变，回放字节也不变。
+    /// </para>
+    ///
+    /// <para>口径（消费方必须知道，刻意的）：</para>
+    /// <list type="bullet">
+    /// <item>覆盖**活动中的过程**：正在进行的过程同样可查，不必等它结束；</item>
+    /// <item>返回该过程的**全部**日志条目（`plan_accepted` / `started` / `step_applied` / `phase` /
+    /// `failed` …）；只想要"步"的消费方过滤 <see cref="JournalEntry.StepIndex"/> 即可；</item>
+    /// <item>里程碑条目没有步骤下标，因此排在步骤之后 —— 这是
+    /// <c>StepIndex ?? int.MaxValue</c> 排序规则的必然结果，不是遗漏；</item>
+    /// <item>空结果有两种原因：该主体从未起过过程，或它的指针已被容量淘汰
+    /// （<see cref="ProcessSystem.DroppedSubjectMappings"/>）。必须读成
+    /// "没有**保留的**步骤"，而不是"没发生过"。</item>
+    /// </list>
+    /// </summary>
+    /// <param name="subject">主体描述（与帧上的 <c>Subject</c> 同值，例 `"委托 #12"`）。</param>
+    /// <param name="subjectId">结构化主体标识（与帧上的 <c>SubjectId</c> 同值，例订单 id）。</param>
+    public IReadOnlyList<JournalEntry> StepsFor(string subject, int subjectId)
+    {
+        if (!Processes.TryGetProcessId(subject, subjectId, out var processId))
+            return Array.Empty<JournalEntry>();
+
+        var entries = new List<JournalEntry>();
+        foreach (var entry in Journal.Entries)
+            if (entry.ProcessId == processId) entries.Add(entry);
+
+        entries.Sort((a, b) =>
+        {
+            int keyA = a.StepIndex ?? int.MaxValue;
+            int keyB = b.StepIndex ?? int.MaxValue;
+            return keyA != keyB ? keyA.CompareTo(keyB) : a.Seq.CompareTo(b.Seq);
+        });
+        return entries;
+    }
+
+    /// <summary>
     /// **世界的修饰器栈**（P3b）：区间性的临时规则（抑制 / 放宽 / 改拍 / 新增前置条件）。
     ///
     /// 用法（**必须用作用域**，异常路径也要回收）：

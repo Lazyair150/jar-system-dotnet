@@ -30,6 +30,14 @@ public sealed class ProcessSystem
     private readonly Dictionary<int, (ProcessRun Run, IProcessAdvancer Advancer)> _work = new();
     private int _nextId;
 
+    // ---- 主体 → 过程 的指针表（B2「步骤可观测」）----
+    // 为什么需要它：帧只带引用（`PresentationFrame.Subject` / `.SubjectId`），而过程日志按
+    // `JournalEntry.ProcessId` 组织。两者之间此前**没有任何公开映射**，于是"消费方拿着帧
+    // 回查过程细节"这件事做不到。这张表就是缺的那一半指针。
+    // 有界：与 ProcessJournal 同容量、同样的"满则成批丢最旧一半"（摊销 O(1)）。
+    private readonly Dictionary<(string Subject, int SubjectId), int> _processBySubject = new();
+    private readonly Queue<((string Subject, int SubjectId) Key, int ProcessId)> _subjectOrder = new();
+
     /// <param name="worldRevision">世界修订号提供者（P1 = 宿主世界意图的序号；见 <see cref="JournalEntry.WorldRevision"/>）。</param>
     /// <param name="allocator">步间隔分配器；null = 用默认（2 刻/步，见裁决 2026-10-16）。</param>
     /// <param name="modifiers">世界的修饰器栈（与工作台共用同一实例）；null = 自建一个空栈。</param>
@@ -101,6 +109,48 @@ public sealed class ProcessSystem
     public int TotalCreated { get; private set; }
 
     /// <summary>
+    /// 主体索引的容量上限（与 <see cref="ProcessJournal.DefaultCapacity"/> 同口径）。
+    /// 超出即成批淘汰最旧的一半 —— 长跑世界（例：策略实验 25 万单）不会把这张表撑爆。
+    /// </summary>
+    public const int SubjectIndexCapacity = ProcessJournal.DefaultCapacity;
+
+    /// <summary>
+    /// **按主体反查过程 id** —— 帧只带引用，这是配上它的那一半。
+    ///
+    /// 语义边界（刻意的）：
+    /// <list type="bullet">
+    /// <item>覆盖**已结束**的过程（映射不随 <c>Finish</c>/<c>Abort</c>/<c>Cancel</c> 移除，
+    /// 否则"过程刚跑完就再也查不到它的步骤"）；</item>
+    /// <item>同一主体被重新登记（例：同一目标工作台再次迁徙）时**保留最新一次**，
+    /// 旧指针被覆盖而不计作丢弃 —— 主体仍然可查，只是指向最近那次过程；</item>
+    /// <item>返回 <c>false</c> 有两种可能：该主体从未起过过程，或它的指针已被容量淘汰
+    /// （见 <see cref="DroppedSubjectMappings"/>）。消费方必须把"查不到"读成
+    /// "没有**保留的**指针"，而不是"没发生过"。</item>
+    /// </list>
+    /// </summary>
+    public bool TryGetProcessId(string subject, int subjectId, out int processId) =>
+        _processBySubject.TryGetValue((subject, subjectId), out processId);
+
+    /// <summary>主体索引里现存的指针条数（恒 ≤ <see cref="SubjectIndexCapacity"/>）。</summary>
+    public int IndexedSubjectCount => _processBySubject.Count;
+
+    /// <summary>
+    /// 被容量淘汰掉的主体指针条数（"丢了要能看出来"）。
+    ///
+    /// 与 <see cref="IndexedSubjectCount"/>、<see cref="IndexedSubjectKeys"/> 满足恒等式
+    /// <c>IndexedSubjectCount + DroppedSubjectMappings == IndexedSubjectKeys</c>，
+    /// 与 <see cref="ProcessJournal.FirstSeq"/> 的 <c>FirstSeq == DroppedEntries + 1</c> 同一手法：
+    /// 消费方据此判断"我手上这份指针表是完整的、缺口正好在它前面"。
+    /// </summary>
+    public int DroppedSubjectMappings { get; private set; }
+
+    /// <summary>
+    /// 累计进入过索引的主体键数（同一主体在淘汰后重新登记会**再计一次**）。
+    /// 它存在的唯一理由是让上面那条恒等式成立 —— 它同时也是"这张表一共服务过多少主体"的读数。
+    /// </summary>
+    public int IndexedSubjectKeys { get; private set; }
+
+    /// <summary>
     /// 创建一个过程并返回其执行句柄（此时实例处于 <c>Ready</c>：已建立，但还没有开始推进）。
     /// </summary>
     public ProcessRun Begin(ProcessDefinition definition)
@@ -114,6 +164,7 @@ public sealed class ProcessSystem
         var instance = new ProcessInstance(++_nextId, definition, _clock.Tick, ticksPerStep);
         instance.MarkReady();
         _active.Add(instance);
+        IndexSubject(instance);
         TotalCreated++;
         return new ProcessRun(instance, _journal, _worldRevision, tickSource: () => _clock.Tick,
             onClosed: Close, notify: (inst, reason, tick) =>
@@ -276,8 +327,69 @@ public sealed class ProcessSystem
         _active.Clear();
         _recent.Clear();
         _journal.Clear();
+        // 主体索引与过程日志同生共死：日志清了还留着指针，等于给出一串指不到任何条目的死指针。
+        // 计数器一并归零（与 ProcessJournal.Clear 把 DroppedEntries 归零同一口径）。
+        _processBySubject.Clear();
+        _subjectOrder.Clear();
+        DroppedSubjectMappings = 0;
+        IndexedSubjectKeys = 0;
         _clock.Reset();
         _modifiers.ResetClock();
+    }
+
+    /// <summary>
+    /// 登记主体索引（只在 <see cref="Begin"/> 里发生一次）。
+    ///
+    /// 刻意**不**在 <c>Finish</c>/<c>Abort</c>/<c>Cancel</c> 里移除：过程一结束就查不到它的步骤，
+    /// 等于"刚发生的事立刻不可观测"，与 B2 的目的相反。
+    /// </summary>
+    private void IndexSubject(ProcessInstance instance)
+    {
+        if (instance.SubjectId is not { } subjectId) return;   // 无结构化标识 ⇒ 无从反查，不登记
+        var key = (instance.Subject, subjectId);
+        if (!_processBySubject.ContainsKey(key)) IndexedSubjectKeys++;
+        _processBySubject[key] = instance.Id;
+        _subjectOrder.Enqueue((key, instance.Id));
+        TrimSubjectIndex();
+    }
+
+    /// <summary>
+    /// 主体索引的有界化：满则成批丢最旧的一半（与 <see cref="ProcessJournal"/> 同一口径）。
+    ///
+    /// 队列里的条目可能**陈旧**（同一主体被重新登记过，旧指针已被覆盖）：
+    /// 出队时用"值仍是这条"判定它是不是现役指针，陈旧条目直接丢掉、不计入淘汰数
+    /// —— 否则计数会把"覆盖"（主体照样可查）误报成"丢弃"。
+    /// </summary>
+    private void TrimSubjectIndex()
+    {
+        if (_processBySubject.Count < SubjectIndexCapacity)
+        {
+            // 没满：只清理队列头部的陈旧条目（防止"同一主体被反复登记"把队列撑大）
+            if (_subjectOrder.Count > SubjectIndexCapacity * 2) DropStaleSubjectEntries();
+            return;
+        }
+
+        int target = Math.Max(1, SubjectIndexCapacity / 2);
+        int dropped = 0;
+        while (dropped < target && _subjectOrder.Count > 0)
+        {
+            var (key, processId) = _subjectOrder.Dequeue();
+            if (!_processBySubject.TryGetValue(key, out var current) || current != processId) continue;
+            _processBySubject.Remove(key);
+            dropped++;
+        }
+        DroppedSubjectMappings += dropped;
+    }
+
+    /// <summary>只丢队列头部的陈旧条目，遇到现役指针就停（不动容量、不计入淘汰数）。</summary>
+    private void DropStaleSubjectEntries()
+    {
+        while (_subjectOrder.Count > 0)
+        {
+            var (key, processId) = _subjectOrder.Peek();
+            if (_processBySubject.TryGetValue(key, out var current) && current == processId) return;
+            _subjectOrder.Dequeue();
+        }
     }
 
     private void Close(ProcessRun run)
