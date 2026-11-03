@@ -139,6 +139,14 @@
       goalEl.className = 'pill';
     }
 
+    // 阶段：内核判定的 world phase（setup / running / settled），页面只显示、不自己拼。
+    var phaseEl = $('phase');
+    if (phaseEl) {
+      var ph = state.phase || 'setup';
+      phaseEl.textContent = ph === 'running' ? '阶段 执行中' : (ph === 'settled' ? '阶段 已结束' : '阶段 配置');
+      phaseEl.className = 'pill' + (ph === 'running' ? ' run' : (ph === 'settled' ? ' done' : ''));
+    }
+
     var running = (state.processes || []).filter(function (p) { return p.kind === 'order_execution'; }).length;
     var busy = $('busy');
     if (busy) {
@@ -177,7 +185,7 @@
       '<span>附加：' + esc((ws.additionalMarks || []).join('、') || '—') + '</span>' +
       '<span class="mk ban">禁：' + esc((ws.ban || []).join('、') || '—') + '</span>' +
       '<span>罐位 ' + (ws.jars || []).length + ' / ' + ws.maxJars + '</span>' +
-      '<span>液位 ' + liquidCount(ws) + ' / ' + ws.maxLiquids + '</span>' +
+      '<span>' + liquidCountText(ws) + '</span>' +
       '</div>';
 
     var jars = (ws.jars || []).map(jarChip).join('');
@@ -193,10 +201,13 @@
     return html;
   }
 
-  function liquidCount(ws) {
-    var n = 0;
-    Object.keys(ws.liquids || {}).forEach(function (k) { n += ws.liquids[k]; });
-    return n;
+  /* 液位：内核的 maxLiquids 是**每种液体各自**的上限（Workshop.TryReceiveLiquid 逐液体钳制），
+     所以不能把几种液体加起来跟它比 —— 那会把"酒2+蜜4=6 > 5"这种合法状态显示成越界。 */
+  function liquidCountText(ws) {
+    var parts = [];
+    Object.keys(ws.liquids || {}).forEach(function (k) { parts.push(k + ' ' + ws.liquids[k]); });
+    if (!parts.length) return '液位 空 / 每种 ' + ws.maxLiquids;
+    return '液位 ' + parts.join(' · ') + ' / 每种 ' + ws.maxLiquids;
   }
 
   function renderBenches() {
@@ -244,14 +255,22 @@
     var liquidCards = Object.keys(liquidRates).map(function (liquid) {
       var rate = liquidRates[liquid] || 0;
       var acc = liquidAcc[liquid] || 0;
+      var presets = LIQUID_RATES.map(function (r) { return r / 10; });
+      var extra = presets.some(function (p) { return Math.abs(rate - p) < 1e-9; }) ? null : rate;
       var btns = LIQUID_RATES.map(function (r) {
         var shown = r / 10;
         var on = Math.abs(rate - shown) < 1e-9;
         return '<button data-act="lrate" data-l="' + esc(liquid) + '" data-r="' + (r / 10) +
           '" class="' + (on ? 'on' : '') + '">' + (shown === 0 ? '停' : shown.toFixed(1)) + '</button>';
       }).join('');
+      // 真实速率不在档位里（例如关卡给了 1 份/回合）⇒ 补一枚"当前 1.0"的只读 chip，
+      // 否则玩家看到的永远是"没有一张卡是亮的"，也就看不出世界在全速产液体。
+      if (extra !== null) {
+        btns = '<span class="ratecur" title="当前速率来自关卡数据，不在可选档位里">当前 ' +
+          extra.toFixed(2) + '</span>' + btns;
+      }
       return '<div class="linecard liqcard"><div class="lh"><b>' + esc(liquid) + '</b>' +
-        '<span>· 世界自产 · 攒 ' + acc.toFixed(2) + '</span></div>' +
+        '<span>· 世界自产 · ' + rate.toFixed(2) + ' 份/回合 · 攒 ' + acc.toFixed(2) + '</span></div>' +
         '<div class="rates">' + btns + '</div></div>';
     }).join('');
 
@@ -314,7 +333,8 @@
 
       html += '<div class="row">' +
         '<button class="mini" data-act="check" data-i="' + i + '">分析</button>' +
-        '<button class="mini' + (canStart ? ' primary' : '') + '" data-act="start" data-i="' + i + '"' +
+        '<button class="mini' + (canStart ? ' primary' : '') + '" data-act="start" data-i="' + i +
+        '" data-id="' + esc(o.id) + '"' +
         ((isDone || proc || !canStart) ? ' disabled' : '') + ' title="' +
         (canStart ? '内核确认现在能做，点它开始执行' : '还做不了：先在进度条上看缺什么') + '">' +
         (proc ? '执行中' : (canStart ? '开始' : '还做不了')) + '</button>' +
@@ -731,7 +751,9 @@
         break;
       case 'check': send('checkFeasibility', { orderIndex: +t.getAttribute('data-i') }); break;
       case 'start':
-        send('startOrder', { index: +t.getAttribute('data-i') });
+        // **按 id 下命令**：index 是列表位置，玩家点的时候和内核收到的时候可能已经不同
+        // （排序、删除、并发命令都会动它）。ResolveOrderIndex 优先认 orderId，这才指得准。
+        send('startOrder', { orderId: +t.getAttribute('data-id') });
         addLocalLog('让内核开始做这一单', 'phase');
         setTimeout(function () { send('getState', {}); send('checkAllFeasibility', {}); }, 400);
         break;

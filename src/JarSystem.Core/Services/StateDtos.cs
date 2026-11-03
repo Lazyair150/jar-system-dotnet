@@ -45,6 +45,12 @@ public sealed class StateDto
     [JsonPropertyName("turns")] public TurnStateDto Turns { get; init; } = new();
 
     /// <summary>
+    /// 世界阶段（`setup` / `running` / `settled`，见 <see cref="World.WorldPhase"/>）。
+    /// 页面据此决定"现在能点什么"，而不是靠"有没有订单在跑"这类各自拼凑的判断。
+    /// </summary>
+    [JsonPropertyName("phase")] public string Phase { get; init; } = "setup";
+
+    /// <summary>
     /// **一局的结局**（新增键）：目标单数、已完成单数、赢/输/进行中与理由。
     /// 判据在内核（<c>LevelGoal.Judge</c>），客户端只显示 —— 界面算出来的"你赢了"
     /// 与内核算出来的必须永远是同一句话。

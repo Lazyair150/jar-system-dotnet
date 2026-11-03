@@ -144,6 +144,24 @@ internal sealed class OrderService : IOrderExecutionCompletion
     {
         if (orderIndex < 0 || orderIndex >= _system.Orders.Count)
             return new FeasibilityResultData { Feasible = false, Reason = "无效订单索引" };
+
+        // **执行中不再重新规划**（世界里的事实）：这张单的资源已经在被按计划消耗，
+        // 再拿原需求去搜一遍，必然报"缺少需求"——那不是世界变了，是问法错了。
+        // 所以这里直接回一个"正在执行"的结果，且**不写回**订单（不覆盖它本来那条计划）。
+        // 判据是**有没有对应过程在跑**，而不是订单的状态字段：
+        // 订单一旦进入执行轨，资源就按计划在被消耗；状态字段由执行事件迁移，
+        // 中间可能出现过程在跑、字段还没翻的窗口 —— 那个窗口里重新规划同样会在错误的账上算。
+        var target = _system.Orders[orderIndex];
+        var running = _system.Processes.ActiveProcesses
+            .FirstOrDefault(p => p.Kind == ProcessKinds.OrderExecution && p.SubjectId == target.Id);
+        if (running != null)
+            return new FeasibilityResultData
+            {
+                Feasible = false,
+                Blockage = "正在执行中（过程 #" + running.Id + "）：不再重新规划，看执行段的进度",
+                Reason = "正在执行中",
+                DirectCount = target.FeasibilityResult?.DirectCount ?? 0
+            };
         if (_system.CurrentMaster == null)
         {
             var r = new FeasibilityResultData { Feasible = false, Reason = "未选择主工作台" };
@@ -240,6 +258,11 @@ internal sealed class OrderService : IOrderExecutionCompletion
         {
             var order = _system.Orders[i];
             if (order.Status != Constants.OrderStatus.PENDING) continue;
+
+            // 执行中不重算（同上：判据看过程，不看状态字段）。
+            if (_system.Processes.ActiveProcesses.Any(
+                    p => p.Kind == ProcessKinds.OrderExecution && p.SubjectId == order.Id))
+                continue;
 
             // 世界没变、结论还在 ⇒ 直接复用，不重算。
             bool reusable = order.FeasibilityResult != null

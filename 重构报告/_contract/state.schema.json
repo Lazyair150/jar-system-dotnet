@@ -527,6 +527,9 @@
           },
           "additionalProperties": false
         },
+        "phase": {
+          "type": "string"
+        },
         "level": {
           "type": "object",
           "properties": {

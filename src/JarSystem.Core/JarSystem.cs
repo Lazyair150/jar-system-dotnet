@@ -308,6 +308,28 @@ public class JarSystem : Rules.IWorldFacts
     /// </summary>
     public LevelOutcome Outcome => LevelGoal.Judge(World.GoalOrders, CompletedOrders, Turns);
 
+    /// <summary>
+    /// 世界此刻的阶段（内核判定，页面据此切换可用动作与措辞）。
+    ///
+    /// 判定只用世界自己的事实，顺序有讲究：
+    /// <list type="number">
+    /// <item>这一局已有结果（赢了或回合用尽）⇒ <see cref="global::JarSystem.Core.World.WorldPhase.Settled"/>：再推进改变不了结局；</item>
+    /// <item>有订单过程正在跑 ⇒ <see cref="global::JarSystem.Core.World.WorldPhase.Running"/>：分析/新开单得等它收尾；</item>
+    /// <item>否则 ⇒ <see cref="global::JarSystem.Core.World.WorldPhase.Setup"/>：布置产线、分析、挑一单开始。</item>
+    /// </list>
+    /// </summary>
+    public global::JarSystem.Core.World.WorldPhase Phase
+    {
+        get
+        {
+            if (Outcome.IsOver) return global::JarSystem.Core.World.WorldPhase.Settled;
+            var running = Processes.ActiveProcesses.Any(
+                p => p.Kind == ProcessKinds.OrderExecution && p.State != ProcessState.Succeeded
+                     && p.State != ProcessState.Failed && p.State != ProcessState.Aborted);
+            return running ? global::JarSystem.Core.World.WorldPhase.Running : global::JarSystem.Core.World.WorldPhase.Setup;
+        }
+    }
+
 
 
     /// <summary>

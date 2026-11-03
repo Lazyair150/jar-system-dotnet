@@ -83,6 +83,15 @@ button.big { padding: 10px 44px; font-size: var(--fs-lg); }
 
 /* 产线 */
 .lines { display: flex; gap: 8px; flex-wrap: wrap; }
+.ratecur {
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+  margin-right: 6px;
+}
+
 .linecard { flex: 1; min-width: 168px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); }
 .linecard .lh { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--dim); margin-bottom: 6px; }
 .linecard .lh b { color: var(--txt); font-size: 13px; }

@@ -102,6 +102,14 @@ internal static class StateSerializer
             LastJournalSeq = p.LastJournalSeq
         }).ToList(),
 
+        // 世界阶段：内核判定（Result 决定"结束"，过程决定"执行中"），页面据此切换动作。
+        Phase = system.Phase switch
+        {
+            World.WorldPhase.Running => "running",
+            World.WorldPhase.Settled => "settled",
+            _ => "setup",
+        },
+
         // 回合预算：上限来自世界的关卡规则，已用来自世界时钟 —— 客户端只显示，不自己算。
         Turns = new TurnStateDto
         {
