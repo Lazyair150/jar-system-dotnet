@@ -37,22 +37,6 @@ internal sealed class OrderService : IOrderExecutionCompletion
     }
 
     /// <summary>
-    /// 按**模板名**派一张订单。模板来自 <c>JarSystem.OrderTemplates</c>（即世界配置）。
-    ///
-    /// <para>与 <see cref="CreateOrder"/> 的唯一区别是"需求从哪来"：这里从模板实例化一份新列表，
-    /// 其余完全一样（同一个 ID 源、同一份词表、同一个入口）⇒ 回放语义不变。</para>
-    ///
-    /// <para>与 <see cref="CreateRandomOrder"/> 的分工：这里按**名字**取一张确定的模板；
-    /// 那里在模板库非空时**随机抽**一张，库空时退回"现掷骰子造需求"的旧行为。</para>
-    /// </summary>
-    public (bool Success, string? Error) CreateOrderFromTemplate(string templateName)
-    {
-        if (!_system.OrderTemplates.TryGet(templateName, out var template))
-            return (false, "没有这个订单模板: " + templateName);
-        return CreateOrder(template.Instantiate(), template.Type);
-    }
-
-    /// <summary>
     /// 随机派一张订单。
     ///
     /// <para><b>两种模式（2026-08 定案，由"订单模板库"引入）</b>：</para>
@@ -115,7 +99,7 @@ internal sealed class OrderService : IOrderExecutionCompletion
         return true;
     }
 
-    public object? DeleteOrder(int index)
+    public (bool Success, string? Error) DeleteOrder(int index)
     {
         if (index >= 0 && index < _system.Orders.Count)
         {
@@ -127,16 +111,13 @@ internal sealed class OrderService : IOrderExecutionCompletion
             var active = _system.Processes.ActiveProcesses
                 .FirstOrDefault(p => p.Kind == ProcessKinds.OrderExecution && p.SubjectId == order.Id);
             if (active != null)
-                return new
-                {
-                    success = false,
-                    reason = "订单 #" + order.Id + " 正在执行中（过程 #" + active.Id + "）：先取消过程，再删除订单"
-                };
+                return (false,
+                    "订单 #" + order.Id + " 正在执行中（过程 #" + active.Id + "）：先取消过程，再删除订单");
 
             _system.OrderList.RemoveAt(index);
-            return new { success = true };
+            return (true, null);
         }
-        return new { success = false, reason = "无效索引" };
+        return (false, "无效索引");
     }
 
     /// <summary>可行性分析：A 类只需主台；B 类需主从（结果同时写入订单的 FeasibilityResult）。</summary>
@@ -182,6 +163,17 @@ internal sealed class OrderService : IOrderExecutionCompletion
         if (order.Type == Constants.OrderType.B && slave == null)
         {
             var r = new FeasibilityResultData { Feasible = false, Reason = "B类订单需要选择从台" };
+            order.RecordFeasibility(r);
+            Remember(order);
+            return r;
+        }
+        if (order.Type == Constants.OrderType.B && slave!.HasResources)
+        {
+            var r = new FeasibilityResultData
+            {
+                Feasible = false,
+                Reason = "B类订单的从台必须是空的临时工具位"
+            };
             order.RecordFeasibility(r);
             Remember(order);
             return r;
@@ -321,6 +313,8 @@ internal sealed class OrderService : IOrderExecutionCompletion
             return (null, "无效参数");
         if (order.Type == Constants.OrderType.B && slave == null)
             return (null, "B类订单需要选择从台");
+        if (order.Type == Constants.OrderType.B && slave!.HasResources)
+            return (null, "B类订单的从台必须是空的临时工具位");
 
         // 订单状态机前置校验：**终态订单不允许再次执行**。
         // 此前只有前端按钮做了可见性限制（非"待执行"不渲染执行按钮），而 WebSocket 命令没有闸门 ——
@@ -330,7 +324,10 @@ internal sealed class OrderService : IOrderExecutionCompletion
             return (null, "订单已是终态（" + order.Status + "），不能重复执行");
 
         var effectiveSlave = slave ?? master;
-        var event_ = new OrderEvent(order, master, effectiveSlave, _system.Log);
+        var event_ = new OrderEvent(order, master, effectiveSlave, _system.Log,
+            _system.ProducerModule.Warehouse.CountDiscardedJars,
+            _system.ProducerModule.Warehouse.CountDiscardedLiquids,
+            _system.ResourceLedger, () => _system.Processes.Clock.Tick);
         event_.Start();
 
         List<SolverStepDto>? solverPath = null;
@@ -346,8 +343,12 @@ internal sealed class OrderService : IOrderExecutionCompletion
         // 按条数判会把这种真·求解器计划误标成 greedy（P1 实测踩到）。
         // 注意这仍是**声明来源**：运行期若因路径失败降级到贪心，会留一条 fallback 里程碑。
         bool solverPlanned = order.FeasibilityResult is { Feasible: true };
+        int declaredSteps = solverPlanned
+            ? order.FeasibilityResult!.OperationCount +
+              (order.Type == Constants.OrderType.B ? 1 : 0)
+            : 0;
         recorder?.SetPlan(solverPlanned ? PlanSources.Solver : PlanSources.Greedy,
-            (solverPath?.Count ?? 0) + (order.FeasibilityResult?.MasterPath?.Count ?? 0));
+            declaredSteps);
 
         return (_system.Executor.BeginSession(order, master, effectiveSlave, event_, solverPath, recorder), null);
     }
@@ -370,7 +371,10 @@ internal sealed class OrderService : IOrderExecutionCompletion
             var delivery = event_.Deliver();
             session.Recorder?.Milestone(ProcessMilestones.Delivery,
                 delivery.Success ? "交付完成" : "交付失败：" + (delivery.Reason ?? "未给出原因"));
-            if (delivery.Success) order.MarkSucceeded(); else order.MarkFailed();
+            if (delivery.Success)
+            {
+                _system.NoteOrderCompleted();
+            }
             _system.AddEvent(new Dictionary<string, object?>
             {
                 ["type"] = "order_event",
@@ -386,7 +390,6 @@ internal sealed class OrderService : IOrderExecutionCompletion
         else
         {
             event_.Fail(session.Reason);
-            order.MarkFailed();
             _system.AddEvent(new Dictionary<string, object?>
             {
                 ["type"] = "order_event",

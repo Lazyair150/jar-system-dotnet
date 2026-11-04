@@ -56,6 +56,16 @@ internal static class StateSerializer
                     Producers = g.Producers.Count
                 })
                 .ToList(),
+            Slots = new ProducerSlotStatusDto
+            {
+                Used = system.ProducerModule.UsedSlots,
+                Limit = system.ProducerModule.ProducerSlots
+            },
+            Flow = new ProductionFlowStatusDto
+            {
+                Jars = system.FlowSettings.JarCount,
+                LiquidPerLiquid = system.FlowSettings.LiquidAmount
+            },
             // 液体也是资源：速率同样投影出来，页面才能像产线卡一样给液体做卡。
             LiquidRates = system.Vocabulary.Liquids.ToDictionary(
                 liquid => liquid,
@@ -98,6 +108,9 @@ internal static class StateSerializer
             RemainingTicks = p.DeadlineTick.HasValue
                 ? Math.Max(0, p.DeadlineTick.Value - system.Processes.Clock.Tick)
                 : null,
+            TicksUntilNextUnit = p.IsTerminal
+                ? null
+                : Math.Max(0, p.NextUnitTick - system.Processes.Clock.Tick),
             BlockedReason = p.BlockedReason,
             LastJournalSeq = p.LastJournalSeq
         }).ToList(),
@@ -121,7 +134,7 @@ internal static class StateSerializer
         // 一局的结局：判据在内核（LevelGoal.Judge），这里只搬结论。
         Level = new LevelStateDto
         {
-            GoalOrders = system.World.GoalOrders,
+            GoalOrders = system.WorldConfig.GoalOrders,
             CompletedOrders = system.CompletedOrders,
             Outcome = system.Outcome.Name,
             Reason = system.Outcome.Reason

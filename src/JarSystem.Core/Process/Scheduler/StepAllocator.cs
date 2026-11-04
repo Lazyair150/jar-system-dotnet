@@ -3,9 +3,9 @@ namespace JarSystem.Core.Process;
 /// <summary>
 /// **步间隔分配器**：决定"过程的一步占用几个 tick"。
 ///
-/// 默认值来自设计裁决（2026-10-16）：**更平缓** —— <see cref="DefaultTicksPerStep"/> = 2 刻/步。
-/// 之所以强调"默认"，是因为它是**可调**的：宿主可整体改，也可按过程种类改；
-/// P3 的修饰器（<c>Retime</c>）将在此基础上做区间内的临时覆盖（"某段时间重铸更慢"）。
+/// 默认值来自 2026-11 的回合语义修正：**一次手动推进就是一个完整回合**，
+/// 该回合内所有到期的过程单位都完成。因此默认 <see cref="DefaultTicksPerStep"/> = 1。
+/// 需要跨多回合的慢操作仍可显式配置，或由 <c>Retime</c> 修饰器临时覆盖。
 ///
 /// P2 的现状（诚实声明）：间隔会被**计算并写进过程日志**，但宿主的同步执行路径（drain）
 /// 仍在同一 tick 内把计划走完 —— 真正的"每 tick 至多一步"要等 P2b 把过程改为 tick 驱动
@@ -14,7 +14,7 @@ namespace JarSystem.Core.Process;
 public sealed class StepAllocator
 {
     /// <summary>默认步间隔（刻/步）。</summary>
-    public const int DefaultTicksPerStep = 2;
+    public const int DefaultTicksPerStep = 1;
 
     private readonly Dictionary<string, int> _perKind = new();
 

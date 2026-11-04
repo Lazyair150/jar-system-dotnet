@@ -26,15 +26,24 @@ public static class SessionReplay
     public static int Into(JarSystem target, IEnumerable<WorldCommand> commands)
     {
         // 回放期间：不刷新"本次意图的时间"，改用日志里记下的时间 ⇒ 事件历史的时间戳也能复现
+        var wasReplaying = target.Replaying;
         target.Replaying = true;
         int count = 0;
-        foreach (var c in commands)
+        try
         {
-            if (c.Time != null && DateTimeOffset.TryParse(c.Time, out var t)) target.Now = t;
-            Apply(target, c);
-            count++;
+            foreach (var c in commands)
+            {
+                if (c.Time != null && DateTimeOffset.TryParse(c.Time, out var t)) target.Now = t;
+                Apply(target, c);
+                count++;
+            }
+            return count;
         }
-        return count;
+        finally
+        {
+            // 读档完成后目标世界继续作为 live 世界使用；否则之后所有事件都会继承旧回放时间。
+            target.Replaying = wasReplaying;
+        }
     }
 
     private static void Apply(JarSystem s, WorldCommand c)
@@ -56,6 +65,9 @@ public static class SessionReplay
             case WorldOps.UpdateWorkshopCapacity:
                 s.UpdateWorkshopCapacity(c.IntA ?? 0, c.IntB, c.IntC);
                 break;
+            case WorldOps.SetWorkshopCapability:
+                s.SetWorkshopCapability(c.IntA ?? 0, c.BaseMarks, c.AdditionalMarks, c.Ban);
+                break;
             case WorldOps.SetMasterIndex: s.SetMasterIndex(c.IntA); break;
             case WorldOps.SetSlaveIndex: s.SetSlaveIndex(c.IntA); break;
             case WorldOps.SetMaster: s.SetMaster(c.IntA ?? 0); break;
@@ -67,11 +79,22 @@ public static class SessionReplay
             case WorldOps.CreateOrder: s.CreateOrder(c.Requirements ?? new(), c.OrderType ?? "A"); break;
             case WorldOps.CreateRandomOrder: s.CreateRandomOrder(); break;
             case WorldOps.DeleteOrder: s.DeleteOrder(c.IntA ?? 0); break;
+            case WorldOps.MoveOrder:
+                if (!s.MoveOrder(c.IntA ?? 0, c.IntB ?? 0))
+                    throw new InvalidOperationException("回放 moveOrder 失败: 订单或方向已失效");
+                break;
             case WorldOps.CheckFeasibility: s.CheckFeasibility(c.IntA ?? 0); break;
             case WorldOps.CheckAllFeasibility: s.CheckAllFeasibility(); break;
             case WorldOps.ExecuteOrder: s.ExecuteOrder(c.IntA ?? 0); break;
-            case WorldOps.StartOrder: s.StartOrder(c.IntA ?? 0); break;
-            case WorldOps.CancelProcess: s.CancelProcess(c.IntA ?? 0); break;
+            case WorldOps.StartOrder: s.StartOrder(c.IntA ?? 0, c.IntB); break;
+            case WorldOps.StartSwitch:
+            {
+                var switched = s.BeginSwitch(c.IntA ?? 0, c.IntB);
+                if (!switched.Started)
+                    throw new InvalidOperationException("回放 startSwitch 失败: " + (switched.Error ?? "未给出原因"));
+                break;
+            }
+            case WorldOps.CancelProcess: s.CancelProcess(c.IntA ?? 0, c.Reason); break;
             case WorldOps.Tick: s.Tick(c.IntA ?? 1); break;
             case WorldOps.UpdateProducerRate:
                 s.UpdateProducerRate(c.Name ?? "", c.BaseMarks is { Count: > 0 } ? c.BaseMarks[0] : "", c.DoubleA ?? 0);

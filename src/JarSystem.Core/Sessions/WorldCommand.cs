@@ -70,6 +70,14 @@ public sealed class WorldCommand
 
     /// <summary>布尔参数（setAutoCheck）。</summary>
     [JsonPropertyName("flag")] public bool? Flag { get; init; }
+
+    /// <summary>
+    /// 可选的取消原因。省略表示沿用默认文案；只在 cancelProcess 带自定义原因时写入，
+    /// 因此旧存档与新存档的常规命令形状保持不变。
+    /// </summary>
+    [JsonPropertyName("reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Reason { get; init; }
 }
 
 /// <summary>`addWorkshop` 的完整参数（工作台的构造参数本身就是可序列化的数据）。</summary>

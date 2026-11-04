@@ -35,6 +35,20 @@ public class FeasibilityReuseTests
     }
 
     [Fact]
+    public void UnchangedWorld_DoesNotAppendACommandForTheReuse()
+    {
+        var system = NewSystem();
+        system.SetMasterIndex(0);
+        system.CreateOrder(new List<Requirement> { new() { Shape = "圆罐" } }, Constants.OrderType.A);
+        _ = system.CheckAllFeasibility();
+        var before = system.CommandLog.Count;
+
+        _ = system.CheckAllFeasibility();
+
+        Assert.Equal(before, system.CommandLog.Count);
+    }
+
+    [Fact]
     public void ChangedCapability_Recomputes()
     {
         var system = NewSystem();

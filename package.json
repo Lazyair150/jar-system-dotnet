@@ -1,0 +1,14 @@
+{
+  "name": "jar-system-dotnet-js-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "仅用于本仓库前端脚本的本地工具（node --check 语法门、tools/web_smoke.js 无依赖冒烟）。产品产物是 .NET 程序集，不从 npm 发布，也没有任何 npm 依赖。",
+  "license": "UNLICENSED",
+  "scripts": {
+    "check:js": "node --check src/JarSystem.Web/wwwroot/js/app.js && node --check src/JarSystem.Web/wwwroot/js/world.js && node --check src/JarSystem.Web/wwwroot/js/canvas.js && node --check src/JarSystem.Web/wwwroot/js/play.js && node --check src/JarSystem.Web/wwwroot/js/production-view.js",
+    "smoke": "node tools/web_smoke.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

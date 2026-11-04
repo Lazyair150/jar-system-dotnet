@@ -74,6 +74,20 @@ public sealed class ModifierStack : IIntensitySource
     }
 
     /// <summary>
+    /// 世界重建时清空所有旧时间线的修饰器。旧 <see cref="ModifierScope"/> 之后调用 Dispose
+    /// 只会命中一个空集合，因此仍保持幂等。
+    /// </summary>
+    internal void Clear()
+    {
+        if (_readOnly) return;
+        if (_active.Count > 0) _revision++;
+        _active.Clear();
+        _grantedCache.Clear();
+        _grantedRevision = -1;
+        _grantedTick = -1;
+    }
+
+    /// <summary>
     /// 抑制原因：若当前有修饰器禁止（operation / shape / liquid 任一维度）该操作，
     /// 返回世界语言的原因；否则返回 null。
     /// </summary>

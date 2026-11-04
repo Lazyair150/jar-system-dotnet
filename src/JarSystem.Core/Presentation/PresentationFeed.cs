@@ -98,11 +98,14 @@ public sealed class PresentationFeed
     /// <summary>按帧号取一帧（已被裁剪时返回 false —— 这不是异常，是"历史太久了"）。</summary>
     public bool TryGet(int seq, out PresentationFrame frame)
     {
-        int index = seq - _frames[0].Seq;
-        if (_frames.Count > 0 && index >= 0 && index < _frames.Count)
+        if (_frames.Count > 0)
         {
-            frame = _frames[index];
-            return true;
+            int index = seq - _frames[0].Seq;
+            if (index >= 0 && index < _frames.Count)
+            {
+                frame = _frames[index];
+                return true;
+            }
         }
 
         frame = default;

@@ -134,6 +134,19 @@ public class LevelCatalogTests
     }
 
     [Fact]
+    public void EveryLevelRespectsItsInitialProducerSlotBudget()
+    {
+        foreach (var file in LevelFiles())
+        {
+            var (_, _, _, world) = Parse(file);
+            var active = world.Producers.Sum(producer => producer.Rates.Count(rate => rate.Value > 0));
+            Assert.True(
+                world.ProducerSlots <= 0 || active <= world.ProducerSlots,
+                Path.GetFileName(file) + " 初始有 " + active + " 条有效产线，超过产能槽 " + world.ProducerSlots);
+        }
+    }
+
+    [Fact]
     public void TheTurnLimitIsWrittenOnce()
     {
         // 回合上限只有一个来源：关卡信封上的 `turns`（宿主 LevelCatalog 把它灌进世界的 TurnLimit，

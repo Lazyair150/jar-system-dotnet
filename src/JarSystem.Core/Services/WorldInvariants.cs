@@ -60,6 +60,18 @@ public static class WorldInvariants
             Add(v, "SLAVE-INDEX-OUT-OF-RANGE", "从台索引 " + s + " 越界（工作台数 " + workshops.Count + "）");
         if (master is { } mm && slave is { } ss && mm == ss)
             Add(v, "SLAVE-EQUALS-MASTER", "从台与主台是同一个工作台（索引 " + mm + "）");
+        if (slave is { } si && si >= 0 && si < workshops.Count && workshops[si].HasResources)
+        {
+            var usedByRunningBOrder = active.Any(p =>
+            {
+                if (p.Kind != ProcessKinds.OrderExecution || p.SubjectId is not { } orderId) return false;
+                var order = system.Orders.FirstOrDefault(o => o.Id == orderId);
+                return order?.Type == Constants.OrderType.B;
+            });
+            if (!usedByRunningBOrder)
+                Add(v, "SLAVE-RESIDUAL-WITHOUT-B-ORDER",
+                    "从台 " + si + "（" + workshops[si].Name + "）是临时工具位，但在没有运行 B 类订单时仍有资源");
+        }
 
         // ---------- 过程 → 它服务的实体必须存在 ----------
         foreach (var p in active)

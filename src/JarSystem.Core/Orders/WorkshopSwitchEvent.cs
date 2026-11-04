@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 
 namespace JarSystem.Core.Orders;
 
@@ -28,12 +29,25 @@ public class WorkshopSwitchEvent
     public IReadOnlyList<SwitchLogEntry> Operations => _log.Entries;
 
     private readonly JarPool? _pool;
+    private readonly Action<int>? _countDiscardedJars;
+    private readonly Action<string, int>? _countDiscardedLiquids;
 
-    public WorkshopSwitchEvent(Workshop oldMaster, Workshop newMaster, JarPool? pool = null)
+    // 资源账本（只读投影）：本事件搬动/丢弃的每一份资源都要在账本里指得到原因。
+    private readonly ResourceLedger? _ledger;
+    private readonly Func<int>? _tickOf;
+
+    public WorkshopSwitchEvent(Workshop oldMaster, Workshop newMaster, JarPool? pool = null,
+        Action<int>? countDiscardedJars = null,
+        Action<string, int>? countDiscardedLiquids = null,
+        ResourceLedger? ledger = null, Func<int>? tickOf = null)
     {
         OldMaster = oldMaster;
         NewMaster = newMaster;
         _pool = pool;
+        _countDiscardedJars = countDiscardedJars;
+        _countDiscardedLiquids = countDiscardedLiquids;
+        _ledger = ledger;
+        _tickOf = tickOf;
     }
 
     private WorkshopSnapshot? _oldSnap;
@@ -87,7 +101,8 @@ public class WorkshopSwitchEvent
         if (_case == null) Begin();
         try
         {
-            new ResourceTransferrer(new JarValuePolicy(NewMaster), _pool)
+            new ResourceTransferrer(new JarValuePolicy(NewMaster), _pool,
+                    _countDiscardedJars, _countDiscardedLiquids, _ledger, _tickOf)
                 .TransferAll(OldMaster, NewMaster, _log, CaseType);
             return (true, null);
         }

@@ -20,6 +20,7 @@ public class JarSystemService
 
     private readonly JarSystem.Core.Abstractions.ISystemLog? _log;
     private readonly PresentationObserver? _observer;
+    private readonly JarSystem.Core.Rules.ScenarioOptions? _scenario;
 
     /// <summary>
     /// 当前这局世界。除了构造时装配，还可以**换关**（<see cref="LoadLevel"/>）——
@@ -28,6 +29,16 @@ public class JarSystemService
     /// 因此替换后无需逐个重新接线。
     /// </summary>
     public JarSystem.Core.JarSystem System { get; private set; }
+
+    /// <summary>
+    /// 管理令牌（环境变量 <c>JAR_ADMIN_TOKEN</c>）。null/空 = 未配置 ⇒ 管理操作只受"本机"一道约束。
+    /// 配置了以后，<c>reset</c> / <c>restartLevel</c> / <c>loadLevel</c> / 写作者数据都要求连接带上
+    /// 请求头 <c>X-JarSystem-Admin</c>，且值必须与它**逐字相同**（见 <see cref="JarSystem.Core.Security.AccessPolicy"/>）。
+    /// </summary>
+    public string? AdminToken { get; } = Environment.GetEnvironmentVariable(JarSystem.Core.Security.HostPolicy.AdminTokenVariable);
+
+    /// <summary>宿主是否配置了管理令牌。</summary>
+    public bool AdminTokenConfigured => !string.IsNullOrEmpty(AdminToken);
 
     /// <summary>
     /// 本进程选中的关卡（`--level N`）；null = 走 `config/world.json` 或内核默认世界。
@@ -51,15 +62,26 @@ public class JarSystemService
         JarSystem.Core.Abstractions.ISystemLog? log = null,
         PresentationObserver? observer = null,
         LevelInfo? level = null)
+        : this(log, observer, level, LoadScenarioOrNull())
+    {
+    }
+
+    /// <summary>聚焦测试入口：直接提供已验证的场景，避免为了单测改写仓库配置。</summary>
+    internal JarSystemService(
+        JarSystem.Core.Abstractions.ISystemLog? log,
+        PresentationObserver? observer,
+        LevelInfo? level,
+        JarSystem.Core.Rules.ScenarioOptions? scenario)
     {
         _log = log;
         _observer = observer;
+        _scenario = scenario;
         Level = level;
         System = new JarSystem.Core.JarSystem(log: log, world: level?.World ?? LoadWorldOrNull());
         // 订阅核心的帧流（`PresentationFeed`）：宿主只**转发**，不再自己定义一套词汇。
         if (observer != null) System.Presentation.Subscribe(observer);
+        ReplaceScenarioScopes(BindScenario(System));
         if (level != null) DeployLevelOrders(System, level);
-        LoadScenarioOrThrow();
     }
 
     /// <summary>
@@ -82,11 +104,12 @@ public class JarSystemService
 
         var next = new JarSystem.Core.JarSystem(log: _log, world: target.World);
         if (_observer != null) next.Presentation.Subscribe(_observer);
+        var nextScenarioScopes = BindScenario(next);
         System = next;
         Level = target;
 
         // 上一局的开局法令作用域属于旧世界，不能带过来。
-        _scenarioScopes.Clear();
+        ReplaceScenarioScopes(nextScenarioScopes);
 
         DeployLevelOrders(next, target);
     }
@@ -106,6 +129,7 @@ public class JarSystemService
     public void RestartLevel()
     {
         System.Reset();
+        ReplaceScenarioScopes(BindScenario(System));
         if (Level != null) DeployLevelOrders(System, Level);
     }
 
@@ -116,12 +140,14 @@ public class JarSystemService
         if (level.Master is { } master) sys.SetMasterIndex(master);
         sys.SetSlaveIndex(level.Slave);
 
-        foreach (var template in level.World.OrderTemplates)
+        // 派单**按信封的 orders 表**，不是按模板目录：模板是"这一关可做的东西"，
+        // 开局单数是"这一关的内容"（第六关要两张一样的单，模板只有一个）。
+        foreach (var templateName in level.Orders)
         {
-            var (ok, error) = sys.CreateOrderFromTemplate(template.Name);
+            var (ok, error) = sys.CreateOrderFromTemplate(templateName);
             if (!ok)
                 throw new InvalidOperationException(
-                    "关卡「" + level.Name + "」的模板「" + template.Name + "」派单失败：" + error);
+                    "关卡「" + level.Name + "」的模板「" + templateName + "」派单失败：" + error);
         }
     }
 
@@ -129,10 +155,10 @@ public class JarSystemService
     /// 装配**场景**（P5 的"世界事件注入"数据版）：`config/scenario.json` 存在时加载它，
     /// 校验失败即拒绝启动（与 `world.json` 同一口径）；不存在 ⇒ 行为与今天完全一致。
     /// </summary>
-    private void LoadScenarioOrThrow()
+    private static JarSystem.Core.Rules.ScenarioOptions? LoadScenarioOrNull()
     {
         var path = ResolveConfigPath(SCENARIO_RELATIVE_PATH);
-        if (path == null) return;
+        if (path == null) return null;
 
         var scenario = JarSystem.Core.Rules.ScenarioJson.FromJson(File.ReadAllText(path));
         var report = scenario.Validate();
@@ -143,11 +169,39 @@ public class JarSystemService
             throw new InvalidOperationException(
                 "场景校验失败（" + path + "）：" + report.Errors.Count + " 个错误，已拒绝启动");
         }
-        foreach (var m in JarSystem.Core.Rules.ScenarioBinder.BindInitial(scenario, System))
-            _scenarioScopes.Add(System.Modifiers.Push(m));
-        System.Processes.EventSource = JarSystem.Core.Rules.ScenarioBinder.CreateEventSource(scenario, System.Modifiers, System);
         Console.WriteLine("[scenario] loaded: " + path + "（事件 " + scenario.Events.Count + " 个，初始修饰器 "
             + scenario.InitialModifiers.Count + " 条）");
+        return scenario;
+    }
+
+    /// <summary>
+    /// 把同一份已验证场景绑定到当前世界。换关/重开只替换世界，不重新读文件；
+    /// 场景仍是进程启动时那份，保持“保存后重启生效”的既有边界。
+    /// </summary>
+    private List<JarSystem.Core.Domain.ModifierScope> BindScenario(JarSystem.Core.JarSystem target)
+    {
+        var scopes = new List<JarSystem.Core.Domain.ModifierScope>();
+        if (_scenario != null)
+        {
+            foreach (var modifier in JarSystem.Core.Rules.ScenarioBinder.BindInitial(_scenario, target))
+                scopes.Add(target.Modifiers.Push(modifier));
+            target.Processes.EventSource =
+                JarSystem.Core.Rules.ScenarioBinder.CreateEventSource(
+                    _scenario, target.Modifiers, target, alongside: target.Bus);
+        }
+        else
+        {
+            // 没有场景时仍保留总线事件源（构造时由核心接好）。
+            target.Processes.EventSource = target.Bus;
+        }
+        return scopes;
+    }
+
+    private void ReplaceScenarioScopes(List<JarSystem.Core.Domain.ModifierScope> scopes)
+    {
+        foreach (var scope in _scenarioScopes) scope.Dispose();
+        _scenarioScopes.Clear();
+        _scenarioScopes.AddRange(scopes);
     }
 
     public bool IsRunning { get; set; }

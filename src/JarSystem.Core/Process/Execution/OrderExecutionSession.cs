@@ -51,6 +51,7 @@ internal sealed class OrderExecutionSession
     private readonly IProcessStepPrimitives _primitives;
     private readonly List<SolverStepDto> _masterSteps;
     private readonly List<SolverStepDto> _slaveSteps;
+    private readonly HashSet<int> _directJarIds;
     private readonly List<ExecutionLogEntry> _ops = new();
     private readonly List<string> _errs = new();
     private int _masterIndex;
@@ -69,8 +70,16 @@ internal sealed class OrderExecutionSession
         _slave = slave;
         _event = event_;
         _primitives = primitives;
-        _masterSteps = masterSteps;
-        _slaveSteps = slaveSteps;
+        // MATCH 是交付预留与可行性匹配，不是实现动作。它不消耗过程单位，
+        // 但对应罐子要进入守卫清单，防止执行期间被移走。
+        _masterSteps = masterSteps.Where(step => !IsDirectMatch(step)).ToList();
+        _slaveSteps = slaveSteps.Where(step => !IsDirectMatch(step)).ToList();
+        _directJarIds = masterSteps
+            .Concat(slaveSteps)
+            .Where(IsDirectMatch)
+            .Where(step => step.JarId.HasValue)
+            .Select(step => step.JarId!.Value)
+            .ToHashSet();
         _solverBasedMethod = solverBasedMethod;
         Recorder = recorder;
         Stage = InitialStage();
@@ -127,6 +136,7 @@ internal sealed class OrderExecutionSession
     /// </summary>
     internal IEnumerable<int> RemainingJarIds()
     {
+        foreach (var id in _directJarIds) yield return id;
         for (int i = _masterIndex; i < _masterSteps.Count; i++)
             if (_masterSteps[i].JarId.HasValue) yield return _masterSteps[i].JarId!.Value;
         for (int i = _slaveIndex; i < _slaveSteps.Count; i++)
@@ -245,6 +255,9 @@ internal sealed class OrderExecutionSession
     /// <summary>起始阶段：有主台计划就走计划；否则 A 类与"非求解器方案"的 B 类走贪心，求解器方案的 B 类直接转移。</summary>
     private OrderExecutionStage InitialStage()
     {
+        // 交付条件已经成立时没有“实现过程”：开始订单即原子交付。
+        if (_order.Type == Constants.OrderType.A && _order.IsSatisfiedBy(_master.Jars))
+            return FinishSuccess();
         if (_masterSteps.Count > 0) return OrderExecutionStage.MasterPath;
         if (_order.Type == Constants.OrderType.A) return OrderExecutionStage.MasterGreedy;
         return _solverBasedMethod ? OrderExecutionStage.Transfer : OrderExecutionStage.MasterGreedy;
@@ -297,7 +310,9 @@ internal sealed class OrderExecutionSession
             Action = "transfer",
             Description = $"转移 {xfer.Count} 个罐子与所需液体到从台"
         });
-        recorder?.Milestone(ProcessMilestones.Transfer, $"转移 {xfer.Count} 个器物与所需液体");
+        // 多目标迁移是一个实现步骤；所有罐子和液体都是这一步的作用域。
+        recorder?.StepApplied(ProcessMilestones.Transfer, null,
+            $"主台 {_master.Name} → 从台 {_slave.Name}：转移 {xfer.Count} 个罐子与所需液体");
 
         var transferLiq = _order.FeasibilityResult?.TransferLiquids;
         foreach (var l in Constants.LIQUIDS)
@@ -320,7 +335,6 @@ internal sealed class OrderExecutionSession
                 continue;
             }
             _master.RemoveLiquid(l, accepted);
-            _event.RecordLiquidTransfer(l, accepted);
             recorder?.Milestone(ProcessMilestones.TransferLiquid, $"{l}×{accepted}");
             if (accepted < need)
                 _ops.Add(new ExecutionLogEntry
@@ -334,9 +348,25 @@ internal sealed class OrderExecutionSession
         _event.AdvanceToSlavePhase();
         _slave.ClearMarks();
 
-        Stage = _slaveSteps.Count > 0 ? OrderExecutionStage.SlavePath : OrderExecutionStage.SlaveGreedy;
+        if (_slaveSteps.Count > 0)
+        {
+            Stage = OrderExecutionStage.SlavePath;
+            return true;
+        }
+
+        // 迁移完成时若交付条件已经成立，不再为 MATCH 额外消耗一个过程单位。
+        if (_order.IsSatisfiedBy(_slave.Jars))
+        {
+            Stage = FinishSuccess();
+            return false;
+        }
+
+        Stage = OrderExecutionStage.SlaveGreedy;
         return true;
     }
+
+    private static bool IsDirectMatch(SolverStepDto step) =>
+        string.Equals(step.Type, "MATCH", StringComparison.Ordinal);
 
     private OrderExecutionStage FinishSuccess()
     {

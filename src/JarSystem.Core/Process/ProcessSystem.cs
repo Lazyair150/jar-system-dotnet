@@ -39,7 +39,7 @@ public sealed class ProcessSystem
     private readonly Queue<((string Subject, int SubjectId) Key, int ProcessId)> _subjectOrder = new();
 
     /// <param name="worldRevision">世界修订号提供者（P1 = 宿主世界意图的序号；见 <see cref="JournalEntry.WorldRevision"/>）。</param>
-    /// <param name="allocator">步间隔分配器；null = 用默认（2 刻/步，见裁决 2026-10-16）。</param>
+    /// <param name="allocator">步间隔分配器；null = 用默认（1 刻/步 = 每次推进一个实现单位）。</param>
     /// <param name="modifiers">世界的修饰器栈（与工作台共用同一实例）；null = 自建一个空栈。</param>
     public ProcessSystem(Func<int> worldRevision, StepAllocator? allocator = null, ModifierStack? modifiers = null)
     {
@@ -57,7 +57,7 @@ public sealed class ProcessSystem
     /// <summary>tick 管线（宿主每推进一个 tick 调一次；见 <see cref="TickPipeline.AdvanceOneTick"/>）。</summary>
     public TickPipeline Pipeline { get; }
 
-    /// <summary>步间隔分配器（默认 2 刻/步；可按过程种类或单次过程覆盖）。</summary>
+    /// <summary>步间隔分配器（默认 1 刻/步；可按过程种类或单次过程覆盖）。</summary>
     public StepAllocator Allocator { get; }
 
     /// <summary>世界的修饰器栈（与工作台共用同一实例）。</summary>
@@ -334,6 +334,7 @@ public sealed class ProcessSystem
         DroppedSubjectMappings = 0;
         IndexedSubjectKeys = 0;
         _clock.Reset();
+        _modifiers.Clear();
         _modifiers.ResetClock();
     }
 

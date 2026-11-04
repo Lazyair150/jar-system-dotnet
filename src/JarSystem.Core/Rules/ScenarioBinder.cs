@@ -73,8 +73,29 @@ public static class ScenarioBinder
 
     /// <summary>由场景数据造一个事件源：第 N 刻触发的事件会把它的修饰器压进给定的栈。</summary>
     public static IWorldEventSource CreateEventSource(ScenarioOptions scenario, ModifierStack stack,
-        IWorldFacts? world = null) =>
-        new ScenarioEventSource(scenario, stack, world);
+        IWorldFacts? world = null, IWorldEventSource? alongside = null)
+    {
+        var scenarioSource = new ScenarioEventSource(scenario, stack, world);
+        return alongside == null
+            ? scenarioSource
+            : new ChainedWorldEventSource(alongside, scenarioSource);
+    }
+
+    /// <summary>
+    /// 场景事件源不能替换世界总线：总线还承担反应器排队效果（例：可行性缓存失效）。
+    /// 组合顺序固定为“宿主的既有事件源 → 场景事件”，同一 tick 内因此只有一条可复现顺序。
+    /// </summary>
+    private sealed class ChainedWorldEventSource(IWorldEventSource first, IWorldEventSource second)
+        : IWorldEventSource
+    {
+        public IReadOnlyList<WorldEvent> DrainForTick(int tick)
+        {
+            var events = new List<WorldEvent>();
+            events.AddRange(first.DrainForTick(tick));
+            events.AddRange(second.DrainForTick(tick));
+            return events;
+        }
+    }
 
     private sealed class ScenarioEventSource : IWorldEventSource
     {

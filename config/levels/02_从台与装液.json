@@ -14,7 +14,7 @@
     "initialStock": { "蜜": 4 },
     "producerSlots": 3,
     "producers": [
-      { "name": "陶工甲", "rates": { "圆罐": 0.4, "方罐": 0.3 } },
+      { "name": "陶工甲", "rates": { "圆罐": 0.4, "方罐": 0.0 } },
       { "name": "陶工乙", "rates": { "高罐": 0.5, "长罐": 0.2 } }
     ],
     "workshops": [

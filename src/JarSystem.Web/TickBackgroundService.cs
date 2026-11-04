@@ -80,14 +80,22 @@ public sealed class TickBackgroundService : BackgroundService
     {
         try
         {
-            var sys = _svc.System;
             string json;
             await _svc.Gate.WaitAsync(token);
-            try { sys.Tick(); json = JsonArgs.J(new { type = "state", data = sys.GetState() }); }
+            try
+            {
+                // 必须在拿到闸门之后才读取当前世界：wait 期间 loadLevel 可能已经替换了 System。
+                var sys = _svc.System;
+                sys.Tick();
+                json = JsonArgs.J(new { type = "state", data = sys.GetState() });
+            }
             finally { _svc.Gate.Release(); }
             await _sink.BroadcastAsync(json);
         }
         catch (OperationCanceledException) { /* 宿主停止中 */ }
         catch (Exception ex) { Console.Error.WriteLine("[tick] " + ex.Message); }
     }
+
+    /// <summary>供聚焦测试驱动一次推进；生产循环仍只通过 <see cref="ExecuteAsync"/> 调用。</summary>
+    internal Task TickOnceForTestAsync(CancellationToken token) => TickOnceAsync(token);
 }

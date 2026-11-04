@@ -108,6 +108,25 @@ public class ProcessKernelTests
         Assert.Null(stack.SuppressionReason("POUR_IN", null, null));
     }
 
+    [Fact]
+    public void WorldResetDoesNotResurrectTheOldTimelineModifier()
+    {
+        var system = new JarSystem.Core.JarSystem(randomSeed: 17);
+        system.Modifiers.Expire(100);
+        using var scope = system.Modifiers.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Window = (50, 60),
+            Reason = "旧时间线的禁令"
+        });
+
+        system.Reset();
+        system.Modifiers.Expire(55);
+
+        Assert.Null(system.Modifiers.SuppressionReason("POUR_IN", null, null));
+        Assert.Empty(system.Modifiers.Active);
+    }
+
     private sealed class RejectingCompletion(string reason) : IOrderExecutionCompletion
     {
         public (bool Success, string? Reason, Dictionary<string, object?>? Event,

@@ -100,6 +100,57 @@ public sealed class WorldOptions
     public Vocabulary BuildVocabulary() => new(Shapes, Liquids);
 
     /// <summary>
+    /// 深拷贝配置。世界装配时用它隔离调用方持有的可变 POCO；对外读取 <c>JarSystem.World</c> 时
+    /// 也返回副本，避免外部直接改目标/回合上限等字段绕过命令日志。
+    /// </summary>
+    public WorldOptions Clone() => new()
+    {
+        Shapes = new List<string>(Shapes),
+        Liquids = new List<string>(Liquids),
+        DefaultMaxJars = DefaultMaxJars,
+        DefaultMaxLiquids = DefaultMaxLiquids,
+        Flow = new FlowOptions
+        {
+            JarCount = Flow.JarCount,
+            LiquidAmount = Flow.LiquidAmount,
+            LiquidRate = new Dictionary<string, double>(Flow.LiquidRate)
+        },
+        InitialStock = new Dictionary<string, int>(InitialStock),
+        Producers = Producers.Select(p => new ProducerOptions
+        {
+            Name = p.Name,
+            Rates = new Dictionary<string, double>(p.Rates)
+        }).ToList(),
+        ProducerSlots = ProducerSlots,
+        TurnLimit = TurnLimit,
+        GoalOrders = GoalOrders,
+        Workshops = Workshops.Select(w => new WorkshopOptions
+        {
+            Name = w.Name,
+            BaseMarks = new List<string>(w.BaseMarks),
+            AdditionalMarks = new List<string>(w.AdditionalMarks),
+            Ban = new List<string>(w.Ban),
+            MaxJars = w.MaxJars,
+            MaxLiquids = w.MaxLiquids
+        }).ToList(),
+        OrderTemplates = OrderTemplates.Select(t => new OrderTemplateOptions
+        {
+            Name = t.Name,
+            Type = t.Type,
+            Requirements = t.Requirements.Select(r => new RequirementOptions
+            {
+                Shape = r.Shape,
+                Liquid = r.Liquid
+            }).ToList()
+        }).ToList(),
+        NamePools = new NamePoolOptions
+        {
+            Prefix = new List<string>(NamePools.Prefix),
+            Suffix = new List<string>(NamePools.Suffix)
+        }
+    };
+
+    /// <summary>
     /// 校验配置（**跨字段/引用完整性**，纯逻辑、无 IO）：引用不存在的形状/液体、模板重名、
     /// 液体不是恰好两种、生产者速率键非法…… 都在这里一次性报出。
     ///
@@ -141,6 +192,7 @@ public sealed class WorldOptions
         if (GoalOrders < 0) r.Errors.Add("goalOrders 不能为负（0 表示无目标）");
         if (Flow.JarCount < 0) r.Errors.Add("flow.jarCount 不能为负");
         if (Flow.LiquidAmount < 0) r.Errors.Add("flow.liquidAmount 不能为负");
+        if (ProducerSlots < 0) r.Errors.Add("producerSlots 不能为负（0 表示不限）");
         foreach (var kv in Flow.LiquidRate)
         {
             if (!Liquids.Contains(kv.Key)) r.Errors.Add("flow.liquidRate 含未知液体: " + kv.Key);
@@ -170,7 +222,9 @@ public sealed class WorldOptions
             foreach (var kv in p.Rates)
             {
                 if (!Shapes.Contains(kv.Key)) r.Errors.Add("生产者 " + p.Name + " 含未知形状: " + kv.Key);
-                if (kv.Value < 0) r.Errors.Add("生产者 " + p.Name + " 的 " + kv.Key + " 速率不能为负");
+                if (double.IsNaN(kv.Value) || double.IsInfinity(kv.Value))
+                    r.Errors.Add("生产者 " + p.Name + " 的 " + kv.Key + " 速率必须是有限数");
+                else if (kv.Value < 0) r.Errors.Add("生产者 " + p.Name + " 的 " + kv.Key + " 速率不能为负");
                 // 上界与核心规则一致（Constants.MAX_PRODUCER_RATE）：速率会线性放大产出循环，
                 // 配置里放一个 1e9 同样能把宿主打爆 ⇒ 启动即拒绝，而不是等运行时 OOM。
                 else if (kv.Value > Constants.MAX_PRODUCER_RATE) r.Errors.Add("生产者 " + p.Name + " 的 " + kv.Key
@@ -178,6 +232,10 @@ public sealed class WorldOptions
                 else if (kv.Value > 0 && !producedShapes.Contains(kv.Key)) producedShapes.Add(kv.Key);
             }
         }
+        int initialActiveLines = Producers.Sum(p => p.Rates.Count(kv => kv.Value > 0));
+        if (ProducerSlots > 0 && initialActiveLines > ProducerSlots)
+            r.Errors.Add("producerSlots 上限为 " + ProducerSlots + "，初始有效产线有 " +
+                         initialActiveLines + " 条；请把多余产线速率设为 0 或提高上限");
 
         // ---- 工作台 ----
         var workshopNames = new List<string>();
@@ -262,7 +320,7 @@ public sealed class WorldOptions
     /// 原先写成 static 只读**单例**，但 WorldOptions 是可变 POCO（所有属性都有 setter），
     /// 于是成了"全局可变单例"：任何代码改了 WorldOptions.Default.Liquids[0]，
     /// 全进程后续的默认世界都跟着变。改为每次构造一份，读写都不再共享状态。
-    /// （注意：JarSystem.World 仍是对**该实例**的引用，主动改它只影响那一个系统。）
+    /// （JarSystem 会在装配时再做一次深拷贝；此属性只保证每次访问 Default 不共享实例。）
     /// </summary>
     public static WorldOptions Default => CreateDefault();
 

@@ -2,76 +2,87 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 
 namespace JarSystem.Core.Orders;
 
 /// <summary>
-/// **从台 → 主台的回滚**（原 <c>OrderEvent.RollbackSlaveToMaster</c>，2026-09 抽出）。
+/// **从台 → 主台的资源回落**（原 <c>OrderEvent.RollbackSlaveToMaster</c>，2026-09 抽出）。
 ///
-/// 为什么值得独立：这段规则很细，却和"交付判定""命令执行""报告生成"混在同一个事件对象里 ⇒ 无法单独测试。
-/// 它同时涉及三类语义：
+/// 从台是 B 类订单临时升起的工具位，不是第二仓库。订单结束后，从台必须无资源残留：
 /// <list type="bullet">
-/// <item>**归属判定**：只回滚"本次转移过来"的罐子（按 Id 区分"转移来的"与"从台原有的"）；</item>
-/// <item>**禁令边界**：**禁液令不影响满罐转移** —— 装满被主台禁用液体的罐子原样归还，不清空罐内液体；</item>
+/// <item>交付罐先移除，其余罐子全部回落；包括订单未交付的工具罐；</item>
+/// <item>从台自由液体全部回落；包括工具罐倒出后未消耗的液体，不能只按“转入液体”账目返还；</item>
+/// <item>**禁令边界**：满罐中的液体不受主台禁令影响，原样随罐返回；游离液若主台禁收则丢弃；</item>
 /// <item>**容量与丢弃**：主台接不下的罐子/液体**直接丢弃**（仓库单向流动，不回收），并留下日志。</item>
 /// </list>
-/// 语义与抽取前**逐字一致**（等价性由 5000 用例 + S13/S14/S19 守护）。
+/// 该操作对成功、失败、取消三条收尾路径一致，并由过程互斥保证从台只属于一个 B 类订单。
 /// </summary>
 internal sealed class SlaveRollback
 {
     /// <param name="master">主台（回滚资源的接收方）。</param>
     /// <param name="slave">从台（回滚来源）。</param>
-    /// <param name="transferredJarIds">本次订单实际转移过来的罐子 Id（只读）。</param>
-    /// <param name="slaveOriginalJarIds">订单开始时从台**原有**罐子的 Id（这些不参与回滚，只读）。</param>
-    /// <param name="transferredLiquids">本次转移到从台的液体账目（只读）。</param>
     /// <param name="appendLog">追加执行日志的出口（由 <see cref="OrderEvent"/> 提供）——
     /// 日志本身不再对外可变，因此这里收回调而不是可变 List。</param>
+    /// <param name="ledger">资源账本（只读投影）：回落记 `return`，主台收不下的记 `discard`。</param>
+    /// <param name="tickOf">取当前逻辑 tick 的出口（账本只记录事实，不推进时间）。</param>
     public void Execute(
         Workshop master,
         Workshop slave,
-        IReadOnlyCollection<int> transferredJarIds,
-        IReadOnlyCollection<int> slaveOriginalJarIds,
-        IReadOnlyDictionary<string, int> transferredLiquids,
-        Action<ExecutionLogEntry> appendLog)
+        Action<ExecutionLogEntry> appendLog,
+        Action<int>? countDiscardedJars = null,
+        Action<string, int>? countDiscardedLiquids = null,
+        ResourceLedger? ledger = null,
+        Func<int>? tickOf = null)
     {
+        if (ReferenceEquals(master, slave)) return;
+
         var slaveJars = new List<Jar>(slave.Jars);
 
         foreach (var jar in slaveJars)
         {
             if (jar == null) continue;
-            var isTransferred = jar.Id.HasValue && transferredJarIds.Contains(jar.Id.Value);
-            var isOriginal = jar.Id.HasValue && slaveOriginalJarIds.Contains(jar.Id.Value);
-
-            if (isTransferred && !isOriginal)
+            slave.TransferOut(jar);
+            // 禁液令不影响满罐转移：装满被主台禁用液体的罐子原样归还，
+            // 不在此清空罐内液体（禁令只作用于倒入、游离存储与改形成本）。
+            if (!master.TransferIn(jar))
             {
-                slave.TransferOut(jar);
-                // 禁液令不影响满罐转移：装满被主台禁用液体的罐子原样归还，
-                // 不在此清空罐内液体（禁令只作用于倒入、游离存储与改形成本）。
-                if (!master.TransferIn(jar))
+                countDiscardedJars?.Invoke(1);
+                ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Discard, ResourceKinds.Jar,
+                    jar.Shape, 1, from: slave.Name, to: null, reason: "主台罐子容量满");
+                appendLog(new ExecutionLogEntry
                 {
-                    appendLog(new ExecutionLogEntry
-                    {
-                        Phase = "rollback",
-                        Command = "discard_jar",
-                        Jar = jar.GetDescription(),
-                        Reason = "主台罐子容量满，丢弃（仓库单向流动，不回收）"
-                    });
-                }
+                    Phase = "rollback",
+                    Command = "discard_jar",
+                    Jar = jar.GetDescription(),
+                    Reason = "主台罐子容量满，丢弃（仓库单向流动，不回收）"
+                });
+            }
+            else
+            {
+                ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Return, ResourceKinds.Jar,
+                    jar.Shape, 1, from: slave.Name, to: master.Name);
             }
         }
 
-        foreach (var kv in transferredLiquids)
+        foreach (var kv in slave.LiquidStorage.ToList())
         {
             var liquid = kv.Key;
-            var amount = Math.Min(kv.Value, slave.LiquidStorage.GetValueOrDefault(liquid, 0));
+            var amount = kv.Value;
             if (amount > 0)
             {
                 slave.RemoveLiquid(liquid, amount);
                 // 部分填充：主台可接收多少就接收多少，剩余丢弃（仓库单向流动，不回收）
                 int accepted = master.TryReceiveLiquid(liquid, amount);
                 int remainder = amount - accepted;
+                ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Return, ResourceKinds.Liquid,
+                    liquid, accepted, from: slave.Name, to: master.Name);
                 if (remainder > 0)
                 {
+                    countDiscardedLiquids?.Invoke(liquid, remainder);
+                    ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Discard, ResourceKinds.Liquid,
+                        liquid, remainder, from: slave.Name, to: null,
+                        reason: master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满");
                     appendLog(new ExecutionLogEntry
                     {
                         Phase = "rollback",

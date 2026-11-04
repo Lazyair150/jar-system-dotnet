@@ -34,7 +34,7 @@ public readonly struct TurnBudget
     public int Remaining => IsLimited ? Math.Max(0, Limit - Used) : int.MaxValue;
 
     /// <summary>这次推进 <paramref name="count"/> 回合能不能整体生效。</summary>
-    public bool Allows(int count) => !IsLimited || Used + Math.Max(0, count) <= Limit;
+    public bool Allows(int count) => !IsLimited || (long)Used + Math.Max(0, count) <= Limit;
 
     /// <summary>不能推进时的理由（能推进时是空串）。理由文案只有这一处，界面直接显示。</summary>
     public string ReasonIfBlocked(int count) => Allows(count)

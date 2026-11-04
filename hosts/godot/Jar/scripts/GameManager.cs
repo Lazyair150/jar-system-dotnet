@@ -169,8 +169,10 @@ public partial class GameManager : Node
 
     public void DeleteOrder(int index)
     {
-        System.DeleteOrder(index);
-        Log($"删除订单（下标 {index}）");
+        var result = System.DeleteOrder(index);
+        Log(result.Success
+            ? $"删除订单（下标 {index}）"
+            : $"删除订单（下标 {index}）被拒绝: {result.Error}");
         EmitSignal(SignalName.StateChanged);
     }
 
@@ -233,12 +235,34 @@ public partial class GameManager : Node
         }
     }
 
+    private (bool Ok, string? Error) TryEditResult(string what, Func<(bool Success, string? Error)> apply)
+    {
+        try
+        {
+            var result = apply();
+            if (!result.Success)
+            {
+                var reason = result.Error ?? "未给出原因";
+                Log(what + " 被核心拒绝: " + reason);
+                return (false, reason);
+            }
+            Log(what + "：成功");
+            EmitSignal(SignalName.StateChanged);
+            return (true, null);
+        }
+        catch (JarSystem.Core.Domain.DomainValidationException ex)
+        {
+            Log(what + " 被核心拒绝: " + ex.Message);
+            return (false, ex.Message);
+        }
+    }
+
     public (bool Ok, string? Error) CreateWorkshop(string name, List<string> baseMarks, List<string> additionalMarks, List<string> ban) =>
         TryEdit($"创建工作台「{name}」(基础 {baseMarks.Count} / 附加 {additionalMarks.Count} / 禁 {ban.Count})",
             () => System.CreateWorkshop(name, baseMarks, additionalMarks, ban));
 
     public (bool Ok, string? Error) UpdateCapacity(int index, int? maxJars, int? maxLiquids) =>
-        TryEdit($"改工作台 #{index} 容量(罐 {maxJars?.ToString() ?? "-"} / 液 {maxLiquids?.ToString() ?? "-"})",
+        TryEditResult($"改工作台 #{index} 容量(罐 {maxJars?.ToString() ?? "-"} / 液 {maxLiquids?.ToString() ?? "-"})",
             () => System.UpdateWorkshopCapacity(index, maxJars, maxLiquids));
 
     public (bool Ok, string? Error) UpdateProducerRate(string producer, string shape, double rate) =>

@@ -6,7 +6,8 @@ namespace JarSystem.Core.Orders;
 
 /// <summary>
 /// 可行性分析（阶段 3 后只剩「组织检查链 + 计时」）：
-/// 链上依次为 单阶段（A 类）→ 仅从台快速路径（B 类）→ 需求子集划分搜索（B 类兜底）。
+/// 链上依次为单阶段（A 类）→ 需求子集划分搜索（B 类）。
+/// 从台是空的临时工具位，因此旧的 <c>slave_only</c> 快路径不再参与新分析。
 ///
 /// 协作者：<see cref="IFeasibilityCheck"/> 各实现、<see cref="FeasibilityContext"/>（共享输入）、
 /// <see cref="FeasibilityResultFactory"/>（结果字段拼装）、<see cref="PathSummaryFormatter"/>（路径摘要）。
@@ -42,7 +43,6 @@ public class FeasibilityChecker
         _checks = new IFeasibilityCheck[]
         {
             new SinglePhaseCheck(),
-            new SlaveOnlyCheck(),
             new PartitionCheck(new PartitionSearch(solver))
         };
     }

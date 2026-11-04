@@ -57,7 +57,7 @@
       </div>
 
       <div class="panel" id="stagePanel">
-        <div class="panel-hd"><span class="ptitle">中央仓库</span><span class="hint">每回合按产线推进，先进仓库，再流向主台</span></div>
+        <div class="panel-hd"><span class="ptitle">中央仓库</span><span class="hint" id="stageHint">生产先入库，流入再搬往主台</span></div>
         <div class="stage" id="stageBody"></div>
       </div>
     </div>
@@ -87,8 +87,9 @@
 </div>
 
 <div id="picker" class="hidden"><div class="pickbox" id="pickbox"></div></div>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
+<script src="js/production-view.js"></script>
 <script src="js/play.js"></script>
 </body>
 </html>

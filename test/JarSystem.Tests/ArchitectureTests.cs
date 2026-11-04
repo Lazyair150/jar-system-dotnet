@@ -37,6 +37,9 @@ public class ArchitectureTests
         ["Config"] = 0,
         ["Domain"] = 1,
         ["Abstractions"] = 2,
+        // Security 与 Abstractions 同类：**纯判定词汇**（权限点登记 / 访问决策 / 宿主姿态），
+        // 只依赖 BCL，不引用任何圈层，于是任何层都可以问它而不破坏"只许向下"。
+        ["Security"] = 2,
         // Presentation 与 Abstractions 同类：**纯契约词汇 + 有界缓冲，不依赖任何层**。
         // 排在这里而不是顶层的理由：`World` 要把信号投影成帧（`World/BusPresentationBridge`），
         // 若把 Presentation 放在 World 之上，这条边就成了向上引用。

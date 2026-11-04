@@ -38,9 +38,11 @@ public class StepsForTests
     private static JarSystem.Core.JarSystem NewWorld(params string[] jarShapes)
     {
         var system = NewSystem();
-        var master = new Workshop("M", new() { "圆罐", "方罐", "高罐" }, new(), new(), 20, 30);
+        var master = new Workshop("M", new() { "圆罐", "方罐", "高罐" }, new() { "三角罐" }, new(), 20, 30,
+            vocabulary: Vocabulary.Default);
         foreach (var shape in jarShapes)
-            master.AddJar(new Jar(shape));
+            master.AddJar(new Jar(shape, vocabulary: Vocabulary.Default));
+        master.AddLiquid("蜜", 10);
 
         system.ClearWorkshops();
         system.AddWorkshop(master);
@@ -58,8 +60,12 @@ public class StepsForTests
     /// <summary>建世界（台上具备 `jarShapes` 各一个罐）、下一单、跑到终态，返回 (系统, 该单的过程实例)。</summary>
     private static (JarSystem.Core.JarSystem System, ProcessInstance Process) RunOneOrder(params string[] shapes)
     {
-        var system = NewWorld(shapes);
+        // 需求一律用方罐改形成三角罐；每次真实 RESHAPE 才占过程单位。
+        var jars = shapes.Select(_ => "方罐").ToArray();
+        var system = NewWorld(jars);
         system.CreateOrder(Reqs(shapes), Constants.OrderType.A);
+        var feasibility = system.CheckFeasibility(0);
+        Assert.True(feasibility?.Feasible, feasibility?.Reason);
 
         var started = system.StartOrder(0);
         Assert.True(started.Started, started.Error);
@@ -76,7 +82,7 @@ public class StepsForTests
     [Fact]
     public void StepsFor_LocatesTheStepsOfAFinishedSubject()
     {
-        var (system, process) = RunOneOrder("圆罐");
+        var (system, process) = RunOneOrder("三角罐");
         Assert.NotNull(process.SubjectId);
 
         var steps = system.StepsFor(process.Subject, process.SubjectId!.Value);
@@ -104,7 +110,7 @@ public class StepsForTests
     public void StepsFor_OrdersStepsByStepIndexThenSeq()
     {
         // 至少要两步，才有"顺序"可验证；一步的过程对顺序是盲的。
-        var (system, process) = RunOneOrder("圆罐", "方罐");
+        var (system, process) = RunOneOrder("三角罐", "三角罐");
         var steps = system.StepsFor(process.Subject, process.SubjectId!.Value)
             .Where(entry => entry.StepIndex.HasValue)
             .ToList();
@@ -127,10 +133,10 @@ public class StepsForTests
     [Fact]
     public void StepsFor_AlsoCoversAProcessThatIsStillRunning()
     {
-        var system = NewWorld("圆罐", "方罐");
-        system.CreateOrder(Reqs("圆罐", "方罐"), Constants.OrderType.A);
+        var system = NewWorld("方罐", "方罐");
+        system.CreateOrder(Reqs("三角罐", "三角罐"), Constants.OrderType.A);
 
-        // **前提必须钉住**：先做可行性分析，让会话拿到求解器路径（2 条 MATCH = 2 个单位）。
+        // **前提必须钉住**：先做可行性分析，让会话拿到两条真实改形路径。
         // 没有这一步的话会话会走 `MasterGreedy`（一个单位就把整单跑完）——
         // 于是 `Tick(2)` 之后根本没有"进行中"可看，用例会以一条无关的
         // `Sequence contains no matching element` 失败（本会话实测踩到）。
@@ -141,7 +147,7 @@ public class StepsForTests
         var started = system.StartOrder(0);
         Assert.True(started.Started, started.Error);
 
-        system.Tick(2);   // 求解器路径逐单位推进 ⇒ tick 1 落一步，tick 2 未到步间隔 ⇒ 过程仍在跑
+        system.Tick(1);   // 默认 1 回合 1 单位；第一回合后仍有第二步未执行
 
         var active = system.Processes.ActiveProcesses
             .Single(p => p.Kind == ProcessKinds.OrderExecution);

@@ -148,4 +148,26 @@ public class TurnBudgetTests
         world.TurnLimit = -1;
         Assert.False(world.Validate().IsValid);
     }
+
+    [Fact]
+    public void HugeUsedCountCannotOverflowIntoAnotherAllowedTurn()
+    {
+        var budget = new TurnBudget(limit: int.MaxValue, used: int.MaxValue);
+
+        Assert.False(budget.Allows(1));
+    }
+
+    [Fact]
+    public void TickZeroDoesNotCreateAResourceFlowWithoutTimeAdvancing()
+    {
+        var sys = NewSystem(turnLimit: 0);
+        sys.SetMasterIndex(0);
+        var revision = sys.WorldRevision;
+
+        sys.Tick(0);
+
+        Assert.Equal(0, sys.Turns.Used);
+        Assert.Equal(revision, sys.WorldRevision);
+        Assert.All(sys.Workshops[0].LiquidStorage.Values, amount => Assert.Equal(0, amount));
+    }
 }

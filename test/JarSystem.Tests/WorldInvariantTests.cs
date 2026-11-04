@@ -127,6 +127,20 @@ public class WorldInvariantTests
     }
 
     [Fact]
+    public void ResourcesLeftOnAnIdleSlaveAreReported()
+    {
+        var sys = NewSystem();
+        sys.SetMasterIndex(0);
+        sys.SetSlaveIndex(1);
+        sys.Workshops[1].AddLiquid("酒", 1);
+
+        var violations = WorldInvariants.Check(sys);
+
+        Assert.Contains(violations, violation =>
+            violation.Code == "SLAVE-RESIDUAL-WITHOUT-B-ORDER");
+    }
+
+    [Fact]
     public void ViolationCodesAreStable()
     {
         // 违约码是**给机器看的**（页面显示、测试断言、日志过滤）。改名等于改契约，
@@ -134,11 +148,12 @@ public class WorldInvariantTests
         var codes = new[]
         {
             "MASTER-INDEX-OUT-OF-RANGE", "SLAVE-INDEX-OUT-OF-RANGE", "SLAVE-EQUALS-MASTER",
+            "SLAVE-RESIDUAL-WITHOUT-B-ORDER",
             "PROCESS-ORDER-MISSING-ID", "PROCESS-ORDER-MISSING", "PROCESS-ORDER-WITHOUT-MASTER",
             "PROCESS-MIGRATION-WITHOUT-MASTER", "PROCESS-MIGRATION-TARGET-MISSING",
             "PROCESS-DUPLICATE-FOR-SUBJECT", "ORDER-EXECUTING-WITHOUT-PROCESS",
             "ORDER-REQUIREMENTS-COUNT", "JAR-COUNT-OVER-CAPACITY", "JAR-DUPLICATE-ID",
-            "LIQUID-NEGATIVE", "LIQUID-OVER-CAPACITY", "BANNED-LIQUID-STORED",
+            "LIQUID-NEGATIVE", "LIQUID-OVER-CAPACITY",
             "JAR-ID-SHARED-ACROSS-WORKSHOPS"
         };
         Assert.Equal(codes.Length, codes.Distinct().Count());

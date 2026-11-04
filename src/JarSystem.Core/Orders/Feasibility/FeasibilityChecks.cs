@@ -10,8 +10,9 @@ namespace JarSystem.Core.Orders;
 /// 可行性检查链的一环（阶段 3：责任链模式，替换原 <c>Check</c> 里的 if/else 硬编码分派）。
 ///
 /// 契约：返回 null 表示「本检查不适用或未通过」，交由链上下一个检查；
-/// 返回结果即终止链。链序即优先级：
-/// 单阶段（A 类）→ 仅从台快速路径（B 类）→ 需求子集划分搜索（B 类，兜底）。
+/// 返回结果即终止链。链序即优先级：单阶段（A 类）→ 需求子集划分搜索（B 类）。
+/// 从台在订单开始时必须为空，因此原 <c>slave_only</c> 快速路径在新模型中不可达。
+/// 该字符串仍保留为旧存档/契约读取值，但不再由新分析产生。
 /// </summary>
 internal interface IFeasibilityCheck
 {
@@ -54,26 +55,6 @@ internal sealed class SinglePhaseCheck : IFeasibilityCheck
     }
 }
 
-/// <summary>B 类快速路径：仅用从台自身资源即可满足，无需任何主台资源进入从台（原 slave_only 分支）。</summary>
-internal sealed class SlaveOnlyCheck : IFeasibilityCheck
-{
-    public string Method => Constants.CheckMethod.SLAVE_ONLY;
-
-    public FeasibilityResultData? TryCheck(FeasibilityContext ctx)
-    {
-        if (ctx.Order.Type == Constants.OrderType.A) return null;
-
-        var solverResult = ctx.Solver.Solve(ctx.Requirements, ctx.SlaveInfo,
-            ctx.Slave.Jars.Select(JarStateMapper.From).ToList(),
-            ctx.Slave.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value));
-        if (!solverResult.Feasible) return null;
-
-        // slave_only 不需要任何转移 ⇒ 显式传**空表**（不是 null：契约里这两种取值语义不同）
-        return FeasibilityResultFactory.FromSolverResult(solverResult, Method,
-            transferJarIds: new List<int>(), transferLiquids: new Dictionary<string, int>());
-    }
-}
-
 /// <summary>B 类精确路径：需求子集划分搜索（原 partition 分支；无论成败都给出结果，是链的兜底）。</summary>
 internal sealed class PartitionCheck : IFeasibilityCheck
 {
@@ -96,9 +77,7 @@ internal sealed class PartitionCheck : IFeasibilityCheck
             MasterInfo = ctx.MasterInfo,
             SlaveInfo = ctx.SlaveInfo,
             MasterJars = ctx.Master.Jars.Select(JarStateMapper.From).ToList(),
-            MasterLiquids = ctx.Master.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value),
-            SlaveJars = ctx.Slave.Jars.Select(JarStateMapper.From).ToList(),
-            SlaveLiquids = ctx.Slave.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value)
+            MasterLiquids = ctx.Master.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value)
         }, out var lastBlockage, out var inconclusiveReason);
 
         // 没能得出结论（预算耗尽 / 求解器没按契约给终态）⇒ **未判定**，不是"不可行"。

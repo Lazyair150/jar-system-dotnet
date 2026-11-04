@@ -50,6 +50,9 @@ public class ShapeProductionLine
     /// <summary>本线上参与产出的生产者及其速率（对外只读）。</summary>
     public IReadOnlyList<(string Name, double Rate)> Producers => _producerListView;
 
+    /// <summary>这条形状线当前是否有正速率生产源。没有时 Tick 不需要进入求和与累加路径。</summary>
+    public bool HasPositiveRate => _producerList.Any(p => p.Rate > 0);
+
     /// <summary>
     /// 产出累加器（对外只读；**契约字段** <c>producerStatus.generators[].accumulated</c> 读它）。
     ///
@@ -94,6 +97,8 @@ public class ShapeProductionLine
         var idx = _producerList.FindIndex(p => p.Name == name);
         if (idx >= 0)
             _producerList[idx] = (name, rate);
+        else
+            _producerList.Add((name, rate));
     }
 
     public List<Jar> Tick()
@@ -259,7 +264,8 @@ public class ProducerModule
         for (int i = 0; i < count; i++)
         {
             foreach (var s in _vocabulary.Shapes)
-                newJars.AddRange(_generators[s].Tick());
+                if (_generators[s].HasPositiveRate)
+                    newJars.AddRange(_generators[s].Tick());
         }
         // 仓库上限：溢出丢弃并计数，避免长跑无限膨胀
         Warehouse.StoreJars(newJars);

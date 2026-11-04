@@ -64,6 +64,9 @@ public class Workshop
     /// <summary>游离液体只读视图（真只读包装）。变更只能经 AddLiquid / RemoveLiquid / DrainLiquid / TryReceiveLiquid / ResizeLiquidCapacity。</summary>
     public IReadOnlyDictionary<string, int> LiquidStorage => _liquidStorageView;
 
+    /// <summary>是否持有任何罐子或非零游离液体。主台与从台的位置职责据此区分。</summary>
+    public bool HasResources => _jars.Count > 0 || _liquidStorage.Values.Any(amount => amount > 0);
+
     /// <param name="vocabulary">词表（S2）：只用于初始化液体账目的键与顺序；null 表示内置默认词表。</param>
     /// <param name="modifiers">
     /// 世界的修饰器栈（P3b）：传同一个实例即可让"一处入栈，处处生效"；

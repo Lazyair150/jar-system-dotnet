@@ -1,6 +1,6 @@
 # Constraints
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-03
 
 This is the project quality contract. It applies to every code, contract, and verification change.
 
@@ -55,8 +55,8 @@ weakened or skipped. `AGENTS.md` states the operative rule: do not **silently** 
 | Godot host | Release build, zero compiler warnings | `dotnet build hosts/godot/Jar/jar.csproj -c Release` | every verification |
 | Legacy suite | 0 bugs / 2000 random + 0 bugs / 3000 capacity | `test/JarSystem.Test` | every verification |
 | Determinism | At least 32 deterministic cases; no reduction | `verify.bat` log + `quality-gate.ps1` | every verification |
-| Focused suite | At least 225 xUnit tests; 0 failed/skipped/not-run |
-| Contract snapshot | Exactly 242 state-key lines against the checked-in baseline | `--dump-contract` + `fc` | every verification |
+| Focused suite | At least 308 xUnit tests; 0 failed/skipped/not-run |
+| Contract snapshot | Exactly 239 state-key lines against the checked-in baseline | `--dump-contract` + `fc` | every verification |
 | Schema | 11 DTO types, `degraded=0`, current known `loose=1` only | `--dump-schema` | every verification |
 | Config/world equivalence | Byte-identical to built-in world | `CONFIG-WORLD-MATCH` | every verification |
 | Protocol | 27 commands / 13 messages, payload guards pass | `--check-protocol` | every verification |
@@ -65,6 +65,7 @@ weakened or skipped. `AGENTS.md` states the operative rule: do not **silently** 
 | Replay | State, command log, and process journal are byte-identical | `REPLAY-OK` | every verification |
 | Scenario data | Shipped sample validates | `SCENARIO-OK` | every verification |
 | JavaScript | `node --check` passes when Node is installed | `JS-OK` | every verification |
+| Security | Dependency-vulnerability and secret gates pass (SEC-OK / SEC-SECRETS-OK); every command and endpoint has a registered permission point | `重构报告/security-gate.ps1` + `SecurityPolicyTests` | every verification |
 | Quality floor | No new suppressions, stubs, skipped tests, or core packages | `重构报告/quality-gate.ps1` | every verification |
 | Portability | Zero engine/host/threading references in core; every wall-clock read and unseeded default registered with a count and a reason | `test/JarSystem.Tests/PortabilityTests.cs` | every verification |
 

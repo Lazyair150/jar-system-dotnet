@@ -7,7 +7,7 @@ interface StateDto {
   workshops?: WorkshopStateDto[];
   orders?: OrderStateDto[];
   warehouse?: WarehouseStateDto;
-  producerStatus?: { producers?: { name?: string; rates?: Record<string, number> }[]; generators?: { shape?: string; rate?: number; accumulated?: number; producers?: number }[]; liquidRates?: Record<string, number>; liquidAccumulated?: Record<string, number>; warehouse?: { jars?: number; liquids?: Record<string, number> } };
+  producerStatus?: { producers?: { name?: string; rates?: Record<string, number> }[]; generators?: { shape?: string; rate?: number; accumulated?: number; producers?: number }[]; slots?: { used?: number; limit?: number }; flow?: { jars?: number; liquidPerLiquid?: number }; liquidRates?: Record<string, number>; liquidAccumulated?: Record<string, number>; warehouse?: { jars?: number; liquids?: Record<string, number> } };
   globalState?: GlobalStateDto;
   eventHistory?: Record<string, unknown>[];
   worldRevision?: number;
@@ -121,6 +121,7 @@ interface ProcessStateDto {
   startedAtTick?: number | null;
   deadlineTick?: number | null;
   remainingTicks?: number | null;
+  ticksUntilNextUnit?: number | null;
   blockedReason?: string | null;
   lastJournalSeq?: number;
 }

@@ -115,6 +115,9 @@ public sealed class ProcessStateDto
     /// <summary>剩余刻数（服务端算好；无时限为 null）。</summary>
     [JsonPropertyName("remainingTicks")] public int? RemainingTicks { get; init; }
 
+    /// <summary>距离过程下一次执行单位的刻数（服务端算好；已终结为 null）。</summary>
+    [JsonPropertyName("ticksUntilNextUnit")] public int? TicksUntilNextUnit { get; init; }
+
     /// <summary>被阻断的原因（世界语言；未阻断为 null）。</summary>
     [JsonPropertyName("blockedReason")] public string? BlockedReason { get; init; }
 
@@ -206,11 +209,20 @@ public sealed class GlobalStateDto
 //   两次增长都有独立记录，与本次强类型化无关。）
 // ============================================================
 
-/// <summary>产出模块状态（3 个键）。</summary>
+/// <summary>生产、产能槽与仓库流入状态（5 个键）。</summary>
 public sealed class ProducerStatusDto
 {
     [JsonPropertyName("producers")] public List<ProducerInfoDto> Producers { get; init; } = new();
     [JsonPropertyName("generators")] public List<GeneratorStatusDto> Generators { get; init; } = new();
+
+    /// <summary>形状产线的产能槽占用情况（与液体、流入无关）。</summary>
+    [JsonPropertyName("slots")] public ProducerSlotStatusDto Slots { get; init; } = new();
+
+    /// <summary>
+    /// 中央仓库 → 主台的流入上限。它是**搬运参数**，不是生产速率：
+    /// 即使液体自产为 0，仓库现有库存仍可能按此上限进入主台。
+    /// </summary>
+    [JsonPropertyName("flow")] public ProductionFlowStatusDto Flow { get; init; } = new();
 
     /// <summary>
     /// 每种液体每 tick 产出几份（键序 = 词表顺序）。罐子有生产者的速率，液体同样有，
@@ -222,6 +234,24 @@ public sealed class ProducerStatusDto
     /// <summary>每种液体眼下攒了多少（0 ≤ 值 &lt; 1）。有了它，"为什么这回合没产"就有直接答案。</summary>
     [JsonPropertyName("liquidAccumulated")] public Dictionary<string, double> LiquidAccumulated { get; init; } = new();
     [JsonPropertyName("warehouse")] public ProducerWarehouseDto Warehouse { get; init; } = new();
+}
+
+/// <summary>产线槽状态（2 键）：used = 速率大于 0 的“生产者 × 形状”数量。</summary>
+public sealed class ProducerSlotStatusDto
+{
+    [JsonPropertyName("used")] public int Used { get; init; }
+    /// <summary>0 = 不限。</summary>
+    [JsonPropertyName("limit")] public int Limit { get; init; }
+}
+
+/// <summary>
+/// 每次“仓库 → 主台”流入的请求上限。液体上限是**每种液体**各自的上限，
+/// 不是所有液体合计；实际接收量还会受主台容量与已有库存钳制。
+/// </summary>
+public sealed class ProductionFlowStatusDto
+{
+    [JsonPropertyName("jars")] public int Jars { get; init; }
+    [JsonPropertyName("liquidPerLiquid")] public int LiquidPerLiquid { get; init; }
 }
 
 /// <summary>生产者（2 个键：名称 + 各形状速率）。</summary>

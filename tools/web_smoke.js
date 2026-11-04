@@ -136,7 +136,25 @@ async function main() {
     'about:blank'
   ], { stdio: 'ignore' });
 
-  const cleanup = () => { try { proc.kill(); } catch { /* 已退出 */ } };
+  /** @type {WebSocket|null} */
+  let browserWs = null;
+  const cleanup = async () => {
+    if (browserWs) {
+      try { browserWs.close(); } catch { /* 已关闭 */ }
+      browserWs = null;
+    }
+    if (proc.exitCode !== null) return;
+    await new Promise((resolve) => {
+      let timer = null;
+      const done = () => {
+        if (timer) clearTimeout(timer);
+        resolve();
+      };
+      proc.once('exit', done);
+      timer = setTimeout(done, 2000);
+      try { proc.kill(); } catch { done(); }
+    });
+  };
   const failures = [];
   const check = (ok, message) => {
     console.log((ok ? 'OK   ' : 'FAIL ') + message);
@@ -158,7 +176,7 @@ async function main() {
 
     let id = 0;
     const pending = new Map();
-    const browserWs = await wsConnect(wsUrl, (txt) => {
+    browserWs = await wsConnect(wsUrl, (txt) => {
       const msg = JSON.parse(txt);
       if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
     });
@@ -242,6 +260,19 @@ async function main() {
       check(liquidCards > 0, 'E 液体也有供应卡（' + liquidCards + ' 张）');
       const lineCards = await evaluate("document.querySelectorAll('#linesBody .linecard').length");
       check(lineCards > 0, 'E 产线卡可配置（' + lineCards + ' 张）');
+      const shapeCards = await evaluate("document.querySelectorAll('#linesBody .shapecard').length");
+      const shapeRateChips = await evaluate("document.querySelectorAll('#linesBody .shapecard .ratecur').length");
+      check(shapeCards > 0 && shapeRateChips > 0,
+        'E 罐子卡显示真实非档位速率（' + shapeCards + ' 条形状线 / ' + shapeRateChips + ' 个当前值）');
+      const idleLines = await evaluate("(document.querySelector('#linesBody .idlelines')||{}).textContent||''");
+      check(/另有 6 条形状线/.test(String(idleLines)),
+        'E 零生产源形状线只做摘要，不铺成空卡');
+      const lineHint = await evaluate("(document.getElementById('linesHint')||{}).textContent||''");
+      check(/产能槽 2 \/ 3/.test(String(lineHint)),
+        'E 生产槽位语义可见：' + String(lineHint));
+      const flowGuide = await evaluate("(document.getElementById('flowGuide')||{}).innerText||''");
+      check(/生产 ≠ 流入/.test(flowGuide) && /自产为 0/.test(flowGuide),
+        'E 页面明确区分生产和仓库流入');
       const bars = await evaluate("document.querySelectorAll('#ordersBody .obar').length");
       check(bars > 0, 'E 订单进度条已画出（' + bars + ' 条）');
       const benchJars = await evaluate("(document.getElementById('masterBody')||{}).textContent||''");
@@ -269,7 +300,9 @@ async function main() {
 
       // H 执行流：推进到"这一单现在能做"→ 点开始 → 卡片出现执行中段、记录出现中文步骤。
       // 这是"点了执行页面就没用了"那件事的回归断言：点完之后必须看得见谁在做什么。
-      const startReady = () => evaluate("(function(){var b=document.querySelector('#ordersBody [data-act=\"start\"]'); return !!(b && !b.disabled);})()");
+      // 选最后一张可开始订单：第一关第一张常常是全直接匹配（开始即交付），
+      // 第二张含真实改形，能同时验证 tick 驱动过程。
+      const startReady = () => evaluate("(function(){var a=[].slice.call(document.querySelectorAll('#ordersBody [data-act=\"start\"]')); return a.some(function(b){return !b.disabled;});})()");
       let ready = await startReady();
       for (let i = 0; i < 8 && !ready; i++) {
         await evaluate("(function(){var b=document.querySelector('[data-act=\"advance\"]'); if(b&&!b.disabled) b.click(); return !!b;})()");
@@ -278,13 +311,16 @@ async function main() {
       }
       check(ready, 'H 推进到「现在就能做」后开始按钮可用');
 
-      const started = await evaluate("(function(){var b=document.querySelector('#ordersBody [data-act=\"start\"]'); if(!b||b.disabled) return 'no'; b.click(); return 'yes';})()");
+      const started = await evaluate("(function(){var a=[].slice.call(document.querySelectorAll('#ordersBody [data-act=\"start\"]')).filter(function(b){return !b.disabled;});var b=a[a.length-1]; if(!b) return 'no'; b.click(); return 'yes';})()");
       await sleep(1400);
       check(started === 'yes', 'H 点到了「开始」(' + started + ')');
 
       const execText = await evaluate("(document.querySelector('#ordersBody .oexec')||{}).innerText||''");
       check(execText.length > 0 && /主台/.test(execText),
         'H 订单卡出现执行中段：' + String(execText).replace(/\s+/g, ' ').slice(0, 60));
+      const planText = await evaluate("(function(){return [].slice.call(document.querySelectorAll('#ordersBody .oplan')).map(function(e){return e.innerText||'';}).join(' | ');})()");
+      check(/主台\s*·/.test(planText),
+        'H 做法步骤标明执行工作台：' + String(planText).replace(/\s+/g, ' ').slice(0, 80));
 
       const logLines = await evaluate("document.querySelectorAll('#logBody .ln').length");
       const logText = await evaluate("(document.getElementById('logBody')||{}).innerText||''");
@@ -295,6 +331,63 @@ async function main() {
       const benchJarNodes = await evaluate("document.querySelectorAll('#masterBody .jarchip').length");
       check(jarChips > 0 || benchJarNodes > 0,
         'E 罐子逐只可见（仓库 ' + jarChips + ' 只 / 主台 ' + benchJarNodes + ' 只）');
+
+      // J 手动回合反馈：订单开始后，每次推进都必须让记录栏得到新的内核事实；
+      // 订单完成时必须有明确的完成提示，而不是只在图标的文字上悄悄变一下。
+      let priorLogCount = await evaluate("document.querySelectorAll('#logBody .ln').length");
+      let sawNewLogOnTick = false;
+      let sawLogOnEveryTick = true;
+      let manualTicks = 0;
+      for (let i = 0; i < 4; i++) {
+        const over = await evaluate("(document.getElementById('advanceBtn')||{}).textContent||''");
+        if (/本关通过|本关结束/.test(over)) break;
+        const advanced = await evaluate("(function(){var b=document.getElementById('advanceBtn');if(!b||b.disabled)return false;b.click();return true;})()");
+        if (!advanced) break;
+        manualTicks++;
+        await sleep(1200);
+        const logCount = await evaluate("document.querySelectorAll('#logBody .ln').length");
+        if (logCount > priorLogCount) sawNewLogOnTick = true;
+        else sawLogOnEveryTick = false;
+        priorLogCount = logCount;
+      }
+      const finalButton = await evaluate("(document.getElementById('advanceBtn')||{}).textContent||''");
+      const finalLogText = await evaluate("(document.getElementById('logBody')||{}).innerText||''");
+      check(sawNewLogOnTick,
+        'J 手动推进产生了新的内核记录（记录 ' + priorLogCount + ' 行）：' +
+        String(finalLogText).replace(/\s+/g, ' ').slice(-80));
+      check(manualTicks > 0 && sawLogOnEveryTick,
+        'J 每次手动推进都有可见反馈（推进 ' + manualTicks + ' 次）');
+      check(/本关通过/.test(finalButton),
+        'J 订单完成有明确关卡提示：' + String(finalButton));
+      check(/成功|完成/.test(finalLogText),
+        'J 成功路径写进记录：' + String(finalLogText).replace(/\s+/g, ' ').slice(-80));
+
+      // K 重开后的第二局：内核会重置 process journal seq，页面必须同步清空去重集合与旧可行性；
+      // 否则新日志会被误认为“旧序号已看过”，表现为整局记录永久空白。
+      await evaluate("window.confirm=function(){return true;}");
+      await evaluate("(function(){var b=document.querySelector('[data-act=\"restart\"]');if(b)b.click();return !!b;})()");
+      await sleep(1200);
+      for (let i = 0; i < 8; i++) {
+        await evaluate("(function(){document.querySelectorAll('#ordersBody [data-act=\"check\"]').forEach(function(b){b.click();});return true;})()");
+        await sleep(250);
+        const readyAgain = await evaluate("(function(){var a=[].slice.call(document.querySelectorAll('#ordersBody [data-act=\"start\"]'));return a.some(function(b){return !b.disabled;});})()");
+        if (readyAgain) break;
+        await evaluate("(function(){var b=document.getElementById('advanceBtn');if(b&&!b.disabled)b.click();return !!b;})()");
+        await sleep(1200);
+      }
+      const restartedStart = await evaluate("(function(){var a=[].slice.call(document.querySelectorAll('#ordersBody [data-act=\"start\"]')).filter(function(b){return !b.disabled;});var b=a[a.length-1];if(!b)return 'no';b.click();return 'yes';})()");
+      await sleep(400);
+      for (let i = 0; i < 4; i++) {
+        const overAgain = await evaluate("(document.getElementById('advanceBtn')||{}).textContent||''");
+        if (/本关通过|本关结束/.test(overAgain)) break;
+        await evaluate("(function(){var b=document.getElementById('advanceBtn');if(b&&!b.disabled)b.click();return !!b;})()");
+        await sleep(1200);
+      }
+      const restartedLogText = await evaluate("(document.getElementById('logBody')||{}).innerText||''");
+      const restartedLogCount = await evaluate("document.querySelectorAll('#logBody .ln').length");
+      check(restartedStart === 'yes' && restartedLogCount > 0 && /成功|完成/.test(restartedLogText),
+        'K 重开后的新过程日志未被旧 seq 去重吞掉（记录 ' + restartedLogCount + ' 行）：' +
+        String(restartedLogText).replace(/\s+/g, ' ').slice(-100));
     }
 
     if (page.indexOf('play') === 0) {
@@ -333,7 +426,7 @@ async function main() {
     const inv = await httpJson(base + '/api/invariants');
     check(inv.ok === true, 'D 不变量仍为空（violations=' + inv.count + '）');
   } finally {
-    cleanup();
+    await cleanup();
     try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* 删不掉就算了 */ }
   }
 

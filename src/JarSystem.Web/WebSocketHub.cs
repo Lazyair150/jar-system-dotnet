@@ -14,6 +14,12 @@ public sealed class WebSocketHub : IWebSocketSink
     private readonly List<WebSocket> _clients = new();
 
     /// <summary>
+    /// 每条连接的访问事实（回环 / 管理令牌）。与 <see cref="_clients"/> 同锁维护：
+    /// 连接建立时登记、断开时移除，分派器按 <see cref="WebSocket"/> 引用取回。
+    /// </summary>
+    private readonly Dictionary<WebSocket, ConnectionAccess> _access = new();
+
+    /// <summary>
     /// 发送闸门：同一时刻只允许一个 <c>SendAsync</c> 在飞。
     ///
     /// 为什么必须有：.NET 的 <see cref="WebSocket"/> **不允许并发发送**（上一次发送尚未完成时再发即抛异常），
@@ -46,17 +52,29 @@ public sealed class WebSocketHub : IWebSocketSink
         }
 
         var ws = await ctx.WebSockets.AcceptWebSocketAsync();
-        lock (_clients) _clients.Add(ws);
+        lock (_clients)
+        {
+            _clients.Add(ws);
+            _access[ws] = new ConnectionAccess(
+                JarSystem.Core.Security.HostPolicy.IsLoopback(ctx.Connection.RemoteIpAddress),
+                ctx.Request.Headers["X-JarSystem-Admin"].ToString());
+        }
 
-        var sys = svc.System;
         // 先发**世界元数据**（形状/液体目录，一次性），再发 init ——
         // 这样客户端拿到 init 时已经知道"有哪些形状"，可直接渲染下拉框与标记选择器
-        await SendAsync(ws, JsonArgs.J(new { type = "world", data = sys.WorldMeta() }));
-        // 初始快照与命令、tick 共用同一串行闸门，避免在枚举世界集合时被后台推进改写。
+        // 世界元数据和初始快照必须来自**同一个世界版本**：等待闸门期间 loadLevel 可能替换 System，
+        // 因此两者都在闸门内从当前 System 生成，释放后只负责发送。
+        string worldJson;
         string initJson;
         await svc.Gate.WaitAsync();
-        try { initJson = JsonArgs.J(new { type = "init", data = sys.GetState() }); }
+        try
+        {
+            var sys = svc.System;
+            worldJson = JsonArgs.J(new { type = "world", data = sys.WorldMeta() });
+            initJson = JsonArgs.J(new { type = "init", data = sys.GetState() });
+        }
         finally { svc.Gate.Release(); }
+        await SendAsync(ws, worldJson);
         await SendAsync(ws, initJson);
 
         var buf = new byte[32768];
@@ -109,7 +127,7 @@ public sealed class WebSocketHub : IWebSocketSink
         catch (Exception ex) { Console.Error.WriteLine("[ws] 连接异常: " + ex.Message); }
         finally
         {
-            lock (_clients) _clients.Remove(ws);
+            lock (_clients) { _clients.Remove(ws); _access.Remove(ws); }
             // 收尾失败无补救动作，但不能把原因静默吞掉：留下传输层证据便于诊断断连。
             try { if (ws.State == WebSocketState.Open) await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", default); }
             catch (Exception ex) { Console.Error.WriteLine("[ws] 关闭失败: " + ex.Message); }
@@ -139,7 +157,11 @@ public sealed class WebSocketHub : IWebSocketSink
         {
             if (w.State != WebSocketState.Open)
             {
-                lock (_clients) _clients.Remove(w);
+                lock (_clients)
+                {
+                    _clients.Remove(w);
+                    _access.Remove(w);
+                }
                 continue;
             }
             // 逐个 await（原先是发射即忘，会与命令回包并发发送同一个 socket）
@@ -151,6 +173,15 @@ public sealed class WebSocketHub : IWebSocketSink
     /// 来源校验：空 Origin（非浏览器客户端）或回环主机（127.0.0.1 / localhost / [::1]）放行。
     /// **两条入口共用**（`/ws` 的连接握手 与 `/api/state`）—— 同一份状态不该有两个不同的口径。
     /// </summary>
+    /// <summary>这条连接的访问事实；未知连接返回 <see cref="ConnectionAccess.Unknown"/>（保守拒绝）。</summary>
+    public ConnectionAccess AccessOf(WebSocket socket)
+    {
+        lock (_clients)
+        {
+            return _access.TryGetValue(socket, out var access) ? access : ConnectionAccess.Unknown;
+        }
+    }
+
     internal static bool IsAllowedOrigin(string origin)
     {
         if (string.IsNullOrWhiteSpace(origin)) return true;

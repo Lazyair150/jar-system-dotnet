@@ -16,8 +16,8 @@ namespace JarSystem.Tests;
 /// `grep Deliver|RollbackSlaveToMaster test/` **零命中** —— 这一层同样只有文档和实现，没有守门人。
 ///
 /// 注意：`SlaveRollback` 是 internal，本组测试靠 `InternalsVisibleTo` 直接调它。
-/// 不走端到端（`ExecuteOrder`）是刻意的：端到端测不到"**只**回滚本次转移来的罐子、
-/// 从台原有罐子不动"这条 —— 那正是这段代码最容易写错的地方。
+/// 从台是临时工具位，收尾必须排空；这里既覆盖普通转移物，也覆盖路径执行后
+/// 才产生的游离液体，防止实现误把“转入账目”当成“从台剩余物全集”。
 /// </summary>
 public class DeliveryRollbackTests
 {
@@ -28,13 +28,12 @@ public class DeliveryRollbackTests
 
     private static List<ExecutionLogEntry> Run(
         Workshop master, Workshop slave,
-        IReadOnlyCollection<int> transferredJarIds,
-        IReadOnlyCollection<int> slaveOriginalJarIds,
-        IReadOnlyDictionary<string, int>? transferredLiquids = null)
+        System.Action<int>? countDiscardedJars = null,
+        System.Action<string, int>? countDiscardedLiquids = null)
     {
         var log = new List<ExecutionLogEntry>();
-        new SlaveRollback().Execute(master, slave, transferredJarIds, slaveOriginalJarIds,
-            transferredLiquids ?? new Dictionary<string, int>(), log.Add);
+        new SlaveRollback().Execute(master, slave, log.Add,
+            countDiscardedJars, countDiscardedLiquids);
         return log;
     }
 
@@ -46,7 +45,7 @@ public class DeliveryRollbackTests
         var jar = MakeJar(7, "圆罐");
         slave.AddJar(jar);
 
-        var log = Run(master, slave, new[] { 7 }, System.Array.Empty<int>());
+        var log = Run(master, slave);
 
         Assert.Empty(slave.Jars);
         Assert.Single(master.Jars);
@@ -55,16 +54,17 @@ public class DeliveryRollbackTests
     }
 
     [Fact]
-    public void SlaveOriginalJarsAreNotRolledBack()
+    public void EveryRemainingJarReturnsToTheMaster()
     {
         var master = Bench("主台");
         var slave = Bench("从台");
-        slave.AddJar(MakeJar(9, "方罐"));                   // 订单开始前就在从台的罐子
+        slave.AddJar(MakeJar(9, "方罐"));
 
-        var log = Run(master, slave, System.Array.Empty<int>(), new[] { 9 });
+        var log = Run(master, slave);
 
-        Assert.Single(slave.Jars);                          // 原地不动
-        Assert.Empty(master.Jars);
+        Assert.Empty(slave.Jars);
+        Assert.Single(master.Jars);
+        Assert.Equal(9, master.Jars[0].Id);
         Assert.Empty(log);
     }
 
@@ -76,13 +76,16 @@ public class DeliveryRollbackTests
         var slave = Bench("从台");
         slave.AddJar(MakeJar(7, "高罐"));
 
-        var log = Run(master, slave, new[] { 7 }, System.Array.Empty<int>());
+        var discarded = 0;
+        var log = Run(master, slave,
+            countDiscardedJars: count => discarded += count);
 
         Assert.Single(master.Jars);                         // 没挤进去
         Assert.Empty(slave.Jars);                  // 已离开从台
         var discard = Assert.Single(log);
         Assert.Equal("discard_jar", discard.Command);
         Assert.Contains("不回收", discard.Reason);
+        Assert.Equal(1, discarded);
     }
 
     [Fact]
@@ -94,26 +97,28 @@ public class DeliveryRollbackTests
         var jar = MakeJar(7, "圆罐", "酒");
         slave.AddJar(jar);
 
-        Run(master, slave, new[] { 7 }, System.Array.Empty<int>());
+        Run(master, slave);
 
         Assert.Single(master.Jars);
         Assert.Equal("酒", master.Jars[0].Liquid);          // 液体没被清掉
     }
 
     [Fact]
-    public void TransferredLiquidPartiallyFillsAndDiscardsTheRemainder()
+    public void EveryRemainingLiquidPartiallyFillsAndDiscardsTheRemainder()
     {
         var master = Bench("主台", maxLiquids: 1);
         var slave = Bench("从台");
         slave.AddLiquid("蜜", 3);
 
-        var log = Run(master, slave, System.Array.Empty<int>(), System.Array.Empty<int>(),
-            new Dictionary<string, int> { ["蜜"] = 3 });
+        var discarded = 0;
+        var log = Run(master, slave,
+            countDiscardedLiquids: (_, amount) => discarded += amount);
 
         Assert.Equal(1, master.LiquidStorage["蜜"]);         // 部分填充
         Assert.Equal(0, slave.LiquidStorage["蜜"]);          // 从台清空
         var discard = Assert.Single(log);
         Assert.Equal("discard_liquid", discard.Command);
         Assert.Contains("不回收", discard.Reason);
+        Assert.Equal(2, discarded);
     }
 }

@@ -95,7 +95,11 @@ public class SwitchProcessTests
         var system = NewSystem();
         system.SetMasterIndex(0);
         system.Tick(30);
-        system.CreateOrder(new List<Requirement> { new() { Shape = "圆罐" } }, Constants.OrderType.A);
+        system.CreateOrder(new List<Requirement>
+        {
+            new() { Shape = "圆罐" },
+            new() { Shape = "三角罐" }
+        }, Constants.OrderType.A);
 
         var started = system.StartOrder(0);
         Assert.True(started.Started, started.Error);
@@ -137,7 +141,7 @@ public class SwitchProcessTests
         Assert.True(started, error);
         Assert.NotNull(processId);
 
-        system.Tick(2);                                  // 让第一段（重组）跑起来
+        system.Tick(1);                                  // 让第一段（重组）跑起来
         var cancelled = system.CancelProcess(processId!.Value, "测试取消");
         Assert.True(cancelled.Cancelled, cancelled.Error);
 

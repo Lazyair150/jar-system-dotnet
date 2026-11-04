@@ -67,7 +67,12 @@ public sealed class LiquidProduction
     public IReadOnlyDictionary<string, double> Accumulated => _accumulated;
 
     /// <summary>某液体这 tick 是否真的会产出一份（给"卡在 0.99"这类疑问一个直接答案）。</summary>
-    public bool WillProduceNextTick(string liquid) => _accMilli.GetValueOrDefault(liquid) + _rateMilli.GetValueOrDefault(liquid) >= MilliUnit;
+    public bool WillProduceNextTick(string liquid)
+    {
+        var rate = _rateMilli.GetValueOrDefault(liquid);
+        if (_intensity != null) rate = _intensity.Apply("liquid:" + liquid, rate);
+        return _accMilli.GetValueOrDefault(liquid) + rate >= MilliUnit;
+    }
 
     /// <summary>
     /// 设置速率。规则只有这一份：未知液体、负数、超上限一律拒绝 —— 回放与存档是**外部数据**，

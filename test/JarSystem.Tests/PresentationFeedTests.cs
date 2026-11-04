@@ -26,6 +26,14 @@ namespace JarSystem.Tests;
 /// </summary>
 public class PresentationFeedTests
 {
+    [Fact]
+    public void TryGetOnAnEmptyFeedReturnsFalse()
+    {
+        var feed = new PresentationFeed();
+
+        Assert.False(feed.TryGet(1, out _));
+    }
+
     private sealed class RecordingSink : IPresentationSink
     {
         public List<PresentationFrame> Seen { get; } = new();

@@ -374,6 +374,30 @@
                 "additionalProperties": false
               }
             },
+            "slots": {
+              "type": "object",
+              "properties": {
+                "used": {
+                  "type": "integer"
+                },
+                "limit": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
+            },
+            "flow": {
+              "type": "object",
+              "properties": {
+                "jars": {
+                  "type": "integer"
+                },
+                "liquidPerLiquid": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
+            },
             "liquidRates": {
               "type": "object",
               "additionalProperties": {
@@ -494,6 +518,12 @@
                 ]
               },
               "remainingTicks": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ticksUntilNextUnit": {
                 "type": [
                   "integer",
                   "null"
@@ -1455,6 +1485,12 @@
           ]
         },
         "remainingTicks": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ticksUntilNextUnit": {
           "type": [
             "integer",
             "null"

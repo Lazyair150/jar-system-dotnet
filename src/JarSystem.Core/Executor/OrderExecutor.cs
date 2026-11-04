@@ -76,7 +76,7 @@ public class OrderExecutor : IProcessStepPrimitives
         Workshop workshop, SolverStepDto step, string phase, IProcessRecorder? recorder)
     {
         var r = _applier.Apply(workshop, step, phase);
-        if (r.Ok) Record(r.Entry, recorder);
+        if (r.Ok) Record(r.Entry, recorder, workshop.Name);
         return r;
     }
 
@@ -85,7 +85,7 @@ public class OrderExecutor : IProcessStepPrimitives
         string phase, OrderEvent ev, IProcessRecorder? recorder)
     {
         var result = _greedy.ExecuteOn(workshop, requirements, phase, ev);
-        RecordAll(result.Ops, recorder);
+        RecordAll(result.Ops, recorder, workshop.Name);
         return (result.Ops, result.Errs);
     }
 
@@ -98,16 +98,17 @@ public class OrderExecutor : IProcessStepPrimitives
     //   · 只记"已成功应用"的步（失败的步由过程结尾的 failed 条目承载）⇒ 日志不被失败噪声淹没。
     // ============================================================
 
-    private static void Record(ExecutionLogEntry? entry, IProcessRecorder? recorder)
+    private static void Record(ExecutionLogEntry? entry, IProcessRecorder? recorder, string workshop)
     {
         if (entry == null || recorder == null) return;
-        recorder.StepApplied(entry.Action ?? entry.Command ?? "step", null, Summarize(entry));
+        recorder.StepApplied(entry.Action ?? entry.Command ?? "step", null,
+            workshop + " · " + Summarize(entry));
     }
 
-    private static void RecordAll(IEnumerable<ExecutionLogEntry> entries, IProcessRecorder? recorder)
+    private static void RecordAll(IEnumerable<ExecutionLogEntry> entries, IProcessRecorder? recorder, string workshop)
     {
         if (recorder == null) return;
-        foreach (var e in entries) Record(e, recorder);
+        foreach (var e in entries) Record(e, recorder, workshop);
     }
 
     /// <summary>把一条执行日志渲染成"世界语言摘要"（诊断用；不参与任何判定）。</summary>

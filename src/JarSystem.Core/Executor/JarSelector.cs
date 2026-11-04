@@ -20,7 +20,8 @@ public enum JarSelectionStrategy { FIFO, LIFO, RareShapeFirst, Random }
 /// </summary>
 internal sealed class JarSelector
 {
-    private readonly Dictionary<JarSelectionStrategy, IJarSelectionStrategy> _strategies;
+    private readonly Dictionary<JarSelectionStrategy, IJarSelectionStrategy> _strategies = new();
+    private readonly Random? _rng;
 
     /// <summary>枚举值越界时的兜底策略（等价于原 switch 的 default 分支）。</summary>
     private static readonly IJarSelectionStrategy Fallback = new FirstMatchJarSelection();
@@ -28,13 +29,7 @@ internal sealed class JarSelector
     /// <param name="rng">随机源；null 时新建一个（保持"无种子"的默认行为）。</param>
     public JarSelector(Random? rng = null)
     {
-        _strategies = new Dictionary<JarSelectionStrategy, IJarSelectionStrategy>
-        {
-            [JarSelectionStrategy.FIFO] = new FifoJarSelection(),
-            [JarSelectionStrategy.LIFO] = new LifoJarSelection(),
-            [JarSelectionStrategy.RareShapeFirst] = new RareShapeFirstJarSelection(),
-            [JarSelectionStrategy.Random] = new RandomJarSelection(rng ?? new Random())
-        };
+        _rng = rng;
     }
 
     public JarSelectionStrategy Strategy { get; set; } = JarSelectionStrategy.FIFO;
@@ -44,7 +39,24 @@ internal sealed class JarSelector
     {
         var candidates = jars.Where(predicate).ToList();
         if (candidates.Count == 0) return null;
-        var strategy = _strategies.TryGetValue(Strategy, out var s) ? s : Fallback;
+        var strategy = GetStrategy(Strategy);
         return strategy.Select(jars, candidates);
+    }
+
+    /// <summary>策略对象按需创建：默认只用 FIFO 时，不额外实例化另外三个策略。</summary>
+    private IJarSelectionStrategy GetStrategy(JarSelectionStrategy strategy)
+    {
+        if (_strategies.TryGetValue(strategy, out var existing)) return existing;
+
+        IJarSelectionStrategy created = strategy switch
+        {
+            JarSelectionStrategy.FIFO => new FifoJarSelection(),
+            JarSelectionStrategy.LIFO => new LifoJarSelection(),
+            JarSelectionStrategy.RareShapeFirst => new RareShapeFirstJarSelection(),
+            JarSelectionStrategy.Random => new RandomJarSelection(_rng ?? new Random()),
+            _ => Fallback
+        };
+        _strategies[strategy] = created;
+        return created;
     }
 }

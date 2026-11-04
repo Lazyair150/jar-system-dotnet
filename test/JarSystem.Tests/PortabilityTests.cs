@@ -79,9 +79,13 @@ public class PortabilityTests
     private static readonly Dictionary<(string Path, string Rule), (int Count, string Why)> Allowed =
         new()
         {
-            [("JarSystem.cs", "WallClock")] = (5,
+            [("JarSystem.cs", "WallClock")] = (6,
                 "`internal DateTimeOffset Now` 决定事件历史里的 timestamp（记录，不判定）；" +
-                "另有四处 `if (!Replaying) Now = DateTimeOffset.UtcNow;` 是回放时**刻意不刷新**的守卫。"),
+                "另有五处 `if (!Replaying) Now = DateTimeOffset.UtcNow;` 是回放时**刻意不刷新**的守卫" +
+                "（订单执行/迁徙、主台切换、Record 的统一意图时间）。"),
+
+            [("JarSystem.Runtime.cs", "WallClock")] = (1,
+                "tick 入口统一记录本批世界推进开始时间；回放时跳过读取，由命令日志恢复。"),
 
             [("Commands/JarCommands.cs", "WallClock")] = (4,
                 "四条命令的 `Timestamp`：写进命令日志的时间戳，回放读日志不读钟。"),

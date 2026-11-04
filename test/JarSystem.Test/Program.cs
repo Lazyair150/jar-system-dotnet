@@ -447,21 +447,23 @@ Run("S1-满罐改形路径可执行(问题1)", () =>
     return (ok, $"feasible={fr?.Feasible} exec={exec.Success} M={DescribeWS(master.CreateSnapshot())} S={DescribeWS(slave.CreateSnapshot())} reason={exec.Reason}");
 });
 
-Run("S2-从台自有资源+转移后索引(问题2)", () =>
+Run("S2-从台有资源时拒绝选择为临时工具位(问题2)", () =>
 {
-    // 主台有罐子（转移后从台列表前插），订单仅从台可满足（slave_only）
+    // 从台是 B 类订单临时升起的工具位；有资源的工作台不能被选为从台。
     var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
     var slave = new Workshop("S", new() { "方罐" }, new(), new(), 20, 30);
-    master.AddJar(new Jar("圆罐", "酒"));
     slave.AddJar(new Jar("方罐"));
-    var sys = NewSystem(master, slave, new Order(new() { new Requirement { Shape = "方罐" } }, "B"));
-    var fr = sys.CheckFeasibility(0);
-    var exec = sys.ExecuteOrder(0);
-    // 交付从台方罐；主台圆罐/酒交付后应回流主台
-    bool ok = fr?.Feasible == true && exec.Success
-        && master.Jars.Count == 1 && master.Jars[0].Shape == "圆罐" && master.Jars[0].Liquid == "酒"
-        && slave.Jars.Count == 0;
-    return (ok, $"feasible={fr?.Feasible} exec={exec.Success} M={DescribeWS(master.CreateSnapshot())} S={DescribeWS(slave.CreateSnapshot())} reason={exec.Reason}");
+    var sys = new JarSystem.Core.JarSystem();
+    sys.ClearWorkshops();
+    sys.ClearOrders();
+    sys.AddWorkshop(master);
+    sys.AddWorkshop(slave);
+    sys.SetMasterIndex(0);
+    bool rejected = false;
+    try { sys.SetSlaveIndex(1); }
+    catch (JarSystem.Core.Domain.DomainValidationException) { rejected = true; }
+    bool ok = rejected && sys.CurrentSlave == null && slave.Jars.Count == 1;
+    return (ok, $"rejected={rejected} slave={sys.CurrentSlave} M={DescribeWS(master.CreateSnapshot())} S={DescribeWS(slave.CreateSnapshot())}");
 });
 
 Run("S3-倒出回补液体账目(问题3)", () =>
@@ -833,20 +835,27 @@ Run("S22-A类预算耗尽必须回未判定", () =>
 // 两条用例合起来把"过程被异化"这件事钉住：
 //   S23：单位执行前守卫不成立 ⇒ Blocked ⇒ 宽限窗口耗尽 ⇒ Failed，**已完成单位不回滚**；
 //   S24：同一局面但窗口内恢复 ⇒ Resumed ⇒ 正常完成。
-// 事故刻意选"把主台取消选择"——它是**可恢复**的（玩家能选回来），因此能同时覆盖两条路径；
-// 而"订单被删除"这类不可恢复的情形走 Fatal（直接失败、不等待）。
+// 事故刻意选"新增前置条件暂时不成立"——它不移动世界资源，且可恢复，因此能同时覆盖
+// Blocked → Failed 与 Blocked → Resumed；主从位置在活动订单期间已冻结，不能再用于制造事故。
 // ============================================================
 Run("S23-异步过程被阻断且宽限耗尽即失败(已完成单位不回滚)", () =>
 {
     var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
-    master.AddJar(new Jar("高罐"));       // 交付罐本来就该是高罐（满罐需求不能靠改形满足）
+    var required = new Jar("高罐");       // 交付罐本来就该是高罐（满罐需求不能靠改形满足）
+    master.AddJar(required);
     master.AddLiquid("酒", 3);
     var slave = new Workshop("S", new() { "高罐" }, new(), new(), 20, 30);
     var sys = NewSystem(master, slave, new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
     sys.CheckFeasibility(0);
     var started = sys.StartOrder(0);
-    sys.Tick(1);                          // tick 1：第一个单位 = 选择性转移（器物 + 液体）
-    sys.SetMasterIndex(null);             // 事故：主台被取消选择 ⇒ 守卫不成立
+    for (int i = 0; i < 4 && slave.Jars.Count == 0 && sys.Processes.ActiveProcesses.Count > 0; i++)
+        sys.Tick();                        // 逼近到选择性转移已经完成
+    bool transferred = slave.Jars.Contains(required);
+    using var condition = sys.Modifiers.Push(new RequireModifier
+    {
+        Text = "测试阻断条件",
+        Violation = () => "前置条件暂时不成立"
+    });
     for (int i = 0; i < 8; i++) sys.Tick();   // 宽限窗口（4 刻）耗尽 ⇒ 失败
 
     // 断言三件事：① 过程被命令起成；② 订单以失败收尾；
@@ -857,25 +866,37 @@ Run("S23-异步过程被阻断且宽限耗尽即失败(已完成单位不回滚)
     int iExpired = kinds.IndexOf(JournalKinds.GraceExpired);
     int iFailed = kinds.IndexOf(JournalKinds.Failed);
     bool sequenceOk = iBlocked >= 0 && iExpired > iBlocked && iFailed > iExpired;
-    bool rolledBack = master.Jars.Count == 1 && slave.Jars.Count == 0;
-    bool ok = started.Started && sys.Orders[0].Status == Constants.OrderStatus.FAILED && sequenceOk && rolledBack;
+    // 阻断期间世界仍在 tick，仓库会把新资源流入主台；所以断言“原转移罐已回主台”，
+    // 不能再用主台总数 == 1（那会把正常仓库流入误判成回滚失败）。
+    bool rolledBack = master.Jars.Contains(required) && slave.Jars.Count == 0;
+    bool ok = started.Started && transferred && sys.Orders[0].Status == Constants.OrderStatus.FAILED
+        && sequenceOk && rolledBack;
     return (ok, $"started={started.Started} status={sys.Orders[0].Status} 里程碑序列={sequenceOk} 转移回滚={rolledBack}"
+        + $" M={DescribeWS(master.CreateSnapshot())} S={DescribeWS(slave.CreateSnapshot())}"
         + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
 });
 
 Run("S24-异步过程被阻断后可在宽限窗口内恢复", () =>
 {
     var master = new Workshop("M", new() { "圆罐" }, new(), new(), 20, 30);
-    master.AddJar(new Jar("高罐"));
+    var required = new Jar("高罐");
+    master.AddJar(required);
     master.AddLiquid("酒", 3);
     var slave = new Workshop("S", new() { "高罐" }, new(), new(), 20, 30);
     var sys = NewSystem(master, slave, new Order(new() { new Requirement { Shape = "高罐", Liquid = "酒" } }, "B"));
     sys.CheckFeasibility(0);
     var started = sys.StartOrder(0);
-    sys.Tick(1);                          // 第一单位：转移（tick 1）
-    sys.SetMasterIndex(null);             // 事故
+    for (int i = 0; i < 4 && slave.Jars.Count == 0 && sys.Processes.ActiveProcesses.Count > 0; i++)
+        sys.Tick();                        // 第一单位：转移
+    bool transferred = slave.Jars.Contains(required);
+    bool ready = false;
+    using var condition = sys.Modifiers.Push(new RequireModifier
+    {
+        Text = "测试阻断条件",
+        Violation = () => ready ? null : "前置条件暂时不成立"
+    });
     sys.Tick(2);                          // tick 3：到点 ⇒ 守卫失败 ⇒ Blocked
-    sys.SetMasterIndex(0);                // 窗口内恢复 ⇒ Resumed
+    ready = true;                         // 窗口内恢复 ⇒ Resumed
     // 推进到过程结束。注意：订单状态在**收尾之前**一直是"待执行"（EXECUTING 记在 OrderEvent 上，
     // 不写回 Order.Status），所以循环条件必须看"有没有活动过程"，不能看订单状态。
     for (int i = 0; i < 6 && sys.Processes.ActiveProcesses.Count > 0; i++) sys.Tick();
@@ -885,7 +906,7 @@ Run("S24-异步过程被阻断后可在宽限窗口内恢复", () =>
     int iResumed = kinds.IndexOf(JournalKinds.Resumed);
     int iSucceeded = kinds.IndexOf(JournalKinds.Succeeded);
     bool sequenceOk = iBlocked >= 0 && iResumed > iBlocked && iSucceeded > iResumed;
-    bool ok = started.Started && sys.Orders[0].Status == Constants.OrderStatus.SUCCESS && sequenceOk;
+    bool ok = started.Started && transferred && sys.Orders[0].Status == Constants.OrderStatus.SUCCESS && sequenceOk;
     return (ok, $"started={started.Started} status={sys.Orders[0].Status} 里程碑序列={sequenceOk}"
         + $" | 日志: {string.Join(" / ", sys.Journal.Entries.Select(e => $"t{e.Tick}:{e.Kind}"))}");
 });
@@ -1827,19 +1848,6 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
         if (!m.IsBanned(l))
             for (int i = 0; i < r.Next(0, 5); i++) m.AddLiquid(l);
 
-    // 从台资源（新增：覆盖 slave_only / combined / 回滚等路径）
-    int sjc = r.Next(0, 5);
-    for (int i = 0; i < sjc; i++)
-    {
-        var s = sh[r.Next(sh.Count)];
-        string? l = null;
-        if (r.Next(2) == 0) { var lq = li[r.Next(2)]; if (!sl.IsBanned(lq)) l = lq; }
-        sl.AddJar(new Jar(s, l));
-    }
-    foreach (var l in li)
-        if (!sl.IsBanned(l))
-            for (int i = 0; i < r.Next(0, 4); i++) sl.AddLiquid(l);
-
     int nr = r.Next(1, 4);
     var reqs = new List<Requirement>();
     for (int i = 0; i < nr; i++)
@@ -1880,17 +1888,6 @@ string DescribeWS(WorkshopSnapshot s) => $"BM=[{string.Join(",", s.BaseMarks)}] 
     foreach (var l in li)
         if (!m.IsBanned(l))
             for (int i = 0; i < r.Next(0, 4); i++) m.AddLiquid(l);
-
-    for (int i = 0; i < r.Next(0, 5); i++)
-    {
-        var s = sh[r.Next(sh.Count)];
-        string? l = null;
-        if (r.Next(2) == 0) { var lq = li[r.Next(2)]; if (!sl.IsBanned(lq)) l = lq; }
-        if (!sl.AddJar(new Jar(s, l))) break;
-    }
-    foreach (var l in li)
-        if (!sl.IsBanned(l))
-            for (int i = 0; i < r.Next(0, 3); i++) sl.AddLiquid(l);
 
     int nr = r.Next(1, 4);
     var reqs = new List<Requirement>();

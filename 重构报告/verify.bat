@@ -184,6 +184,19 @@ if not exist "%CONTRACT%\state_keys.baseline.txt" echo SNAPSHOT-NO-BASELINE >> "
 fc /n "%CONTRACT%\state_keys.baseline.txt" "%CONTRACT%\state_keys.txt" > "%CONTRACT%\diff.txt" 2>&1
 if errorlevel 1 echo SNAPSHOT-MISMATCH >> "%LOG%"
 
+rem  Dependency vulnerability gate (kept OUTSIDE the nine numbered steps so the
+rem  nine-step shape stays intact).  This is the executable form of the SDL /
+rem  ASVS F-02 controls: a known high/critical vulnerable package must be able
+rem  to turn this gate red, otherwise "we check dependencies" is only a claim.
+rem  Offline is not a failure: the script prints SEC-SCAN-SKIPPED and exits 0,
+rem  so a laptop without network still verifies.  Both outcomes are printed, so
+rem  a green run never silently means "the scan did not happen".
+echo [sec] dependency vulnerability gate   (expect: SEC-OK)
+echo [sec] dependency vulnerability gate >> "%LOG%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%REP%security-gate.ps1" >> "%LOG%" 2>&1
+echo     exit=%ERRORLEVEL%
+if errorlevel 1 echo SEC-SCAN-FAILED >> "%LOG%"
+
 echo.
 echo [quality] floor scan + evidence counts
 echo [quality] floor scan + evidence counts >> "%LOG%"
@@ -194,7 +207,7 @@ if not "%QUALITY_EXIT%"=="0" echo QUALITY-GATE-FAILED >> "%LOG%"
 
 echo.
 echo ---------------- KEY LINES ----------------
-findstr /i /c:"error CS" /c:"warning CS" /c:"warning MSB" /c:"warning NETSDK" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"MODDIFF-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" /c:"SCENARIO-" /c:"QUALITY-" /c:"JarSystem.Tests" /c:"Total:" "%LOG%"
+findstr /i /c:"error CS" /c:"warning CS" /c:"warning MSB" /c:"warning NETSDK" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"MODDIFF-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" /c:"SCENARIO-" /c:"QUALITY-" /c:"SEC-" /c:"JarSystem.Tests" /c:"Total:" "%LOG%"
 echo -------------------------------------------
 echo full log : %LOG%
 echo contract : %CONTRACT%\state_keys.txt
@@ -220,6 +233,7 @@ findstr /c:"STEP-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"JS-SYNTAX-ERROR" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"SCENARIO-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"QUALITY-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
+findstr /c:"SEC-SCAN-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
 findstr /c:"QUALITY-OK" "%LOG%" >nul || set "VERDICT=FAIL"
 echo VERDICT=%VERDICT%
 echo VERDICT=%VERDICT% >> "%LOG%"

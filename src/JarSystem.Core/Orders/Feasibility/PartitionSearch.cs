@@ -17,9 +17,6 @@ public sealed class PartitionSearchRequest
 
     public List<JarState> MasterJars { get; init; } = new();
     public Dictionary<string, int> MasterLiquids { get; init; } = new();
-
-    public List<JarState> SlaveJars { get; init; } = new();
-    public Dictionary<string, int> SlaveLiquids { get; init; } = new();
 }
 
 /// <summary>一次可行划分的产出（两阶段路径 + 选择性转移清单 + 计数）。</summary>
@@ -47,8 +44,8 @@ public sealed class PartitionSearchOutcome
 ///
 /// 关键语义（不可改动）：
 /// - 主台交付罐必须原样交付，从台阶段不得再使用（防同一罐子跨阶段重复使用）；
-/// - 转移预算 = 从台罐位 − 从台原有罐子 − 交付罐数，超预算的划分直接判不可行；
-/// - 从台液体池按从台容量截断，与执行的「容量感知部分填充」一致；
+/// - 从台在 B 类订单开始时必须为空，因此转移预算 = 从台罐位 − 交付罐数；
+/// - 从台液体池只来自主台终态，并按从台容量截断，与执行的「容量感知部分填充」一致；
 /// - 划分按 <c>mask</c> 升序枚举，失败时保留**最后一次**划分的阻塞原因。
 /// </summary>
 public sealed class PartitionSearch
@@ -77,9 +74,6 @@ public sealed class PartitionSearch
         var reqs = request.Requirements;
         var masterJars = request.MasterJars;
         var masterLiquids = request.MasterLiquids;
-        var slaveJars = request.SlaveJars;
-        var slaveLiquids = request.SlaveLiquids;
-
         string? blockage = null;
 
         // #1（2026-09）主台侧**单调性剪枝**：可行性对"需求集合"单调 ——
@@ -166,22 +160,21 @@ public sealed class PartitionSearch
                 }
             }
 
-            // 选择性转移：从台求解池 = 主台终态（扣除交付罐，标记主台来源） + 从台原有罐子
+            // 选择性转移：从台求解池 = 主台终态中可转移的工具罐（扣除已匹配的交付罐）。
             var slavePool = masterFinal
                 .Where(j => !(j.Id.HasValue && deliverableIds.Contains(j.Id.Value)))
                 .Select(j => JarState.Copy(j, masterOrigin: true))
-                .Concat(slaveJars.Select(j => JarState.Copy(j, masterOrigin: false)))
                 .ToList();
 
-            // 转移预算：从台罐位 − 从台原有罐子 − 交付罐数（交付罐必转，不可再占预算）
-            int budget = request.SlaveInfo.MaxJars - slaveJars.Count - deliverableIds.Count;
+            // 转移预算：从台罐位 − 交付罐数（交付罐必转，不可再占预算）
+            int budget = request.SlaveInfo.MaxJars - deliverableIds.Count;
             if (budget < 0) continue;
 
-            // 液体池：从台自身 + 主台可转移液体（按从台每种液体容量截断，与执行部分填充一致）
+            // 液体池：只来自主台终态（按从台每种液体容量截断，与执行部分填充一致）
             var tLiquids = new Dictionary<string, int>();
             foreach (var l in Constants.LIQUIDS)
                 tLiquids[l] = Math.Min(
-                    masterFinalLiq.GetValueOrDefault(l, 0) + slaveLiquids.GetValueOrDefault(l, 0),
+                    masterFinalLiq.GetValueOrDefault(l, 0),
                     request.SlaveInfo.MaxLiquids);
 
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
@@ -211,7 +204,7 @@ public sealed class PartitionSearch
                     MasterPath = mr.Path,
                     SlavePath = sr.Path,
                     TransferJarIds = transferIds.OrderBy(x => x).ToList(),
-                    TransferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path, slaveLiquids),
+                    TransferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path),
                     DirectCount = mr.Path.Count(s => s.Operation?.Type == "MATCH")
                                 + sr.Path.Count(s => s.Operation?.Type == "MATCH"),
                     OperationCount = mr.Path.Count(s => s.Operation?.Type != "MATCH")

@@ -70,6 +70,46 @@ public class ConfigAndCapabilityTests
         Assert.Contains(report.Warnings, w => w.Contains("没有任何生产者"));
     }
 
+    [Fact]
+    public void NegativeProducerSlotsAreRejected()
+    {
+        var world = CloneDefault();
+        world.ProducerSlots = -1;
+
+        Assert.Contains(world.Validate().Errors, e => e.Contains("producerSlots"));
+    }
+
+    [Fact]
+    public void NonFiniteProducerRateIsRejected()
+    {
+        var world = CloneDefault();
+        world.Producers[0].Rates["圆罐"] = double.NaN;
+
+        Assert.Contains(world.Validate().Errors, e => e.Contains("有限数"));
+    }
+
+    [Fact]
+    public void LiveWorldConfigCannotBeMutatedThroughAliases()
+    {
+        var configured = CloneDefault();
+        configured.GoalOrders = 1;
+        configured.TurnLimit = 3;
+        var sys = new JarSystem.Core.JarSystem(
+            randomSeed: 1, world: configured,
+            jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
+
+        configured.GoalOrders = 99;
+        configured.Flow.LiquidRate[Constants.LIQUIDS[0]] = 99;
+        var returned = sys.World;
+        returned.GoalOrders = 88;
+        returned.Workshops.Clear();
+
+        Assert.Equal(1, sys.WorldConfig.GoalOrders);
+        Assert.Equal(3, sys.WorldConfig.TurnLimit);
+        Assert.NotEqual(99, sys.World.Flow.LiquidRate[Constants.LIQUIDS[0]]);
+        Assert.NotEmpty(sys.Workshops);
+    }
+
     /// <summary>S1：<see cref="Workshop.ReplaceCapability"/> 只换规则参数，不动资源；标记/禁令立即按新能力生效。</summary>
     [Fact]
     public void ReplaceCapability_SwapsRulesWithoutTouchingResources()

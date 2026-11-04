@@ -24,18 +24,31 @@ public sealed class AutoCheckBackgroundService : BackgroundService
         using var timer = new PeriodicTimer(Interval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            if (!_svc.System.AutoCheckEnabled) continue;
             try
             {
-                var sys = _svc.System;
-                string json;
-                await _svc.Gate.WaitAsync(stoppingToken);
-                try { json = JsonArgs.J(new { type = "autoCheckResults", data = sys.CheckAllFeasibility() }); }
-                finally { _svc.Gate.Release(); }
-                await _sink.BroadcastAsync(json);
+                await CheckOnceAsync(stoppingToken);
             }
             catch (OperationCanceledException) { /* 宿主停止中 */ }
             catch (Exception ex) { Console.Error.WriteLine("[autocheck] " + ex.Message); }
         }
+    }
+
+    /// <summary>供聚焦测试驱动一次自动分析；生产循环仍只通过 <see cref="ExecuteAsync"/> 调用。</summary>
+    internal Task CheckOnceForTestAsync(CancellationToken token) => CheckOnceAsync(token);
+
+    private async Task CheckOnceAsync(CancellationToken token)
+    {
+        await _svc.Gate.WaitAsync(token);
+        string? json = null;
+        try
+        {
+            // 开关与世界属于同一份宿主状态，必须在闸门内一起读：
+            // 等待期间可能发生换关，旧世界的开关不能决定新世界要不要分析。
+            var sys = _svc.System;
+            if (sys.AutoCheckEnabled)
+                json = JsonArgs.J(new { type = "autoCheckResults", data = sys.CheckAllFeasibility() });
+        }
+        finally { _svc.Gate.Release(); }
+        if (json != null) await _sink.BroadcastAsync(json);
     }
 }

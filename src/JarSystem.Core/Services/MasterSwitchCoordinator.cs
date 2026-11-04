@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Process;
 
 namespace JarSystem.Core.Services;
 
@@ -32,8 +33,10 @@ internal sealed class MasterSwitchCoordinator
     public Dictionary<string, object?> SetMaster(int index)
     {
         var result = new Dictionary<string, object?> { ["success"] = true, ["switched"] = false };
-        if (index < 0) { _system.CurrentMaster = null; return result; }
         if (index >= _system.Workshops.Count) return new() { ["success"] = false, ["reason"] = "无效工作台索引" };
+        if (index != _system.CurrentMaster && HasActiveOrder())
+            return new() { ["success"] = false, ["reason"] = "订单执行中不能更改主从位置" };
+        if (index < 0) { _system.CurrentMaster = null; return result; }
 
         var next = _system.Workshops[index];
         if (_system.CurrentMaster.HasValue && _system.CurrentMaster.Value != index)
@@ -43,7 +46,10 @@ internal sealed class MasterSwitchCoordinator
             bool hasResources = old != null && (old.Jars.Count > 0 || old.LiquidStorage.Values.Any(v => v > 0));
             if (old != null && hasResources)
             {
-                var switchEvent = new WorkshopSwitchEvent(old, next, _system.JarPool);
+                var switchEvent = new WorkshopSwitchEvent(old, next, _system.JarPool,
+                    _system.ProducerModule.Warehouse.CountDiscardedJars,
+                    _system.ProducerModule.Warehouse.CountDiscardedLiquids,
+                    _system.ResourceLedger, () => _system.Processes.Clock.Tick);
                 var (ok, err) = switchEvent.Execute();
                 if (!ok) return new() { ["success"] = false, ["reason"] = err ?? "切换事件失败" };
 
@@ -68,13 +74,24 @@ internal sealed class MasterSwitchCoordinator
         return result;
     }
 
-    /// <summary>设为从工作台；拒绝把当前主台设为从台。</summary>
+    /// <summary>设为从工作台；拒绝把当前主台或仍有资源的工作台设为临时工具位。</summary>
     public Dictionary<string, object?> SetSlave(int index)
     {
-        if (index < 0) { _system.CurrentSlave = null; return new() { ["success"] = true }; }
         if (index >= _system.Workshops.Count) return new() { ["success"] = false, ["reason"] = "无效工作台索引" };
+        if (index != _system.CurrentSlave && HasActiveOrder())
+            return new() { ["success"] = false, ["reason"] = "订单执行中不能更改主从位置" };
+        if (index < 0) { _system.CurrentSlave = null; return new() { ["success"] = true }; }
         if (index == _system.CurrentMaster) return new() { ["success"] = false, ["reason"] = "不能把当前主台设为从台" };
+        if (_system.Workshops[index].HasResources)
+            return new()
+            {
+                ["success"] = false,
+                ["reason"] = "从台必须是空的临时工具位（工作台 " + index + " 仍有资源）"
+            };
         _system.CurrentSlave = index;
         return new() { ["success"] = true };
     }
+
+    private bool HasActiveOrder() => _system.Processes.ActiveProcesses
+        .Any(process => process.Kind == ProcessKinds.OrderExecution);
 }

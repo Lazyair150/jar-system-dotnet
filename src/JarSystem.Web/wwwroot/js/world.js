@@ -197,7 +197,9 @@
     var produceHtml = prods.length ? prods.map(function (p) {
       var rows = Object.keys(p.rates || {}).map(function (s) {
         var cur = (p.rates || {})[s];
+        var preset = RATES.some(function (r) { return Math.abs(cur - r) < 1e-9; });
         return '<div class="cmd"><span class="lbl">' + esc(s) + '</span>' +
+          (preset ? '' : '<span class="tag">当前 ' + Number(cur).toFixed(2) + '</span>') +
           RATES.map(function (r) {
             var on = Math.abs(cur - r) < 1e-9 ? ' on' : '';
             return '<button class="chip' + on + '" data-act="rate" data-p="' + esc(p.name) +
@@ -206,14 +208,13 @@
       }).join('');
       return '<div class="card"><div class="cnm">' + esc(p.name) + '</div>' + rows + '</div>';
     }).join('') : '<div class="empty">内核未报告生产者</div>';
-    /* 已装备多少条产线由页面从 state 数出来（速率 > 0 的 (生产者, 形状) 对）；
-       **上限**来自内核的 ProducerSlots，页面拿不到，也不该猜 —— 超了内核会拒绝并说清原因。 */
-    var usedLines = 0;
-    prods.forEach(function (p) {
-      Object.keys(p.rates || {}).forEach(function (sh) { if ((p.rates || {})[sh] > 0) usedLines++; });
-    });
-    html += '<div class="ws"><div class="nm">产线卡（已装备 ' + usedLines +
-      ' 条 · 上限由世界规则决定，超了内核会拒绝）</div>' + produceHtml + '</div>';
+    var slots = ps.slots || { used: 0, limit: 0 };
+    var flow = ps.flow || { jars: 0, liquidPerLiquid: 0 };
+    html += '<div class="ws"><div class="nm">产线卡（产能槽 ' + Number(slots.used || 0) + ' / ' +
+      (Number(slots.limit || 0) > 0 ? slots.limit : '不限') + ' · 每次流入 ' +
+      Number(flow.jars || 0) + ' 罐 / 每种液体 ' + Number(flow.liquidPerLiquid || 0) +
+      ' 份）</div><div class="lbl">生产先入中央仓库；流入再从仓库搬进主台，二者不是同一件事。</div>' +
+      produceHtml + '</div>';
 
     var procs = (st.processes || []).map(function (p) {
       return '<div class="ord">过程 #' + esc(p.id) + ' ' + esc(p.kind) + ' ' + esc(p.subject) +

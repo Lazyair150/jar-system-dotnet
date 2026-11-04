@@ -13,10 +13,7 @@ namespace JarSystem.Core.Orders;
 internal static class FeasibilityResultFactory
 {
     /// <summary>由一次求解结果构造（不可行时携带求解器的 blockage 与空路径）。</summary>
-    /// <param name="transferJarIds">转移罐子清单。slave_only 传**空表**表示"不需要任何转移"；其余传 null。</param>
-    /// <param name="transferLiquids">转移液体账目；同上。</param>
-    public static FeasibilityResultData FromSolverResult(SolverResult solverResult, string method,
-        List<int>? transferJarIds = null, Dictionary<string, int>? transferLiquids = null)
+    public static FeasibilityResultData FromSolverResult(SolverResult solverResult, string method)
     {
         if (!solverResult.Feasible)
             return new FeasibilityResultData
@@ -27,22 +24,17 @@ internal static class FeasibilityResultFactory
                 DirectCount = 0,
                 OperationCount = 0,
                 Blockage = solverResult.Blockage,
-                CheckMethod = method,
-                TransferJarIds = transferJarIds,
-                TransferLiquids = transferLiquids
+                CheckMethod = method
             };
 
-        return FromPath(solverResult.Path!, method,
-            transferJarIds: transferJarIds, transferLiquids: transferLiquids);
+        return FromPath(solverResult.Path!, method);
     }
 
-    /// <summary>由一条可行路径构造（可直接覆盖 masterPath / 计数 / 转移清单，供 B 类使用）。</summary>
+    /// <summary>由一条可行路径构造（可直接覆盖 masterPath / 计数，供 A 类使用）。</summary>
     public static FeasibilityResultData FromPath(List<SolverStep> path, string method,
         List<SolverStepDto>? masterPath = null,
         int? directCount = null,
-        int? operationCount = null,
-        List<int>? transferJarIds = null,
-        Dictionary<string, int>? transferLiquids = null) => new()
+        int? operationCount = null) => new()
     {
         Feasible = true,
         SolverPath = PathSummaryFormatter.Summary(path),
@@ -50,9 +42,7 @@ internal static class FeasibilityResultFactory
         DirectCount = directCount ?? path.Count(s => s.Operation?.Type == "MATCH"),
         OperationCount = operationCount ?? path.Count(s => s.Operation?.Type != "MATCH"),
         Blockage = null,
-        CheckMethod = method,
-        TransferJarIds = transferJarIds,
-        TransferLiquids = transferLiquids
+        CheckMethod = method
     };
 
     /// <summary>由一次划分搜索的成功产出构造（B 类：两阶段路径 + 选择性转移清单 + 计数）。</summary>

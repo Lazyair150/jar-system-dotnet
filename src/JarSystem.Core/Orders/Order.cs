@@ -15,8 +15,13 @@ public class Order
     public IReadOnlyList<Requirement> Requirements { get; }
     public string Type { get; }
 
-    /// <summary>订单状态。只能经 <see cref="MarkSucceeded"/> / <see cref="MarkFailed"/> 迁移。</summary>
-    public string Status { get; private set; }
+    /// <summary>
+    /// 订单生命周期的强类型状态。对外 JSON 仍通过 <see cref="Status"/> 映射为冻结的中文契约值。
+    /// </summary>
+    public OrderLifecycleState Lifecycle { get; private set; } = OrderLifecycleState.Pending;
+
+    /// <summary>订单状态的对外契约投影；它不是第二份状态。</summary>
+    public string Status => OrderLifecycleContract.Of(Lifecycle);
 
     /// <summary>
     /// **最近一次**可行性分析结果。只能经 <see cref="RecordFeasibility"/> 写入。
@@ -48,7 +53,6 @@ public class Order
         // （A/B 类型、需求数上限、"空罐在前、满罐在后"）。
         Requirements = new List<Requirement>(requirements);
         Type = type;
-        Status = Config.Constants.OrderStatus.PENDING;
         _vocabulary = vocabulary ?? Vocabulary.Default;
         ValidateOrder();
     }
@@ -81,14 +85,34 @@ public class Order
 
     // ---- 状态与结果（唯一入口） ----
 
-    /// <summary>标记订单执行成功。</summary>
-    public void MarkSucceeded() { Status = Constants.OrderStatus.SUCCESS; }
+    /// <summary>待执行 → 执行中。只能由一次合法执行启动调用。</summary>
+    internal void MarkExecuting()
+    {
+        if (Lifecycle != OrderLifecycleState.Pending)
+            throw new InvalidOperationException($"订单 #{Id} 状态为 {Status}，不能开始执行（要求待执行）");
+        Lifecycle = OrderLifecycleState.Executing;
+    }
 
-    /// <summary>标记订单执行失败。</summary>
-    public void MarkFailed() { Status = Constants.OrderStatus.FAILED; }
+    /// <summary>执行中 → 成功；重复成功是幂等的。</summary>
+    internal void MarkSucceeded()
+    {
+        if (Lifecycle == OrderLifecycleState.Succeeded) return;
+        if (Lifecycle != OrderLifecycleState.Executing)
+            throw new InvalidOperationException($"订单 #{Id} 状态为 {Status}，不能标记成功（要求执行中）");
+        Lifecycle = OrderLifecycleState.Succeeded;
+    }
+
+    /// <summary>执行中 → 失败；重复失败是幂等的。</summary>
+    internal void MarkFailed()
+    {
+        if (Lifecycle == OrderLifecycleState.Failed) return;
+        if (Lifecycle != OrderLifecycleState.Executing)
+            throw new InvalidOperationException($"订单 #{Id} 状态为 {Status}，不能标记失败（要求执行中）");
+        Lifecycle = OrderLifecycleState.Failed;
+    }
 
     /// <summary>记录本次可行性分析结果。</summary>
-    public void RecordFeasibility(FeasibilityResultData result) { FeasibilityResult = result; }
+    internal void RecordFeasibility(FeasibilityResultData result) { FeasibilityResult = result; }
 
     /// <summary>
     /// 清空缓存的可行性结论（世界已变，旧结论不再对应现在的工作台）。
@@ -99,7 +123,7 @@ public class Order
     /// 世界在两次检测之间变了之后，执行器会拿着对不上现状的步骤照做 ——
     /// 清空之后它退回贪心兜底，宁可慢也不能拿着过期计划动手。</para>
     /// </summary>
-    public void ClearFeasibility() { FeasibilityResult = null; }
+    internal void ClearFeasibility() { FeasibilityResult = null; }
 
     public bool IsSatisfiedBy(IReadOnlyList<Jar> jars)
     {
@@ -115,6 +139,28 @@ public class Order
             r.Liquid != null ? "满罐(" + r.Shape + "," + r.Liquid + ")" : "空罐(" + r.Shape + ")"));
         return "订单#" + Id + "[" + Type + "类]{" + reqs + "}";
     }
+}
+
+/// <summary>订单生命周期（内部判定使用；JSON 仍输出中文契约字符串）。</summary>
+public enum OrderLifecycleState
+{
+    Pending,
+    Executing,
+    Succeeded,
+    Failed
+}
+
+/// <summary>订单状态枚举到既有对外契约字符串的唯一映射。</summary>
+public static class OrderLifecycleContract
+{
+    public static string Of(OrderLifecycleState state) => state switch
+    {
+        OrderLifecycleState.Pending => Constants.OrderStatus.PENDING,
+        OrderLifecycleState.Executing => Constants.OrderStatus.EXECUTING,
+        OrderLifecycleState.Succeeded => Constants.OrderStatus.SUCCESS,
+        OrderLifecycleState.Failed => Constants.OrderStatus.FAILED,
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "未知订单生命周期")
+    };
 }
 
 /// <summary>

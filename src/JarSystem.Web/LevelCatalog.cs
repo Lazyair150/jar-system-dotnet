@@ -38,6 +38,17 @@ public sealed record LevelInfo(int Index, string Name, string Hint, int Turns, W
 
     /// <summary>开局的从台下标（信封的 `slave`；null = 不用从台）。</summary>
     public int? Slave { get; init; }
+
+    /// <summary>
+    /// 开局派单表：这一关开局桌上有几张单、各自用哪个模板（信封的 `orders`，允许重复）。
+    ///
+    /// 为什么不按"每个模板各来一单"推导：**模板目录是"这一关可做的东西"，开局单数是"这一关的内容"**。
+    /// 第六关的教训就是两者被当成了同一件事——提示说"两张订单一模一样，先做哪一张另一张就做不成"，
+    /// 而运行期按模板数只派了一单，于是"抢资源"这件事根本没发生。
+    ///
+    /// 没写 `orders` 的关卡沿用旧口径（每模板一单），既有五关的行为一字不变。
+    /// </summary>
+    public IReadOnlyList<string> Orders { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>扫描并解析 <c>config/levels/</c>。</summary>
@@ -141,7 +152,67 @@ public static class LevelCatalog
         return new LevelInfo(index, name, hint, turns, world, file)
         {
             Master = ReadBench("master"),
-            Slave = ReadBench("slave")
+            Slave = ReadBench("slave"),
+            Orders = ReadOrders(file, root, world)
         };
+    }
+
+    /// <summary>
+    /// 读开局派单表（信封的 `orders`）。
+    ///
+    /// 两种写法都收：字符串（`"一只三角罐"`）或对象（`{ "template": "一只三角罐" }`）——
+    /// 后者给将来的"每单单独的奖励/目标"留位置，现在等价于前者。
+    ///
+    /// 三条拒绝都在启动时：模板名不存在（这一关没有它可做）、条目不是字符串/对象、
+    /// 以及写了空数组（`[]` 等于开局一张单都没有，玩家无事可做，几乎一定是笔误）。
+    /// </summary>
+    private static IReadOnlyList<string> ReadOrders(string file, JsonElement root, WorldOptions world)
+        => ReadOrderInstances(root, world.OrderTemplates.Select(t => t.Name), file);
+
+    /// <summary>
+    /// 关卡里的「订单实例表」。两种写法都认（`"模板名"` 与 `{ "template": "模板名" }`）——
+    /// 前者是玩家/手写关卡的直觉写法，后者给将来加每单元数据留位置；两种写法结果**逐字相同**，
+    /// 所以这一层必须能被单测直接钉住（解析是契约，不能只靠"跑一关看看"）。
+    ///
+    /// 规则：没写 `orders` = 每个模板一单（既有五关的口径）；写了就必须逐条认得出来，
+    /// 空数组、认不出的条目、引用不存在的模板，一律**开局前**抛错。
+    /// </summary>
+    public static IReadOnlyList<string> ReadOrderInstances(
+        JsonElement root, IEnumerable<string> templates, string label)
+    {
+        var all = templates.ToList();
+        var known = new HashSet<string>(all, StringComparer.Ordinal);
+
+        if (!root.TryGetProperty("orders", out var el) || el.ValueKind != JsonValueKind.Array)
+            return all;
+
+        var orders = new List<string>();
+        foreach (var item in el.EnumerateArray())
+        {
+            var template = item.ValueKind switch
+            {
+                JsonValueKind.String => item.GetString(),
+                JsonValueKind.Object when item.TryGetProperty("template", out var t)
+                                          && t.ValueKind == JsonValueKind.String => t.GetString(),
+                _ => null
+            };
+
+            if (string.IsNullOrWhiteSpace(template))
+                throw new InvalidOperationException(
+                    "关卡 " + label + " 的 orders 里有认不出的条目：写模板名字符串，或 { \"template\": \"名字\" }");
+
+            if (!known.Contains(template!))
+                throw new InvalidOperationException(
+                    "关卡 " + label + " 的 orders 引用了不存在的模板「" + template + "」（这一关的模板："
+                    + string.Join("、", known) + "）");
+
+            orders.Add(template!);
+        }
+
+        if (orders.Count == 0)
+            throw new InvalidOperationException(
+                "关卡 " + label + " 的 orders 是空数组：开局一张单都没有，玩家无事可做（要空桌请删掉这个字段）");
+
+        return orders;
     }
 }

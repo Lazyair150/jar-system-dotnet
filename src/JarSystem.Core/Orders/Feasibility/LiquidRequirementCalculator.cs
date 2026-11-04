@@ -9,11 +9,11 @@ namespace JarSystem.Core.Orders;
 /// 计算 B 类订单从台阶段**实际需要**从主台转移的游离液体量（每种液体一份）。
 ///
 /// 语义：沿从台路径累计每种液体的净消耗（消耗 − 倒出回补），取累计峰值，
-/// 超出从台自身存储的部分才需要转移；满罐改形自耗不占用外部液体。
+/// 从台开始时为空，因此峰值就是需要从主台转移的量；满罐改形自耗不占用外部液体。
 /// </summary>
 public static class LiquidRequirementCalculator
 {
-    public static Dictionary<string, int> ComputeRequired(List<SolverStep> path, Dictionary<string, int> slaveLiquids)
+    public static Dictionary<string, int> ComputeRequired(List<SolverStep> path)
     {
         var required = new Dictionary<string, int>();
         var consumed = new Dictionary<string, int>();
@@ -40,8 +40,8 @@ public static class LiquidRequirementCalculator
             foreach (var l in Constants.LIQUIDS)
             {
                 int net = consumed[l] - produced[l];
-                if (net - slaveLiquids.GetValueOrDefault(l, 0) > required[l])
-                    required[l] = net - slaveLiquids.GetValueOrDefault(l, 0);
+                if (net > required[l])
+                    required[l] = net;
             }
         }
         foreach (var l in Constants.LIQUIDS)

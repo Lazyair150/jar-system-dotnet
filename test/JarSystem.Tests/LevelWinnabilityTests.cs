@@ -90,6 +90,11 @@ public class LevelWinnabilityTests
                 if (feas is { Feasible: true }) _ = sys.StartOrder(i);
             }
 
+            // 直接交付没有 tick 过程；开始订单后本关可能已经结束。
+            if (sys.Outcome.IsOver)
+                return new BotResult(master, slave, sys.Outcome.IsWon, sys.Turns.Used, sys.Turns.Limit,
+                    sys.Outcome.Name, sys.Outcome.Reason);
+
             if (!sys.Turns.Allows(1)) break;
             sys.Tick(1);
         }

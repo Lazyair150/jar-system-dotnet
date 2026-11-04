@@ -67,6 +67,28 @@ var app = builder.Build();
 // 立刻解析组合根：让"世界配置校验失败"发生在**启动时**，而不是第一个请求进来时才炸
 _ = app.Services.GetRequiredService<JarSystemService>();
 
+// G-06（低权限运行姿态）：提权启动对本壳是"可用但不推荐"——它会把"谁能操作这个世界"
+// 交给一个能改任何系统文件的进程。这里只告警不拒绝启动：开发机上常年是管理员终端，
+// 拒绝启动只会让人整段删掉这条规则。真正拦住外部连接的是下面的回环判定。
+var elevationWarning = JarSystem.Core.Security.HostPolicy.ElevationWarning(IsElevated());
+if (elevationWarning != null) Console.Error.WriteLine(elevationWarning);
+
+// G-06 + 零信任：本壳默认**只服务本机**。桌面托管下远程连接毫无用途，而一旦打开就是
+// "同网段任何人可操作世界"。要开放必须显式设置 JAR_ALLOW_REMOTE=1（配合防火墙理解风险）。
+var allowRemoteConnections = string.Equals(
+    Environment.GetEnvironmentVariable(JarSystem.Core.Security.HostPolicy.AllowRemoteVariable),
+    "1", StringComparison.Ordinal);
+app.Use(async (ctx, next) =>
+{
+    if (!JarSystem.Core.Security.HostPolicy.IsAllowedConnection(ctx.Connection.RemoteIpAddress, allowRemoteConnections))
+    {
+        Console.Error.WriteLine("[security] 拒绝非本机连接: " + ctx.Connection.RemoteIpAddress);
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
+    }
+    await next(ctx);
+});
+
 // 本壳只提供本机开发/游玩界面：加上不依赖页面结构的基线安全响应头。
 // 未添加 CSP：当前页面使用内联 onclick，强行加入会破坏界面；先保留可在浏览器 DevTools 验证的三项。
 var allowedHostNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -200,10 +222,26 @@ app.MapPost("/api/scenario/validate", async (HttpContext ctx) =>
     return Results.Json(new { valid = report.Valid, errors = report.Errors, warnings = report.Warnings });
 });
 
-app.MapPost("/api/scenario", async (HttpContext ctx) =>
+app.MapPost("/api/scenario", async (HttpContext ctx, JarSystemService svc) =>
 {
     if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
         return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+    // C-06：写作者数据是**管理**权限点（见 PermissionPoints.Endpoints），与业务读写的策略源分开：
+    // 业务只问"是不是本机"，管理还要求出示 X-JarSystem-Admin（配了 JAR_ADMIN_TOKEN 时）。
+    if (!JarSystem.Core.Security.PermissionPoints.TryFindEndpoint("POST /api/scenario", out var point))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    var decision = JarSystem.Core.Security.AccessPolicy.Decide(
+        point,
+        new JarSystem.Core.Security.AccessFacts(
+            JarSystem.Core.Security.HostPolicy.IsLoopback(ctx.Connection.RemoteIpAddress),
+            svc.AdminTokenConfigured
+                && ctx.Request.Headers["X-JarSystem-Admin"].ToString() is { Length: > 0 } provided
+                && string.Equals(provided, svc.AdminToken, StringComparison.Ordinal)),
+        svc.AdminTokenConfigured);
+    if (!decision.Allowed)
+        return Results.Json(new { saved = false, errors = new[] { decision.Reason }, warnings = Array.Empty<string>() },
+            statusCode: StatusCodes.Status403Forbidden);
     var body = await ReadBodyWithinLimitAsync(ctx, MAX_SCENARIO_BYTES);
     if (!body.Ok)
         return Results.Json(new { saved = false, errors = new[] { body.Error ?? "请求体超限" }, warnings = Array.Empty<string>() },
@@ -232,6 +270,23 @@ app.MapPost("/api/scenario", async (HttpContext ctx) =>
         if (File.Exists(tempPath)) File.Delete(tempPath);
     }
 });
+
+// G-06：只在 Windows 上判；其它平台按"不告警"处理（服务账号权限由 systemd/k8s 决定，
+// 与本地开发无关，硬编码 *nix 账号名只会产生噪声）。
+static bool IsElevated()
+{
+    if (!OperatingSystem.IsWindows()) return false;
+    try
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        return new System.Security.Principal.WindowsPrincipal(identity)
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+    }
+    catch (Exception)
+    {
+        return false;
+    }
+}
 
 static (bool Valid, List<string> Errors, List<string> Warnings) ValidateScenarioText(string text)
 {

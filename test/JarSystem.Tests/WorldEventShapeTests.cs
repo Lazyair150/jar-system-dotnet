@@ -15,6 +15,34 @@ namespace JarSystem.Tests;
 /// </summary>
 public class WorldEventShapeTests
 {
+    [Fact]
+    public void ConfigEventsUseTheCurrentIntentTimeInsteadOfAnOldCommandTime()
+    {
+        var sys = new JarSystem.Core.JarSystem(randomSeed: 9);
+        var stale = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        sys.Now = stale;
+
+        sys.UpdateProducerRate("陶工甲", "圆罐", 0.5);
+
+        var timestamp = Assert.IsType<string>(sys.EventHistory.Last()["timestamp"]);
+        Assert.NotEqual(stale.ToString("o"), timestamp);
+        Assert.True(DateTimeOffset.Parse(timestamp) > stale);
+    }
+
+    [Fact]
+    public void CommandLogUsesTheTimeOfTheIntent()
+    {
+        var sys = new JarSystem.Core.JarSystem(randomSeed: 9);
+        var stale = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        sys.Now = stale;
+
+        Assert.True(sys.CreateRandomOrder().Success);
+
+        var logged = sys.CommandLog.Last(c => c.Op == JarSystem.Core.Sessions.WorldOps.CreateRandomOrder);
+        Assert.NotNull(logged.Time);
+        Assert.True(DateTimeOffset.Parse(logged.Time!) > stale);
+    }
+
     private static JarSystem.Core.JarSystem NewWorld()
         => new(randomSeed: 11, jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
 

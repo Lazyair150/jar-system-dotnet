@@ -21,6 +21,21 @@ namespace JarSystem.Tests;
 /// </summary>
 public class ProducerSlotTests
 {
+    [Fact]
+    public void EnablingAPreviouslyUnlistedShapeAlsoAttachesTheProductionSource()
+    {
+        var module = Module(2);
+        module.RegisterProducer("甲", new Dictionary<string, double> { ["圆罐"] = 0.4 });
+
+        module.UpdateRate("甲", "方罐", 1.0);
+
+        Assert.Contains(module.Generators["方罐"].Producers,
+            source => source.Name == "甲" && Math.Abs(source.Rate - 1.0) < 1e-9);
+        module.Tick();
+        Assert.Contains(module.Warehouse.Jars, jar => jar.Shape == "方罐");
+        Assert.Equal(2, module.UsedSlots);
+    }
+
     private static ProducerModule Module(int slots)
     {
         var module = new ProducerModule(new Vocabulary(new[] { "圆罐", "方罐", "高罐" }, new[] { "酒" }))
@@ -99,6 +114,37 @@ public class ProducerSlotTests
         var m = Module(1);
         m.RegisterProducer("甲", new Dictionary<string, double> { ["圆罐"] = 0.4, ["方罐"] = 0.3, ["高罐"] = 0.2 });
         Assert.Equal(3, m.UsedSlots);
+    }
+
+    [Fact]
+    public void InitialActiveLinesBeyondTheAuthoredCapAreRejectedByWorldValidation()
+    {
+        var world = new WorldOptions
+        {
+            Shapes = new List<string> { "圆罐", "方罐", "高罐" },
+            Liquids = new List<string> { "酒", "蜜" },
+            ProducerSlots = 2,
+            Producers = new List<ProducerOptions>
+            {
+                new()
+                {
+                    Name = "甲",
+                    Rates = new Dictionary<string, double>
+                    {
+                        ["圆罐"] = 0.4,
+                        ["方罐"] = 0.3,
+                        ["高罐"] = 0.2
+                    }
+                }
+            }
+        };
+
+        var report = world.Validate();
+
+        Assert.False(report.IsValid);
+        Assert.Contains(report.Errors, error =>
+            error.Contains("producerSlots", StringComparison.OrdinalIgnoreCase) &&
+            error.Contains("3", StringComparison.Ordinal));
     }
 
     [Fact]

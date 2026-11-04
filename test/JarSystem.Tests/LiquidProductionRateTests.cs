@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 using Xunit;
 
 namespace JarSystem.Tests;
@@ -17,6 +19,35 @@ namespace JarSystem.Tests;
 public sealed class LiquidProductionRateTests
 {
     private static JarSystem.Core.JarSystem NewSystem() => new(randomSeed: 7, world: WorldOptions.Default);
+
+    [Fact]
+    public void UpdatingAnUnknownLiquidIsRejectedInsteadOfSilentlyIgnored()
+    {
+        var sys = NewSystem();
+
+        var error = Assert.Throws<DomainValidationException>(
+            () => sys.UpdateLiquidProductionRate("不存在", 1));
+
+        Assert.Contains("没有这个液体", error.Message);
+    }
+
+    private sealed class HalfIntensity : IIntensitySource
+    {
+        public int Apply(string target, int value) => value / 2;
+    }
+
+    [Fact]
+    public void NextTickPredictionUsesTheSameIntensityAsActualProduction()
+    {
+        var production = new LiquidProduction(
+            new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" }),
+            defaults: new Dictionary<string, double> { ["酒"] = 0.6, ["蜜"] = 0 });
+        _ = production.Tick();
+        production.AttachIntensity(new HalfIntensity());
+
+        Assert.False(production.WillProduceNextTick("酒"));
+        Assert.Empty(production.Tick()); // 0.6 累积 + 0.3 有效速率仍不足一份
+    }
 
     private static int WarehouseLiquid(JarSystem.Core.JarSystem sys, string liquid)
         => sys.ProducerModule.Warehouse.LiquidWarehouse.GetValueOrDefault(liquid);

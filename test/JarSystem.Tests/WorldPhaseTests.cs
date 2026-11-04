@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using JarSystem.Core;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Services;
 using JarSystem.Core.World;
@@ -52,7 +53,9 @@ public class WorldPhaseTests
     private static global::JarSystem.Core.JarSystem NewSystem(WorldOptions world)
     {
         var sys = new global::JarSystem.Core.JarSystem(randomSeed: 41, world: world);
-        _ = sys.CreateOrderFromTemplate(sys.OrderTemplates.Names.First());
+        // 第二张模板含“方罐 → 三角罐”的真实改形，能形成执行过程；
+        // 第一张是全直接匹配，按新语义开始即交付。
+        _ = sys.CreateOrderFromTemplate(sys.OrderTemplates.Names.Last());
         sys.SetMasterIndex(0);
         return sys;
     }
@@ -86,6 +89,7 @@ public class WorldPhaseTests
 
         Assert.Equal(WorldPhase.Running, sys.Phase);
         Assert.Equal("running", StateSerializer.Snapshot(sys).Phase);
+        Assert.Equal(Constants.OrderStatus.EXECUTING, sys.Orders[0].Status);
 
         // 执行中再问一次分析：不许重新规划，也不许把原来那条计划覆盖成"不可行"。
         var after = sys.CheckFeasibility(0);
@@ -109,5 +113,77 @@ public class WorldPhaseTests
         Assert.True(sys.Outcome.IsOver, "用例前提：一回合用尽且没做够，应当已有结果");
         Assert.Equal(WorldPhase.Settled, sys.Phase);
         Assert.Equal("settled", StateSerializer.Snapshot(sys).Phase);
+    }
+
+    [Fact]
+    public void WinningStopsFurtherWorldProgress()
+    {
+        var sys = ExecutedFirstLevelOrder();
+        Assert.Equal(LevelOutcomeKind.Won, sys.Outcome.Kind);
+        Assert.True(sys.CreateOrderFromTemplate(sys.OrderTemplates.Names.Last()).Success);
+
+        var tickBefore = sys.Turns.Used;
+        var revisionBefore = sys.WorldRevision;
+
+        Assert.Throws<DomainValidationException>(() => sys.Tick());
+        var started = sys.StartOrder(1);
+        var executed = sys.ExecuteOrder(1);
+        Assert.False(started.Started);
+        Assert.Contains("已经结束", started.Error ?? "");
+        Assert.False(executed.Success);
+        Assert.Contains("已经结束", executed.Reason ?? "");
+        Assert.Equal(tickBefore, sys.Turns.Used);
+        Assert.Equal(revisionBefore, sys.WorldRevision);
+    }
+
+    [Fact]
+    public void OnlyOneAsyncOrderMayRunAtATime()
+    {
+        var sys = NewSystem(FirstLevelWorld());
+        Assert.True(sys.CreateOrderFromTemplate(sys.OrderTemplates.Names.Last()).Success);
+
+        FeasibilityResultData? feasible = null;
+        for (var guard = 0; guard < 40 && feasible is not { Feasible: true }; guard++)
+        {
+            feasible = sys.CheckFeasibility(0);
+            if (feasible is not { Feasible: true }) sys.Tick(1);
+        }
+        Assert.True(feasible is { Feasible: true }, "用例前提：第一关订单最终应当可行");
+        Assert.True(sys.StartOrder(0).Started);
+
+        var second = sys.StartOrder(1);
+
+        Assert.False(second.Started);
+        Assert.Contains("已有订单正在执行", second.Error ?? "");
+    }
+
+    [Fact]
+    public void DeletingACompletedOrderDoesNotEraseTheWin()
+    {
+        var sys = ExecutedFirstLevelOrder();
+        var completedBefore = sys.CompletedOrders;
+        Assert.Equal(1, completedBefore);
+
+        _ = sys.DeleteOrder(0);
+
+        Assert.Empty(sys.Orders);
+        Assert.Equal(completedBefore, sys.CompletedOrders);
+        Assert.Equal(LevelOutcomeKind.Won, sys.Outcome.Kind);
+    }
+
+    private static global::JarSystem.Core.JarSystem ExecutedFirstLevelOrder()
+    {
+        var sys = NewSystem(FirstLevelWorld());
+        FeasibilityResultData? feasible = null;
+        for (var guard = 0; guard < 40 && feasible is not { Feasible: true }; guard++)
+        {
+            feasible = sys.CheckFeasibility(0);
+            if (feasible is not { Feasible: true }) sys.Tick(1);
+        }
+        Assert.True(feasible is { Feasible: true }, "用例前提：第一关订单最终应当可行");
+
+        var executed = sys.ExecuteOrder(0);
+        Assert.True(executed.Success, executed.Reason);
+        return sys;
     }
 }

@@ -47,6 +47,29 @@ public sealed class CommandDispatcher
     private async Task HandleCoreAsync(JarSystemService svc, WebSocket ws, string type, JsonElement dataEl)
     {
         var sys = svc.System;
+
+        // 权限点登记表是**唯一**的"这个名字能不能被调用"的答案（C-05）：未登记 ⇒ 未知操作。
+        // 类别来自登记表，判定交给纯函数 AccessPolicy（C-06：管理类与业务类策略源不同）。
+        if (!JarSystem.Core.Security.PermissionPoints.TryFindCommand(type, out var point))
+        {
+            await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "未知命令: " + type } }));
+            return;
+        }
+
+        var access = _sink.AccessOf(ws);
+        var facts = new JarSystem.Core.Security.AccessFacts(
+            access.IsLoopback,
+            svc.AdminTokenConfigured
+                && access.AdminToken is { Length: > 0 } provided
+                && string.Equals(provided, svc.AdminToken, StringComparison.Ordinal));
+        var decision = JarSystem.Core.Security.AccessPolicy.Decide(point, facts, svc.AdminTokenConfigured);
+        if (!decision.Allowed)
+        {
+            svc.System.Log.Info("拒绝命令 " + type + "（" + decision.Code + "）: " + decision.Reason);
+            await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = decision.Reason } }));
+            return;
+        }
+
         switch (type)
         {
             case "getState": await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() })); break;
@@ -63,25 +86,29 @@ public sealed class CommandDispatcher
                     await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = created.Error ?? "订单创建失败" } }));
                     break;
                 }
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
-                if (sys.AutoCheckEnabled) await _sink.SendAsync(ws, JsonArgs.J(new { type = "autoCheckResults", data = sys.CheckAllFeasibility() }));
+                var autoResults = sys.AutoCheckEnabled ? sys.CheckAllFeasibility() : null;
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                if (autoResults != null)
+                    await _sink.BroadcastAsync(JsonArgs.J(new { type = "autoCheckResults", data = autoResults }));
                 break;
             }
 
             case "createRandomOrder":
                 sys.CreateRandomOrder();
-                if (sys.AutoCheckEnabled) await _sink.SendAsync(ws, JsonArgs.J(new { type = "autoCheckResults", data = sys.CheckAllFeasibility() }));
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                var randomAutoResults = sys.AutoCheckEnabled ? sys.CheckAllFeasibility() : null;
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                if (randomAutoResults != null)
+                    await _sink.BroadcastAsync(JsonArgs.J(new { type = "autoCheckResults", data = randomAutoResults }));
                 break;
 
             case "createWorkshop":
                 sys.CreateWorkshop(JsonArgs.JS(dataEl, "name") ?? "", JsonArgs.JL(dataEl, "baseMarks"), JsonArgs.JL(dataEl, "additionalMarks"), JsonArgs.JL(dataEl, "ban"));
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
 
             case "createRandomWorkshop":
                 sys.CreateRandomWorkshop();
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
 
             case "updateWorkshopCapacity":
@@ -90,8 +117,17 @@ public sealed class CommandDispatcher
                 var maxJars = JsonArgs.JIOrNull(dataEl, "maxJars");
                 var maxLiquids = JsonArgs.JIOrNull(dataEl, "maxLiquids");
                 // 容量合法性由核心校验（WorkshopService.UpdateWorkshopCapacity 抛 DomainValidationException）
-                sys.UpdateWorkshopCapacity(idx, maxJars, maxLiquids);
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                var updated = sys.UpdateWorkshopCapacity(idx, maxJars, maxLiquids);
+                if (!updated.Success)
+                {
+                    await _sink.SendAsync(ws, JsonArgs.J(new
+                    {
+                        type = "error",
+                        data = new { message = updated.Error ?? "更新容量失败" }
+                    }));
+                    break;
+                }
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -101,7 +137,7 @@ public sealed class CommandDispatcher
                 var oid = JsonArgs.JI(dataEl, "orderId");
                 var dir = JsonArgs.JI(dataEl, "dir");
                 sys.MoveOrder(oid, dir);
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -112,7 +148,7 @@ public sealed class CommandDispatcher
                 // 索引、词表、以及"新禁令会不会锁死池里已有的液体"三条都只有内核知道。
                 sys.SetWorkshopCapability(idx, JsonArgs.JL(dataEl, "baseMarks"),
                     JsonArgs.JL(dataEl, "additionalMarks"), JsonArgs.JL(dataEl, "ban"));
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -121,7 +157,7 @@ public sealed class CommandDispatcher
                 var newIdx = JsonArgs.JI(dataEl, "index");
                 var oldIdx = sys.CurrentMaster;
                 var res = sys.SetMaster(newIdx);
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 if (res.TryGetValue("success", out var sv) && sv is bool ok && ok &&
                     res.TryGetValue("switched", out var swv) && swv is bool switched && switched)
                 {
@@ -147,7 +183,7 @@ public sealed class CommandDispatcher
             case "setSlave":
             {
                 var res = sys.SetSlave(JsonArgs.JI(dataEl, "index"));
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 if (res.TryGetValue("success", out var sv) && sv is bool ok && !ok)
                 {
                     await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = res.TryGetValue("reason", out var rv) ? rv as string ?? "设置从台失败" : "设置从台失败" } }));
@@ -161,7 +197,7 @@ public sealed class CommandDispatcher
                 if (idx < 0) { await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "订单不存在" } })); break; }
                 var r = sys.ExecuteOrder(idx);
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "orderExecuted", data = new { success = r.Success, reason = r.Reason, operations = r.Operations, transferOccurred = r.TransferOccurred } }));
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -169,8 +205,17 @@ public sealed class CommandDispatcher
             {
                 var idx = ResolveOrderIndex(svc, dataEl);
                 if (idx < 0) { await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = "订单不存在" } })); break; }
-                sys.DeleteOrder(idx);
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                var deleted = sys.DeleteOrder(idx);
+                if (!deleted.Success)
+                {
+                    await _sink.SendAsync(ws, JsonArgs.J(new
+                    {
+                        type = "error",
+                        data = new { message = deleted.Error ?? "删除订单失败" }
+                    }));
+                    break;
+                }
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -186,7 +231,7 @@ public sealed class CommandDispatcher
                     await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = started.Error ?? "无法开始执行" } }));
                     break;
                 }
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -200,7 +245,7 @@ public sealed class CommandDispatcher
                     await _sink.SendAsync(ws, JsonArgs.J(new { type = "error", data = new { message = cancelled.Error ?? "取消失败" } }));
                     break;
                 }
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -253,27 +298,32 @@ public sealed class CommandDispatcher
                 var result = sys.CheckFeasibility(idx);
                 var orderId = result != null && idx < sys.Orders.Count ? sys.Orders[idx].Id : 0;
                 await _sink.SendAsync(ws, JsonArgs.J(new { type = "feasibilityResult", data = new { orderId, result } }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
             case "checkAllFeasibility":
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "allFeasibilityResults", data = sys.CheckAllFeasibility() }));
+            {
+                var results = sys.CheckAllFeasibility();
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "allFeasibilityResults", data = results }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
+            }
 
             case "manualTick":
                 sys.Tick();
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
 
             case "reset":
                 sys.Reset();
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
 
             case "restartLevel":
                 // 重开本关 = 世界回到开局 + 按关卡模板重新派单（派单在宿主，见 JarSystemService.RestartLevel）。
                 svc.RestartLevel();
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
 
             case "loadLevel":
@@ -282,7 +332,9 @@ public sealed class CommandDispatcher
                 // 关卡的 world / 提示 / 回合上限都来自 config/levels/*.json（见 LevelCatalog）；
                 // 核心不认识"关卡"，所以这件事由宿主做，这里只把序号递过去。
                 svc.LoadLevel(JsonArgs.JI(dataEl, "index"));
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = svc.System.GetState() }));
+                // 换关可能换词表；所有已连接页面都必须先收到新 world，再收到新 state。
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "world", data = svc.System.WorldMeta() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = svc.System.GetState() }));
                 break;
             }
 
@@ -293,7 +345,7 @@ public sealed class CommandDispatcher
                 var liquid = JsonArgs.JS(dataEl, "liquid") ?? "";
                 var rate = JsonArgs.JD(dataEl, "rate");
                 sys.UpdateLiquidProductionRate(liquid, rate);
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -302,7 +354,7 @@ public sealed class CommandDispatcher
                 var rate = JsonArgs.JD(dataEl, "rate");
                 // 速率上下界由核心校验（ProductionService.UpdateProducerRate）
                 sys.UpdateProducerRate(JsonArgs.JS(dataEl, "producerName") ?? "", JsonArgs.JS(dataEl, "shape") ?? "", rate);
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
@@ -318,9 +370,9 @@ public sealed class CommandDispatcher
             case "setAutoCheck":
             {
                 sys.SetAutoCheck(JsonArgs.JB(dataEl, "enabled"));
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "autoCheckChanged", data = new { enabled = sys.AutoCheckEnabled } }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "autoCheckChanged", data = new { enabled = sys.AutoCheckEnabled } }));
                 // P5：自动检测循环改由 AutoCheckBackgroundService（PeriodicTimer）驱动，这里只设开关
-                await _sink.SendAsync(ws, JsonArgs.J(new { type = "state", data = sys.GetState() }));
+                await _sink.BroadcastAsync(JsonArgs.J(new { type = "state", data = sys.GetState() }));
                 break;
             }
 
