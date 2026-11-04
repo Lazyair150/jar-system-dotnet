@@ -26,22 +26,20 @@
 | **UML 补齐** | 新增 4 张（过程状态机 / 异步轨时序 / tick 管线活动图 / 规则与过程类图）+ 更新 3 张 + 覆盖体检 | ✅ **完成**（10 → 14 张；**14 张已全部渲染验证**，用户本机 VS Code + JVM） | `15_UML覆盖审查与过程系统补图.md` |
 | **UML 语法在线验证** | 09/11 的语法错误定位并修正（并回填 `UML.txt` 的踩坑规则） | ✅ **09/11 在线修正 + 全 14 张经用户本机验证正常显示** | `15` §7 |
 | **工程硬化（2026-10-18）** | 质量约束、聚焦 xUnit 入九步门、过程收尾/Reset 修正、Web 启动路径与输入边界加固 | ✅ **完成并验证**（`VERDICT=OK` + `QUALITY-OK`） | `16_技能驱动全项目审查与加固.md` |
+| **全项目逻辑与信息流审查（2026-11-03）** | 回放覆盖、换关竞态、多客户端同步、场景/总线组合、胜负与重置一致性、配置防篡改、生产/流入读模型、状态机、交付时序、从台生命周期、前后端协议与UML演化 | ✅ **完成并验证**（278 xUnit；`VERDICT=OK` + `QUALITY-OK`） | `17_全面逻辑审查与信息流修复.md` |
 | Phase 5 | （可选）引擎时间对接、世界事件注入编辑器 | ⬜ | 同上 |
 
-## 最新实测（2026-10-18，工程硬化后）
+## 最新实测（2026-11-03，全项目逻辑与信息流审查后）
 
 ```
 0 bugs / 2000 random + 0 bugs / 3000 capacity + 32 deterministic
 docs baseline: OK (9 carriers say 32)     CONFIG-WORLD-MATCH
-JarSystem.Tests: Total 22, Errors 0, Failed 0, Skipped 0, Not Run 0
-PROTOCOL-OK (commands=21, messages=16)    JS-OK    QUALITY-OK
+JarSystem.Tests: Total 278, Errors 0, Failed 0, Skipped 0, Not Run 0
+PROTOCOL-OK (commands=27, messages=13)    JS-OK    QUALITY-OK
 SOLVER-OK (compared=4003, agree=4003, feasible=583, undetermined=0, targeted=3)
 MODDIFF-OK (scenarios=400, checks=1600)
-REPLAY-OK (commands=33, stateBytes=3125, logBytes=8797, journalBytes=725)
-        ↑ journalBytes 从此前的 1415 降到 725：`Reset()` 现在会清空过程运行时；
-          这是重置语义的修正，回放仍逐字节一致
-VERDICT=OK        （契约快照 225 行、schema 11 类型/loose=1、contract.d.ts 34 接口/261 行）
-JOURNAL-OK (processes=4, entries=20, steps=3, phases=6)   ← 新产物（--dump-journal）
+REPLAY-OK (commands=33, stateBytes=4436, logBytes=8797, journalBytes=725)
+VERDICT=OK        （契约快照 239 行、schema 11 类型/loose=1、contract.d.ts 40 接口/307 行）
 ```
 
 > ⚠️ **契约基线于 2026-10-16 有意重建一次**：P2c 定点化把 7 处 `accumulated` 的浮点漂移值
@@ -58,18 +56,18 @@ JOURNAL-OK (processes=4, entries=20, steps=3, phases=6)   ← 新产物（--dump
 3. **判定只认逻辑 tick**：过程不得读墙钟。
 4. **每阶段必须有等价性论证 + 验证门 + 回滚方式**（沿用 `重构报告/板块报告/` 的格式）。
 
-## 当前基线（2026-10-18 复跑，`重构报告\verify.bat`，`CI=1`）
+## 当前基线（2026-11-03 复跑，`重构报告\verify.bat`，`CI=1`）
 
 ```
 === 0 bugs / 2000 random + 0 bugs / 3000 capacity + 32 deterministic ===
 docs baseline: OK (9 carriers say 32)
-schema: 11 types / total loose=1     contract.d.ts: 34 interfaces / 261 lines
-state_keys.txt: 225 行               CONFIG-WORLD-MATCH
-JarSystem.Tests: Total 22, Errors 0, Failed 0, Skipped 0, Not Run 0
-PROTOCOL-OK (commands=21, messages=16)
+schema: 11 types / total loose=1     contract.d.ts: 40 interfaces / 307 lines
+state_keys.txt: 239 行               CONFIG-WORLD-MATCH
+JarSystem.Tests: Total 278, Errors 0, Failed 0, Skipped 0, Not Run 0
+PROTOCOL-OK (commands=27, messages=13)
 JS-OK                                QUALITY-OK
 SOLVER-OK (compared=4003, agree=4003, feasible=583, undetermined=0, targeted=3)
-REPLAY-OK (commands=33, stateBytes=3125, logBytes=8797, journalBytes=725)
+REPLAY-OK (commands=33, stateBytes=4436, logBytes=8797, journalBytes=725)
 VERDICT=OK
 ```
 

@@ -1,0 +1,50 @@
+@startuml
+title 罐子的完整生命周期与正交状态（2026-11）
+skinparam shadowing false
+
+state "逻辑罐子" as JarLifecycle {
+  [*] --> Created : new Jar / JarPool.Rent
+  Created --> InWarehouse : 生产者产出 / 初始流入
+  InWarehouse --> InWorkshop : FlowToMaster / 转移
+  InWorkshop --> InWorkshop : 倒液 / 倒出 / 改形 / 匹配
+  InWorkshop --> Delivered : 订单交付 RemoveJar
+  InWorkshop --> Discarded : 工作台/切换容量溢出
+  InWarehouse --> Discarded : 仓库上限溢出
+  Delivered --> [*] : 保留在交付审计中
+  Discarded --> Recycled : JarPool.Return
+  Recycled --> Created : JarPool.Rent\n复用内存对象，开始新的逻辑身份
+}
+
+state "工作台内的正交内容状态" as Content {
+  state "内容维度" as FillDimension {
+    [*] --> Empty
+    Empty --> Full : POUR_IN
+    Full --> Empty : POUR_OUT / 满罐改形自耗
+    Empty --> Empty : 空罐改形
+    Full --> Full : 满罐改形
+  }
+  --
+  state "操作锁维度" as LockDimension {
+    [*] --> Unmarked
+    Unmarked --> Marked : 任意原子操作 / MATCH
+    Marked --> Unmarked : ClearMarks（阶段边界）
+  }
+}
+
+note right of Content
+  **空/满**与**未标记/已标记**是正交维度，
+  不能压成单一枚举：
+  · Liquid = null / 非 null；
+  · IsMarked = false / true。
+
+  `IsMarked` 只保证当前执行阶段“一罐一操作”，
+  不是罐子的一生历史。
+end note
+
+note bottom of JarLifecycle
+  **对象池不是逆转身份**
+  Recycled 对象被 Rent 后只复用内存；
+  新逻辑身份的 Id、形状、液体和标记都重新设置。
+  已交付罐子保留在 DeliveredJars/审计中，不能归还对象池。
+end note
+@enduml

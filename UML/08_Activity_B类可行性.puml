@@ -1,5 +1,5 @@
 @startuml
-title B 类订单可行性 —— 三级责任链 + 需求子集划分
+title B 类订单可行性 —— 单阶段 / 划分责任链
 ' ============================================================
 '  2026-09-16 重写（第 2 版）。
 '  旧图入口是 CheckTypeB（该类已被 IFeasibilityCheck 责任链取代，不存在了），
@@ -16,21 +16,13 @@ start
 note right
   **链序即优先级**（便宜的先试，不通过才降级）
   1 SinglePhaseCheck   仅 A 类，只用主台
-  2 SlaveOnlyCheck     仅 B 类，只用从台，且显式置空转移清单
-  3 PartitionCheck     B 类兜底，无论成败都给出结论
-  三级共用**同一份**节点预算（默认 40 万）
+  2 PartitionCheck     B 类，从空从台出发，无论成败都给出结论
+  两级共用**同一份**节点预算（默认 40 万）
 end note
 
 if (订单是 A 类) then (是)
   :Solve reqs 于主台规则与主台资源;
   :checkMethod = single_phase;
-  stop
-endif
-
-:Solve reqs 于从台规则与从台资源;
-if (从台独立可行) then (是)
-  :checkMethod = slave_only;
-  :TransferJarIds 与 TransferLiquids 显式置空 —— 不需要任何转移;
   stop
 endif
 
@@ -49,12 +41,12 @@ partition "PartitionCheck —— 2 的 N 次方个需求子集划分，mask 升�
       if (主台子集可行) then (是)
         if (求解器提供了主台终态) then (是)
           :deliverableIds = JarMatcher.MatchAll 主台终态 与 mReqs;
-          :slavePool = 主台终态 扣除交付罐 并打 MasterOrigin，再并上从台自有罐子;
-          :budget = 从台罐位 - 从台原有罐子 - 交付罐数;
+          :slavePool = 主台终态 扣除交付罐 并打 MasterOrigin（从台开始时为空）;
+          :budget = 从台罐位 - 交付罐数;
           if (budget 小于 0) then (是)
             :该划分直接判不可行，继续下一个 mask;
           else (否)
-            :tLiquids 每种液 = min 主台终态液 + 从台液, 从台液位;
+            :tLiquids 每种液 = min 主台终态液, 从台液位;
             :Solve sReqs 于从台规则与 slavePool，预算 = budget;
             if (节点预算耗尽) then (是)
               :未判定;

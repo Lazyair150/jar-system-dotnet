@@ -1,0 +1,89 @@
+@startuml
+title 一次订单执行的正交状态轴（2026-11）
+skinparam shadowing false
+
+state "订单生命周期\nOrderLifecycleState" as OrderLifecycle {
+    [*] --> Pending
+    Pending --> Executing : BeginOrderExecution\nMarkExecuting
+    Executing --> Succeeded : Deliver success\nMarkSucceeded
+    Executing --> Failed : Fail / Cancel\nMarkFailed
+    Succeeded --> [*]
+    Failed --> [*]
+  }
+
+state "过程生命周期\nProcessState" as ProcessLifecycle {
+    [*] --> Created
+    Created --> Ready : Begin / MarkReady
+    Ready --> Running : Start
+    Running --> Blocked : guard blocks
+    Blocked --> Running : guard recovers
+    Running --> Succeeded : OnFinished success
+    Running --> Failed : guard/deadline failure
+    Blocked --> Failed : grace expired
+    Running --> Aborted : Cancel
+    Blocked --> Aborted : Cancel
+    Succeeded --> [*]
+    Failed --> [*]
+    Aborted --> [*]
+  }
+
+state "会话阶段\nOrderExecutionStage" as SessionStages {
+    [*] --> MasterPath
+    MasterPath --> MasterPath : next plan step
+    MasterPath --> MasterGreedy : path exhausted but unsatisfied
+    MasterPath --> Transfer : B-type preprocessed
+    MasterPath --> Done : A-type satisfied
+    MasterGreedy --> Transfer : B-type
+    MasterGreedy --> Done : success / failure
+    Transfer --> SlavePath : transfer accepted
+    Transfer --> Done : transfer failed
+    SlavePath --> SlavePath : next plan step
+    SlavePath --> SlaveGreedy : path failed
+    SlavePath --> Done : success / failure
+    SlaveGreedy --> Done
+  }
+
+state "罐子操作锁\nJar.IsMarked" as JarMarks {
+    [*] --> AllFree : Begin / ClearMarks
+    AllFree --> SomeMarked : first jar operation / MATCH
+    SomeMarked --> SomeMarked : other jar operation
+    SomeMarked --> AllFree : next phase / deliver / fail
+  }
+
+state "从台位置职责\nTemporarySlavePosition" as SlavePosition {
+  [*] --> IdleEmpty
+  IdleEmpty --> ReservedForB : SetSlaveIndex\n仅接受空工作台
+  ReservedForB --> RaisedWithOrderResources : B 类选择性转移
+  RaisedWithOrderResources --> DrainingToMaster : 成功 / 失败 / 取消
+  DrainingToMaster --> IdleEmpty : 从台当前剩余物全集已处理
+  ReservedForB --> IdleEmpty : 取消选择
+}
+
+note right of OrderLifecycle
+  订单状态只有一个权威源：`Order.Lifecycle`。
+  `Order.Status` 只是映射为“待执行 / 执行中 / 成功 / 失败”的 JSON 投影。
+  `OrderEvent.Status` 也只读取该投影，不再保存第二份字符串。
+end note
+
+note bottom of ProcessLifecycle
+  过程状态描述“这次工作是否还活着”；
+  它不能替代订单状态。订单状态描述“委托本身是否已消费”。
+end note
+
+note bottom of JarMarks
+  `IsMarked` 是**单次执行阶段的排他锁**，
+  不是“罐子曾经被操作过”的永久历史，也不是罐子生命周期的唯一维度。
+end note
+
+note bottom of SlavePosition
+  从台只在 B 类订单期间持有资源，终态必须回到 IdleEmpty。
+  无 B 类过程而仍持有资源 ⇒ SLAVE-RESIDUAL-WITHOUT-B-ORDER。
+  活动订单过程存续期间，主台/从台位置冻结。
+end note
+
+note bottom of SessionStages
+  MATCH 不是会话阶段或 tick 单位，只是交付预留与可行性匹配。
+  只有真正改变资源的操作（POUR_IN / POUR_OUT / RESHAPE / TRANSFER）才推进阶段。
+  B 类全部目标迁移是一个 TRANSFER 单位，完成后可立即原子交付。
+end note
+@enduml

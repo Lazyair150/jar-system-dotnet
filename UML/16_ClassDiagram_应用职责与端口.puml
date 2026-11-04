@@ -1,0 +1,132 @@
+@startuml
+title 应用职责、端口与宿主边界（2026-11 当前态）
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+hide empty members
+
+package "核心领域与规则" {
+  class Workshop
+  class Order
+  class ProducerModule
+  class LiquidProduction
+  class Warehouse
+  class ModifierStack
+  class WorldQuery
+  class ISolver <<interface>>
+  class IWorkBudgetedSolver <<interface>>
+}
+
+package "过程与运行时" {
+  class ProcessSystem
+  class TickPipeline
+  class WorldScheduler
+  class WorldBus
+  class WorldTime
+  class IWorldEventSource <<interface>>
+  class IProcessAdvancer <<interface>>
+  class IProcessObserver <<interface>>
+}
+
+package "应用服务" {
+  class JarSystem {
+    +Orders : IReadOnlyList
+    +Workshops : IReadOnlyList
+    +Processes : ProcessSystem
+    +GetState() : StateDto
+    +Tick(count) : int
+  }
+
+  class "JarSystem.Runtime" as RuntimePart <<partial>>
+  class WorkshopService
+  class OrderService
+  class ProductionService
+  class MasterSwitchCoordinator
+}
+
+package "读模型与回放" {
+  class StateSerializer
+  class StateDto
+  class WorldCommand
+  class SessionReplay
+  class ProcessJournal
+}
+
+package "宿主" {
+  class JarSystemService {
+    +System : JarSystem
+    +Gate : SemaphoreSlim
+    +LoadLevel(index)
+    +RestartLevel()
+  }
+
+  class CommandDispatcher
+  class WebSocketHub
+  class PresentationObserver
+  class TickBackgroundService
+  class AutoCheckBackgroundService
+  class GameManager
+}
+
+package "表现" {
+  class PlayPage
+  class ProductionView
+  class WorldPage
+  class GodotViews
+}
+
+WorkshopService --> JarSystem
+OrderService --> JarSystem
+ProductionService --> JarSystem
+MasterSwitchCoordinator --> JarSystem
+RuntimePart ..> JarSystem : 同一 partial 门面
+
+JarSystem --> ProcessSystem
+JarSystem --> WorldBus
+JarSystem --> WorldTime
+JarSystem --> StateSerializer : GetState()
+JarSystem --> WorldCommand : Record
+
+ProcessSystem --> TickPipeline
+TickPipeline --> WorldScheduler
+ProcessSystem --> IWorldEventSource
+ProcessSystem --> IProcessAdvancer
+ProcessSystem --> IProcessObserver
+ProcessSystem --> ProcessJournal
+
+StateSerializer --> StateDto
+SessionReplay --> WorldCommand
+SessionReplay --> JarSystem
+
+JarSystemService *-- JarSystem : 当前世界
+JarSystemService --> CommandDispatcher : 组合
+WebSocketHub --> CommandDispatcher : 收发
+PresentationObserver --> WebSocketHub : 帧广播
+TickBackgroundService --> JarSystemService
+AutoCheckBackgroundService --> JarSystemService
+
+CommandDispatcher --> JarSystem : 未知命令解析后调用
+PlayPage --> ProductionView
+WorldPage --> WebSocketHub
+GodotViews --> GameManager
+GameManager --> JarSystem
+
+note right of RuntimePart
+  编译期 partial，不是第二个实例。
+  `JarSystem` 仍只有一个运行时对象；
+  拆分只用于把时间、tick、产出配置、
+  重置职责放在同一组合根的另一文件中。
+end note
+
+note bottom of JarSystemService
+  **宿主生命周期边界**
+  · Gate 串行化命令、tick、换关与自动分析；
+  · 所有后台任务必须在 Gate 内重新读取 System；
+  · 换关后重新绑定关卡订单、场景作用域和表现订阅。
+end note
+
+note right of StateSerializer
+  读模型不写世界、不做业务判断。
+  页面与 Godot 都消费同一份 DTO；
+  生产卡不自行计算槽位或流入规则。
+end note
+@enduml

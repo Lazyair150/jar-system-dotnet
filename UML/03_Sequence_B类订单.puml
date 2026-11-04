@@ -27,13 +27,14 @@ Svc -> Facade: ExecuteOrder(orderIndex)
 Facade -> OS: ExecuteOrder(orderIndex)
 
 note right of OS
-  **五个早退守卫**（都不写 eventHistory）
+  **六个早退守卫**（都不写 eventHistory）
   1 索引越界
   2 未选择主工作台
   3 参数无效
   4 B 类订单需要选择从台
-  5 **订单已是终态，不能重复执行**（2026-09 修复）
-  ⚠️ 这五条与"无论成败都会追加一条记录"的说法不符，
+  5 B 类从台不是空的临时工具位
+  6 **订单已是终态，不能重复执行**（2026-09 修复）
+  ⚠️ 这六条与"无论成败都会追加一条记录"的说法不符，
   只有真正执行到末尾的两条路径才写 eventHistory。
 end note
 
@@ -60,8 +61,9 @@ alt FeasibilityResult.MasterPath 非空
     按 jarId 首选定位、失败退回 jarIndex（转移后顺序会变，Id 才稳定）。
     应用前校验真实罐子与步骤预期状态一致，不符即判失败。
     RESHAPE 按 reshapeMode 分派空罐/满罐改形。
+    **MATCH 不在执行循环里**：它只用于交付预留和可行性匹配，不消耗过程单位。
   end note
-else checkMethod 是 slave_only 或 partition
+else checkMethod 是 partition，或旧存档读取到 slave_only
   note right of EX: 主台不跑贪心，保持路径依赖的初始状态
 else 没有可行性结果
   EX -> Greedy: ExecuteOn(master, requirements, "master", evt)
@@ -80,10 +82,10 @@ note right of CmdEx
   其余主台罐子留在主台。
   从台放不下时 TransferCommand 自己把罐子放回原台（不悬空丢失），
   整批随即回滚 -> 执行以"从台容量不足"终止。
+  多个罐子与所需液体共同构成**一个** TRANSFER 步骤。
 end note
 EX -> M: 每种液体 RemoveLiquid(accepted)
 EX -> S: TryReceiveLiquid(liquid, amount)
-EX -> Evt: RecordLiquidTransfer(liquid, accepted)
 EX -> Evt: AdvanceToSlavePhase()
 EX -> S: ClearMarks()
 
@@ -104,7 +106,9 @@ alt 需求全部满足
   Evt -> S: RemoveJar(每个匹配需求的罐子)
   note right of Evt
     这就是**罐子守恒的出口**：罐子只会经交付或溢出丢弃离开系统。
-    B 类在 Deliver() 内还会调用 RollbackSlaveToMaster 把剩余转移资源回流主台。
+    交付是原子的：全部匹配罐在同一状态提交中离场，不逐只等待 tick。
+    B 类在 Deliver() 内还会调用 RollbackSlaveToMaster，
+    把从台当前所有剩余罐子和游离液体回流主台。
   end note
 else 未满足
   EX --> OS: 失败 + reason
@@ -112,7 +116,8 @@ else 未满足
   OS -> Evt: Fail(reason)
   Evt -> Evt: RollbackSlaveToMaster()（一行委托到 SlaveRollback）
   note right of Evt
-    ⚠️ **只回滚跨台转移**。
+    ⚠️ **排空从台，但不回滚主台操作**。
+    工具罐、未交付罐、转入液体与工具倒出的剩余液体都回主台；
     主台已发生的操作（改形消耗的液体、形状变换）**一律保留** ——
     「试探有代价」是规则定案，失败本身会改变世界。
   end note

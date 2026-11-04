@@ -15,7 +15,7 @@ package "JarSystem.Core 零外部依赖（只用 .NET BCL + System.Text.Json）"
   component "Config\n常量 / 词表 / 世界配置" as Cfg
   component "Domain\nJar / Workshop / Capability / Snapshot" as Dom
   component "Orders\nOrder / OrderEvent / SwitchEvent / FeasibilityChecker" as Ord
-  component "Orders.Feasibility\n三级责任链 + PartitionSearch" as Fea
+  component "Orders.Feasibility\n单阶段 / 划分责任链 + PartitionSearch" as Fea
   component "Solver\n记忆化 DFS + 同构剪枝 + 节点预算" as Sol
   component "Executor\nOrderExecutor + 5 个选择策略" as Exe
   component "Commands\n4 个命令 + 事务回滚" as Cmd

@@ -1,0 +1,82 @@
+@startuml
+title B 类订单完成、从台排空与仓库流入（同一 tick）
+skinparam shadowing false
+
+participant "TickPipeline" as Tick
+participant "OrderExecutionSession" as Session
+participant "OrderEvent" as Event
+participant "SlaveRollback" as Drain
+participant "主台 Workshop" as Master
+participant "从台 Workshop" as Slave
+participant "Warehouse" as Warehouse
+
+note over Master, Slave
+  从台开始前必须为空。
+  仓库只流入主台；从台资源全部来自本单的选择性转移。
+end note
+
+Tick -> Session : Processes 阶段推进最后一个单位
+Session -> Event : OnFinished / Deliver()
+Event -> Event : 在从台匹配需求并移除交付罐
+note right of Event
+  交付是原子状态提交：所有匹配罐一次移除。
+  MATCH 不消耗 tick；B 类全部迁移目标属于同一个 TRANSFER 步骤。
+end note
+
+alt B 类成功、失败或取消
+  Event -> Drain : RollbackSlaveToMaster()
+  Drain -> Slave : 枚举当前全部剩余罐子
+  loop 每个剩余罐子
+    Drain -> Slave : TransferOut
+    alt 主台可接收
+      Drain -> Master : TransferIn
+    else 主台罐位不足
+      Drain -> Drain : 丢弃并计入 discardedJars
+    end
+  end
+
+  Drain -> Slave : 枚举当前全部非零游离液体
+  loop 每种游离液体
+    Drain -> Slave : RemoveLiquid(全部剩余)
+    Drain -> Master : TryReceiveLiquid(部分接收)
+    alt 有未接收余量
+      Drain -> Drain : 丢弃并计入 discardedLiquids
+    end
+  end
+
+  note right of Drain
+    不按 transferredJarIds / 转入液体账目筛选。
+    工具罐倒出后会生成新的游离液体；
+    只有“从台当前剩余物全集”能保证终态无残留。
+  end note
+end
+
+Event -> Event : Order.MarkSucceeded / MarkFailed
+Event --> Session : delivery result
+Session --> Tick : 过程收尾
+
+opt 当前没有 WorkshopMigration
+  Tick -> Tick : Production 阶段产出新资源入仓库
+  Tick -> Warehouse : Flow 调用边界
+  Warehouse -> Master : 在剩余容量内 AddJar / TryReceiveLiquid
+else 主台正在迁徙
+  Tick -> Warehouse : 暂停主台接收入口
+  note right
+    生产仍写入仓库；暂停的是仓库 -> 主台搬运。
+    迁徙完成后从下一个 tick 恢复。
+  end note
+end
+
+note over Master, Warehouse
+  **同 tick 优先级**：
+  B 类从台回落发生在 Processes 阶段，
+  仓库流入发生在后续 Flow 阶段。
+  因此回落资源先占主台容量，仓库只能使用剩余容量。
+end note
+
+note over Slave
+  B 类终态后从台必须为空。
+  空闲从台仍有资源时，
+  世界不变量报告 SLAVE-RESIDUAL-WITHOUT-B-ORDER。
+end note
+@enduml

@@ -1,0 +1,90 @@
+@startuml
+title 多宿主交互与信息流（2026-11 当前态）
+skinparam shadowing false
+
+actor Player as P
+
+package "浏览器" {
+  component "play.html" as PlayHtml
+  component "play.js\n命令 + 渲染编排" as PlayJs
+  component "production-view.js\n只读生产/流入视图" as ProdView
+  component "world.html + world.js" as WorldPage
+}
+
+package "Web 宿主" {
+  component "HTTP endpoints" as Http
+  component "WebSocketHub\n连接 / 收发 / 广播" as Hub
+  component "CommandDispatcher\n协议适配" as Dispatcher
+  component "JarSystemService\n组合根 + Gate" as Service
+  component "TickBackgroundService" as TickSvc
+  component "AutoCheckBackgroundService" as AutoSvc
+  component "PresentationObserver" as FrameOut
+  component "LevelCatalog / Scenario" as Level
+}
+
+package "确定性内核" {
+  component "JarSystem\n统一门面" as Core
+  component "StateSerializer\n读模型" as Projection
+  component "ProcessSystem /\nTickPipeline" as Runtime
+  component "ProducerModule /\nLiquidProduction" as Production
+  component "Warehouse" as Warehouse
+  component "WorldBus" as Bus
+  component "SessionReplay /\nWorldCommand" as Replay
+}
+
+package "Godot 宿主" {
+  component "GameManager\nNode + UI signals" as GodotManager
+  component "Godot card views" as GodotViews
+}
+
+P --> PlayHtml
+PlayHtml --> PlayJs
+PlayJs --> ProdView
+P --> WorldPage
+
+PlayJs --> Hub : WebSocket 命令
+WorldPage --> Hub : WebSocket 命令
+Hub --> Dispatcher : 解析后的命令
+Dispatcher --> Service : 用例意图
+Service --> Core : Gate 内修改/读取
+TickSvc --> Service
+AutoSvc --> Service
+Service --> Level : 换关 / 重开
+Service --> Core : 替换当前世界
+
+Core --> Production
+Production --> Warehouse : 入库
+Core --> Runtime
+Runtime --> Production : 每 tick 产出
+Core --> Warehouse : 调用边界流入
+Core --> Bus
+Core --> Projection
+Core --> Replay
+Projection --> Hub : StateDto
+Bus --> FrameOut
+FrameOut --> Hub : frame
+Hub --> PlayJs : world / init / state / frame
+Hub --> WorldPage : world / init / state / frame
+
+GodotViews --> GodotManager
+GodotManager --> Core : 直接调用门面
+GodotManager --> Projection : GetState
+
+note right of Service
+  所有共享世界操作经过 Gate。
+  tick、自动分析、换关、WebSocket 命令
+  不得在 Gate 外缓存当前 System。
+end note
+
+note bottom of Production
+  生产：速率 + 累加器 → 新资源入库。
+  流入：Warehouse 到主台的搬运。
+  两条路径分开投影到 ProducerStatus.flow 与 Warehouse。
+end note
+
+note right of Core
+  世界只有一个权威副本。
+  StateDto、frame、process journal 都是投影；
+  命令日志 + 初始配置 + 种子可重建世界。
+end note
+@enduml

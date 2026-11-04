@@ -44,7 +44,7 @@ package "Config" {
   }
   class "Constants.CheckMethod" as CT_CheckMethod {
     +SINGLE_PHASE = "single_phase"
-    +SLAVE_ONLY = "slave_only"
+    +SLAVE_ONLY = "slave_only" (legacy read only)
     +PARTITION = "partition"
   }
   class "Constants.SwitchCaseType" as CT_SwitchCase {
@@ -303,8 +303,6 @@ package "Orders" {
     +Errors : IReadOnlyList
     +DeliveredJars : IReadOnlyList
     +TransferredJarIds : IReadOnlyCollection
-    +TransferredLiquids : IReadOnlyDictionary
-    +SlaveOriginalJarIds : IReadOnlyCollection
     +Executor : CommandExecutor
     ~AppendLog(entry)
     ~AppendError(error)
@@ -313,7 +311,6 @@ package "Orders" {
     +ExecuteBatch(cmds, ws) : (bool, int, string?)
     +AdvanceToSlavePhase() : CommandResult
     +RecordTransfer(jar)
-    +RecordLiquidTransfer(l, amt)
     +CheckDelivery() : (bool, string)
     +Deliver() : (bool, string?)
     +Fail(reason) : (bool, string?)
@@ -337,7 +334,7 @@ package "Orders" {
     +Reason : string?
   }
   class SlaveRollback <<internal>> {
-    +Execute(master, slave, transferredJarIds, slaveOriginalJarIds, transferredLiquids, appendLog)
+    +Execute(master, slave, appendLog) : 排空从台全部剩余物
   }
   class WorkshopSwitchEvent {
     +OldMaster : Workshop
@@ -405,9 +402,6 @@ package "Orders.Feasibility" {
   class SinglePhaseCheck <<internal>> {
     +Method = single_phase
   }
-  class SlaveOnlyCheck <<internal>> {
-    +Method = slave_only
-  }
   class PartitionCheck <<internal>> {
     +Method = partition
   }
@@ -420,8 +414,6 @@ package "Orders.Feasibility" {
     +SlaveInfo : WorkshopInfo
     +MasterJars : List
     +MasterLiquids : Map
-    +SlaveJars : List
-    +SlaveLiquids : Map
   }
   class PartitionSearchOutcome {
     +MasterPath : List
@@ -455,14 +447,13 @@ package "Orders.Feasibility" {
     {static} +MatchAll(jars, reqs, matches) : int 数组
   }
   class LiquidRequirementCalculator <<static>> {
-    {static} +ComputeRequired(path, slaveLiquids) : Map
+    {static} +ComputeRequired(path) : Map
   }
   class RequirementOrdering <<static>> {
     {static} +FullFirst(reqs) : List
   }
 
   SinglePhaseCheck ..|> IFeasibilityCheck
-  SlaveOnlyCheck ..|> IFeasibilityCheck
   PartitionCheck ..|> IFeasibilityCheck
   PartitionCheck --> PartitionSearch
   PartitionSearch --> PartitionSearchRequest
@@ -1075,7 +1066,8 @@ end note
 
 note as NOrderEvent
   只有 RollbackSlaveToMaster 是一行委托到 SlaveRollback（2026-09 抽出）。
-  Deliver() 在 B 类时调用它；Fail() 无条件调用它。
+  Deliver() 在 B 类时调用它；Fail() 也委托它，A 类主从同台时安全空操作。
+  它按从台**当前剩余物全集**排空；工具罐倒出的游离液体不能只靠转入账目识别。
 end note
 
 note as NAbstractions

@@ -1,0 +1,208 @@
+@startuml
+title 生产、仓库流入与状态投影（2026-11 当前态）
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+hide empty members
+
+package "配置数据" {
+  class WorldOptions {
+    +Shapes : List
+    +Liquids : List
+    +Flow : FlowOptions
+    +Producers : List
+    +ProducerSlots : int
+    +Workshops : List
+    +Clone() : WorldOptions
+    +Validate() : WorldValidationResult
+  }
+
+  class FlowOptions {
+    +JarCount : int
+    +LiquidAmount : int
+    +LiquidRate : Dictionary
+  }
+
+  class ProducerOptions {
+    +Name : string
+    +Rates : Dictionary
+  }
+
+  class WorkshopOptions {
+    +Name : string
+    +BaseMarks : List
+    +AdditionalMarks : List
+    +Ban : List
+  }
+}
+
+package "生产运行时" {
+  class JarSystem {
+    +FlowSettings : (int, int)
+    +ProducerModule : ProducerModule
+    +LiquidProduction : LiquidProduction
+    +Tick(count) : int
+  }
+
+  class ProducerModule {
+    +ProducerSlots : int
+    +UsedSlots : int
+    +Producers : IReadOnlyDictionary
+    +Generators : IReadOnlyDictionary
+    +Warehouse : Warehouse
+    +RegisterProducer(name, rates)
+    +UpdateRate(name, shape, rate)
+    +Tick(count) : List
+  }
+
+  class Producer {
+    +Name : string
+    +Rates : IReadOnlyDictionary
+  }
+
+  class ShapeProductionLine {
+    +Shape : string
+    +Rate : double
+    +Accumulated : double
+    +Producers : IReadOnlyList
+    +HasPositiveRate : bool
+    +Tick() : List
+  }
+
+  class LiquidProduction {
+    +Rates : IReadOnlyDictionary
+    +Accumulated : IReadOnlyDictionary
+    +SetRate(liquid, rate)
+    +Tick() : List
+    +WillProduceNextTick(liquid) : bool
+  }
+
+  class Warehouse {
+    +Jars : IReadOnlyList
+    +LiquidWarehouse : IReadOnlyDictionary
+    +StoreJars(jars)
+    +ProduceLiquid(liquid, amount)
+    +FlowToMaster(master, jars, liquid)
+  }
+}
+
+package "应用服务" {
+  class ProductionService {
+    +TickStep()
+    +FlushFlow()
+    +UpdateProducerRate(name, shape, rate)
+    +UpdateLiquidProductionRate(liquid, rate)
+  }
+}
+
+package "状态读模型" {
+  class StateSerializer {
+    {static} +Snapshot(system) : StateDto
+  }
+
+  class StateDto {
+    +Warehouse : WarehouseStateDto
+    +ProducerStatus : ProducerStatusDto
+  }
+
+  class ProducerStatusDto {
+    +Producers : List
+    +Generators : List
+    +Slots : ProducerSlotStatusDto
+    +Flow : ProductionFlowStatusDto
+    +LiquidRates : Dictionary
+    +LiquidAccumulated : Dictionary
+    +Warehouse : ProducerWarehouseDto
+  }
+
+  class ProducerSlotStatusDto {
+    +Used : int
+    +Limit : int
+  }
+
+  class ProductionFlowStatusDto {
+    +Jars : int
+    +LiquidPerLiquid : int
+  }
+
+  class GeneratorStatusDto {
+    +Shape : string
+    +Rate : double
+    +Accumulated : double
+    +Producers : int
+  }
+
+  class WarehouseStateDto {
+    +Jars : int
+    +JarList : List
+    +Liquids : Dictionary
+  }
+}
+
+package "宿主表现" {
+  class CommandDispatcher {
+    +HandleAsync(service, socket, type, data)
+  }
+
+  class PlayPage {
+    +render()
+    +send(type, data)
+  }
+
+  class ProductionView {
+    +render(producerStatus, warehouse, state)
+  }
+}
+
+WorldOptions *-- FlowOptions
+WorldOptions *-- "0..*" ProducerOptions
+WorldOptions *-- "0..*" WorkshopOptions
+
+JarSystem *-- ProducerModule
+JarSystem *-- LiquidProduction
+ProducerModule *-- Warehouse
+ProducerModule o-- "0..*" Producer
+ProducerModule *-- "1..*" ShapeProductionLine
+ShapeProductionLine ..> Producer : 读取生产源速率
+
+ProductionService --> ProducerModule : 产罐
+ProductionService --> LiquidProduction : 产液
+ProductionService --> Warehouse : 入库 / 流往主台
+ProductionService --> JarSystem : 读取 FlowSettings 与修饰器
+
+StateSerializer ..> JarSystem : 只读快照
+StateSerializer --> StateDto : 构造投影
+StateDto *-- ProducerStatusDto
+StateDto *-- WarehouseStateDto
+ProducerStatusDto *-- ProducerSlotStatusDto
+ProducerStatusDto *-- ProductionFlowStatusDto
+ProducerStatusDto *-- "1..*" GeneratorStatusDto
+
+CommandDispatcher --> JarSystem : 命令
+PlayPage --> ProductionView : 只读渲染
+ProductionView ..> ProducerStatusDto : 消费 slots / flow / generators
+ProductionView ..> WarehouseStateDto : 显示库存
+
+note right of ProducerModule
+  **真实实体关系**
+  · Producer 是生产源；
+  · ShapeProductionLine 是按形状聚合的执行线；
+  · ProducerModule 负责速率规则与槽位；
+  · Warehouse 只接收入库与搬运，不创造资源。
+end note
+
+note bottom of ProductionService
+  **TickStep**：ProducerModule.Tick + LiquidProduction.Tick
+  将新资源放入 Warehouse。
+
+  **FlushFlow**：Warehouse.FlowToMaster
+  只搬已有库存，不产生新资源。
+end note
+
+note right of ProducerStatusDto
+  `producerStatus.slots` 与 `producerStatus.flow`
+  是本轮新增的公开只读键。
+
+  页面不得从库存差值反推“生产量”，
+  也不得自行计算槽位上限。
+end note
+@enduml

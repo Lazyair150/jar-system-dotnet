@@ -18,13 +18,17 @@ Pending --> Pending : CheckFeasibility\n只更新 feasibilityResult
 ' 终态不可重复执行（2026-09 修复）：
 ' 此前只有前端按钮做限制，WS 命令可对已成功/已失败的订单重复执行，
 ' 会污染 eventHistory 与交付账目。现在 OrderService 直接拒绝。
-Pending --> Executing : ExecuteOrder
+Pending --> Executing : StartOrder（异步）\nBeginOrderExecution / MarkExecuting
+Pending --> Executing : ExecuteOrder（同步 drain）
+
+Executing --> Executing : Tick 推进过程\n状态不变
 
 Executing --> Success : Deliver 通过，需求全部满足
 Executing --> Failed : Fail 带失败原因
+Executing --> Failed : CancelProcess\n过程 aborted，订单 failed
 
-Success --> [*] : 交付罐已 RemoveJar 离场
-Failed --> [*] : 仅跨台转移被回滚
+Success --> [*] : 交付罐离场，从台剩余物已排空
+Failed --> [*] : 从台剩余物已排空
 
 note right of Pending
   **可执行的前提**
@@ -35,6 +39,11 @@ note right of Pending
 end note
 
 note right of Executing
+  **状态单一来源**
+  Order.Lifecycle 是内部枚举；
+  Order.Status 是冻结的中文契约投影；
+  OrderEvent.Status 只读 Order.Status。
+
   **两种订单类型的阶段差**
   · A 类：仅主台，无需从台
   · B 类：主台阶段 到 选择性转移 到 从台阶段 到 交付
@@ -44,7 +53,8 @@ end note
 note right of Failed
   **失败不回滚主台已发生的操作**（规则.txt 定案）
   改形消耗的液体、已经发生的形状变换一律保留；
-  只回滚**跨台转移**（SlaveRollback）。
+  从台当前全部剩余罐与游离液体仍由 SlaveRollback 回主台；
+  但不恢复主台已经付出的操作代价。
   原因：试探有代价，是 puzzle 的一部分。
   ⚠️ 因此「执行失败」不是幂等操作 —— 失败本身会改变世界。
 end note
@@ -55,5 +65,11 @@ note right of Success
   再对匹配需求的罐子逐个 RemoveJar 记入 DeliveredJars。
   这就是「罐子守恒」不变量的**出口**：
   罐子只会经由交付或溢出丢弃离开系统。
+end note
+
+note bottom of Pending
+  订单的“执行中”描述委托是否被消费；
+  过程中的 Running/Blocked 描述工作是否仍在推进。
+  两者相关但不能互相替代。
 end note
 @enduml

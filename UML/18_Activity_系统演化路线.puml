@@ -1,0 +1,66 @@
+@startuml
+title 系统演化路线（2026-11 提案）
+skinparam shadowing false
+
+start
+:当前基线与质量门;
+note right
+  258 focused tests
+  32 deterministic
+  replay byte-identical
+  browser smoke OK
+end note
+
+:P0 正确性与可观察性\n（本轮已完成）;
+note right
+  · 生产 / 自产 / 流入分离
+  · 生产源与真实产线一致
+  · 多客户端广播与换关竞态
+  · 场景与 WorldBus 组合
+  · 生产视图独立
+end note
+
+if (契约可收紧？) then (是)
+  :P1 统一液体词表;
+  :封闭 eventHistory 联合类型;
+  :可行性结果绑定逻辑 tick;
+  :显式契约迁移与重放基线;
+else (否)
+  :保留显式 boundary 与例外记录;
+endif
+
+if (需要双宿主同构内容？) then (是)
+  :P2 抽取共享关卡装配器;
+  :Godot 加载 world / levels / scenario;
+  :双宿主内容一致性测试;
+else (否)
+  :维持 Web-only 内容边界;
+endif
+
+if (需要多会话/多世界？) then (是)
+  :P3 引入 worldEpoch;
+  :帧与快照绑定世界代际;
+  :会话隔离与重连协议;
+else (否)
+  :保持本机单世界宿主;
+endif
+
+:P4 内容工具与平衡反馈;
+note right
+  关卡编辑、热重载、
+  可解性/难度指标、
+  匿名玩法观测
+end note
+
+:每阶段运行唯一完整门禁;
+if (VERDICT=OK\nQUALITY-OK?) then (是)
+  :记录基线、ADR 与回滚点;
+  :进入下一阶段;
+else (否)
+  :停止扩展;
+  :定位根因并补回归;
+  :回退本阶段;
+endif
+
+stop
+@enduml
