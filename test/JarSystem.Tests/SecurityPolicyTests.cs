@@ -57,7 +57,7 @@ public class SecurityPolicyTests
     {
         string[] endpoints =
         {
-            "GET /api/state", "GET /api/levels", "GET /api/invariants",
+            "GET /api/state", "GET /api/levels", "GET /api/invariants", "GET /api/provenance",
             "GET /api/scenario", "POST /api/scenario/validate", "POST /api/scenario"
         };
         var registered = PermissionPoints.Endpoints.Select(e => e.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();

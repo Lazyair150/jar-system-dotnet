@@ -54,6 +54,25 @@ public sealed record LevelInfo(int Index, string Name, string Hint, int Turns, W
 /// <summary>扫描并解析 <c>config/levels/</c>。</summary>
 public static class LevelCatalog
 {
+    /// <summary>
+    /// 把**程序化生成**的一关包成 <see cref="LevelInfo"/>：关卡是宿主的词汇，生成器也在宿主层，
+    /// 于是"生成的关"与"手写的关"走同一条注册路径（同一个 <c>JarSystemService</c> 构造参数），
+    /// 页面也只认一种形状。
+    ///
+    /// 序号记 0：它不是发行关卡列表里的第几关；页面靠 <see cref="Path"/> 的 <c>generated:</c> 前缀分辨。
+    /// </summary>
+    public static LevelInfo FromGenerated(GeneratedLevel level) => new(
+        Index: 0,
+        Name: level.Name,
+        Hint: level.Hint,
+        Turns: level.Turns,
+        World: level.World,
+        Path: "generated:" + level.ArchetypeId + "@" + level.Seed)
+    {
+        Master = level.Master,
+        Orders = level.Orders,
+    };
+
     /// <summary>关卡目录（相对仓库根）。</summary>
     public const string RelativeDir = "config/levels";
 

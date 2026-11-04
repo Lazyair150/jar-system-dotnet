@@ -81,6 +81,7 @@ public static class PermissionPoints
         new PermissionPoint("GET /api/state", AccessCategory.BusinessRead, "世界", "读", "调试与冒烟用只读快照"),
         new PermissionPoint("GET /api/levels", AccessCategory.BusinessRead, "关卡", "读", "页面要列出可玩的关卡"),
         new PermissionPoint("GET /api/invariants", AccessCategory.BusinessRead, "世界", "读", "自检面板要不变量结论"),
+        new PermissionPoint("GET /api/provenance", AccessCategory.BusinessRead, "资源账本", "读", "页面按因果展示每份资源的来去"),
         new PermissionPoint("GET /api/scenario", AccessCategory.BusinessRead, "作者数据", "读", "编辑器读当前场景"),
         new PermissionPoint("POST /api/scenario/validate", AccessCategory.BusinessRead, "作者数据", "校验", "只解析不落盘"),
         new PermissionPoint("POST /api/scenario", AccessCategory.Admin, "作者数据", "写", "把场景写进 config/scenario.json")

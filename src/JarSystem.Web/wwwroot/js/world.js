@@ -286,6 +286,53 @@
     }
   }
 
+  /* ---------------- 资源账本（level-ui） ----------------
+     每份资源的来去都由内核记下（ResourceLedger），页面**只渲染**：不合并、不推断、不补全。
+     读取是增量的：记住上次见到的最大 Seq，只问"比它新的"，于是长时间跑时页面代价是 O(新增)。 */
+  var PROV = [];
+  var provLastSeq = 0;
+  var MAX_PROV = 400;
+
+  function renderProvenance(meta) {
+    var el = $('prov');
+    if (!el) return;
+    if (meta) {
+      var m = $('provmeta');
+      if (m) {
+        m.textContent = '保留 ' + meta.retained + ' 条' + (meta.dropped ? ' · 已丢 ' + meta.dropped + ' 条（有界账本）' : '') +
+          ' · 最新序号 #' + meta.lastSeq;
+      }
+    }
+    if (!PROV.length) { el.innerHTML = '<div class="empty">还没有资源变化。</div>'; return; }
+    el.innerHTML = PROV.slice(-MAX_PROV).map(function (e) {
+      var move = e.from || e.to ? ' ' + esc(e.from || '?') + ' → ' + esc(e.to || '?') : '';
+      var why = e.reason ? ' <span class="why">（' + esc(e.reason) + '）</span>' : '';
+      return '<div class="prov"><span class="seq">#' + esc(e.seq) + '</span> ' +
+        '<span class="tick">t' + esc(e.tick) + '</span> ' +
+        '<span class="c-' + esc(e.cause) + '">' + esc(e.cause) + '</span> ' +
+        esc(e.kind) + ' ' + esc(e.name) + ' ×' + esc(e.amount) + esc(move) + why + '</div>';
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function pollProvenance() {
+    fetch('/api/provenance?since=' + provLastSeq).then(function (r) { return r.json(); }).then(function (j) {
+      var fresh = (j.entries || []).filter(function (e) { return e.seq > provLastSeq; });
+      if (fresh.length) {
+        PROV = PROV.concat(fresh);
+        if (PROV.length > MAX_PROV * 2) PROV = PROV.slice(-MAX_PROV);
+        provLastSeq = fresh[fresh.length - 1].seq;
+      } else if (typeof j.lastSeq === 'number' && j.lastSeq > provLastSeq) {
+        /* 账本有界：新条目可能已经因为溢出被丢掉。**据实对齐**，不假装连续。 */
+        provLastSeq = j.lastSeq;
+      }
+      renderProvenance(j);
+    }).catch(function () {
+      var el = $('prov');
+      if (el) el.innerHTML = '<div class="empty">账本读取失败</div>';
+    });
+  }
+
   /* ---------------- 关卡（S1/S5）：页面只显示，不解释 ---------------- */
   /* 关卡由宿主用 `--level N` 选定，页面只知道"现在是哪一关、还剩几回合、作者留了什么提示"。
      回合上限是**玩法规则**（住内核的一关数据），页面不数也不猜，只把 /api/levels 的答复印出来。 */
@@ -294,6 +341,13 @@
       var lv = (j.levels || []).filter(function (x) { return x.index === j.current; })[0];
       var tag = $('level');
       var hint = $('levelhint');
+      /* 程序化关卡（`--archetype 原型 --seed 种子`）：它不是发行列表里的第几关，单独报一行。 */
+      if (j.generated) {
+        if (tag) tag.textContent = '生成关卡 · ' + j.generated.archetype + ' · 种子 ' + j.generated.seed +
+          ' · ' + j.generated.turns + ' 回合（规则版本 ' + j.rulesVersion + '）';
+        if (hint) hint.textContent = j.generated.name;
+        return;
+      }
       if (!lv) { if (tag) tag.textContent = '自由世界（无关卡）'; if (hint) hint.textContent = ''; return; }
       tag.textContent = '第 ' + lv.index + ' / ' + j.count + ' 关 · ' + lv.name + ' · ' + lv.turns + ' 回合';
       hint.textContent = lv.hint || '';
@@ -398,7 +452,9 @@
     if (act === 'autoround') { startAutoRound(); return; }
     if (act === 'run') { send('startTick'); return; }
     if (act === 'pause') { send('stopTick'); return; }
-    if (act === 'refresh') { send('getState'); pollInvariants(); return; }
+    if (act === 'refresh') { send('getState'); pollInvariants(); pollProvenance(); return; }
+    if (act === 'provrefresh') { pollProvenance(); return; }
+    if (act === 'provclear') { PROV = []; renderProvenance(null); return; }
     if (act === 'clear') { frames = []; renderFrames(); return; }
     if (act === 'check') { send('checkFeasibility', { orderId: Number(id) }); return; }
     if (act === 'start') { send('startOrder', { orderId: Number(id) }); return; }
@@ -447,6 +503,8 @@
 
   connect();
   loadLevel();
+  pollProvenance();
   setInterval(pollInvariants, 2000);
+  setInterval(pollProvenance, 1500);
   setInterval(function () { if (!frames.length) return; var el = $('frames'); if (el) el.scrollTop = el.scrollHeight; }, 1000);
 })();

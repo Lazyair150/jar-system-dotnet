@@ -31,9 +31,20 @@ The player should always be able to answer:
   tick pipeline and `transfer`/`return` from the order pipeline. Every record carries the tick, the cause,
   the kind, the amount, the source, the destination, and a human reason. Recording never mutates the
   world, so the replay bytes are unchanged by the ledger's existence.
-- The page still does not *show* that chain: `GET /api/state` exposes state only, and no endpoint or frame
-  serializes ledger entries. That gap is the remaining work in the `level-ui` slice.
-- There is no deterministic level generator or machine-checkable generator constraint set.
+- The page now shows that chain (`level-ui`, done): `GET /api/provenance?since=N` serializes ledger
+  entries incrementally (`seq`/`tick`/`cause`/`kind`/`name`/`amount`/`from`/`to`/`reason`, plus
+  `lastSeq`/`retained`/`dropped` so a bounded ledger never looks continuous when it is not), and
+  `wwwroot/world.html` renders them verbatim in a "资源账本" panel. The page still derives nothing: it does
+  not merge, infer, or invent a cause — it prints what the kernel recorded.
+- A deterministic generator exists (`procedural-campaign`, done): `src/JarSystem.Web/ProceduralCampaign.cs`
+  builds a level from `(archetype, seed, rulesVersion)` using one seeded `Random`, and the same
+  `src/JarSystem.Core/World/LevelGates.cs` that the test suite runs is applied **before** the level is
+  handed out — an unplayable world is refused with an exception rather than shipped. `--archetype`/`--seed`
+  select it at startup, `/api/levels` reports `archetypes`, `rulesVersion` and the `generated` block.
+- The gate is not decorative: while tuning the six archetypes it caught two real content bugs in the
+  generator's own defaults (a level whose turn limit left zero slack, and a "banned desk" level whose only
+  order was impossible at every desk that could obtain the required shape). Both were content fixes, not
+  threshold relaxation; `MinimumSlack = 1` did not move.
 
 ## Assumptions to Confirm
 
@@ -57,6 +68,10 @@ The player should always be able to answer:
 | `level-runtime` | Deploy orders by schedule, expose objective/progress/next-step read model, restart and switch levels | `level-schema` |
 | `level-ui` | Present lesson, objective, resource provenance, progress, and real-time movement from kernel facts | `resource-provenance`, `level-runtime` |
 | `procedural-campaign` | Deterministic archetype selection and constrained variation, winnability checks, seed/version record | `level-schema`, `level-runtime` |
+
+Status: `level-schema`, `resource-provenance`, `level-runtime`, `level-ui` and `procedural-campaign` are
+all implemented. What remains open is content authoring (more archetypes, more lessons) and the questions
+below — not missing machinery.
 
 Build order:
 

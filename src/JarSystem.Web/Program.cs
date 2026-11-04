@@ -8,6 +8,8 @@
 //   IWebSocketSink     推送出口接口（依赖倒置）
 
 using System.Text;
+using JarSystem.Core.Production;
+using JarSystem.Core.Security;
 
 // dotnet run 的 ContentRoot 是 Web 工程目录，而直接运行构建产物时通常不是。
 // 后一种情况会让 UseStaticFiles 静默找不到 wwwroot；按内容根/输出目录/工程目录
@@ -34,6 +36,10 @@ if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URL
 // 关卡（`--level N`）：只做"选一份世界"这件事；关卡文件本身在 config/levels/*.json（见 LevelCatalog）。
 var levelIndex = ParseLevelArg(args);
 var levels = LevelCatalog.Discover();
+
+// 程序化关卡（`--archetype 原型 --seed 种子`）：一关由"原型 + 种子 + 规则版本"确定性生成，
+// 生成后**立刻过同一道闸门**（LevelGates）——过不了就拒绝启动，不把死局交给玩家。
+var generated = ParseGeneratedLevelArg(args);
 LevelInfo? selectedLevel = null;
 
 // 不给 --level 时的默认：第一关。
@@ -41,7 +47,7 @@ LevelInfo? selectedLevel = null;
 // 打开就是"随便玩玩"，而玩家第一次运行看到的应该是第一关（有目标、有回合数）。
 // 想回到沙盒：dotnet run --project src\JarSystem.Web -- --sandbox
 var sandbox = args.Any(a => a.Equals("--sandbox", StringComparison.OrdinalIgnoreCase));
-if (!sandbox && levelIndex is null && levels.Count > 0)
+if (!sandbox && generated is null && levelIndex is null && levels.Count > 0)
     levelIndex = levels[0].Index;
 
 if (levelIndex is { } want)
@@ -59,6 +65,14 @@ if (levelIndex is { } want)
 else if (levels.Count > 0)
 {
     Console.WriteLine("[level] 出厂沙盒（config/world.json）：不判胜、回合不限。共 " + levels.Count + " 关，用 --level N 选一关");
+}
+
+// 生成关卡优先于手写关卡：`--archetype` 是最具体的意图（`--level` 与它同时给时以它为准）。
+if (generated != null)
+{
+    selectedLevel = LevelCatalog.FromGenerated(generated);
+    Console.WriteLine("[level] 生成关卡 " + generated.ArchetypeName + "（种子 " + generated.Seed
+        + "，规则版本 " + generated.RulesVersion + "）：" + generated.Name);
 }
 
 builder.Services.AddJarSystem(selectedLevel);
@@ -143,8 +157,21 @@ app.MapGet("/api/levels", (HttpContext ctx, JarSystemService svc) =>
     }
     return Results.Json(new
     {
-        current = svc.Level?.Index,
+        current = svc.Level == null || svc.Level.Path.StartsWith("generated:", StringComparison.Ordinal)
+            ? (int?)null
+            : svc.Level.Index,
         count = levels.Count,
+        archetypes = ProceduralCampaign.Archetypes,
+        rulesVersion = ProceduralCampaign.RulesVersion,
+        generated = svc.Level != null && svc.Level.Path.StartsWith("generated:", StringComparison.Ordinal)
+            ? new
+            {
+                archetype = svc.Level.Path.Substring("generated:".Length).Split('@')[0],
+                seed = generated?.Seed ?? 0,
+                name = svc.Level.Name,
+                turns = svc.Level.Turns,
+            }
+            : null,
         levels = levels.Select(l => new
         {
             index = l.Index,
@@ -158,6 +185,56 @@ app.MapGet("/api/levels", (HttpContext ctx, JarSystemService svc) =>
             maxLiquids = l.World.DefaultMaxLiquids
         })
     }, JsonArgs.Options);
+});
+
+// 资源账本端点（level-ui）：把"每份资源从哪来、到哪去"交给页面。
+// **只读投影**：读账本不改世界、不推进时间；页面拿它把因果讲出来，而不是自己推导。
+// `?since=N` 只要序号 > N 的新条目（页面记住上次见到的最大序号即可增量拉取）。
+app.MapGet("/api/provenance", async (HttpContext ctx, JarSystemService svc) =>
+{
+    if (!WebSocketHub.IsAllowedOrigin(ctx.Request.Headers.Origin.ToString()))
+    {
+        Console.Error.WriteLine("[api] 拒绝来自非本机来源的 /api/provenance: " + ctx.Request.Headers.Origin);
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    if (!PermissionPoints.TryFindEndpoint("GET /api/provenance", out var point))
+        return Results.StatusCode(StatusCodes.Status500InternalServerError);
+
+    long since = 0;
+    if (long.TryParse(ctx.Request.Query["since"], out var parsed)) since = parsed;
+
+    await svc.Gate.WaitAsync();
+    try
+    {
+        var ledger = svc.System.ResourceLedger;
+        var entries = ledger.Since(since)
+            .Select(e => new
+            {
+                seq = e.Seq,
+                tick = e.Tick,
+                cause = e.Cause,
+                kind = e.Kind,
+                name = e.Name,
+                amount = e.Amount,
+                from = e.From,
+                to = e.To,
+                reason = e.Reason,
+            })
+            .ToList();
+
+        return Results.Json(new
+        {
+            category = point.Category.ToString(),
+            since,
+            lastSeq = ledger.LastSeq,
+            retained = ledger.Retained,
+            dropped = ledger.Dropped,
+            causes = ResourceCauses.All,
+            entries,
+        }, JsonArgs.Options);
+    }
+    finally { svc.Gate.Release(); }
 });
 
 // 世界不变量端点（S2）：与 `/api/state` 共用**同一串行闸门与同一条来源校验**。
@@ -319,6 +396,55 @@ static async Task<(bool Ok, string Text, string? Error)> ReadBodyWithinLimitAsyn
         buffer.Write(chunk, 0, read);
     }
     return (true, Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length), null);
+}
+
+// `--archetype 原型 [--seed N]`：程序化关卡。生成失败（过不了闸门）即拒绝启动并打印原因。
+// 为什么在宿主层解析、而不是核心：核心不认识"关卡"，更不认识"原型"。
+static GeneratedLevel? ParseGeneratedLevelArg(string[] arguments)
+{
+    var archetype = ParseArgValue(arguments, "--archetype");
+    if (archetype == null) return null;
+
+    var seed = ParseIntArg(arguments, "--seed", 0);
+    try
+    {
+        return ProceduralCampaign.Generate(archetype, seed);
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine("[level] " + ex.Message);
+        Console.Error.WriteLine("[level] 可用的原型: " +
+            string.Join("、", ProceduralCampaign.Archetypes.Select(a => a.Id + "（" + a.Name + "）")));
+        Environment.Exit(2);
+        return null;
+    }
+}
+
+// 取 `--name 值` 或 `--name=值`（没有该参数返回 null）。
+static string? ParseArgValue(string[] arguments, string name)
+{
+    for (int i = 0; i < arguments.Length; i++)
+    {
+        var a = arguments[i];
+        if (a.Equals(name, StringComparison.OrdinalIgnoreCase) && i + 1 < arguments.Length)
+            return arguments[i + 1];
+        if (a.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase))
+            return a.Substring(name.Length + 1);
+    }
+    return null;
+}
+
+// 取整数参数；缺省用 fallback，非法值报错退出（不猜）。
+static int ParseIntArg(string[] arguments, string name, int fallback)
+{
+    var raw = ParseArgValue(arguments, name);
+    if (raw == null) return fallback;
+    if (!int.TryParse(raw, out var value))
+    {
+        Console.Error.WriteLine("[level] " + name + " 需要一个整数，收到: " + raw);
+        Environment.Exit(2);
+    }
+    return value;
 }
 
 // `--level N`（也接受 `--level=N`）。解析失败按 0 处理会被误当成"第 0 关"，所以非法值直接报错退出。
