@@ -96,7 +96,7 @@ public sealed class OrderDemandBoard
     {
         var demand = Passive.Demands.FirstOrDefault(x => x.Id == demandId);
         if (demand == null) return false;
-        var oldIndex = Passive.Demands.IndexOf(demand);
+        var oldIndex = Passive.Demands.ToList().IndexOf(demand);
         if (!Passive.Move(demand, newIndex)) return false;
         if (oldIndex != newIndex)
             Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.PassiveOrderChanged,
@@ -117,14 +117,19 @@ public sealed class OrderDemandBoard
             throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
 
         var ready = new List<int>();
-        foreach (var demand in Passive.Demands.Concat(Active.Demands))
+        foreach (var demand in Passive.Demands.Concat(Active.Demands).ToArray())
             if (demand.AdvanceLogicalTime(deltaLogicalTimeMilli))
-            {
                 ready.Add(demand.Id);
-                var area = AreaOf(demand);
-                Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.CooldownElapsed,
-                    demand.Id, area.Kind, area.Kind));
-            }
+
+        // 在枚举结束后再通知，避免订阅者在回调中增删订单破坏当前遍历。
+        foreach (var demandId in ready)
+        {
+            var demand = Find(demandId);
+            if (demand == null) continue;
+            var area = AreaOf(demand);
+            Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.CooldownElapsed,
+                demandId, area.Kind, area.Kind));
+        }
         return ready.AsReadOnly();
     }
 
