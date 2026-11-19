@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Config;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Solver;
 using JarSystem.Core.World.Demands;
@@ -46,7 +47,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
 
         var requirements = RequirementOrdering.FullFirst(specification.Requirements);
 
-        if (specification.Type == Config.Constants.OrderType.A)
+        if (specification.Type == Constants.OrderType.A)
         {
             var solved = snapshotSolver.Solve(
                 requirements,
@@ -71,6 +72,10 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
         if (snapshot.Slave == null || slaveInfo == null)
             return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
                 reason: "B 类订单需要主台和从台两个岗位");
+
+        if (snapshot.Slave.Jars.Count != 0 || snapshot.Slave.Liquids.Values.Any(amount => amount != 0))
+            return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
+                reason: "B 类订单开始求解时，从台必须为空");
 
         var partition = new PartitionSearch(snapshotSolver);
         var outcome = partition.Search(new PartitionSearchRequest
