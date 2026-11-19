@@ -18,6 +18,7 @@ public sealed class WorldOrderSolveResult
     public string? Reason { get; }
     public int DirectCount { get; }
     public int OperationCount { get; }
+    public WorldOrderSolvePlan? Plan { get; }
 
     public bool IsFeasible => Status == WorldOrderSolveStatus.Feasible;
     public bool IsUndetermined => Status == WorldOrderSolveStatus.Undetermined;
@@ -29,7 +30,8 @@ public sealed class WorldOrderSolveResult
         string? checkMethod = null,
         string? reason = null,
         int directCount = 0,
-        int operationCount = 0)
+        int operationCount = 0,
+        WorldOrderSolvePlan? plan = null)
     {
         if (demandId <= 0) throw new ArgumentOutOfRangeException(nameof(demandId));
         if (string.IsNullOrWhiteSpace(worldVersion))
@@ -45,6 +47,11 @@ public sealed class WorldOrderSolveResult
         Reason = reason;
         DirectCount = directCount;
         OperationCount = operationCount;
+        if (status == WorldOrderSolveStatus.Feasible && plan == null)
+            throw new ArgumentException("可行结果必须包含不可变求解计划", nameof(plan));
+        if (status != WorldOrderSolveStatus.Feasible && plan != null)
+            throw new ArgumentException("只有可行结果可以携带求解计划", nameof(plan));
+        Plan = plan;
     }
 }
 
