@@ -80,7 +80,7 @@ public sealed class WorldOrderSolverTests
         var result = Registry().Solve(Demand(), snapshot);
 
         Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
-        Assert.Contains("无法静态投影", result.Reason);
+        Assert.Contains("无法静态投影", result.Reason ?? string.Empty);
     }
 
     [Fact]
@@ -134,6 +134,34 @@ public sealed class WorldOrderSolverTests
         var result = registry.Solve(Demand(), Snapshot(master));
 
         Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+    }
+
+    [Fact]
+    public void RegistryDoesNotSolveDemandDuringItsCooldown()
+    {
+        var demand = new OrderDemand(
+            new JarOrderSpecification(new[] { new Requirement { Shape = "圆罐" } }, Constants.OrderType.A, Words),
+            1_000, new SequentialIdGenerator());
+        demand.EnterCooldown();
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+
+        var result = Registry().Solve(demand, Snapshot(master));
+
+        Assert.Equal(WorldOrderSolveStatus.NotReady, result.Status);
+    }
+
+    [Fact]
+    public void BSpecificationRejectsNonEmptySlaveSnapshot()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台");
+        master.AddJar(new Jar("圆罐"));
+        slave.AddJar(new Jar("方罐"));
+
+        var result = Registry().Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.InvalidWorld, result.Status);
     }
 
     private sealed class ForeignSpecification : IOrderSpecification
