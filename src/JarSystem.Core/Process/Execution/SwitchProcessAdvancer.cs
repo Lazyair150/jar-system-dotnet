@@ -29,6 +29,7 @@ internal sealed class SwitchProcessAdvancer : IProcessAdvancer
 {
     private readonly WorkshopSwitchEvent _switchEvent;
     private readonly int _targetIndex;
+    // 提交岗位指针/历史的回调必须遵守非抛异常契约；它不是可回滚的跨服务事务。
     private readonly Action<WorkshopSwitchEvent, int> _onCommitted;
 
     private int _phase;          // 0 = 重组分支，1 = 资源转移，2 = 完成
@@ -120,6 +121,10 @@ internal sealed class SwitchProcessAdvancer : IProcessAdvancer
             _switchEvent.Rollback();
             return;
         }
+        // 回调应只执行已验证的本地岗位/历史提交，并遵守非抛异常契约。
+        // 若回调抛出，过程已经进入一次性收尾，无法安全判断外部是否部分提交。
         _onCommitted(_switchEvent, _targetIndex);
+        // _onCommitted 已提交主台指针；此时才允许写入账本/统计并归还被丢弃罐子。
+        _switchEvent.CommitTransferEffects();
     }
 }
