@@ -24,8 +24,6 @@ public sealed class OrderDemandArea
 
     internal void Add(OrderDemand demand) => _demands.Add(demand);
     internal bool Remove(OrderDemand demand) => _demands.Remove(demand);
-    internal int IndexOf(OrderDemand demand) => _demands.IndexOf(demand);
-    internal void Insert(int index, OrderDemand demand) => _demands.Insert(index, demand);
 
     internal bool Move(OrderDemand demand, int newIndex)
     {
