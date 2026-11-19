@@ -17,21 +17,23 @@ public sealed class WorldOrderSolvePlan
     public IReadOnlyList<WorldPlanStep> SlaveSteps { get; }
     public IReadOnlyList<int> TransferJarIds { get; }
     public IReadOnlyDictionary<string, int> TransferLiquids { get; }
-    public bool IsPartitioned => SlaveSteps.Count > 0 || TransferJarIds.Count > 0 || TransferLiquids.Count > 0;
+    public bool IsPartitioned { get; }
 
     private WorldOrderSolvePlan(
         IEnumerable<WorldPlanStep> masterSteps,
         IEnumerable<WorldPlanStep>? slaveSteps = null,
         IEnumerable<int>? transferJarIds = null,
-        IReadOnlyDictionary<string, int>? transferLiquids = null)
+        IReadOnlyDictionary<string, int>? transferLiquids = null,
+        bool isPartitioned = false)
     {
         MasterSteps = Array.AsReadOnly(masterSteps.ToArray());
         SlaveSteps = Array.AsReadOnly((slaveSteps ?? Array.Empty<WorldPlanStep>()).ToArray());
         TransferJarIds = Array.AsReadOnly((transferJarIds ?? Array.Empty<int>()).ToArray());
+        IsPartitioned = isPartitioned;
         TransferLiquids = new ReadOnlyDictionary<string, int>(
             transferLiquids == null
                 ? new Dictionary<string, int>(StringComparer.Ordinal)
-                : new Dictionary<string, int>(transferLiquids, StringComparer.Ordinal));
+                : transferLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
     }
 
     public static WorldOrderSolvePlan SinglePhase(IEnumerable<SolverStep> path)
@@ -47,7 +49,8 @@ public sealed class WorldOrderSolvePlan
             outcome.MasterPath.Select(WorldPlanStep.CopyFrom),
             outcome.SlavePath.Select(WorldPlanStep.CopyFrom),
             outcome.TransferJarIds,
-            outcome.TransferLiquids);
+            outcome.TransferLiquids,
+            isPartitioned: true);
     }
 }
 
