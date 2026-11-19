@@ -132,6 +132,22 @@ CD 只能由显式领域操作进入，例如后续阶段的“执行被工作�
 
 命名空间和最终文件拆分可在实现时按现有项目结构微调，但不得改变上述职责边界。
 
+## 当前实现
+
+第一批需求层代码已落在以下位置：
+
+| 文件 | 当前实现 |
+|---|---|
+| `World/Demands/OrderDemand.cs` | 独立需求 ID、A/B 类型、需求副本与校验、一次性/持续性、开放/关闭、独立逻辑 CD、`ReadyForSolve` |
+| `World/Demands/OrderDemandArea.cs` | 同一需求容器类型；Passive 自动执行策略，Active 手动选择策略；被动区域列表顺序表达优先级 |
+| `World/Demands/OrderDemandBoard.cs` | 唯一主动/被动区域、跨区域 ID 唯一、跨区移动、被动排序、CD 到期 ID 收集 |
+| `Domain/Identity.cs` | 新增与旧订单 ID 计数器隔离的 `DefaultIdGenerators.Demands` |
+| `World/ResourceWorldRuntime.cs` | 可选接入需求板；时钟产生的同一逻辑时间增量同时推进 CD 与资源生产 |
+
+`OrderDemandBoard.AdvanceLogicalTime` 返回本次刚结束 CD 的需求 ID。当前 Runtime 暂不消费这些 ID；阶段四会将其接入 Dirty/重新求解机制。
+
+新增 `WorldV2/OrderDemandTests.cs` 覆盖需求内容隔离、类型/词表/顺序校验、区域策略、ID 唯一、被动排序、跨区移动、一次性/持续性、独立 CD、关闭、零 CD、负时间原子拒绝，以及 Runtime 逻辑时间接入。
+
 ## 验收条件
 
 1. 同一需求不能同时登记在两个区域；需求 ID 在整张需求板内唯一。
