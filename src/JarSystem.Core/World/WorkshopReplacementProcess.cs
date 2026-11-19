@@ -40,7 +40,8 @@ public sealed class WorkshopReplacementProcess
         WorkshopRole role,
         Workshop targetWorkshop,
         IOrderInterruptionPort interruptionPort,
-        long phaseDurationMilli)
+        long phaseDurationMilli,
+        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null)
     {
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _role = role;
@@ -60,7 +61,8 @@ public sealed class WorkshopReplacementProcess
         ValidateTarget();
 
         if (role == WorkshopRole.Master)
-            _masterSwitch = new WorkshopSwitchEvent(_oldWorkshop, _targetWorkshop);
+            _masterSwitch = (masterSwitchFactory ?? ((oldMaster, newMaster) =>
+                new WorkshopSwitchEvent(oldMaster, newMaster)))(_oldWorkshop, _targetWorkshop);
     }
 
     /// <summary>
@@ -164,6 +166,9 @@ public sealed class WorkshopReplacementProcess
 
     private void ValidateTarget()
     {
+        var currentRoleWorkshop = _role == WorkshopRole.Master ? _roster.Master : _roster.Slave;
+        if (!ReferenceEquals(currentRoleWorkshop, _oldWorkshop))
+            throw new InvalidOperationException("岗位在替换开始前已经发生变化");
         if (!_roster.IsSpare(_targetWorkshop))
             throw new InvalidOperationException("目标必须是当前主从岗位之外的备用工作台");
         if (_role == WorkshopRole.Slave && _targetWorkshop.HasResources)
