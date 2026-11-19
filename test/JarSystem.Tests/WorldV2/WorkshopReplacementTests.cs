@@ -174,6 +174,8 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(1, ledger.LastSeq);
         Assert.Equal(1, pool.Returned);
         Assert.True(jar.IsRecycled);
+        Assert.Throws<InvalidOperationException>(() => successfulMigration.Rollback());
+        Assert.True(jar.IsRecycled);
     }
 
     [Fact]
