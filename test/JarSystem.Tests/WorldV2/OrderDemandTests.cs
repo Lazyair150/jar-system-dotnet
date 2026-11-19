@@ -58,6 +58,10 @@ public sealed class OrderDemandTests
             CreateDemand(ids, type: "C"));
         Assert.Throws<DomainValidationException>(() =>
             new OrderDemand(
+                Array.Empty<Requirement>(),
+                Constants.OrderType.A, DemandPersistence.OneShot, 0, ids, Words));
+        Assert.Throws<DomainValidationException>(() =>
+            new OrderDemand(
                 new[] { new Requirement { Shape = "不存在" } },
                 Constants.OrderType.A, DemandPersistence.OneShot, 0, ids, Words));
         Assert.Throws<DomainValidationException>(() =>
