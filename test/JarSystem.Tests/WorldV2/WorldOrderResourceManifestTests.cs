@@ -48,8 +48,8 @@ public sealed class WorldOrderResourceManifestTests
         Assert.True(result.IsFeasible);
         var manifest = WorldOrderResourceManifest.Create(result, snapshot);
 
-        Assert.Equal(new[] { jar.Id }, manifest.MasterJarIds);
-        Assert.Equal(new[] { jar.Id }, manifest.LockedJarIds);
+        Assert.Equal(new[] { jar.Id!.Value }, manifest.MasterJarIds);
+        Assert.Equal(new[] { jar.Id!.Value }, manifest.LockedJarIds);
         Assert.Equal(1, manifest.MasterInitialLiquidAmounts["酒"]);
         Assert.Empty(manifest.TransferJarIds);
         Assert.Empty(manifest.TransferLiquids);
@@ -75,8 +75,8 @@ public sealed class WorldOrderResourceManifestTests
 
         var manifest = WorldOrderResourceManifest.Create(result, snapshot);
 
-        Assert.Equal(new[] { jar.Id }, manifest.TransferJarIds);
-        Assert.Equal(new[] { jar.Id }, manifest.LockedJarIds);
+        Assert.Equal(new[] { jar.Id!.Value }, manifest.TransferJarIds);
+        Assert.Equal(new[] { jar.Id!.Value }, manifest.LockedJarIds);
         Assert.Empty(manifest.MasterJarIds);
     }
 
