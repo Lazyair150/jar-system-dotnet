@@ -31,6 +31,10 @@ public sealed class WorkshopReplacementProcess
 
     public bool IsFinished => _finished;
     public bool Succeeded { get; private set; }
+    /// <summary>订单中断接口已明确成功；该副作用不可由替换回滚。</summary>
+    public bool InterruptionCommitted { get; private set; }
+    /// <summary>订单中断接口抛出异常，外部是否已中断无法确认。</summary>
+    public bool InterruptionOutcomeUncertain { get; private set; }
     public string? FailureReason { get; private set; }
     /// <summary>迁徙已提交后，外部账本/统计/对象池副作用若失败，记录警告而不回滚已提交世界。</summary>
     public string? CommitWarning { get; private set; }
@@ -92,6 +96,7 @@ public sealed class WorkshopReplacementProcess
         catch (Exception ex)
         {
             // 中断适配器抛异常时，外部订单状态可能无法判断；禁止在同一过程实例上自动重试。
+            InterruptionOutcomeUncertain = true;
             FailureReason = "订单中断请求发生异常，结果可能不确定；替换不会自动重试: " + ex.Message;
             _finished = true;
             return (false, FailureReason);
@@ -100,8 +105,13 @@ public sealed class WorkshopReplacementProcess
         if (!interruption.Success)
             return (false, interruption.Error ?? "订单中断失败");
 
+        InterruptionCommitted = true;
         try
         {
+            // 中断成功契约要求从台临时资源已结算；在岗位变更前强制检查世界不变量。
+            if (_roster.Slave is { HasResources: true })
+                throw new InvalidOperationException("订单中断已成功，但旧从工作台仍有资源；拒绝继续替换");
+
             // 必须在订单中断与从台结算之后拍快照，确保回滚不会复活已中断订单的临时资源。
             _masterSwitch?.Begin();
             _begun = true;
@@ -110,7 +120,7 @@ public sealed class WorkshopReplacementProcess
         catch (Exception ex)
         {
             // 订单中断已经成功，是不可逆边界；初始化失败时明确终止，不能重复中断或假装恢复订单。
-            FailureReason = "订单已中断，但迁徙初始化失败；订单中断不会自动撤销: " + ex.Message;
+            FailureReason = "订单已中断，但替换初始化失败；订单中断不会自动撤销: " + ex.Message;
             _finished = true;
             return (false, FailureReason);
         }
