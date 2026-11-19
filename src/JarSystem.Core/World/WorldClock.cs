@@ -47,7 +47,7 @@ public sealed class WorldClock
     {
         if (deltaWorldTimeMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(deltaWorldTimeMilli));
-        if (IsPaused || deltaWorldTimeMilli == 0 || SpeedRatioMilli == 0)
+        if (IsPaused || deltaWorldTimeMilli == 0)
             return 0;
 
         WorldTimeMilli = checked(WorldTimeMilli + deltaWorldTimeMilli);
