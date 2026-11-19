@@ -39,8 +39,16 @@ public sealed class ModifierStack : IIntensitySource
         _view = _active.AsReadOnly();
     }
 
-    /// <summary>当前活跃修饰器（只读视图，活视图）。</summary>
+    /// <summary>当前活跃修饰器（只读视图，活视图；包含尚未到 From 的未来修饰器）。</summary>
     public IReadOnlyList<IRuleModifier> Active => _view;
+
+    /// <summary>
+    /// 当前时刻真正生效的修饰器副本。与 Active 不同，它排除尚未到 From 的未来修饰器，
+    /// 供世界求解快照捕获，避免把未来规则提前投影到当前求解输入。
+    /// </summary>
+    public IReadOnlyList<IRuleModifier> CaptureEffectiveModifiers() =>
+        _active.Where(m =>
+            IsLive(m) && (m.Window is not { To: { } to } || _now <= to)).ToArray();
 
     /// <summary>是否没有任何活跃修饰器（**热路径**用：空栈一律走直通，连一次分配都不做）。</summary>
     public bool IsEmpty => _active.Count == 0;
