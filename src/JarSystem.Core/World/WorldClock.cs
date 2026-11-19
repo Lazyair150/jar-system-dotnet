@@ -50,15 +50,20 @@ public sealed class WorldClock
         if (IsPaused || deltaWorldTimeMilli == 0)
             return 0;
 
-        WorldTimeMilli = checked(WorldTimeMilli + deltaWorldTimeMilli);
+        // 先在局部变量中完成全部 checked 运算，再一次性提交。
+        // 如果时间值溢出，时钟保持原状，不允许只增加 WorldTime 而漏掉 LogicalTime。
+        var nextWorldTime = checked(WorldTimeMilli + deltaWorldTimeMilli);
 
         // (世界时间千分之一 × 倍率千分之一) / 1000
         // 结果仍为逻辑时间千分之一；保留不足一个输出单位的余数。
         var numerator = checked(deltaWorldTimeMilli * SpeedRatioMilli + _conversionRemainder);
         var logicalDelta = numerator / RatioUnit;
-        _conversionRemainder = numerator % RatioUnit;
+        var nextRemainder = numerator % RatioUnit;
+        var nextLogicalTime = checked(LogicalTimeMilli + logicalDelta);
 
-        LogicalTimeMilli = checked(LogicalTimeMilli + logicalDelta);
+        WorldTimeMilli = nextWorldTime;
+        _conversionRemainder = nextRemainder;
+        LogicalTimeMilli = nextLogicalTime;
         return logicalDelta;
     }
 
