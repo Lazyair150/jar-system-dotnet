@@ -112,6 +112,13 @@ public sealed class WorldOrderSolverRegistry
                 demand.Id, snapshot.Version, WorldOrderSolveStatus.UnsupportedSpecification,
                 reason: "没有为订单规格注册求解器: " + demand.Specification.GetType().FullName);
 
-        return solver.Solve(demand, snapshot);
+        var result = solver.Solve(demand, snapshot);
+        if (result == null)
+            throw new InvalidOperationException("订单求解器返回了 null 结果");
+        if (result.DemandId != demand.Id)
+            throw new InvalidOperationException("订单求解器返回结果的 DemandId 与输入订单不一致");
+        if (!string.Equals(result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
+            throw new InvalidOperationException("订单求解器返回结果的 WorldVersion 与输入快照不一致");
+        return result;
     }
 }
