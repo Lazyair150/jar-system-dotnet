@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using JarSystem.Core.Domain;
 using JarSystem.Core.World.Demands;
 
 namespace JarSystem.Core.World.Solving;
@@ -82,7 +83,7 @@ public sealed class WorldOrderSolverRegistry
         if (solver == null) throw new ArgumentNullException(nameof(solver));
         if (solver.SpecificationType == null)
             throw new ArgumentException("求解器必须声明规格类型", nameof(solver));
-        if (!typeof(Domain.IOrderSpecification).IsAssignableFrom(solver.SpecificationType))
+        if (!typeof(IOrderSpecification).IsAssignableFrom(solver.SpecificationType))
             throw new ArgumentException("注册类型必须实现 IOrderSpecification", nameof(solver));
         if (!_solvers.TryAdd(solver.SpecificationType, solver))
             throw new InvalidOperationException("订单规格求解器重复注册: " + solver.SpecificationType.FullName);
