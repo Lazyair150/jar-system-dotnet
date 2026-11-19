@@ -151,4 +151,49 @@ public sealed class WorkshopReplacementTests
         Assert.Empty(master.Jars);
         Assert.Same(oldSlave, roster.Slave);
     }
+
+    [Fact]
+    public void RuntimeExplicitMasterArgumentOverridesRosterForCompatibilityOverload()
+    {
+        var vocabulary = Vocabulary.Default;
+        var producers = new ProducerModule(vocabulary);
+        producers.RegisterProducer("P", new Dictionary<string, double> { ["圆罐"] = 1 });
+        var liquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var resources = new ResourceArea(producers, liquids, jarFlowRate: 1, liquidFlowRate: 0);
+        var rosterMaster = new Workshop("岗位主台", new List<string> { "圆罐" }, vocabulary: vocabulary);
+        var explicitMaster = new Workshop("显式目标", new List<string> { "圆罐" }, vocabulary: vocabulary);
+        var slave = new Workshop("从台");
+        var spare = new Workshop("备用台");
+        var roster = new WorkshopRoster(
+            new[] { rosterMaster, explicitMaster, slave, spare }, rosterMaster, slave);
+        var runtime = new ResourceWorldRuntime(resources, roster: roster);
+
+        runtime.AdvanceWorldTime(1_000, explicitMaster);
+
+        Assert.Empty(rosterMaster.Jars);
+        Assert.Single(explicitMaster.Jars);
+        Assert.Empty(resources.Inventory.Jars);
+    }
+
+    [Fact]
+    public void RuntimeExplicitNullMasterArgumentPausesFlowEvenWhenRosterExists()
+    {
+        var vocabulary = Vocabulary.Default;
+        var producers = new ProducerModule(vocabulary);
+        producers.RegisterProducer("P", new Dictionary<string, double> { ["圆罐"] = 1 });
+        var liquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var resources = new ResourceArea(producers, liquids, jarFlowRate: 1, liquidFlowRate: 0);
+        var rosterMaster = new Workshop("岗位主台", new List<string> { "圆罐" }, vocabulary: vocabulary);
+        var slave = new Workshop("从台");
+        var spare = new Workshop("备用台");
+        var roster = new WorkshopRoster(new[] { rosterMaster, slave, spare }, rosterMaster, slave);
+        var runtime = new ResourceWorldRuntime(resources, roster: roster);
+
+        runtime.AdvanceWorldTime(1_000, null);
+
+        Assert.Empty(rosterMaster.Jars);
+        Assert.Single(resources.Inventory.Jars);
+    }
 }
