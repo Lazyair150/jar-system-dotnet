@@ -2,33 +2,37 @@ using System;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
+using JarSystem.Core.World.Demands;
 
 namespace JarSystem.Core.World;
 
 /// <summary>
-/// World v2 第一阶段的最小可运行世界，并提供第二阶段岗位替换的时间接入点。
-/// 时间先换算为逻辑时间；活动替换过程推进期间继续生产，但关闭仓库到主台的流入。
+/// World v2 的持续运行时：先推进统一逻辑时间，再推进需求 CD、岗位替换与资源生产。
+/// 替换活动期间继续生产，但关闭仓库到主台的流入。
 /// </summary>
 public sealed class ResourceWorldRuntime
 {
     public WorldClock Clock { get; }
     public ResourceArea Resources { get; }
     public WorkshopRoster? Roster { get; }
+    public OrderDemandBoard? DemandBoard { get; }
     public WorkshopReplacementProcess? ActiveReplacement { get; private set; }
 
-    // 世界级资源服务由装配层提供，避免 Runtime 创建默认的、缺少账本/对象池依赖的迁徙事件。
+    // 世界级资源服务由装配层提供，避免 Runtime 创建缺少账本/对象池依赖的迁徙事件。
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
 
     public ResourceWorldRuntime(
         ResourceArea resources,
         WorldClock? clock = null,
         WorkshopRoster? roster = null,
-        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null)
+        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null,
+        OrderDemandBoard? demandBoard = null)
     {
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         Clock = clock ?? new WorldClock();
         Roster = roster;
         _masterSwitchFactory = masterSwitchFactory;
+        DemandBoard = demandBoard;
     }
 
     /// <summary>基于已登记岗位推进世界。构造时未提供 Roster 则不能使用此重载。</summary>
@@ -58,8 +62,7 @@ public sealed class ResourceWorldRuntime
         var process = new WorkshopReplacementProcess(
             Roster, role, target, interruptionPort, phaseDurationMilli, _masterSwitchFactory);
         var result = process.Begin();
-        // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查；
-        // 不能把不可逆副作用的记录随局部变量一起丢弃。
+        // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查。
         if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
             ActiveReplacement = process;
         return result;
@@ -68,8 +71,12 @@ public sealed class ResourceWorldRuntime
     private ResourceWorldStep AdvanceCore(long deltaWorldTimeMilli, Workshop? requestedMaster)
     {
         var logicalDelta = Clock.Advance(deltaWorldTimeMilli);
-        var replacementWasActive = ActiveReplacement is { IsFinished: false };
 
+        // CD 与资源生产使用同一份逻辑时间；暂停/零流速时 logicalDelta 为 0，CD 不减少。
+        // 返回的到期需求 ID 暂由调用方忽略，阶段四将接入 Dirty/重新求解调度。
+        DemandBoard?.AdvanceLogicalTime(logicalDelta);
+
+        var replacementWasActive = ActiveReplacement is { IsFinished: false };
         if (replacementWasActive)
             ActiveReplacement!.AdvanceLogicalTime(logicalDelta);
 
