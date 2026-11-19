@@ -54,6 +54,7 @@ public class WorkshopSwitchEvent
     private WorkshopSnapshot? _newSnap;
     private ISwitchCase? _case;
     private ResourceTransferrer? _pendingTransferrer;
+    private bool _transferCommitStarted;
 
     /// <summary>
     /// 执行切换事件，返回是否成功；失败时两个工作台已回滚到执行前状态。
@@ -77,6 +78,8 @@ public class WorkshopSwitchEvent
     /// <summary>第一阶段：清理日志、拍快照、按禁令是否相同选分支。不做任何搬动。</summary>
     public void Begin()
     {
+        _transferCommitStarted = false;
+        _pendingTransferrer = null;
         _log.Clear();
         _oldSnap = OldMaster.CreateSnapshot();
         _newSnap = NewMaster.CreateSnapshot();
@@ -119,6 +122,9 @@ public class WorkshopSwitchEvent
     /// <summary>提交转移阶段暂存的账本、统计与对象池副作用。岗位提交成功后调用。</summary>
     public void CommitTransferEffects()
     {
+        if (_transferCommitStarted) return;
+        // 一旦开始执行外部副作用，就不再允许回滚工作台快照来伪装成全局撤销。
+        _transferCommitStarted = true;
         var pending = _pendingTransferrer;
         _pendingTransferrer = null;
         pending?.CommitEffects();
@@ -133,6 +139,8 @@ public class WorkshopSwitchEvent
     /// </summary>
     public void Rollback()
     {
+        if (_transferCommitStarted)
+            throw new InvalidOperationException("迁徙副作用提交已经开始，不能再回滚工作台快照");
         _pendingTransferrer?.DiscardPendingEffects();
         _pendingTransferrer = null;
         if (_oldSnap != null) OldMaster.RestoreFromSnapshot(_oldSnap);
@@ -141,6 +149,8 @@ public class WorkshopSwitchEvent
 
     private (bool Ok, string? Error) Rollback(Exception ex)
     {
+        if (_transferCommitStarted)
+            return (false, "迁徙副作用提交已经开始，不能再回滚工作台快照: " + ex.Message);
         _pendingTransferrer?.DiscardPendingEffects();
         _pendingTransferrer = null;
         if (_oldSnap != null) OldMaster.RestoreFromSnapshot(_oldSnap);
