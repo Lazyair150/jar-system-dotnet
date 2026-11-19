@@ -23,13 +23,14 @@ namespace JarSystem.Core.Production;
 public sealed class LiquidProduction
 {
     private const int MilliUnit = 1000;
+    private const long MicroUnit = 1_000_000;
 
     private readonly Vocabulary _vocabulary;
     private IIntensitySource? _intensity;
 
     // 键序 = 词表顺序（契约快照按行比较，顺序变了就是一次显式重基线）
     private readonly Dictionary<string, int> _rateMilli = new();
-    private readonly Dictionary<string, int> _accMilli = new();
+    private readonly Dictionary<string, long> _accMilli = new();
     private readonly Dictionary<string, double> _rateView = new();
     private readonly Dictionary<string, double> _accView = new();
 
@@ -48,7 +49,7 @@ public sealed class LiquidProduction
         {
             var rate = defaults != null && defaults.TryGetValue(liquid, out var r) ? r : 1d;
             _rateMilli[liquid] = Milli(rate);
-            _accMilli[liquid] = 0;
+            _accMilli[liquid] = 0L;
             _rateView[liquid] = rate;
             _accView[liquid] = 0;
         }
@@ -71,7 +72,7 @@ public sealed class LiquidProduction
     {
         var rate = _rateMilli.GetValueOrDefault(liquid);
         if (_intensity != null) rate = _intensity.Apply("liquid:" + liquid, rate);
-        return _accMilli.GetValueOrDefault(liquid) + rate >= MilliUnit;
+        return _accMilli.GetValueOrDefault(liquid) + (long)rate * MilliUnit >= MicroUnit;
     }
 
     /// <summary>
@@ -98,18 +99,31 @@ public sealed class LiquidProduction
     /// 推进一个 tick：累加、取整、返回本 tick 真正产出的液体。余数留在累加器里。
     /// 返回顺序 = 词表顺序（确定性：回放与契约快照都依赖它）。
     /// </summary>
-    public List<(string Liquid, int Amount)> Tick()
+    /// <summary>旧 tick 入口：一个 tick 等价于一个逻辑时间单位。</summary>
+    public List<(string Liquid, int Amount)> Tick() => AdvanceLogicalTime(MilliUnit);
+
+    /// <summary>
+    /// 按逻辑时间推进液体产能。时间增量的 1000 表示 1 个逻辑时间单位；
+    /// 速率×时间以百万分之一资源为单位累积，保留不足一份的余数。
+    /// </summary>
+    public List<(string Liquid, int Amount)> AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
+        if (deltaLogicalTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
+
         var produced = new List<(string, int)>();
         foreach (var liquid in _vocabulary.Liquids)
         {
             var rateMilli = _rateMilli[liquid];
             if (_intensity != null) rateMilli = _intensity.Apply("liquid:" + liquid, rateMilli);
-            _accMilli[liquid] += rateMilli;
+            _accMilli[liquid] = checked(_accMilli[liquid] + (long)rateMilli * deltaLogicalTimeMilli);
 
-            var amount = _accMilli[liquid] / MilliUnit;
-            _accMilli[liquid] -= amount * MilliUnit;
-            _accView[liquid] = _accMilli[liquid] / (double)MilliUnit;
+            var amountLong = _accMilli[liquid] / MicroUnit;
+            if (amountLong > int.MaxValue)
+                throw new InvalidOperationException("单次逻辑时间推进产生的液体数量超过可表示范围");
+            var amount = (int)amountLong;
+            _accMilli[liquid] -= amountLong * MicroUnit;
+            _accView[liquid] = _accMilli[liquid] / (double)MicroUnit;
 
             if (amount > 0) produced.Add((liquid, amount));
         }
