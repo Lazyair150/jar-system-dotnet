@@ -1,24 +1,18 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using JarSystem.Core.Abstractions;
-using JarSystem.Core.Config;
-using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.World.Demands;
 
 /// <summary>
-/// 新世界中的一张订单委托。它保存订单内容与自身 CD；
-/// 是否留在订单区域、成功后如何处理，由所属区域决定。
+/// 通用订单委托。它只拥有身份、外部领域规格引用和自身 CD；
+/// 不解释规格内容，也不决定成功后是否继续留在订单区域。
 /// </summary>
 public sealed class OrderDemand
 {
-    private readonly IReadOnlyList<Requirement> _requirements;
     private long _cooldownRemainingLogicalMilli;
 
     public int Id { get; }
-    public string Type { get; }
-    public IReadOnlyList<Requirement> Requirements => _requirements;
+    public IOrderSpecification Specification { get; }
     public long CooldownDurationLogicalMilli { get; }
     public long CooldownRemainingLogicalMilli => _cooldownRemainingLogicalMilli;
     public bool IsCoolingDown => _cooldownRemainingLogicalMilli > 0;
@@ -30,50 +24,17 @@ public sealed class OrderDemand
     public bool ReadyForSolve => !IsCoolingDown;
 
     public OrderDemand(
-        IEnumerable<Requirement> requirements,
-        string type,
+        IOrderSpecification specification,
         long cooldownDurationLogicalMilli,
-        IIdGenerator? ids = null,
-        Vocabulary? vocabulary = null)
+        IIdGenerator? ids = null)
     {
-        if (requirements == null) throw new ArgumentNullException(nameof(requirements));
-        if (type != Constants.OrderType.A && type != Constants.OrderType.B)
-            throw new DomainValidationException($"订单类型只能是 A 或 B，收到: {type}");
+        Specification = specification ?? throw new ArgumentNullException(nameof(specification));
         if (cooldownDurationLogicalMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(cooldownDurationLogicalMilli));
 
-        var words = vocabulary ?? Vocabulary.Default;
-        var copied = requirements.Select(r =>
-        {
-            if (r == null) throw new DomainValidationException("订单需求不能为 null");
-            if (!words.IsValidShape(r.Shape))
-                throw new DomainValidationException($"无效形状: {r.Shape}");
-            if (r.Liquid != null && !words.IsValidLiquid(r.Liquid))
-                throw new DomainValidationException($"无效液体: {r.Liquid}");
-            return new Requirement { Shape = r.Shape, Liquid = r.Liquid };
-        }).ToList();
-
-        if (copied.Count == 0)
-            throw new DomainValidationException("订单至少需要一条需求");
-        if (copied.Count > Constants.MAX_ORDER_REQUIREMENTS)
-            throw new DomainValidationException(
-                $"订单需求数量不能超过 {Constants.MAX_ORDER_REQUIREMENTS} 个");
-
-        var seenFull = false;
-        foreach (var requirement in copied)
-        {
-            if (requirement.Liquid != null)
-                seenFull = true;
-            else if (seenFull)
-                throw new DomainValidationException(
-                    "订单需求列表约定: 空罐需求在前、满罐需求在后（执行顺序为满罐优先）");
-        }
-
         Id = (ids ?? DefaultIdGenerators.Demands).Next();
         if (Id <= 0) throw new InvalidOperationException("需求 ID 生成器必须返回正整数");
-        Type = type;
         CooldownDurationLogicalMilli = cooldownDurationLogicalMilli;
-        _requirements = copied.AsReadOnly();
     }
 
     /// <summary>
