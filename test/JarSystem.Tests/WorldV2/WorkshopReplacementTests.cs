@@ -287,6 +287,36 @@ public sealed class WorkshopReplacementTests
         Assert.Single(resources.Inventory.Jars);
     }
     [Fact]
+    public void RestoreFromSnapshotValidatesAllOriginalJarsBeforeChangingWorkshop()
+    {
+        var workshop = new Workshop("工作台");
+        var original = new Jar("圆罐");
+        workshop.AddJar(original);
+        workshop.AddLiquid("酒", 2);
+        var snapshot = workshop.CreateSnapshot();
+
+        var additional = new Jar("方罐");
+        workshop.AddJar(additional);
+        workshop.AddLiquid("酒", 3);
+
+        // 模拟快照中的原始实体被错误地提前归还对象池。
+        var pool = new JarPool();
+        pool.Return(original);
+
+        var currentJars = new List<Jar>(workshop.Jars);
+        var currentLiquid = workshop.LiquidStorage["酒"];
+
+        Assert.Throws<InvalidOperationException>(() => workshop.RestoreFromSnapshot(snapshot));
+
+        // 验证失败必须发生在任何工作台状态修改之前。
+        Assert.Equal(currentJars.Count, workshop.Jars.Count);
+        for (var i = 0; i < currentJars.Count; i++)
+            Assert.Same(currentJars[i], workshop.Jars[i]);
+        Assert.Equal(currentLiquid, workshop.LiquidStorage["酒"]);
+        Assert.Same(additional, Assert.Single(workshop.Jars, jar => ReferenceEquals(jar, additional)));
+    }
+
+    [Fact]
     public void MigrationBeginCannotReplaceTheOriginalSnapshot()
     {
         var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" });
