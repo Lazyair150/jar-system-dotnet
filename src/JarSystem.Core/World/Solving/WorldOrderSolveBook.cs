@@ -184,8 +184,10 @@ public sealed class WorldOrderSolveBook : IDisposable
                 break;
 
             case OrderDemandBoardChangeKind.CooldownElapsed:
-                _records[change.DemandId] =
-                    WorldOrderSolveRecord.Dirty(change.DemandId, "订单 CD 结束");
+                if (!_records.TryGetValue(change.DemandId, out var cooledRecord) ||
+                    cooledRecord.State != WorldOrderSolveState.AwaitingRearm)
+                    _records[change.DemandId] =
+                        WorldOrderSolveRecord.Dirty(change.DemandId, "订单 CD 结束");
                 break;
 
             case OrderDemandBoardChangeKind.FulfilledRetained:
