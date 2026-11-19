@@ -143,14 +143,19 @@ public class Jar
     }
 
     /// <summary>从同词表的状态副本恢复本对象，保留当前对象身份。</summary>
-    internal void RestoreStateFrom(Jar snapshot)
+    internal void ValidateRestoreStateFrom(Jar snapshot)
     {
         ThrowIfRecycled();
         if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
         snapshot.ThrowIfRecycled();
         if (!ReferenceEquals(_vocabulary, snapshot._vocabulary))
             throw new InvalidOperationException("不能从不同词表的罐子快照恢复状态");
+    }
 
+    /// <summary>从同词表的状态副本恢复本对象；调用前可先批量验证，避免恢复到一半才发现无效引用。</summary>
+    internal void RestoreStateFrom(Jar snapshot)
+    {
+        ValidateRestoreStateFrom(snapshot);
         _id = snapshot._id;
         _shape = snapshot._shape;
         _liquid = snapshot._liquid;
