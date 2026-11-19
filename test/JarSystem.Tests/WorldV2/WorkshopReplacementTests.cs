@@ -120,11 +120,59 @@ public sealed class WorkshopReplacementTests
         process.Cancel();
 
         Assert.Same(oldMaster, roster.Master);
-        Assert.Null(Assert.Single(oldMaster.Jars).Liquid);
+        Assert.Same(jar, Assert.Single(oldMaster.Jars));
+        Assert.Null(jar.Liquid);
         Assert.Equal(1, oldMaster.LiquidStorage["酒"]);
         Assert.Empty(newMaster.Jars);
         Assert.Equal(1, interruption.Calls);
         Assert.False(process.Succeeded);
+    }
+
+    [Fact]
+    public void TransferEffectsAreDeferredUntilCommitAndDiscardedOnRollback()
+    {
+        var oldMaster = new Workshop("旧主台");
+        var newMaster = new Workshop("新主台", maxJars: 0);
+        var jar = new Jar("圆罐");
+        oldMaster.AddJar(jar);
+        var pool = new JarPool();
+        var ledger = new ResourceLedger();
+        var discardedJars = 0;
+        var migration = new WorkshopSwitchEvent(
+            oldMaster, newMaster, pool,
+            countDiscardedJars: amount => discardedJars += amount,
+            ledger: ledger);
+
+        migration.Begin();
+        Assert.True(migration.RunReshape().Ok);
+        Assert.True(migration.RunTransfer().Ok);
+
+        // 转移阶段已经决定丢弃，但正式副作用尚未提交。
+        Assert.Equal(0, discardedJars);
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.Equal(0, pool.Returned);
+        Assert.True(jar.IsRecycled == false);
+
+        migration.Rollback();
+
+        // 回滚恢复原对象，而不是快照克隆体；暂存副作用全部被丢弃。
+        Assert.Same(jar, Assert.Single(oldMaster.Jars));
+        Assert.False(jar.IsRecycled);
+        Assert.Equal(0, discardedJars);
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.Equal(0, pool.Returned);
+
+        // 正常完整执行时，副作用只在迁徙成功后提交。
+        var successfulMigration = new WorkshopSwitchEvent(
+            oldMaster, newMaster, pool,
+            countDiscardedJars: amount => discardedJars += amount,
+            ledger: ledger);
+        Assert.True(successfulMigration.Execute().Success);
+        Assert.Empty(oldMaster.Jars);
+        Assert.Equal(1, discardedJars);
+        Assert.Equal(1, ledger.LastSeq);
+        Assert.Equal(1, pool.Returned);
+        Assert.True(jar.IsRecycled);
     }
 
     [Fact]
