@@ -485,27 +485,41 @@ public class Workshop
     /// </summary>
     public void RestoreFromSnapshot(WorkshopSnapshot s)
     {
-        _jars.Clear();
+        if (s == null) throw new ArgumentNullException(nameof(s));
+
+        // 先完整准备恢复数据。任何快照结构错误、回收对象或词表不匹配都必须在改动工作台前失败。
+        List<Jar> restoredJars;
         if (s.OriginalJars.Count == s.Jars.Count)
         {
+            // 先验证所有原实体与状态副本；RestoreStateFrom 的赋值阶段随后不会再遇到可预期的验证错误。
             for (var i = 0; i < s.OriginalJars.Count; i++)
-            {
-                var original = s.OriginalJars[i];
-                original.RestoreStateFrom(s.Jars[i]);
-                _jars.Add(original);
-            }
+                s.OriginalJars[i].ValidateRestoreStateFrom(s.Jars[i]);
+
+            restoredJars = s.OriginalJars.ToList();
         }
         else if (s.OriginalJars.Count == 0)
         {
-            // 兼容外部手工构造的旧式快照：它没有原实体引用，只能恢复状态副本。
-            _jars.AddRange(s.Jars.Select(j => j.DeepClone()));
+            // 兼容外部手工构造的旧式快照：先完成所有克隆，再触碰当前工作台。
+            restoredJars = s.Jars.Select(j => j.DeepClone()).ToList();
         }
         else
         {
             throw new InvalidOperationException("工作台快照中的罐子引用与状态数量不一致");
         }
+
+        var restoredLiquids = s.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        // 所有可能失败的准备/验证已完成。以下只执行内存字段赋值与容器替换。
+        if (s.OriginalJars.Count == s.Jars.Count)
+        {
+            for (var i = 0; i < s.OriginalJars.Count; i++)
+                restoredJars[i].RestoreStateFrom(s.Jars[i]);
+        }
+
+        _jars.Clear();
+        _jars.AddRange(restoredJars);
         _liquidStorage.Clear();
-        foreach (var kv in s.Liquids) _liquidStorage[kv.Key] = kv.Value;
+        foreach (var kv in restoredLiquids) _liquidStorage[kv.Key] = kv.Value;
         // 与 CreateSnapshot 对称：容量与能力参数一并还原（快照持有的能力对象是不可变的 ⇒ 直接共享引用）
         MaxJars = s.MaxJars;
         MaxLiquids = s.MaxLiquids;
