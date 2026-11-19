@@ -53,6 +53,17 @@ public sealed class WorldClockTests
     }
 
     [Fact]
+    public void OverflowDoesNotPartiallyAdvanceTheClock()
+    {
+        var clock = new WorldClock();
+
+        Assert.Throws<OverflowException>(() => clock.Advance(long.MaxValue));
+
+        Assert.Equal(0, clock.WorldTimeMilli);
+        Assert.Equal(0, clock.LogicalTimeMilli);
+    }
+
+    [Fact]
     public void ZeroSpeedStillTracksWorldTimeButDoesNotAdvanceLogicalTime()
     {
         var clock = new WorldClock();
