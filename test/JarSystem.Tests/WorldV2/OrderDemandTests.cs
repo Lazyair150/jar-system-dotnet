@@ -17,7 +17,6 @@ public sealed class OrderDemandTests
 
     private static OrderDemand CreateDemand(
         IIdGenerator ids,
-        DemandPersistence persistence = DemandPersistence.OneShot,
         long cooldown = 0,
         string type = Constants.OrderType.A,
         params Requirement[] requirements)
@@ -25,8 +24,13 @@ public sealed class OrderDemandTests
         var actual = requirements.Length == 0
             ? new[] { new Requirement { Shape = "圆罐" } }
             : requirements;
-        return new OrderDemand(actual, type, persistence, cooldown, ids, Words);
+        return new OrderDemand(actual, type, cooldown, ids, Words);
     }
+
+    private static OrderDemandBoard CreateBoard(
+        DemandAreaFulfillmentPolicy passive = DemandAreaFulfillmentPolicy.OneShot,
+        DemandAreaFulfillmentPolicy active = DemandAreaFulfillmentPolicy.OneShot) =>
+        new(passive, active);
 
     [Fact]
     public void DemandCopiesAndValidatesItsImmutableRequirements()
@@ -36,8 +40,7 @@ public sealed class OrderDemandTests
             new() { Shape = "圆罐" },
             new() { Shape = "方罐", Liquid = "酒" }
         };
-        var demand = new OrderDemand(
-            source, Constants.OrderType.B, DemandPersistence.Continuous, 1_000,
+        var demand = new OrderDemand(source, Constants.OrderType.B, 1_000,
             new SequentialIdGenerator(), Words);
 
         source.Clear();
@@ -54,35 +57,28 @@ public sealed class OrderDemandTests
     {
         var ids = new SequentialIdGenerator();
 
+        Assert.Throws<DomainValidationException>(() => CreateDemand(ids, type: "C"));
         Assert.Throws<DomainValidationException>(() =>
-            CreateDemand(ids, type: "C"));
+            new OrderDemand(Array.Empty<Requirement>(), Constants.OrderType.A, 0, ids, Words));
         Assert.Throws<DomainValidationException>(() =>
-            new OrderDemand(
-                Array.Empty<Requirement>(),
-                Constants.OrderType.A, DemandPersistence.OneShot, 0, ids, Words));
+            new OrderDemand(new[] { new Requirement { Shape = "不存在" } },
+                Constants.OrderType.A, 0, ids, Words));
         Assert.Throws<DomainValidationException>(() =>
-            new OrderDemand(
-                new[] { new Requirement { Shape = "不存在" } },
-                Constants.OrderType.A, DemandPersistence.OneShot, 0, ids, Words));
-        Assert.Throws<DomainValidationException>(() =>
-            new OrderDemand(
-                new[]
-                {
-                    new Requirement { Shape = "圆罐", Liquid = "酒" },
-                    new Requirement { Shape = "方罐" }
-                },
-                Constants.OrderType.A, DemandPersistence.OneShot, 0, ids, Words));
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            CreateDemand(ids, cooldown: -1));
+            new OrderDemand(new[]
+            {
+                new Requirement { Shape = "圆罐", Liquid = "酒" },
+                new Requirement { Shape = "方罐" }
+            }, Constants.OrderType.A, 0, ids, Words));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateDemand(ids, cooldown: -1));
     }
 
     [Fact]
     public void BoardKeepsPassiveAndActiveAreasUsingTheSameDemandModel()
     {
         var ids = new SequentialIdGenerator();
-        var board = new OrderDemandBoard();
+        var board = CreateBoard();
         var passive = CreateDemand(ids);
-        var active = CreateDemand(ids, DemandPersistence.Continuous, 0, Constants.OrderType.B);
+        var active = CreateDemand(ids, type: Constants.OrderType.B);
 
         board.AddDemand(passive, DemandAreaKind.Passive);
         board.AddDemand(active, DemandAreaKind.Active);
@@ -96,9 +92,61 @@ public sealed class OrderDemandTests
     }
 
     [Fact]
+    public void AreaFulfillmentPolicyIsIndependentFromPassiveOrActiveKind()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = CreateBoard(
+            DemandAreaFulfillmentPolicy.OneShot,
+            DemandAreaFulfillmentPolicy.Continuous);
+        var passiveOneShot = CreateDemand(ids);
+        var activeContinuous = CreateDemand(ids);
+        board.AddDemand(passiveOneShot, DemandAreaKind.Passive);
+        board.AddDemand(activeContinuous, DemandAreaKind.Active);
+
+        Assert.True(board.Passive.AutoExecute);
+        Assert.False(board.Active.AutoExecute);
+        Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
+            board.RecordSuccessfulFulfillment(passiveOneShot.Id));
+        Assert.Equal(DemandFulfillmentResult.RetainedInArea,
+            board.RecordSuccessfulFulfillment(activeContinuous.Id));
+        Assert.Null(board.Find(passiveOneShot.Id));
+        Assert.Same(activeContinuous, board.Find(activeContinuous.Id));
+
+        var reverse = CreateBoard(
+            DemandAreaFulfillmentPolicy.Continuous,
+            DemandAreaFulfillmentPolicy.OneShot);
+        var passiveContinuous = CreateDemand(ids);
+        var activeOneShot = CreateDemand(ids);
+        reverse.AddDemand(passiveContinuous, DemandAreaKind.Passive);
+        reverse.AddDemand(activeOneShot, DemandAreaKind.Active);
+
+        Assert.Equal(DemandFulfillmentResult.RetainedInArea,
+            reverse.RecordSuccessfulFulfillment(passiveContinuous.Id));
+        Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
+            reverse.RecordSuccessfulFulfillment(activeOneShot.Id));
+    }
+
+    [Fact]
+    public void SuccessfulFulfillmentOnlyUnloadsDemandAndDoesNotCloseOrDestroyIt()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = CreateBoard(DemandAreaFulfillmentPolicy.OneShot);
+        var demand = CreateDemand(ids);
+        board.AddDemand(demand, DemandAreaKind.Passive);
+
+        Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
+            board.RecordSuccessfulFulfillment(demand.Id));
+        Assert.Empty(board.Passive.Demands);
+        Assert.Equal("圆罐", Assert.Single(demand.Requirements).Shape);
+        Assert.True(demand.ReadyForSolve); // CD 状态仍是订单对象自己的状态，不等于区域归属
+        Assert.Equal(DemandFulfillmentResult.NotFound,
+            board.RecordSuccessfulFulfillment(demand.Id));
+    }
+
+    [Fact]
     public void DemandIdsMustBeUniqueAcrossBothAreas()
     {
-        var board = new OrderDemandBoard();
+        var board = CreateBoard();
         var first = CreateDemand(new SequentialIdGenerator());
         var duplicate = CreateDemand(new SequentialIdGenerator());
 
@@ -115,7 +163,7 @@ public sealed class OrderDemandTests
     public void PassiveOrderIsThePriorityAndCanBeMovedWithoutPriorityField()
     {
         var ids = new SequentialIdGenerator();
-        var board = new OrderDemandBoard();
+        var board = CreateBoard();
         var first = CreateDemand(ids);
         var second = CreateDemand(ids);
         var third = CreateDemand(ids);
@@ -136,7 +184,7 @@ public sealed class OrderDemandTests
     [Fact]
     public void MovingDemandBetweenAreasAppendsItToTheTargetArea()
     {
-        var board = new OrderDemandBoard();
+        var board = CreateBoard();
         var ids = new SequentialIdGenerator();
         var passive = CreateDemand(ids);
         var active = CreateDemand(ids);
@@ -147,33 +195,17 @@ public sealed class OrderDemandTests
         Assert.Empty(board.Passive.Demands);
         Assert.Equal(new[] { active.Id, passive.Id }, board.Active.Demands.Select(x => x.Id));
 
-        Assert.True(board.MoveToArea(passive.Id, DemandAreaKind.Active)); // 同区域移动是无副作用的成功
+        Assert.True(board.MoveToArea(passive.Id, DemandAreaKind.Active));
         Assert.Equal(2, board.Active.Demands.Count);
         Assert.True(board.MoveToArea(active.Id, DemandAreaKind.Passive));
         Assert.Same(active, Assert.Single(board.Passive.Demands));
     }
 
     [Fact]
-    public void OneShotDemandClosesAfterFulfillmentButContinuousDemandRemainsOpen()
-    {
-        var ids = new SequentialIdGenerator();
-        var oneShot = CreateDemand(ids, DemandPersistence.OneShot);
-        var continuous = CreateDemand(ids, DemandPersistence.Continuous);
-
-        oneShot.RecordSuccessfulFulfillment();
-        continuous.RecordSuccessfulFulfillment();
-
-        Assert.Equal(DemandLifecycleState.Closed, oneShot.Lifecycle);
-        Assert.False(oneShot.ReadyForSolve);
-        Assert.Equal(DemandLifecycleState.Open, continuous.Lifecycle);
-        Assert.True(continuous.ReadyForSolve);
-    }
-
-    [Fact]
     public void EachDemandHasAnIndependentCooldownAndReportsItsOwnExpiry()
     {
         var ids = new SequentialIdGenerator();
-        var board = new OrderDemandBoard();
+        var board = CreateBoard();
         var shortCooldown = CreateDemand(ids, cooldown: 2_000);
         var longCooldown = CreateDemand(ids, cooldown: 5_000);
         board.AddDemand(shortCooldown, DemandAreaKind.Passive);
@@ -183,7 +215,7 @@ public sealed class OrderDemandTests
         Assert.True(longCooldown.EnterCooldown());
         Assert.False(shortCooldown.ReadyForSolve);
         Assert.False(longCooldown.ReadyForSolve);
-        Assert.False(shortCooldown.EnterCooldown()); // 不重置正在进行的 CD
+        Assert.False(shortCooldown.EnterCooldown());
 
         Assert.Empty(board.AdvanceLogicalTime(1_000));
         Assert.Equal(1_000, shortCooldown.CooldownRemainingLogicalMilli);
@@ -195,19 +227,6 @@ public sealed class OrderDemandTests
 
         Assert.Equal(new[] { longCooldown.Id }, board.AdvanceLogicalTime(4_000));
         Assert.True(longCooldown.ReadyForSolve);
-    }
-
-    [Fact]
-    public void ClosingDemandDuringCooldownStopsItsTimerAndRemovesSolveEligibility()
-    {
-        var demand = CreateDemand(new SequentialIdGenerator(), cooldown: 2_000);
-        Assert.True(demand.EnterCooldown());
-
-        Assert.True(demand.Close());
-        Assert.False(demand.Close());
-        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
-        Assert.False(demand.AdvanceLogicalTime(10_000));
-        Assert.False(demand.ReadyForSolve);
     }
 
     [Fact]
@@ -223,7 +242,7 @@ public sealed class OrderDemandTests
     public void NegativeBoardTimeIsRejectedBeforeAnyDemandCooldownChanges()
     {
         var ids = new SequentialIdGenerator();
-        var board = new OrderDemandBoard();
+        var board = CreateBoard();
         var first = CreateDemand(ids, cooldown: 2_000);
         var second = CreateDemand(ids, cooldown: 3_000);
         board.AddDemand(first, DemandAreaKind.Passive);
@@ -240,7 +259,7 @@ public sealed class OrderDemandTests
     public void RuntimeAdvancesDemandCooldownWithTheSameLogicalTimeAsResources()
     {
         var ids = new SequentialIdGenerator();
-        var board = new OrderDemandBoard();
+        var board = CreateBoard();
         var demand = CreateDemand(ids, cooldown: 2_000);
         board.AddDemand(demand, DemandAreaKind.Passive);
         demand.EnterCooldown();
