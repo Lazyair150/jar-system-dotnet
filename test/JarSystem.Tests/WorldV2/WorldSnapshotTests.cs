@@ -117,6 +117,41 @@ public sealed class WorldSnapshotTests
         Assert.False(afterStart.Master.HasOpaqueSolverRules);
     }
 
+
+    [Fact]
+    public void ReturningToAnIdenticalSolveInputRestoresItsContentVersion()
+    {
+        var master = new Workshop("主台");
+        var roster = new WorkshopRoster(new[] { master }, master);
+        var original = WorldSnapshotFactory.Capture(roster);
+
+        master.AddLiquid("酒", 1);
+        var changed = WorldSnapshotFactory.Capture(roster);
+        master.RemoveLiquid("酒", 1);
+        var restored = WorldSnapshotFactory.Capture(roster);
+
+        Assert.NotEqual(original.Version, changed.Version);
+        Assert.Equal(original.Version, restored.Version);
+    }
+
+    [Fact]
+    public void OperationSpecificSuppressionIsOpaqueToStaticSolving()
+    {
+        var stack = new ModifierStack();
+        stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒"
+        });
+        var master = new Workshop("主台", modifiers: stack);
+        var roster = new WorkshopRoster(new[] { master }, master);
+
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+
+        Assert.True(snapshot.Master!.HasOpaqueSolverRules);
+        Assert.True(snapshot.Master.SolverModifiers.Single().IsOpaque);
+    }
+
     [Fact]
     public void RequireModifierIsMarkedOpaqueInsteadOfCopyingItsMutableClosure()
     {
