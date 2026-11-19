@@ -450,19 +450,22 @@ public class Workshop
     // 快照（备忘录）
     // ============================================================
 
-    public WorkshopSnapshot CreateSnapshot() => new()
+    public WorkshopSnapshot CreateSnapshot()
     {
-        Name = Name,
-        MaxJars = MaxJars,
-        MaxLiquids = MaxLiquids,
-        // S1：能力参数不可变 ⇒ 直接共享同一份，不再拷三份列表
-        Capability = _capability,
-        // 2026-09-16：快照的两个集合也包真只读（只给接口类型时，`((List<Jar>)snap.Jars).Clear()`
-        // 能抹掉这份回滚依据）。仍是**深拷贝**出来的独立副本，只是对外不可变。
-        Jars = _jars.Select(j => j.DeepClone()).ToList().AsReadOnly(),
-        Liquids = new ReadOnlyDictionary<string, int>(
-            _liquidStorage.ToDictionary(kv => kv.Key, kv => kv.Value))
-    };
+        // 状态副本用于恢复；原始引用用于回滚时保持实体身份不变。
+        var jarStates = _jars.Select(j => j.DeepClone()).ToList();
+        return new WorkshopSnapshot
+        {
+            Name = Name,
+            MaxJars = MaxJars,
+            MaxLiquids = MaxLiquids,
+            Capability = _capability,
+            Jars = jarStates.AsReadOnly(),
+            OriginalJars = _jars.ToList().AsReadOnly(),
+            Liquids = new ReadOnlyDictionary<string, int>(
+                _liquidStorage.ToDictionary(kv => kv.Key, kv => kv.Value))
+        };
+    }
 
     /// <summary>
     /// 从快照还原**完整**状态：罐子、液体账目、容量、能力参数（标记/禁令）。
@@ -482,8 +485,16 @@ public class Workshop
     /// </summary>
     public void RestoreFromSnapshot(WorkshopSnapshot s)
     {
+        if (s.OriginalJars.Count != s.Jars.Count)
+            throw new InvalidOperationException("工作台快照中的罐子引用与状态数量不一致");
+
         _jars.Clear();
-        _jars.AddRange(s.Jars.Select(j => j.DeepClone()));
+        for (var i = 0; i < s.OriginalJars.Count; i++)
+        {
+            var original = s.OriginalJars[i];
+            original.RestoreStateFrom(s.Jars[i]);
+            _jars.Add(original);
+        }
         _liquidStorage.Clear();
         foreach (var kv in s.Liquids) _liquidStorage[kv.Key] = kv.Value;
         // 与 CreateSnapshot 对称：容量与能力参数一并还原（快照持有的能力对象是不可变的 ⇒ 直接共享引用）
@@ -527,6 +538,9 @@ public class WorkshopSnapshot
 
     /// <summary>罐子（对外只读；由 <see cref="Workshop.CreateSnapshot"/> 深拷贝后包真只读）。</summary>
     public IReadOnlyList<Jar> Jars { get; init; } = System.Array.Empty<Jar>();
+
+    /// <summary>快照拍摄时工作台持有的原始实体引用，仅供工作台内部恢复身份使用。</summary>
+    internal IReadOnlyList<Jar> OriginalJars { get; init; } = System.Array.Empty<Jar>();
 
     /// <summary>液体账目（对外只读；同上）。</summary>
     public IReadOnlyDictionary<string, int> Liquids { get; init; } =
