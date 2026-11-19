@@ -154,7 +154,7 @@ CD 只能由明确的领域事件进入，例如后续阶段定义的“执行�
 
 | 文件/概念 | 职责 |
 |---|---|
-| `Abstractions/IOrderSpecification.cs` | 通用订单委托持有的领域规格边界 |
+| `Domain/IOrderSpecification.cs` | 通用订单委托持有的领域规格边界 |
 | `Domain/JarOrderSpecification.cs` | 当前罐子玩法的 A/B 类型、需求列表与词表验证 |
 | `World/Demands/OrderDemand.cs` | 通用委托 ID、规格引用、独立逻辑 CD |
 | `World/Demands/OrderDemandArea.cs` | 区域集合、主动/被动策略、成功后一次性/持续策略 |
