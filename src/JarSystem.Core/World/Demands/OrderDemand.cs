@@ -83,7 +83,7 @@ public sealed class OrderDemand
     /// 显式进入本需求的 CD。已经关闭或正在 CD 的需求不能重复启动/重置 CD。
     /// CD 时长为 0 时不产生等待，返回 false。
     /// </summary>
-    public bool EnterCooldown()
+    internal bool EnterCooldown()
     {
         if (Lifecycle != DemandLifecycleState.Open)
             throw new InvalidOperationException("已关闭的需求不能进入 CD");
@@ -95,7 +95,7 @@ public sealed class OrderDemand
     }
 
     /// <summary>按逻辑时间推进 CD；返回值表示本次刚好结束 CD。</summary>
-    public bool AdvanceLogicalTime(long deltaLogicalTimeMilli)
+    internal bool AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
         if (deltaLogicalTimeMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
@@ -125,7 +125,7 @@ public sealed class OrderDemand
     /// 记录一次成功满足。一次性需求关闭；持续性需求仍保持开放。
     /// 普通成功是否进入 CD 尚未定义，因此这里不会擅自启动 CD。
     /// </summary>
-    public void RecordSuccessfulFulfillment()
+    internal void RecordSuccessfulFulfillment()
     {
         if (!ReadyForSolve)
             throw new InvalidOperationException("需求未开放或仍处于 CD，不能记录成功满足");
