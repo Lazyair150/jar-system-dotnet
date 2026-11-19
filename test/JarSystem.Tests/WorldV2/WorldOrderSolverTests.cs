@@ -23,7 +23,8 @@ public sealed class WorldOrderSolverTests
 
     private static WorldSnapshot Snapshot(Workshop master, Workshop? slave = null)
     {
-        var workshops = slave == null ? new[] { master } : new[] { master, slave };
+        var workshops = new List<Workshop> { master };
+        if (slave != null) workshops.Add(slave);
         return WorldSnapshotFactory.Capture(new WorkshopRoster(workshops, master, slave));
     }
 
