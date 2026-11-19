@@ -142,6 +142,21 @@ public class Jar
         return new Jar(_shape, _liquid, _id, _vocabulary) { IsMarked = _marked };
     }
 
+    /// <summary>从同词表的状态副本恢复本对象，保留当前对象身份。</summary>
+    internal void RestoreStateFrom(Jar snapshot)
+    {
+        ThrowIfRecycled();
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        snapshot.ThrowIfRecycled();
+        if (!ReferenceEquals(_vocabulary, snapshot._vocabulary))
+            throw new InvalidOperationException("不能从不同词表的罐子快照恢复状态");
+
+        _id = snapshot._id;
+        _shape = snapshot._shape;
+        _liquid = snapshot._liquid;
+        _marked = snapshot._marked;
+    }
+
     public override string ToString() => GetDescription();
 
     // ============================================================
