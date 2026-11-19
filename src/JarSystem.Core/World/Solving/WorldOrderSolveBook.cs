@@ -177,8 +177,10 @@ public sealed class WorldOrderSolveBook : IDisposable
                 break;
 
             case OrderDemandBoardChangeKind.Moved:
-                _records[change.DemandId] =
-                    WorldOrderSolveRecord.Dirty(change.DemandId, "订单在主动/被动区域之间移动");
+                if (!_records.TryGetValue(change.DemandId, out var movedRecord) ||
+                    movedRecord.State != WorldOrderSolveState.AwaitingRearm)
+                    _records[change.DemandId] =
+                        WorldOrderSolveRecord.Dirty(change.DemandId, "订单在主动/被动区域之间移动");
                 break;
 
             case OrderDemandBoardChangeKind.CooldownElapsed:
