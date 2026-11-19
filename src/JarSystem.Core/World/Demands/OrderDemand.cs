@@ -1,5 +1,6 @@
 using System;
 using JarSystem.Core.Abstractions;
+using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.World.Demands;
 
