@@ -64,13 +64,14 @@ public class ShapeProductionLine
     /// 定点化后：只在注册边界上取整一次，之后全是整数运算 ⇒ 逐 tick 结果与平台无关。
     /// 对外契约只改了这 3 个**数值**（键名与形状不变）；基线已于 2026-10-16 **有意重建**（见 `过程系统/03_*.md`）。
     /// </summary>
-    public double Accumulated => _accumulatedMilli / (double)MilliUnit;
+    public double Accumulated => _accumulatedMicro / (double)MicroUnit;
 
-    /// <summary>定点累加器（千分之一为单位；只有本类的 <see cref="Tick"/> 会推进它）。</summary>
-    private int _accumulatedMilli;
+    /// <summary>资源量累加器（百万分之一单位）；支持任意千分之一逻辑时间增量。</summary>
+    private long _accumulatedMicro;
 
-    /// <summary>定点单位：速率的千分之一（0.4 ⇒ 400）。</summary>
+    /// <summary>速率注册时以千分之一保存，时间增量也以千分之一传入。</summary>
     private const int MilliUnit = 1000;
+    private const long MicroUnit = 1_000_000;
 
     /// <param name="vocabulary">词表（S2）：本线产出的罐子按它校验形状；null 表示内置默认词表。</param>
     /// <param name="intensity">强度折算出口（可选）：`producer:形状` 目标可折减本线产出。</param>
@@ -101,17 +102,32 @@ public class ShapeProductionLine
             _producerList.Add((name, rate));
     }
 
-    public List<Jar> Tick()
+    /// <summary>旧 tick 入口：一个 tick 等价于一个逻辑时间单位，保持旧世界调用语义。</summary>
+    public List<Jar> Tick() => AdvanceLogicalTime(MilliUnit);
+
+    /// <summary>
+    /// 按逻辑时间推进产线。deltaLogicalTimeMilli 的 1000 表示 1 个逻辑时间单位。
+    /// 速率与时间分别以千分之一表示，乘积直接进入百万分之一资源累加器，
+    /// 因而分段推进与一次性推进不会因浮点误差改变产出数量。
+    /// </summary>
+    public List<Jar> AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
+        if (deltaLogicalTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
+
         var totalMilli = Producers.Sum(p => Milli(p.Rate));
         // P4c：强度修饰器可折减某形状的生产者速率（整数千分比；无匹配 ⇒ 恒等）
         if (_intensity != null) totalMilli = _intensity.Apply("producer:" + Shape, totalMilli);
-        _accumulatedMilli += totalMilli;
-        // 整数整除 = 原 Math.Floor 的语义（速率恒非负 ⇒ 累加恒非负，截断与下取整等价）
-        var n = _accumulatedMilli / MilliUnit;
-        _accumulatedMilli -= n * MilliUnit;
-        var jars = new List<Jar>();
-        for (int i = 0; i < n; i++)
+        _accumulatedMicro = checked(_accumulatedMicro + (long)totalMilli * deltaLogicalTimeMilli);
+
+        var produced = _accumulatedMicro / MicroUnit;
+        if (produced > int.MaxValue)
+            throw new InvalidOperationException("单次逻辑时间推进产生的罐子数量超过可表示范围");
+        var count = (int)produced;
+        _accumulatedMicro -= produced * MicroUnit;
+
+        var jars = new List<Jar>(count);
+        for (int i = 0; i < count; i++)
             jars.Add(_pool != null
                 ? _pool.Rent(Shape, null, null, _vocabulary)
                 : new Jar(Shape, null, null, _vocabulary));
@@ -268,6 +284,24 @@ public class ProducerModule
                     newJars.AddRange(_generators[s].Tick());
         }
         // 仓库上限：溢出丢弃并计数，避免长跑无限膨胀
+        Warehouse.StoreJars(newJars);
+        return newJars;
+    }
+
+    /// <summary>
+    /// 按逻辑时间推进所有形状产线一次，并将新罐子放入中央仓库。
+    /// 与 Tick(count) 不同，本方法不把时间离散成整数 tick。
+    /// </summary>
+    public List<Jar> AdvanceLogicalTime(long deltaLogicalTimeMilli)
+    {
+        if (deltaLogicalTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
+
+        var newJars = new List<Jar>();
+        foreach (var shape in _vocabulary.Shapes)
+            if (_generators[shape].HasPositiveRate)
+                newJars.AddRange(_generators[shape].AdvanceLogicalTime(deltaLogicalTimeMilli));
+
         Warehouse.StoreJars(newJars);
         return newJars;
     }
