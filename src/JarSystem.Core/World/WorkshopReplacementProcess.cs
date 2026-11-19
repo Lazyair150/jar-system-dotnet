@@ -32,6 +32,8 @@ public sealed class WorkshopReplacementProcess
     public bool IsFinished => _finished;
     public bool Succeeded { get; private set; }
     public string? FailureReason { get; private set; }
+    /// <summary>迁徙已提交后，外部账本/统计/对象池副作用若失败，记录警告而不回滚已提交世界。</summary>
+    public string? CommitWarning { get; private set; }
     public WorkshopRole Role => _role;
     public int CompletedPhases => _phase;
 
@@ -132,6 +134,15 @@ public sealed class WorkshopReplacementProcess
                     try
                     {
                         _roster.CommitMasterReplacement(_oldWorkshop, _targetWorkshop);
+                        try
+                        {
+                            // 岗位指向已提交；此后外部副作用失败不能再伪装成可回滚的迁徙失败。
+                            _masterSwitch!.CommitTransferEffects();
+                        }
+                        catch (Exception commitError)
+                        {
+                            CommitWarning = "迁徙已提交，但外部副作用提交失败: " + commitError.Message;
+                        }
                         Succeed();
                     }
                     catch (Exception ex)
