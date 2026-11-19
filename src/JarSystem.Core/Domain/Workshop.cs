@@ -485,15 +485,24 @@ public class Workshop
     /// </summary>
     public void RestoreFromSnapshot(WorkshopSnapshot s)
     {
-        if (s.OriginalJars.Count != s.Jars.Count)
-            throw new InvalidOperationException("工作台快照中的罐子引用与状态数量不一致");
-
         _jars.Clear();
-        for (var i = 0; i < s.OriginalJars.Count; i++)
+        if (s.OriginalJars.Count == s.Jars.Count)
         {
-            var original = s.OriginalJars[i];
-            original.RestoreStateFrom(s.Jars[i]);
-            _jars.Add(original);
+            for (var i = 0; i < s.OriginalJars.Count; i++)
+            {
+                var original = s.OriginalJars[i];
+                original.RestoreStateFrom(s.Jars[i]);
+                _jars.Add(original);
+            }
+        }
+        else if (s.OriginalJars.Count == 0)
+        {
+            // 兼容外部手工构造的旧式快照：它没有原实体引用，只能恢复状态副本。
+            _jars.AddRange(s.Jars.Select(j => j.DeepClone()));
+        }
+        else
+        {
+            throw new InvalidOperationException("工作台快照中的罐子引用与状态数量不一致");
         }
         _liquidStorage.Clear();
         foreach (var kv in s.Liquids) _liquidStorage[kv.Key] = kv.Value;
