@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Domain;
