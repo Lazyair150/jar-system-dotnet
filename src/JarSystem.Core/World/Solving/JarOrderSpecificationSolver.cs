@@ -207,7 +207,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
 
                 if (modifier.RuntimeType.EndsWith(nameof(SuppressModifier), StringComparison.Ordinal))
                 {
-                    if (modifier.Operation == null && modifier.Shape == null &&
+                    if (string.IsNullOrEmpty(modifier.Operation) && string.IsNullOrEmpty(modifier.Shape) &&
                         !string.IsNullOrEmpty(modifier.Liquid))
                     {
                         if (!bannedLiquids.Contains(modifier.Liquid))
@@ -215,7 +215,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
                         continue;
                     }
 
-                    if (modifier.Operation == null && modifier.Liquid == null &&
+                    if (string.IsNullOrEmpty(modifier.Operation) && string.IsNullOrEmpty(modifier.Liquid) &&
                         !string.IsNullOrEmpty(modifier.Shape))
                     {
                         removedShapes.Add(modifier.Shape);
