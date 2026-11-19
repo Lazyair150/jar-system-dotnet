@@ -147,7 +147,13 @@ public sealed class WorldOrderSolveBook : IDisposable
             throw new ArgumentException("失效原因不能为空", nameof(reason));
 
         foreach (var demand in _board.AllDemands)
+        {
+            if (_records.TryGetValue(demand.Id, out var current) &&
+                current.State == WorldOrderSolveState.AwaitingRearm)
+                continue;
+
             _records[demand.Id] = WorldOrderSolveRecord.Dirty(demand.Id, reason);
+        }
     }
 
     public void Dispose()
