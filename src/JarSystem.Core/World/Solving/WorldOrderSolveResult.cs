@@ -18,6 +18,7 @@ public sealed class WorldOrderSolveResult
     public string? Reason { get; }
     public int DirectCount { get; }
     public int OperationCount { get; }
+    public WorldOrderSolvePlan? Plan { get; }
 
     public bool IsFeasible => Status == WorldOrderSolveStatus.Feasible;
     public bool IsUndetermined => Status == WorldOrderSolveStatus.Undetermined;
@@ -29,7 +30,8 @@ public sealed class WorldOrderSolveResult
         string? checkMethod = null,
         string? reason = null,
         int directCount = 0,
-        int operationCount = 0)
+        int operationCount = 0,
+        WorldOrderSolvePlan? plan = null)
     {
         if (demandId <= 0) throw new ArgumentOutOfRangeException(nameof(demandId));
         if (string.IsNullOrWhiteSpace(worldVersion))
@@ -45,6 +47,11 @@ public sealed class WorldOrderSolveResult
         Reason = reason;
         DirectCount = directCount;
         OperationCount = operationCount;
+        if (status == WorldOrderSolveStatus.Feasible && plan == null)
+            throw new ArgumentException("可行结果必须包含不可变求解计划", nameof(plan));
+        if (status != WorldOrderSolveStatus.Feasible && plan != null)
+            throw new ArgumentException("只有可行结果可以携带求解计划", nameof(plan));
+        Plan = plan;
     }
 }
 
@@ -105,6 +112,13 @@ public sealed class WorldOrderSolverRegistry
                 demand.Id, snapshot.Version, WorldOrderSolveStatus.UnsupportedSpecification,
                 reason: "没有为订单规格注册求解器: " + demand.Specification.GetType().FullName);
 
-        return solver.Solve(demand, snapshot);
+        var result = solver.Solve(demand, snapshot);
+        if (result == null)
+            throw new InvalidOperationException("订单求解器返回了 null 结果");
+        if (result.DemandId != demand.Id)
+            throw new InvalidOperationException("订单求解器返回结果的 DemandId 与输入订单不一致");
+        if (!string.Equals(result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
+            throw new InvalidOperationException("订单求解器返回结果的 WorldVersion 与输入快照不一致");
+        return result;
     }
 }

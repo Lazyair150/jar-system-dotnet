@@ -49,6 +49,9 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
         Assert.Equal("single_phase", result.CheckMethod);
         Assert.Equal(1, result.DirectCount);
+        Assert.NotNull(result.Plan);
+        Assert.False(result.Plan!.IsPartitioned);
+        Assert.NotEmpty(result.Plan!.MasterSteps);
     }
 
     [Fact]
@@ -97,6 +100,8 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
         Assert.Equal("partition", result.CheckMethod);
         Assert.Equal(1, result.DirectCount);
+        Assert.NotNull(result.Plan);
+        Assert.True(result.Plan.IsPartitioned);
     }
 
     [Fact]
@@ -162,6 +167,27 @@ public sealed class WorldOrderSolverTests
         var result = Registry().Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
 
         Assert.Equal(WorldOrderSolveStatus.InvalidWorld, result.Status);
+    }
+
+    [Fact]
+    public void RegistryRejectsSolverResultBoundToAnotherDemand()
+    {
+        var demand = Demand();
+        var snapshot = Snapshot(new Workshop("主台"));
+        var registry = new WorldOrderSolverRegistry(new[]
+        {
+            new MismatchedResultSolver()
+        });
+
+        Assert.Throws<System.InvalidOperationException>(() => registry.Solve(demand, snapshot));
+    }
+
+    private sealed class MismatchedResultSolver : IWorldOrderSpecificationSolver
+    {
+        public System.Type SpecificationType => typeof(JarOrderSpecification);
+
+        public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot) =>
+            new(demand.Id + 1, snapshot.Version, WorldOrderSolveStatus.Infeasible);
     }
 
     private sealed class ForeignSpecification : IOrderSpecification

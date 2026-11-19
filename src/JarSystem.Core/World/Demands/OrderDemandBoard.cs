@@ -10,6 +10,9 @@ namespace JarSystem.Core.World.Demands;
 /// </summary>
 public sealed class OrderDemandBoard
 {
+    /// <summary>订单归属、区域顺序或 CD 就绪状态发生变化时通知外部调度/求解状态簿。</summary>
+    public event Action<OrderDemandBoardChange>? Changed;
+
     public OrderDemandArea Passive { get; }
     public OrderDemandArea Active { get; }
 
@@ -32,6 +35,7 @@ public sealed class OrderDemandBoard
         if (Find(demand.Id) != null)
             throw new InvalidOperationException($"需求 ID 已登记: {demand.Id}");
         GetArea(area).Add(demand);
+        Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.Added, demand.Id, area, area));
     }
 
     /// <summary>从区域卸载订单不等于销毁订单对象，也不回滚已发生的世界变化。</summary>
@@ -39,7 +43,11 @@ public sealed class OrderDemandBoard
     {
         var demand = Find(demandId);
         if (demand == null) return false;
-        return AreaOf(demand).Remove(demand);
+        var area = AreaOf(demand);
+        if (!area.Remove(demand)) return false;
+        Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.Removed, demand.Id,
+            area.Kind, null));
+        return true;
     }
 
     /// <summary>
@@ -55,9 +63,13 @@ public sealed class OrderDemandBoard
         if (area.RemoveAfterSuccessfulFulfillment)
         {
             area.Remove(demand);
+            Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.Removed, demand.Id,
+                area.Kind, null));
             return DemandFulfillmentResult.RemovedFromArea;
         }
 
+        Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.FulfilledRetained, demand.Id,
+            area.Kind, area.Kind));
         return DemandFulfillmentResult.RetainedInArea;
     }
 
@@ -74,6 +86,8 @@ public sealed class OrderDemandBoard
         // 所有可能失败的参数检查在移除来源之前完成。
         source.Remove(demand);
         target.Add(demand);
+        Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.Moved, demand.Id,
+            source.Kind, target.Kind));
         return true;
     }
 
@@ -82,7 +96,12 @@ public sealed class OrderDemandBoard
     {
         var demand = Passive.Demands.FirstOrDefault(x => x.Id == demandId);
         if (demand == null) return false;
-        return Passive.Move(demand, newIndex);
+        var oldIndex = Passive.Demands.ToList().IndexOf(demand);
+        if (!Passive.Move(demand, newIndex)) return false;
+        if (oldIndex != newIndex)
+            Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.PassiveOrderChanged,
+                demand.Id, DemandAreaKind.Passive, DemandAreaKind.Passive));
+        return true;
     }
 
     public OrderDemand? Find(int demandId) =>
@@ -98,9 +117,19 @@ public sealed class OrderDemandBoard
             throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
 
         var ready = new List<int>();
-        foreach (var demand in Passive.Demands.Concat(Active.Demands))
+        foreach (var demand in Passive.Demands.Concat(Active.Demands).ToArray())
             if (demand.AdvanceLogicalTime(deltaLogicalTimeMilli))
                 ready.Add(demand.Id);
+
+        // 在枚举结束后再通知，避免订阅者在回调中增删订单破坏当前遍历。
+        foreach (var demandId in ready)
+        {
+            var demand = Find(demandId);
+            if (demand == null) continue;
+            var area = AreaOf(demand);
+            Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.CooldownElapsed,
+                demandId, area.Kind, area.Kind));
+        }
         return ready.AsReadOnly();
     }
 
@@ -120,4 +149,22 @@ public enum DemandFulfillmentResult
     NotFound,
     RemovedFromArea,
     RetainedInArea
+}
+
+
+/// <summary>需求板向外发布的结构变化；不携带玩法规格内容。</summary>
+public sealed record OrderDemandBoardChange(
+    OrderDemandBoardChangeKind Kind,
+    int DemandId,
+    DemandAreaKind? PreviousArea,
+    DemandAreaKind? CurrentArea);
+
+public enum OrderDemandBoardChangeKind
+{
+    Added,
+    Removed,
+    Moved,
+    PassiveOrderChanged,
+    CooldownElapsed,
+    FulfilledRetained
 }

@@ -63,10 +63,15 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
                 return Result(demand, snapshot, WorldOrderSolveStatus.Infeasible,
                     "single_phase", solved.Blockage);
 
-            var path = solved.Path ?? new List<SolverStep>();
+            if (solved.Path == null)
+                return Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
+                    "single_phase", "求解器报告可行，但没有提供可执行路径");
+
+            var path = solved.Path;
             return Result(demand, snapshot, WorldOrderSolveStatus.Feasible,
                 "single_phase", directCount: path.Count(x => x.Operation?.Type == "MATCH"),
-                operationCount: path.Count(x => x.Operation?.Type != "MATCH"));
+                operationCount: path.Count(x => x.Operation?.Type != "MATCH"),
+                plan: WorldOrderSolvePlan.SinglePhase(path));
         }
 
         var slaveSnapshot = snapshot.Slave;
@@ -98,7 +103,8 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
 
         return Result(demand, snapshot, WorldOrderSolveStatus.Feasible,
             "partition", directCount: outcome.DirectCount,
-            operationCount: outcome.OperationCount);
+            operationCount: outcome.OperationCount,
+            plan: WorldOrderSolvePlan.Partitioned(outcome));
     }
 
     private static WorldOrderSolveResult Result(
@@ -108,8 +114,9 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
         string? method = null,
         string? reason = null,
         int directCount = 0,
-        int operationCount = 0) =>
-        new(demand.Id, snapshot.Version, status, method, reason, directCount, operationCount);
+        int operationCount = 0,
+        WorldOrderSolvePlan? plan = null) =>
+        new(demand.Id, snapshot.Version, status, method, reason, directCount, operationCount, plan);
 
     /// <summary>
     /// 把快照中的静态修饰器投影到一次求解输入。
