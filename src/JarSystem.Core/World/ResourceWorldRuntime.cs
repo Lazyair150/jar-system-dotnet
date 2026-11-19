@@ -29,7 +29,7 @@ public sealed class ResourceWorldRuntime
         return AdvanceCore(deltaWorldTimeMilli, Roster.Master);
     }
 
-    /// <summary>兼容第一阶段调用方式：显式指定本次资源流入目标。</summary>
+    /// <summary>兼容第一阶段调用方式：显式指定本次资源流入目标；null 表示本次不向工作台流入。</summary>
     public ResourceWorldStep AdvanceWorldTime(long deltaWorldTimeMilli, Workshop? master) =>
         AdvanceCore(deltaWorldTimeMilli, master);
 
@@ -63,9 +63,9 @@ public sealed class ResourceWorldRuntime
 
         // 一个世界推进片段只要与替换过程有重叠，就全片段暂停流入。
         // 生产仍然推进并留在仓库；替换完成后的下一片段才向新主台流入。
-        var effectiveMaster = replacementWasActive
-            ? null
-            : (Roster != null ? Roster.Master : requestedMaster);
+        // 不在这里重新读取 Roster.Master：无参重载已在入口处解析岗位，
+        // 显式参数重载则必须保留调用者指定的目标（包括 null）。
+        var effectiveMaster = replacementWasActive ? null : requestedMaster;
 
         var resources = Resources.Advance(logicalDelta, effectiveMaster);
         return new ResourceWorldStep(logicalDelta, resources);
