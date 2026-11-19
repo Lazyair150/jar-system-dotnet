@@ -73,15 +73,35 @@ public sealed class WorkshopReplacementProcess
     public (bool Success, string? Error) Begin()
     {
         if (_begun) return (false, "替换过程已经开始");
-        if (_finished) return (false, "替换过程已经结束");
+        if (_finished) return (false, FailureReason ?? "替换过程已经结束");
 
         try
         {
             ValidateTarget();
-            var interruption = _interruptionPort.InterruptForWorkshopReplacement();
-            if (!interruption.Success)
-                return (false, interruption.Error ?? "订单中断失败");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
 
+        (bool Success, string? Error) interruption;
+        try
+        {
+            interruption = _interruptionPort.InterruptForWorkshopReplacement();
+        }
+        catch (Exception ex)
+        {
+            // 中断适配器抛异常时，外部订单状态可能无法判断；禁止在同一过程实例上自动重试。
+            FailureReason = "订单中断请求发生异常，结果可能不确定；替换不会自动重试: " + ex.Message;
+            _finished = true;
+            return (false, FailureReason);
+        }
+
+        if (!interruption.Success)
+            return (false, interruption.Error ?? "订单中断失败");
+
+        try
+        {
             // 必须在订单中断与从台结算之后拍快照，确保回滚不会复活已中断订单的临时资源。
             _masterSwitch?.Begin();
             _begun = true;
@@ -89,7 +109,10 @@ public sealed class WorkshopReplacementProcess
         }
         catch (Exception ex)
         {
-            return (false, ex.Message);
+            // 订单中断已经成功，是不可逆边界；初始化失败时明确终止，不能重复中断或假装恢复订单。
+            FailureReason = "订单已中断，但迁徙初始化失败；订单中断不会自动撤销: " + ex.Message;
+            _finished = true;
+            return (false, FailureReason);
         }
     }
 
