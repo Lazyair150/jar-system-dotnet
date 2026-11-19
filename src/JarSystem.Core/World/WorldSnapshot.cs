@@ -241,7 +241,9 @@ public static class WorldSnapshotFactory
             writer.Write(jar.IsMarked);
         }
 
-        var liquids = workshop.Liquids.OrderBy(x => x.Key, StringComparer.Ordinal).ToArray();
+        // 保留实际交给求解器的字典枚举顺序；若未来将求解输入规范化排序，
+        // 必须同时修改 CreateSolverLiquids 与此处的指纹口径。
+        var liquids = workshop.Liquids.ToArray();
         writer.Write(liquids.Length);
         foreach (var liquid in liquids)
         {
