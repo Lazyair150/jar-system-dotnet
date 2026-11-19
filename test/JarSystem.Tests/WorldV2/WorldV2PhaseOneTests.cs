@@ -120,6 +120,55 @@ public sealed class ResourceAreaTests
     }
 
     [Fact]
+    public void ProductionIsInvariantToHowLogicalTimeIsPartitioned()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+
+        var oneShotProducer = new ProducerModule(vocabulary);
+        oneShotProducer.RegisterProducer("P", new Dictionary<string, double> { ["圆罐"] = 0.3 });
+        var splitProducer = new ProducerModule(vocabulary);
+        splitProducer.RegisterProducer("P", new Dictionary<string, double> { ["圆罐"] = 0.3 });
+
+        var oneShotLiquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0.3, ["蜜"] = 0 });
+        var splitLiquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0.3, ["蜜"] = 0 });
+
+        oneShotProducer.AdvanceLogicalTime(10_000);
+        oneShotLiquids.AdvanceLogicalTime(10_000);
+
+        for (var i = 0; i < 10; i++)
+        {
+            splitProducer.AdvanceLogicalTime(1_000);
+            splitLiquids.AdvanceLogicalTime(1_000);
+        }
+
+        Assert.Equal(oneShotProducer.Warehouse.JarCount, splitProducer.Warehouse.JarCount);
+        Assert.Equal(oneShotLiquids.Accumulated["酒"], splitLiquids.Accumulated["酒"]);
+        Assert.Equal(oneShotLiquids.Accumulated["蜜"], splitLiquids.Accumulated["蜜"]);
+    }
+
+    [Fact]
+    public void FractionalFlowRateAccumulatesAcrossLogicalTimeSlices()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var producers = new ProducerModule(vocabulary);
+        producers.RegisterProducer("测试生产器", new Dictionary<string, double> { ["圆罐"] = 1 });
+        var liquids = new LiquidProduction(
+            vocabulary,
+            defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var area = new ResourceArea(producers, liquids, jarFlowRate: 0.5, liquidFlowRate: 0);
+        var master = new Workshop("主台", baseMarks: new List<string> { "圆罐" }, vocabulary: vocabulary);
+
+        var first = area.Advance(1_000, master);
+        var second = area.Advance(1_000, master);
+
+        Assert.Equal(0, first.FlowedJarCount);
+        Assert.Equal(1, second.FlowedJarCount);
+        Assert.Single(master.Jars);
+    }
+
+    [Fact]
     public void NoMasterLeavesProducedResourcesInTheResourceArea()
     {
         var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
