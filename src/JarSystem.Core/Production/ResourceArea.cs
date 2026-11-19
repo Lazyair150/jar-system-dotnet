@@ -70,6 +70,28 @@ public sealed class ResourceArea
         if (deltaLogicalTimeMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
 
+        var jarQuota = 0;
+        var liquidQuota = 0;
+        var nextJarFlowAccumulator = _jarFlowAccumulator;
+        var nextLiquidFlowAccumulator = _liquidFlowAccumulator;
+
+        if (master != null && deltaLogicalTimeMilli > 0)
+        {
+            // 先计算本时间片的吞吐额度。超出单次 API 可表达范围时拒绝整个推进，
+            // 不静默截断额度，也不让生产先发生、随后才因额度溢出而失败。
+            nextJarFlowAccumulator = checked(_jarFlowAccumulator + _jarFlowRateMilli * deltaLogicalTimeMilli);
+            nextLiquidFlowAccumulator = checked(_liquidFlowAccumulator + _liquidFlowRateMilli * deltaLogicalTimeMilli);
+            var jarQuotaLong = nextJarFlowAccumulator / AmountUnit;
+            var liquidQuotaLong = nextLiquidFlowAccumulator / AmountUnit;
+            if (jarQuotaLong > int.MaxValue || liquidQuotaLong > int.MaxValue)
+                throw new InvalidOperationException("单次资源流入额度超过可表示范围");
+
+            jarQuota = (int)jarQuotaLong;
+            liquidQuota = (int)liquidQuotaLong;
+            nextJarFlowAccumulator %= AmountUnit;
+            nextLiquidFlowAccumulator %= AmountUnit;
+        }
+
         var producedJars = _producers.AdvanceLogicalTime(deltaLogicalTimeMilli);
         var producedLiquids = _liquidProduction.AdvanceLogicalTime(deltaLogicalTimeMilli);
         foreach (var (liquid, amount) in producedLiquids)
@@ -81,16 +103,8 @@ public sealed class ResourceArea
 
         // 吞吐额度是"本时间片可处理的上限"，不是资源欠条。
         // 整数额度无论库存/目的地是否足够都会在本时间片消耗；只有小数余量留到下一片。
-        _jarFlowAccumulator = checked(_jarFlowAccumulator + _jarFlowRateMilli * deltaLogicalTimeMilli);
-        _liquidFlowAccumulator = checked(_liquidFlowAccumulator + _liquidFlowRateMilli * deltaLogicalTimeMilli);
-
-        var jarQuotaLong = _jarFlowAccumulator / AmountUnit;
-        var liquidQuotaLong = _liquidFlowAccumulator / AmountUnit;
-        _jarFlowAccumulator %= AmountUnit;
-        _liquidFlowAccumulator %= AmountUnit;
-
-        var jarQuota = (int)Math.Min(int.MaxValue, jarQuotaLong);
-        var liquidQuota = (int)Math.Min(int.MaxValue, liquidQuotaLong);
+        _jarFlowAccumulator = nextJarFlowAccumulator;
+        _liquidFlowAccumulator = nextLiquidFlowAccumulator;
         var moved = Inventory.FlowToMaster(master, jarQuota, liquidQuota);
 
         return new ResourceAreaAdvanceResult(
