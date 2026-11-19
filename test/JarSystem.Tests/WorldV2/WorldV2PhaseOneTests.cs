@@ -64,6 +64,31 @@ public sealed class WorldClockTests
     }
 }
 
+public sealed class ResourceWorldRuntimeTests
+{
+    [Fact]
+    public void RuntimePassesWorldSpeedIntoResourceProduction()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var producers = new ProducerModule(vocabulary);
+        producers.RegisterProducer("测试生产器", new Dictionary<string, double> { ["圆罐"] = 1 });
+        var liquids = new LiquidProduction(
+            vocabulary,
+            defaults: new Dictionary<string, double> { ["酒"] = 1, ["蜜"] = 0 });
+        var area = new ResourceArea(producers, liquids, jarFlowRate: 0, liquidFlowRate: 0);
+        var runtime = new ResourceWorldRuntime(area);
+        runtime.Clock.SetSpeedRatio(2);
+
+        var step = runtime.AdvanceWorldTime(500, master: null);
+
+        Assert.Equal(1_000, step.LogicalTimeDeltaMilli);
+        Assert.Equal(1, step.Resources.ProducedJarCount);
+        Assert.Equal(1, step.Resources.ProducedLiquids.Single(x => x.Liquid == "酒").Amount);
+        Assert.Equal(500, runtime.Clock.WorldTimeMilli);
+        Assert.Equal(1_000, runtime.Clock.LogicalTimeMilli);
+    }
+}
+
 public sealed class ResourceAreaTests
 {
     [Fact]
