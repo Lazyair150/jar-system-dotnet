@@ -195,8 +195,10 @@ public static class WorldSnapshotFactory
     {
         if (roster == null) throw new ArgumentNullException(nameof(roster));
 
-        var master = roster.Master == null ? null : new WorkshopSolveSnapshot(roster.Master);
-        var slave = roster.Slave == null ? null : new WorkshopSolveSnapshot(roster.Slave);
+        var masterWorkshop = roster.Master;
+        var slaveWorkshop = roster.Slave;
+        var master = masterWorkshop == null ? null : new WorkshopSolveSnapshot(masterWorkshop);
+        var slave = slaveWorkshop == null ? null : new WorkshopSolveSnapshot(slaveWorkshop);
         var version = ComputeVersion(master, slave);
         return new WorldSnapshot(version, master, slave);
     }
