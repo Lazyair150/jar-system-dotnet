@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
 using JarSystem.Core.World;
 using Xunit;
@@ -151,7 +152,7 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(0, discardedJars);
         Assert.Equal(0, ledger.LastSeq);
         Assert.Equal(0, pool.Returned);
-        Assert.True(jar.IsRecycled == false);
+        Assert.False(jar.IsRecycled);
 
         migration.Rollback();
 
