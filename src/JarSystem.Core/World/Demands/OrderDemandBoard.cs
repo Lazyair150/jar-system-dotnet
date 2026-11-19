@@ -65,7 +65,7 @@ public sealed class OrderDemandBoard
     /// 推进所有需求的 CD，返回本次刚结束 CD 的需求 ID。
     /// 调用方可在阶段四据此触发重新求解。
     /// </summary>
-    public IReadOnlyList<int> AdvanceLogicalTime(long deltaLogicalTimeMilli)
+    internal IReadOnlyList<int> AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
         if (deltaLogicalTimeMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
