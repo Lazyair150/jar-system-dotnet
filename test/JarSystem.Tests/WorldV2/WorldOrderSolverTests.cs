@@ -169,6 +169,27 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(WorldOrderSolveStatus.InvalidWorld, result.Status);
     }
 
+    [Fact]
+    public void RegistryRejectsSolverResultBoundToAnotherDemand()
+    {
+        var demand = Demand();
+        var snapshot = Snapshot(new Workshop("主台"));
+        var registry = new WorldOrderSolverRegistry(new[]
+        {
+            new MismatchedResultSolver()
+        });
+
+        Assert.Throws<System.InvalidOperationException>(() => registry.Solve(demand, snapshot));
+    }
+
+    private sealed class MismatchedResultSolver : IWorldOrderSpecificationSolver
+    {
+        public System.Type SpecificationType => typeof(JarOrderSpecification);
+
+        public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot) =>
+            new(demand.Id + 1, snapshot.Version, WorldOrderSolveStatus.Infeasible);
+    }
+
     private sealed class ForeignSpecification : IOrderSpecification
     {
     }
