@@ -389,4 +389,63 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(1, interruption.Calls);
     }
 
+
+    [Theory]
+    [InlineData(WorkshopRole.Master)]
+    [InlineData(WorkshopRole.Slave)]
+    public void ReplacementRejectsResourcesLeftOnOldSlaveAfterSuccessfulInterruption(WorkshopRole role)
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var oldSlave = new Workshop("旧从台");
+        var target = new Workshop("备用台", new List<string> { "圆罐" });
+        var roster = new WorkshopRoster(new[] { master, oldSlave, target }, master, oldSlave);
+        var leftover = new Jar("圆罐");
+        oldSlave.AddJar(leftover);
+        var interruption = new NoOrderInterruption();
+        var process = new WorkshopReplacementProcess(roster, role, target, interruption, 1_000);
+
+        var result = process.Begin();
+
+        Assert.False(result.Success);
+        Assert.Contains("订单中断已成功", result.Error);
+        Assert.Contains("仍有资源", result.Error);
+        Assert.True(process.InterruptionCommitted);
+        Assert.False(process.InterruptionOutcomeUncertain);
+        Assert.True(process.IsFinished);
+        Assert.False(process.Succeeded);
+        Assert.Same(master, roster.Master);
+        Assert.Same(oldSlave, roster.Slave);
+        Assert.Same(leftover, Assert.Single(oldSlave.Jars));
+        Assert.Equal(0, process.CompletedPhases);
+        Assert.Equal(1, interruption.Calls);
+    }
+
+    [Fact]
+    public void RuntimeRetainsTerminalReplacementWhenInterruptionCommittedButSlaveInvariantFails()
+    {
+        var vocabulary = Vocabulary.Default;
+        var producers = new ProducerModule(vocabulary);
+        var liquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var resources = new ResourceArea(producers, liquids, jarFlowRate: 0, liquidFlowRate: 0);
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var oldSlave = new Workshop("旧从台");
+        var target = new Workshop("备用台", new List<string> { "圆罐" });
+        var roster = new WorkshopRoster(new[] { master, oldSlave, target }, master, oldSlave);
+        oldSlave.AddJar(new Jar("圆罐"));
+        var runtime = new ResourceWorldRuntime(resources, roster: roster);
+
+        var result = runtime.BeginReplacement(
+            WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 1_000);
+
+        Assert.False(result.Success);
+        Assert.NotNull(runtime.ActiveReplacement);
+        Assert.True(runtime.ActiveReplacement!.IsFinished);
+        Assert.True(runtime.ActiveReplacement.InterruptionCommitted);
+        Assert.False(runtime.ActiveReplacement.Succeeded);
+        Assert.Contains("仍有资源", runtime.ActiveReplacement.FailureReason);
+        Assert.Same(master, roster.Master);
+        Assert.Same(oldSlave, roster.Slave);
+    }
+
 }
