@@ -127,15 +127,29 @@ public sealed class WorkshopReplacementProcess
                 _phase++;
                 if (_phase == 2)
                 {
-                    _roster.CommitMasterReplacement(_oldWorkshop, _targetWorkshop);
-                    Succeed();
+                    try
+                    {
+                        _roster.CommitMasterReplacement(_oldWorkshop, _targetWorkshop);
+                        Succeed();
+                    }
+                    catch (Exception ex)
+                    {
+                        Fail(ex.Message);
+                    }
                 }
             }
             else
             {
-                _roster.CommitSlaveReplacement(_oldWorkshop, _targetWorkshop);
-                _phase = 1;
-                Succeed();
+                try
+                {
+                    _roster.CommitSlaveReplacement(_oldWorkshop, _targetWorkshop);
+                    _phase = 1;
+                    Succeed();
+                }
+                catch (Exception ex)
+                {
+                    Fail(ex.Message);
+                }
             }
         }
     }
