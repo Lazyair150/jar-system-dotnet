@@ -55,6 +55,8 @@ public sealed class OrderDemand
             return new Requirement { Shape = r.Shape, Liquid = r.Liquid };
         }).ToList();
 
+        if (copied.Count == 0)
+            throw new DomainValidationException("订单至少需要一条需求");
         if (copied.Count > Constants.MAX_ORDER_REQUIREMENTS)
             throw new DomainValidationException(
                 $"订单需求数量不能超过 {Constants.MAX_ORDER_REQUIREMENTS} 个");
