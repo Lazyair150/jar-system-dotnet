@@ -286,4 +286,73 @@ public sealed class WorkshopReplacementTests
         Assert.Empty(rosterMaster.Jars);
         Assert.Single(resources.Inventory.Jars);
     }
+    [Fact]
+    public void MigrationBeginCannotReplaceTheOriginalSnapshot()
+    {
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" });
+        var newMaster = new Workshop("新主台", new List<string> { "圆罐" });
+        var jar = new Jar("圆罐");
+        oldMaster.AddJar(jar);
+        oldMaster.AddLiquid("酒");
+        var migration = new WorkshopSwitchEvent(oldMaster, newMaster);
+
+        migration.Begin();
+        Assert.True(migration.RunReshape().Ok);
+        Assert.Equal("酒", jar.Liquid);
+        Assert.Equal(0, oldMaster.LiquidStorage["酒"]);
+
+        // 重复 Begin 不能把已经变更的状态覆盖成新的事务起点。
+        Assert.Throws<InvalidOperationException>(() => migration.Begin());
+
+        migration.Rollback();
+
+        Assert.Same(jar, Assert.Single(oldMaster.Jars));
+        Assert.Null(jar.Liquid);
+        Assert.Equal(1, oldMaster.LiquidStorage["酒"]);
+        Assert.Empty(newMaster.Jars);
+    }
+
+    [Fact]
+    public void MigrationRejectsOutOfOrderAndRepeatedStageCalls()
+    {
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" });
+        var newMaster = new Workshop("新主台", new List<string> { "圆罐" });
+        oldMaster.AddJar(new Jar("圆罐"));
+        var migration = new WorkshopSwitchEvent(oldMaster, newMaster);
+
+        migration.Begin();
+        Assert.Throws<InvalidOperationException>(() => migration.RunTransfer());
+        Assert.Throws<InvalidOperationException>(() => migration.CommitTransferEffects());
+
+        Assert.True(migration.RunReshape().Ok);
+        Assert.Throws<InvalidOperationException>(() => migration.RunReshape());
+
+        Assert.True(migration.RunTransfer().Ok);
+        Assert.Throws<InvalidOperationException>(() => migration.RunTransfer());
+
+        migration.CommitTransferEffects();
+        migration.CommitTransferEffects(); // 成功提交允许幂等重复调用。
+        Assert.Throws<InvalidOperationException>(() => migration.Rollback());
+    }
+
+    [Fact]
+    public void MigrationRollbackIsIdempotentAndClosesTheLifecycle()
+    {
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" });
+        var newMaster = new Workshop("新主台", new List<string> { "圆罐" });
+        var jar = new Jar("圆罐");
+        oldMaster.AddJar(jar);
+        var migration = new WorkshopSwitchEvent(oldMaster, newMaster);
+
+        migration.Begin();
+        Assert.True(migration.RunReshape().Ok);
+        migration.Rollback();
+        migration.Rollback();
+
+        Assert.Same(jar, Assert.Single(oldMaster.Jars));
+        Assert.Empty(newMaster.Jars);
+        Assert.Throws<InvalidOperationException>(() => migration.Begin());
+        Assert.Throws<InvalidOperationException>(() => migration.RunReshape());
+    }
+
 }
