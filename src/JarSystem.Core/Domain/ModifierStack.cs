@@ -47,7 +47,8 @@ public sealed class ModifierStack : IIntensitySource
     /// 供世界求解快照捕获，避免把未来规则提前投影到当前求解输入。
     /// </summary>
     public IReadOnlyList<IRuleModifier> CaptureEffectiveModifiers() =>
-        _active.Where(IsLive).ToArray();
+        _active.Where(m =>
+            IsLive(m) && (m.Window is not { To: { } to } || _now <= to)).ToArray();
 
     /// <summary>是否没有任何活跃修饰器（**热路径**用：空栈一律走直通，连一次分配都不做）。</summary>
     public bool IsEmpty => _active.Count == 0;
