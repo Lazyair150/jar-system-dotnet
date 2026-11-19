@@ -206,39 +206,16 @@ type "%REP%_quality_output.txt" >> "%LOG%"
 if not "%QUALITY_EXIT%"=="0" echo QUALITY-GATE-FAILED >> "%LOG%"
 
 echo.
-echo ---------------- KEY LINES ----------------
-findstr /i /c:"error CS" /c:"warning CS" /c:"warning MSB" /c:"warning NETSDK" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"MODDIFF-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" /c:"SCENARIO-" /c:"QUALITY-" /c:"SEC-" /c:"JarSystem.Tests" /c:"Total:" "%LOG%"
-echo -------------------------------------------
+rem  PowerShell handles Unicode paths reliably; findstr cannot reliably open
+rem  this log when the repository path contains Chinese characters.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%REP%verify-report.ps1" -LogPath "%LOG%"
+set "REPORT_EXIT=%ERRORLEVEL%"
+echo.
 echo full log : %LOG%
 echo contract : %CONTRACT%\state_keys.txt
 echo schema   : %CONTRACT%\state.schema.json
 echo.
-
-rem ---- machine-checkable verdict (so this script can be used as a CI gate) ----
-set "VERDICT=OK"
-findstr /c:"error CS" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"FAIL " "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"CONFIG-WORLD-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"schema dump FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"PROTOCOL-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SOURCE-NOT-FOUND" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SCRIPT-NON-ASCII" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"DTS-DEGRADED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SOLVER-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"MODDIFF-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"REPLAY-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SNAPSHOT-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SNAPSHOT-NO-BASELINE" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"STEP-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"JS-SYNTAX-ERROR" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SCENARIO-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"QUALITY-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SEC-SCAN-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"QUALITY-OK" "%LOG%" >nul || set "VERDICT=FAIL"
-echo VERDICT=%VERDICT%
-echo VERDICT=%VERDICT% >> "%LOG%"
-echo.
 echo Paste the KEY LINES above back to the assistant.
 if not defined CI pause
-if "%VERDICT%"=="FAIL" exit /b 1
+if not "%REPORT_EXIT%"=="0" exit /b 1
 exit /b 0
