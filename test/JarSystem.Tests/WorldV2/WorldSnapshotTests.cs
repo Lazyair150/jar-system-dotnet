@@ -57,12 +57,13 @@ public sealed class WorldSnapshotTests
         var roster = new WorkshopRoster(new[] { master }, master);
         var snapshot = WorldSnapshotFactory.Capture(roster);
         var capturedVersion = snapshot.Version;
+        var masterSnapshot = snapshot.Master!;
 
         // 求解器获得的是新建的可变输入，改写它不能污染共享快照。
-        var solverJars = snapshot.Master!.CreateSolverJars();
+        var solverJars = masterSnapshot.CreateSolverJars();
         solverJars[0].Shape = "被篡改";
         solverJars.Clear();
-        var solverLiquids = snapshot.Master.CreateSolverLiquids();
+        var solverLiquids = masterSnapshot.CreateSolverLiquids();
         solverLiquids["酒"] = 999;
 
         // 活世界后续变化也不能回写已经拍摄的快照。
@@ -70,10 +71,10 @@ public sealed class WorldSnapshotTests
         master.RemoveLiquid("酒", 1);
 
         Assert.Equal(capturedVersion, snapshot.Version);
-        Assert.Equal("圆罐", Assert.Single(snapshot.Master.Jars).Shape);
-        Assert.Equal(1, snapshot.Master.Liquids["酒"]);
-        Assert.Equal("圆罐", snapshot.Master.CreateSolverJars().Single().Shape);
-        Assert.Equal(1, snapshot.Master.CreateSolverLiquids()["酒"]);
+        Assert.Equal("圆罐", Assert.Single(masterSnapshot.Jars).Shape);
+        Assert.Equal(1, masterSnapshot.Liquids["酒"]);
+        Assert.Equal("圆罐", masterSnapshot.CreateSolverJars().Single().Shape);
+        Assert.Equal(1, masterSnapshot.CreateSolverLiquids()["酒"]);
     }
 
     [Fact]
