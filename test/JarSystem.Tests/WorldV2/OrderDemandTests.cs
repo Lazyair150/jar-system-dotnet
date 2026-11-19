@@ -15,17 +15,22 @@ public sealed class OrderDemandTests
 {
     private static readonly Vocabulary Words = new(new[] { "圆罐", "方罐" }, new[] { "酒", "蜜" });
 
-    private static OrderDemand CreateDemand(
-        IIdGenerator ids,
-        long cooldown = 0,
+    private static JarOrderSpecification CreateSpecification(
         string type = Constants.OrderType.A,
         params Requirement[] requirements)
     {
         var actual = requirements.Length == 0
             ? new[] { new Requirement { Shape = "圆罐" } }
             : requirements;
-        return new OrderDemand(actual, type, cooldown, ids, Words);
+        return new JarOrderSpecification(actual, type, Words);
     }
+
+    private static OrderDemand CreateDemand(
+        IIdGenerator ids,
+        long cooldown = 0,
+        string type = Constants.OrderType.A,
+        params Requirement[] requirements) =>
+        new(CreateSpecification(type, requirements), cooldown, ids);
 
     private static OrderDemandBoard CreateBoard(
         DemandAreaFulfillmentPolicy passive = DemandAreaFulfillmentPolicy.OneShot,
@@ -33,43 +38,49 @@ public sealed class OrderDemandTests
         new(passive, active);
 
     [Fact]
-    public void DemandCopiesAndValidatesItsImmutableRequirements()
+    public void JarSpecificationCopiesAndValidatesItsImmutableRequirements()
     {
         var source = new List<Requirement>
         {
             new() { Shape = "圆罐" },
             new() { Shape = "方罐", Liquid = "酒" }
         };
-        var demand = new OrderDemand(source, Constants.OrderType.B, 1_000,
-            new SequentialIdGenerator(), Words);
+        var specification = new JarOrderSpecification(source, Constants.OrderType.B, Words);
 
         source.Clear();
 
-        Assert.Equal(2, demand.Requirements.Count);
-        Assert.Equal("圆罐", demand.Requirements[0].Shape);
-        Assert.Equal("酒", demand.Requirements[1].Liquid);
+        Assert.Equal(2, specification.Requirements.Count);
+        Assert.Equal("圆罐", specification.Requirements[0].Shape);
+        Assert.Equal("酒", specification.Requirements[1].Liquid);
         Assert.Throws<NotSupportedException>(() =>
-            ((IList<Requirement>)demand.Requirements).Add(new Requirement { Shape = "圆罐" }));
+            ((IList<Requirement>)specification.Requirements).Add(new Requirement { Shape = "圆罐" }));
     }
 
     [Fact]
-    public void DemandRejectsInvalidTypeVocabularyAndRequirementOrdering()
+    public void JarSpecificationRejectsInvalidTypeVocabularyAndRequirementOrdering()
     {
-        var ids = new SequentialIdGenerator();
-
-        Assert.Throws<DomainValidationException>(() => CreateDemand(ids, type: "C"));
+        Assert.Throws<DomainValidationException>(() => CreateSpecification(type: "C"));
         Assert.Throws<DomainValidationException>(() =>
-            new OrderDemand(Array.Empty<Requirement>(), Constants.OrderType.A, 0, ids, Words));
+            new JarOrderSpecification(Array.Empty<Requirement>(), Constants.OrderType.A, Words));
         Assert.Throws<DomainValidationException>(() =>
-            new OrderDemand(new[] { new Requirement { Shape = "不存在" } },
-                Constants.OrderType.A, 0, ids, Words));
+            new JarOrderSpecification(new[] { new Requirement { Shape = "不存在" } },
+                Constants.OrderType.A, Words));
         Assert.Throws<DomainValidationException>(() =>
-            new OrderDemand(new[]
+            new JarOrderSpecification(new[]
             {
                 new Requirement { Shape = "圆罐", Liquid = "酒" },
                 new Requirement { Shape = "方罐" }
-            }, Constants.OrderType.A, 0, ids, Words));
-        Assert.Throws<ArgumentOutOfRangeException>(() => CreateDemand(ids, cooldown: -1));
+            }, Constants.OrderType.A, Words));
+    }
+
+    [Fact]
+    public void DemandStoresAnOpaqueSpecificationWithoutInterpretingItsContents()
+    {
+        var specification = new TestSpecification();
+        var demand = new OrderDemand(specification, 0, new SequentialIdGenerator());
+
+        Assert.Same(specification, demand.Specification);
+        Assert.True(demand.ReadyForSolve);
     }
 
     [Fact]
@@ -131,14 +142,15 @@ public sealed class OrderDemandTests
     {
         var ids = new SequentialIdGenerator();
         var board = CreateBoard(DemandAreaFulfillmentPolicy.OneShot);
-        var demand = CreateDemand(ids);
+        var specification = CreateSpecification();
+        var demand = new OrderDemand(specification, 0, ids);
         board.AddDemand(demand, DemandAreaKind.Passive);
 
         Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
             board.RecordSuccessfulFulfillment(demand.Id));
         Assert.Empty(board.Passive.Demands);
-        Assert.Equal("圆罐", Assert.Single(demand.Requirements).Shape);
-        Assert.True(demand.ReadyForSolve); // CD 状态仍是订单对象自己的状态，不等于区域归属
+        Assert.Same(specification, demand.Specification);
+        Assert.True(demand.ReadyForSolve);
         Assert.Equal(DemandFulfillmentResult.NotFound,
             board.RecordSuccessfulFulfillment(demand.Id));
     }
@@ -292,5 +304,9 @@ public sealed class OrderDemandTests
         runtime.Clock.SetSpeedRatio(1);
         runtime.AdvanceWorldTime(1_000, master: null);
         Assert.True(demand.ReadyForSolve);
+    }
+
+    private sealed class TestSpecification : IOrderSpecification
+    {
     }
 }
