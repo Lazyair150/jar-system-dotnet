@@ -108,7 +108,7 @@ public sealed class WorkshopSolveSnapshot
     public Dictionary<string, int> CreateSolverLiquids() =>
         _liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
 
-    /// <summary>创建独立规则输入；Capability 本身不可变，可以安全共享。</summary>
+    /// <summary>创建仅含基础能力的规则输入；动态修饰器必须由后续求解适配器另行投影。</summary>
     public WorkshopInfo CreateWorkshopInfo() => new()
     {
         Capability = Capability,
@@ -177,7 +177,7 @@ public sealed record WorldRuleModifierSnapshot(
         value.GetType().FullName ?? value.GetType().Name,
         value.Kind, value.Name, value.Source, value.Priority,
         value.Window.HasValue, value.Window?.From ?? 0, value.Window?.To,
-        null, value.Shape, null, null, null, false);
+        null, value.Shape, null, null, null, string.IsNullOrEmpty(value.Shape));
 
     internal static WorldRuleModifierSnapshot Opaque(IRuleModifier value) => new(
         value.GetType().FullName ?? value.GetType().Name,
