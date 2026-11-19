@@ -31,8 +31,6 @@ public sealed class ResourceWorldRuntime
         var resources = Resources.Advance(logicalDelta, master);
         return new ResourceWorldStep(logicalDelta, resources);
     }
-
-    public void Reset() => Clock.Reset();
 }
 
 /// <summary>一次世界推进的时间与资源结果。</summary>
