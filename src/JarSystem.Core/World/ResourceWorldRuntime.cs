@@ -1,4 +1,6 @@
+using System;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
 
 namespace JarSystem.Core.World;
@@ -14,11 +16,19 @@ public sealed class ResourceWorldRuntime
     public WorkshopRoster? Roster { get; }
     public WorkshopReplacementProcess? ActiveReplacement { get; private set; }
 
-    public ResourceWorldRuntime(ResourceArea resources, WorldClock? clock = null, WorkshopRoster? roster = null)
+    // 世界级资源服务由装配层提供，避免 Runtime 创建默认的、缺少账本/对象池依赖的迁徙事件。
+    private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
+
+    public ResourceWorldRuntime(
+        ResourceArea resources,
+        WorldClock? clock = null,
+        WorkshopRoster? roster = null,
+        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null)
     {
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         Clock = clock ?? new WorldClock();
         Roster = roster;
+        _masterSwitchFactory = masterSwitchFactory;
     }
 
     /// <summary>基于已登记岗位推进世界。构造时未提供 Roster 则不能使用此重载。</summary>
@@ -46,7 +56,7 @@ public sealed class ResourceWorldRuntime
             return (false, "已有工作台替换过程正在进行");
 
         var process = new WorkshopReplacementProcess(
-            Roster, role, target, interruptionPort, phaseDurationMilli);
+            Roster, role, target, interruptionPort, phaseDurationMilli, _masterSwitchFactory);
         var result = process.Begin();
         if (result.Success)
             ActiveReplacement = process;
