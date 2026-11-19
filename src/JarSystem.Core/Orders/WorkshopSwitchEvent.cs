@@ -53,6 +53,7 @@ public class WorkshopSwitchEvent
     private WorkshopSnapshot? _oldSnap;
     private WorkshopSnapshot? _newSnap;
     private ISwitchCase? _case;
+    private ResourceTransferrer? _pendingTransferrer;
 
     /// <summary>
     /// 执行切换事件，返回是否成功；失败时两个工作台已回滚到执行前状态。
@@ -67,7 +68,10 @@ public class WorkshopSwitchEvent
         Begin();
         var (ok, err) = RunReshape();
         if (!ok) return (false, err);
-        return RunTransfer();
+        var transfer = RunTransfer();
+        if (!transfer.Ok) return (false, transfer.Error);
+        CommitTransferEffects();
+        return (true, null);
     }
 
     /// <summary>第一阶段：清理日志、拍快照、按禁令是否相同选分支。不做任何搬动。</summary>
@@ -101,15 +105,22 @@ public class WorkshopSwitchEvent
         if (_case == null) Begin();
         try
         {
-            new ResourceTransferrer(new JarValuePolicy(NewMaster), _pool,
-                    _countDiscardedJars, _countDiscardedLiquids, _ledger, _tickOf)
-                .TransferAll(OldMaster, NewMaster, _log, CaseType);
+            _pendingTransferrer = new ResourceTransferrer(new JarValuePolicy(NewMaster), _pool,
+                _countDiscardedJars, _countDiscardedLiquids, _ledger, _tickOf);
+            _pendingTransferrer.TransferAll(OldMaster, NewMaster, _log, CaseType);
             return (true, null);
         }
         catch (Exception ex)
         {
             return Rollback(ex);
         }
+    }
+
+    /// <summary>提交转移阶段暂存的账本、统计与对象池副作用。岗位提交成功后调用。</summary>
+    public void CommitTransferEffects()
+    {
+        _pendingTransferrer?.CommitEffects();
+        _pendingTransferrer = null;
     }
 
     /// <summary>
@@ -121,6 +132,8 @@ public class WorkshopSwitchEvent
     /// </summary>
     public void Rollback()
     {
+        _pendingTransferrer?.DiscardPendingEffects();
+        _pendingTransferrer = null;
         if (_oldSnap != null) OldMaster.RestoreFromSnapshot(_oldSnap);
         if (_newSnap != null) NewMaster.RestoreFromSnapshot(_newSnap);
     }
