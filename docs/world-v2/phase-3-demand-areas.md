@@ -42,7 +42,7 @@
 
 ## 主动区与被动区
 
-两个区域持有相同类型的 `OrderDemand`，A/B 需求规则也完全相同。
+两个区域持有相同类型的 `OrderDemand`，A/B 需求规则也完全相同；每张需求至少包含一条需求，且最多不超过旧订单契约的需求数上限。
 
 唯一的策略差异：
 
@@ -138,7 +138,7 @@ CD 只能由显式领域操作进入，例如后续阶段的“执行被工作�
 
 | 文件 | 当前实现 |
 |---|---|
-| `World/Demands/OrderDemand.cs` | 独立需求 ID、A/B 类型、需求副本与校验、一次性/持续性、开放/关闭、独立逻辑 CD、`ReadyForSolve` |
+| `World/Demands/OrderDemand.cs` | 独立需求 ID、A/B 类型、需求副本与校验（至少一条、最多受旧上限约束）、一次性/持续性、开放/关闭、独立逻辑 CD、`ReadyForSolve` |
 | `World/Demands/OrderDemandArea.cs` | 同一需求容器类型；Passive 自动执行策略，Active 手动选择策略；被动区域列表顺序表达优先级 |
 | `World/Demands/OrderDemandBoard.cs` | 唯一主动/被动区域、跨区域 ID 唯一、跨区移动、被动排序、CD 到期 ID 收集 |
 | `Domain/Identity.cs` | 新增与旧订单 ID 计数器隔离的 `DefaultIdGenerators.Demands` |
