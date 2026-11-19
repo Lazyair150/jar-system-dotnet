@@ -119,8 +119,9 @@ public class WorkshopSwitchEvent
     /// <summary>提交转移阶段暂存的账本、统计与对象池副作用。岗位提交成功后调用。</summary>
     public void CommitTransferEffects()
     {
-        _pendingTransferrer?.CommitEffects();
+        var pending = _pendingTransferrer;
         _pendingTransferrer = null;
+        pending?.CommitEffects();
     }
 
     /// <summary>
@@ -140,6 +141,8 @@ public class WorkshopSwitchEvent
 
     private (bool Ok, string? Error) Rollback(Exception ex)
     {
+        _pendingTransferrer?.DiscardPendingEffects();
+        _pendingTransferrer = null;
         if (_oldSnap != null) OldMaster.RestoreFromSnapshot(_oldSnap);
         if (_newSnap != null) NewMaster.RestoreFromSnapshot(_newSnap);
         _log.Add("error", "切换事件失败，已回滚: " + ex.Message);
