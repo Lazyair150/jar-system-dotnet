@@ -151,11 +151,27 @@ public sealed record WorldRuleModifierSnapshot(
     string? Text,
     bool IsOpaque)
 {
-    internal static WorldRuleModifierSnapshot Suppress(SuppressModifier value) => new(
-        value.GetType().FullName ?? value.GetType().Name,
-        value.Kind, value.Name, value.Source, value.Priority,
-        value.Window.HasValue, value.Window?.From ?? 0, value.Window?.To,
-        value.Operation, value.Shape, value.Liquid, value.Reason, null, false);
+    internal static WorldRuleModifierSnapshot Suppress(SuppressModifier value)
+    {
+        // 旧 ModifierAwareSolver 只能精确投影「整种液体被禁」或「整个形状被禁」。
+        // 操作级、形状+液体组合等规则不能简化成上述任一条件，否则会多禁资源。
+        var noTarget = string.IsNullOrEmpty(value.Operation)
+            && string.IsNullOrEmpty(value.Shape)
+            && string.IsNullOrEmpty(value.Liquid);
+        var wholeLiquid = string.IsNullOrEmpty(value.Operation)
+            && string.IsNullOrEmpty(value.Shape)
+            && !string.IsNullOrEmpty(value.Liquid);
+        var wholeShape = string.IsNullOrEmpty(value.Operation)
+            && !string.IsNullOrEmpty(value.Shape)
+            && string.IsNullOrEmpty(value.Liquid);
+
+        return new WorldRuleModifierSnapshot(
+            value.GetType().FullName ?? value.GetType().Name,
+            value.Kind, value.Name, value.Source, value.Priority,
+            value.Window.HasValue, value.Window?.From ?? 0, value.Window?.To,
+            value.Operation, value.Shape, value.Liquid, value.Reason, null,
+            !(noTarget || wholeLiquid || wholeShape));
+    }
 
     internal static WorldRuleModifierSnapshot Grant(GrantModifier value) => new(
         value.GetType().FullName ?? value.GetType().Name,
