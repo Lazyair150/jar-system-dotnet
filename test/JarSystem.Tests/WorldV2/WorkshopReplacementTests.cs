@@ -177,6 +177,45 @@ public sealed class WorkshopReplacementTests
     }
 
     [Fact]
+    public void RuntimeUsesInjectedMasterMigrationFactory()
+    {
+        var vocabulary = Vocabulary.Default;
+        var producers = new ProducerModule(vocabulary);
+        var liquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var resources = new ResourceArea(producers, liquids, jarFlowRate: 0, liquidFlowRate: 0);
+        var oldMaster = new Workshop("旧主台");
+        var newMaster = new Workshop("新主台", maxJars: 0);
+        var slave = new Workshop("从台");
+        var roster = new WorkshopRoster(new[] { oldMaster, newMaster, slave }, oldMaster, slave);
+        var jar = new Jar("圆罐");
+        oldMaster.AddJar(jar);
+        var pool = new JarPool();
+        var ledger = new ResourceLedger();
+        var discardedJars = 0;
+        var runtime = new ResourceWorldRuntime(
+            resources,
+            roster: roster,
+            masterSwitchFactory: (oldWorkshop, newWorkshop) =>
+                new WorkshopSwitchEvent(
+                    oldWorkshop, newWorkshop, pool,
+                    countDiscardedJars: amount => discardedJars += amount,
+                    ledger: ledger));
+
+        Assert.True(runtime.BeginReplacement(
+            WorkshopRole.Master, newMaster, new NoOrderInterruption(), 1_000).Success);
+
+        runtime.AdvanceWorldTime(2_000);
+
+        Assert.Same(newMaster, roster.Master);
+        Assert.True(runtime.ActiveReplacement!.Succeeded);
+        Assert.Equal(1, discardedJars);
+        Assert.Equal(1, ledger.LastSeq);
+        Assert.Equal(1, pool.Returned);
+        Assert.True(jar.IsRecycled);
+    }
+
+    [Fact]
     public void RuntimeKeepsProducingButPausesMasterFlowDuringReplacement()
     {
         var vocabulary = Vocabulary.Default;
