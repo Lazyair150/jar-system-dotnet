@@ -186,6 +186,22 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
+    public void GlobalInvalidationDoesNotAutomaticallyRearmCompletedContinuousDemand()
+    {
+        var board = Board(DemandAreaFulfillmentPolicy.Continuous);
+        var demand = Demand();
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var snapshot = Snapshot(new Jar("圆罐"));
+        book.Evaluate(demand.Id, snapshot, Registry());
+        board.RecordSuccessfulFulfillment(demand.Id);
+
+        book.MarkAllDirty("世界输入变化");
+
+        Assert.Equal(WorldOrderSolveState.AwaitingRearm, book.Find(demand.Id)!.State);
+    }
+
+    [Fact]
     public void ExplicitGlobalInvalidationMarksAttachedDemandsDirty()
     {
         var board = Board();
