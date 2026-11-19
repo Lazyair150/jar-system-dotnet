@@ -1,0 +1,273 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using JarSystem.Core.Abstractions;
+using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
+using JarSystem.Core.World;
+using JarSystem.Core.World.Demands;
+using Xunit;
+
+namespace JarSystem.Tests.WorldV2;
+
+public sealed class OrderDemandTests
+{
+    private static readonly Vocabulary Words = new(new[] { "圆罐", "方罐" }, new[] { "酒", "蜜" });
+
+    private static OrderDemand CreateDemand(
+        IIdGenerator ids,
+        DemandPersistence persistence = DemandPersistence.OneShot,
+        long cooldown = 0,
+        string type = Constants.OrderType.A,
+        params Requirement[] requirements)
+    {
+        var actual = requirements.Length == 0
+            ? new[] { new Requirement { Shape = "圆罐" } }
+            : requirements;
+        return new OrderDemand(actual, type, persistence, cooldown, ids, Words);
+    }
+
+    [Fact]
+    public void DemandCopiesAndValidatesItsImmutableRequirements()
+    {
+        var source = new List<Requirement>
+        {
+            new() { Shape = "圆罐" },
+            new() { Shape = "方罐", Liquid = "酒" }
+        };
+        var demand = new OrderDemand(
+            source, Constants.OrderType.B, DemandPersistence.Continuous, 1_000,
+            new SequentialIdGenerator(), Words);
+
+        source.Clear();
+
+        Assert.Equal(2, demand.Requirements.Count);
+        Assert.Equal("圆罐", demand.Requirements[0].Shape);
+        Assert.Equal("酒", demand.Requirements[1].Liquid);
+        Assert.Throws<NotSupportedException>(() =>
+            ((IList<Requirement>)demand.Requirements).Add(new Requirement { Shape = "圆罐" }));
+    }
+
+    [Fact]
+    public void DemandRejectsInvalidTypeVocabularyAndRequirementOrdering()
+    {
+        var ids = new SequentialIdGenerator();
+
+        Assert.Throws<DomainValidationException>(() =>
+            CreateDemand(ids, type: "C"));
+        Assert.Throws<DomainValidationException>(() =>
+            new OrderDemand(
+                new[] { new Requirement { Shape = "不存在" } },
+                Constants.OrderType.A, DemandPersistence.OneShot, 0, ids, Words));
+        Assert.Throws<DomainValidationException>(() =>
+            new OrderDemand(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐", Liquid = "酒" },
+                    new Requirement { Shape = "方罐" }
+                },
+                Constants.OrderType.A, DemandPersistence.OneShot, 0, ids, Words));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CreateDemand(ids, cooldown: -1));
+    }
+
+    [Fact]
+    public void BoardKeepsPassiveAndActiveAreasUsingTheSameDemandModel()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = new OrderDemandBoard();
+        var passive = CreateDemand(ids);
+        var active = CreateDemand(ids, DemandPersistence.Continuous, 0, Constants.OrderType.B);
+
+        board.AddDemand(passive, DemandAreaKind.Passive);
+        board.AddDemand(active, DemandAreaKind.Active);
+
+        Assert.Same(passive, Assert.Single(board.Passive.Demands));
+        Assert.Same(active, Assert.Single(board.Active.Demands));
+        Assert.True(board.Passive.AutoExecute);
+        Assert.False(board.Active.AutoExecute);
+        Assert.Equal(2, board.Count);
+        Assert.Equal(2, board.AllDemands.Count);
+    }
+
+    [Fact]
+    public void DemandIdsMustBeUniqueAcrossBothAreas()
+    {
+        var board = new OrderDemandBoard();
+        var first = CreateDemand(new SequentialIdGenerator());
+        var duplicate = CreateDemand(new SequentialIdGenerator());
+
+        Assert.Equal(first.Id, duplicate.Id);
+        board.AddDemand(first, DemandAreaKind.Passive);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            board.AddDemand(duplicate, DemandAreaKind.Active));
+        Assert.Single(board.Passive.Demands);
+        Assert.Empty(board.Active.Demands);
+    }
+
+    [Fact]
+    public void PassiveOrderIsThePriorityAndCanBeMovedWithoutPriorityField()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = new OrderDemandBoard();
+        var first = CreateDemand(ids);
+        var second = CreateDemand(ids);
+        var third = CreateDemand(ids);
+
+        board.AddDemand(first, DemandAreaKind.Passive);
+        board.AddDemand(second, DemandAreaKind.Passive);
+        board.AddDemand(third, DemandAreaKind.Passive);
+
+        Assert.True(board.MovePassiveDemand(third.Id, 0));
+        Assert.Equal(new[] { third.Id, first.Id, second.Id },
+            board.Passive.Demands.Select(x => x.Id));
+
+        Assert.False(board.MovePassiveDemand(999_999, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            board.MovePassiveDemand(first.Id, 3));
+    }
+
+    [Fact]
+    public void MovingDemandBetweenAreasAppendsItToTheTargetArea()
+    {
+        var board = new OrderDemandBoard();
+        var ids = new SequentialIdGenerator();
+        var passive = CreateDemand(ids);
+        var active = CreateDemand(ids);
+        board.AddDemand(passive, DemandAreaKind.Passive);
+        board.AddDemand(active, DemandAreaKind.Active);
+
+        Assert.True(board.MoveToArea(passive.Id, DemandAreaKind.Active));
+        Assert.Empty(board.Passive.Demands);
+        Assert.Equal(new[] { active.Id, passive.Id }, board.Active.Demands.Select(x => x.Id));
+
+        Assert.True(board.MoveToArea(passive.Id, DemandAreaKind.Active)); // 同区域移动是无副作用的成功
+        Assert.Equal(2, board.Active.Demands.Count);
+        Assert.True(board.MoveToArea(active.Id, DemandAreaKind.Passive));
+        Assert.Same(active, Assert.Single(board.Passive.Demands));
+    }
+
+    [Fact]
+    public void OneShotDemandClosesAfterFulfillmentButContinuousDemandRemainsOpen()
+    {
+        var ids = new SequentialIdGenerator();
+        var oneShot = CreateDemand(ids, DemandPersistence.OneShot);
+        var continuous = CreateDemand(ids, DemandPersistence.Continuous);
+
+        oneShot.RecordSuccessfulFulfillment();
+        continuous.RecordSuccessfulFulfillment();
+
+        Assert.Equal(DemandLifecycleState.Closed, oneShot.Lifecycle);
+        Assert.False(oneShot.ReadyForSolve);
+        Assert.Equal(DemandLifecycleState.Open, continuous.Lifecycle);
+        Assert.True(continuous.ReadyForSolve);
+    }
+
+    [Fact]
+    public void EachDemandHasAnIndependentCooldownAndReportsItsOwnExpiry()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = new OrderDemandBoard();
+        var shortCooldown = CreateDemand(ids, cooldown: 2_000);
+        var longCooldown = CreateDemand(ids, cooldown: 5_000);
+        board.AddDemand(shortCooldown, DemandAreaKind.Passive);
+        board.AddDemand(longCooldown, DemandAreaKind.Active);
+
+        Assert.True(shortCooldown.EnterCooldown());
+        Assert.True(longCooldown.EnterCooldown());
+        Assert.False(shortCooldown.ReadyForSolve);
+        Assert.False(longCooldown.ReadyForSolve);
+        Assert.False(shortCooldown.EnterCooldown()); // 不重置正在进行的 CD
+
+        Assert.Empty(board.AdvanceLogicalTime(1_000));
+        Assert.Equal(1_000, shortCooldown.CooldownRemainingLogicalMilli);
+        Assert.Equal(4_000, longCooldown.CooldownRemainingLogicalMilli);
+
+        Assert.Equal(new[] { shortCooldown.Id }, board.AdvanceLogicalTime(1_000));
+        Assert.True(shortCooldown.ReadyForSolve);
+        Assert.False(longCooldown.ReadyForSolve);
+
+        Assert.Equal(new[] { longCooldown.Id }, board.AdvanceLogicalTime(4_000));
+        Assert.True(longCooldown.ReadyForSolve);
+    }
+
+    [Fact]
+    public void ClosingDemandDuringCooldownStopsItsTimerAndRemovesSolveEligibility()
+    {
+        var demand = CreateDemand(new SequentialIdGenerator(), cooldown: 2_000);
+        Assert.True(demand.EnterCooldown());
+
+        Assert.True(demand.Close());
+        Assert.False(demand.Close());
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
+        Assert.False(demand.AdvanceLogicalTime(10_000));
+        Assert.False(demand.ReadyForSolve);
+    }
+
+    [Fact]
+    public void ZeroCooldownDoesNotCreateAWaitingPeriod()
+    {
+        var demand = CreateDemand(new SequentialIdGenerator(), cooldown: 0);
+
+        Assert.False(demand.EnterCooldown());
+        Assert.True(demand.ReadyForSolve);
+    }
+
+    [Fact]
+    public void NegativeBoardTimeIsRejectedBeforeAnyDemandCooldownChanges()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = new OrderDemandBoard();
+        var first = CreateDemand(ids, cooldown: 2_000);
+        var second = CreateDemand(ids, cooldown: 3_000);
+        board.AddDemand(first, DemandAreaKind.Passive);
+        board.AddDemand(second, DemandAreaKind.Active);
+        first.EnterCooldown();
+        second.EnterCooldown();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => board.AdvanceLogicalTime(-1));
+        Assert.Equal(2_000, first.CooldownRemainingLogicalMilli);
+        Assert.Equal(3_000, second.CooldownRemainingLogicalMilli);
+    }
+
+    [Fact]
+    public void RuntimeAdvancesDemandCooldownWithTheSameLogicalTimeAsResources()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = new OrderDemandBoard();
+        var demand = CreateDemand(ids, cooldown: 2_000);
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        demand.EnterCooldown();
+
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var resources = new ResourceArea(
+            new ProducerModule(vocabulary),
+            new LiquidProduction(vocabulary,
+                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0);
+        var clock = new WorldClock();
+        clock.SetSpeedRatio(2);
+        var runtime = new ResourceWorldRuntime(resources, clock, demandBoard: board);
+
+        var step = runtime.AdvanceWorldTime(500, master: null);
+
+        Assert.Equal(1_000, step.LogicalTimeDeltaMilli);
+        Assert.Equal(1_000, demand.CooldownRemainingLogicalMilli);
+
+        runtime.Clock.Pause();
+        runtime.AdvanceWorldTime(5_000, master: null);
+        Assert.Equal(1_000, demand.CooldownRemainingLogicalMilli);
+
+        runtime.Clock.Resume();
+        runtime.Clock.SetSpeedRatio(0);
+        runtime.AdvanceWorldTime(5_000, master: null);
+        Assert.Equal(1_000, demand.CooldownRemainingLogicalMilli);
+
+        runtime.Clock.SetSpeedRatio(1);
+        runtime.AdvanceWorldTime(1_000, master: null);
+        Assert.True(demand.ReadyForSolve);
+    }
+}
