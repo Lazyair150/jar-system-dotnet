@@ -109,6 +109,32 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(WorldOrderSolveStatus.InvalidWorld, result.Status);
     }
 
+    [Fact]
+    public void WholeShapeSuppressionIsProjectedFromTheSnapshot()
+    {
+        var stack = new ModifierStack();
+        stack.Push(new SuppressModifier { Shape = "圆罐" });
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
+        master.AddJar(new Jar("圆罐"));
+
+        var result = Registry().Solve(Demand(), Snapshot(master));
+
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
+    }
+
+    [Fact]
+    public void ExhaustedSolverBudgetIsUndeterminedNotInfeasible()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        var solver = new JarOrderSpecificationSolver(new StateSpaceSolver()) { NodeBudget = 1 };
+        var registry = new WorldOrderSolverRegistry(new[] { solver });
+
+        var result = registry.Solve(Demand(), Snapshot(master));
+
+        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+    }
+
     private sealed class ForeignSpecification : IOrderSpecification
     {
     }
