@@ -73,7 +73,7 @@
 - `CooldownDurationLogicalMilli`：该需求配置的 CD 时长；
 - `CooldownRemainingLogicalMilli`：当前剩余 CD；
 - `IsCoolingDown`：剩余时间是否大于零；
-- `CanParticipateInSolve`：需求开放且 CD 已结束。
+- `ReadyForSolve`：需求开放且 CD 已结束。
 
 CD 使用逻辑时间，不使用世界时间、宿主帧数或旧 tick。
 
