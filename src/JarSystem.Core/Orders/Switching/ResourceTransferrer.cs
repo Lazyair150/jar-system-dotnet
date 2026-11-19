@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Config;
@@ -25,6 +26,13 @@ internal sealed class ResourceTransferrer
     // 资源移动也有唯一原因可指，而不是只留一条操作日志。null 表示调用方不要溯源（测试/旧路径）。
     private readonly ResourceLedger? _ledger;
     private readonly Func<int>? _tickOf;
+
+    // 转移阶段只暂存外部副作用；只有整个迁徙提交后才真正写账、计数或归还对象池。
+    private readonly List<Jar> _jarsToReturn = new();
+    private readonly List<PendingLedgerRecord> _ledgerRecords = new();
+    private readonly Dictionary<string, int> _discardedLiquidCounts = new();
+    private int _discardedJarCount;
+    private bool _effectsCommitted;
 
     public ResourceTransferrer(JarValuePolicy valuePolicy, JarPool? pool = null,
         Action<int>? countDiscardedJars = null,
@@ -56,12 +64,12 @@ internal sealed class ResourceTransferrer
             }
             else
             {
-                _countDiscardedJars?.Invoke(1);
+                _discardedJarCount++;
                 Record(ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
                     oldMaster.Name, to: null, reason: "新主台容量已满");
                 log.Add("discard_jar", $"丢弃 {jar.GetDescription()} (新主台容量已满)");
-                // 先记日志再归还：归还后 `GetDescription()` 会抛（这正是回收标记要拦的那类误用）。
-                _pool?.Return(jar);
+                // 只暂存回收请求。迁徙提交前不能 Return，否则取消回滚时快照中的原对象已失效。
+                _jarsToReturn.Add(jar);
             }
         }
 
@@ -90,7 +98,7 @@ internal sealed class ResourceTransferrer
                     }
                     if (lost > 0)
                     {
-                        _countDiscardedLiquids?.Invoke(l, lost);
+                        AddDiscardedLiquid(l, lost);
                         Record(ResourceCauses.Discard, ResourceKinds.Liquid, l, lost,
                             oldMaster.Name, to: null, reason: "新主台容量已满");
                         log.Add("discard_liquid", $"丢弃 {l}×{lost} (新主台容量已满)");
@@ -98,7 +106,7 @@ internal sealed class ResourceTransferrer
                 }
                 else
                 {
-                    _countDiscardedLiquids?.Invoke(l, amt);
+                    AddDiscardedLiquid(l, amt);
                     Record(ResourceCauses.Discard, ResourceKinds.Liquid, l, amt,
                         oldMaster.Name, to: null, reason: "新主台禁" + l);
                     log.Add("discard_liquid", $"丢弃 {l}×{amt} (新主台禁{l})");
@@ -109,9 +117,54 @@ internal sealed class ResourceTransferrer
         log.Add("complete", $"切换完成: {oldMaster.Name} → {newMaster.Name} [{caseType}]");
     }
 
+    private void AddDiscardedLiquid(string liquid, int amount)
+    {
+        _discardedLiquidCounts[liquid] = _discardedLiquidCounts.GetValueOrDefault(liquid) + amount;
+    }
+
     private void Record(string cause, string kind, string name, int amount,
         string? from, string? to = null, string? reason = null)
     {
-        _ledger?.Record(_tickOf?.Invoke() ?? 0, cause, kind, name, amount, from, to, reason);
+        if (amount > 0)
+            _ledgerRecords.Add(new PendingLedgerRecord(cause, kind, name, amount, from, to, reason));
     }
+
+    /// <summary>
+    /// 迁徙与岗位提交成功后调用。对象池归还放在所有账本/统计写入之后。
+    /// 注入的统计回调应遵守非抛异常契约；任意外部回调都无法由工作台快照自动撤销。
+    /// </summary>
+    public void CommitEffects()
+    {
+        if (_effectsCommitted) return;
+
+        foreach (var entry in _ledgerRecords)
+            _ledger?.Record(_tickOf?.Invoke() ?? 0, entry.Cause, entry.Kind, entry.Name,
+                entry.Amount, entry.From, entry.To, entry.Reason);
+
+        if (_discardedJarCount > 0)
+            _countDiscardedJars?.Invoke(_discardedJarCount);
+
+        foreach (var entry in _discardedLiquidCounts)
+            _countDiscardedLiquids?.Invoke(entry.Key, entry.Value);
+
+        // 必须最后归还：归还后原对象会变成不可读写的回收对象。
+        foreach (var jar in _jarsToReturn)
+            _pool?.Return(jar);
+
+        _effectsCommitted = true;
+    }
+
+    /// <summary>取消尚未提交的迁徙时丢弃暂存副作用。</summary>
+    public void DiscardPendingEffects()
+    {
+        if (_effectsCommitted) return;
+        _jarsToReturn.Clear();
+        _ledgerRecords.Clear();
+        _discardedLiquidCounts.Clear();
+        _discardedJarCount = 0;
+    }
+
+    private sealed record PendingLedgerRecord(
+        string Cause, string Kind, string Name, int Amount,
+        string? From, string? To, string? Reason);
 }
