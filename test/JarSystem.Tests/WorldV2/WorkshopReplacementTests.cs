@@ -290,8 +290,10 @@ public sealed class WorkshopReplacementTests
     public void RestoreFromSnapshotValidatesAllOriginalJarsBeforeChangingWorkshop()
     {
         var workshop = new Workshop("工作台");
-        var original = new Jar("圆罐");
-        workshop.AddJar(original);
+        var firstOriginal = new Jar("圆罐");
+        var secondOriginal = new Jar("圆罐");
+        workshop.AddJar(firstOriginal);
+        workshop.AddJar(secondOriginal);
         workshop.AddLiquid("酒", 2);
         var snapshot = workshop.CreateSnapshot();
 
@@ -299,9 +301,10 @@ public sealed class WorkshopReplacementTests
         workshop.AddJar(additional);
         workshop.AddLiquid("酒", 3);
 
-        // 模拟快照中的原始实体被错误地提前归还对象池。
+        // 模拟快照中的第二个原始实体被错误地提前归还对象池。
+        // 第一只原始罐子可恢复，第二只不可恢复，用来捕获“先恢复一部分再失败”。
         var pool = new JarPool();
-        pool.Return(original);
+        pool.Return(secondOriginal);
 
         var currentJars = new List<Jar>(workshop.Jars);
         var currentLiquid = workshop.LiquidStorage["酒"];
@@ -313,7 +316,9 @@ public sealed class WorkshopReplacementTests
         for (var i = 0; i < currentJars.Count; i++)
             Assert.Same(currentJars[i], workshop.Jars[i]);
         Assert.Equal(currentLiquid, workshop.LiquidStorage["酒"]);
-        Assert.Same(additional, Assert.Single(workshop.Jars, jar => ReferenceEquals(jar, additional)));
+        Assert.Contains(firstOriginal, workshop.Jars);
+        Assert.Contains(secondOriginal, workshop.Jars);
+        Assert.Contains(additional, workshop.Jars);
     }
 
     [Fact]
