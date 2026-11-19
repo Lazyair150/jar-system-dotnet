@@ -27,7 +27,7 @@
   - 整个形状抑制 → 从候选罐池排除该形状；
   - Grant → 加入附加标记。
 - opaque 或无法精确表达的规则返回 `Undetermined`，不能忽略后误报可行或不可行。
-- B 类要求主从岗位都存在；缺少从台返回 `InvalidWorld`。
+- B 类要求主从岗位都存在，且从台快照必须为空；不满足时返回 `InvalidWorld`。
 
 ### `WorldOrderSolveResult`
 
@@ -45,6 +45,7 @@
 - `Undetermined`
 - `UnsupportedSpecification`
 - `InvalidWorld`
+- `NotReady`（订单 CD 尚未结束）
 
 `Feasible` 仅表示该订单规格在该快照上存在可行解。它不代表资源已经预留，也不代表该结果可以不经执行前校验就直接执行。此阶段结果尚不包含执行计划载荷；执行计划的持有、版本确认和资源预留属于后续阶段。
 
