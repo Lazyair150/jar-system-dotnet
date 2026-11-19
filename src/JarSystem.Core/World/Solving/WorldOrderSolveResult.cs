@@ -54,7 +54,8 @@ public enum WorldOrderSolveStatus
     Infeasible,
     Undetermined,
     UnsupportedSpecification,
-    InvalidWorld
+    InvalidWorld,
+    NotReady
 }
 
 /// <summary>一个玩法规格对应一个求解适配器。</summary>
@@ -93,6 +94,11 @@ public sealed class WorldOrderSolverRegistry
     {
         if (demand == null) throw new ArgumentNullException(nameof(demand));
         if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+
+        if (!demand.ReadyForSolve)
+            return new WorldOrderSolveResult(
+                demand.Id, snapshot.Version, WorldOrderSolveStatus.NotReady,
+                reason: "订单仍处于冷却时间");
 
         if (!_solvers.TryGetValue(demand.Specification.GetType(), out var solver))
             return new WorldOrderSolveResult(
