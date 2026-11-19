@@ -355,4 +355,38 @@ public sealed class WorkshopReplacementTests
         Assert.Throws<InvalidOperationException>(() => migration.RunReshape());
     }
 
+    [Fact]
+    public void ReplacementInitializationFailureAfterInterruptionIsTerminalAndExplicit()
+    {
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" });
+        var target = new Workshop("备用台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台");
+        var roster = new WorkshopRoster(new[] { oldMaster, target, slave }, oldMaster, slave);
+        var interruption = new NoOrderInterruption();
+        var alreadyStartedMigration = new WorkshopSwitchEvent(oldMaster, target);
+        alreadyStartedMigration.Begin();
+
+        var process = new WorkshopReplacementProcess(
+            roster,
+            WorkshopRole.Master,
+            target,
+            interruption,
+            phaseDurationMilli: 1_000,
+            masterSwitchFactory: (_, _) => alreadyStartedMigration);
+
+        var result = process.Begin();
+
+        Assert.False(result.Success);
+        Assert.Contains("订单已中断", result.Error);
+        Assert.Contains("不会自动撤销", result.Error);
+        Assert.True(process.IsFinished);
+        Assert.False(process.Succeeded);
+        Assert.Equal(1, interruption.Calls);
+
+        // 初始化失败后不能重试 Begin，避免对同一订单再次发出中断请求。
+        var retry = process.Begin();
+        Assert.False(retry.Success);
+        Assert.Equal(1, interruption.Calls);
+    }
+
 }
