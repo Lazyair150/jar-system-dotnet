@@ -16,10 +16,10 @@ public sealed class WorldOrderSolveBookTests
 {
     private static readonly Vocabulary Words = new(new[] { "圆罐", "方罐" }, new[] { "酒", "蜜" });
 
-    private static OrderDemand Demand(long cooldown = 0) =>
+    private static OrderDemand Demand(IIdGenerator? ids = null, long cooldown = 0) =>
         new(new JarOrderSpecification(
             new[] { new Requirement { Shape = "圆罐" } }, Constants.OrderType.A, Words),
-            cooldown, new SequentialIdGenerator());
+            cooldown, ids ?? new SequentialIdGenerator());
 
     private static WorldSnapshot Snapshot(params Jar[] jars)
     {
@@ -102,8 +102,9 @@ public sealed class WorldOrderSolveBookTests
     public void MovingBetweenAreasInvalidatesButPassiveReorderingDoesNotChangeSolveResult()
     {
         var board = Board();
-        var first = Demand();
-        var second = Demand();
+        var ids = new SequentialIdGenerator();
+        var first = Demand(ids);
+        var second = Demand(ids);
         board.AddDemand(first, DemandAreaKind.Passive);
         board.AddDemand(second, DemandAreaKind.Passive);
         using var book = new WorldOrderSolveBook(board);
@@ -205,8 +206,9 @@ public sealed class WorldOrderSolveBookTests
     public void ExplicitGlobalInvalidationMarksAttachedDemandsDirty()
     {
         var board = Board();
-        var first = Demand();
-        var second = Demand();
+        var ids = new SequentialIdGenerator();
+        var first = Demand(ids);
+        var second = Demand(ids);
         board.AddDemand(first, DemandAreaKind.Passive);
         board.AddDemand(second, DemandAreaKind.Active);
         using var book = new WorldOrderSolveBook(board);
