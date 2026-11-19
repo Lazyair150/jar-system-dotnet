@@ -25,7 +25,7 @@ For each occupied role (master and slave):
 - jar and liquid capacities;
 - immutable `WorkshopCapability`;
 - jars in current list order: ID, shape, liquid, and operation-mark state;
-- free-liquid counts, fingerprinted in ordinal key order;
+- free-liquid counts, preserving the exact dictionary iteration order supplied to the solver;
 - currently effective static-solver modifiers.
 
 The resource-area warehouse is intentionally excluded. Resources become candidates only after they flow into the master workshop.
