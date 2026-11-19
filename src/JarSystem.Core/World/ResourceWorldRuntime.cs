@@ -82,6 +82,8 @@ public sealed class ResourceWorldRuntime
 
         // 一个世界推进片段只要与替换过程有重叠，就全片段暂停流入。
         // 生产仍然推进并留在仓库；替换完成后的下一片段才向新主台流入。
+        // 不在这里重新读取 Roster.Master：无参重载已在入口处解析岗位，
+        // 显式参数重载则必须保留调用者指定的目标（包括 null）。
         var effectiveMaster = replacementWasActive ? null : requestedMaster;
 
         var resources = Resources.Advance(logicalDelta, effectiveMaster);
