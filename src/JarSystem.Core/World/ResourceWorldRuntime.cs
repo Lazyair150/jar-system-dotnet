@@ -58,7 +58,9 @@ public sealed class ResourceWorldRuntime
         var process = new WorkshopReplacementProcess(
             Roster, role, target, interruptionPort, phaseDurationMilli, _masterSwitchFactory);
         var result = process.Begin();
-        if (result.Success)
+        // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查；
+        // 不能把不可逆副作用的记录随局部变量一起丢弃。
+        if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
             ActiveReplacement = process;
         return result;
     }
