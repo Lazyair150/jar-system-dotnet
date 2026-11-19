@@ -69,11 +69,12 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
                 operationCount: path.Count(x => x.Operation?.Type != "MATCH"));
         }
 
-        if (snapshot.Slave == null || slaveInfo == null)
+        var slaveSnapshot = snapshot.Slave;
+        if (slaveSnapshot == null || slaveInfo == null)
             return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
                 reason: "B 类订单需要主台和从台两个岗位");
 
-        if (snapshot.Slave.Jars.Count != 0 || snapshot.Slave.Liquids.Values.Any(amount => amount != 0))
+        if (slaveSnapshot.Jars.Count != 0 || slaveSnapshot.Liquids.Values.Any(amount => amount != 0))
             return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
                 reason: "B 类订单开始求解时，从台必须为空");
 
