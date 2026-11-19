@@ -5,7 +5,7 @@ namespace JarSystem.Core.Domain;
 /// 默认实现保持现有语义：进程内单调递增、<c>Reset()</c> 不清零。
 ///
 /// <para>
-/// **为什么住在 <c>Domain</c> 而不是 <c>Abstractions</c>**：它约束的是"罐子与订单的身份怎么来"，
+/// **为什么住在 <c>Domain</c> 而不是 <c>Abstractions</c>**：它约束的是罐子、订单与需求的身份怎么来，
 /// 是领域概念（<see cref="Jar.Id"/>、<c>Order.Id</c> 的唯一性来源），不是求解器/过程那样的技术契约。
 /// 放在这里之后，<c>Domain</c> 不再需要 <c>using ...Abstractions</c> 才能提到自己的身份来源，
 /// 而"默认值的单一出处"也就不必再下沉到用例层（原先那行 <c>DefaultIdGenerators.Jars</c>
