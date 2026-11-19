@@ -50,8 +50,8 @@ public sealed class WorldOrderSolverTests
         Assert.Equal("single_phase", result.CheckMethod);
         Assert.Equal(1, result.DirectCount);
         Assert.NotNull(result.Plan);
-        Assert.False(result.Plan.IsPartitioned);
-        Assert.NotEmpty(result.Plan.MasterSteps);
+        Assert.False(result.Plan!.IsPartitioned);
+        Assert.NotEmpty(result.Plan!.MasterSteps);
     }
 
     [Fact]
