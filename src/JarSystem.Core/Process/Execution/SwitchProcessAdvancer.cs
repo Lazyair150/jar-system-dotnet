@@ -121,5 +121,7 @@ internal sealed class SwitchProcessAdvancer : IProcessAdvancer
             return;
         }
         _onCommitted(_switchEvent, _targetIndex);
+        // _onCommitted 已提交主台指针；此时才允许写入账本/统计并归还被丢弃罐子。
+        _switchEvent.CommitTransferEffects();
     }
 }
