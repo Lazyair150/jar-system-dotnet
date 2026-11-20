@@ -79,10 +79,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         // RequirementShape/RequirementLiquid 时，它才是该需求的交付罐。
         // 不能只找 MATCH：POUR_IN / POUR_OUT / RESHAPE 也可能是满足需求的最后一步。
         _deliveryJarIds = Array.AsReadOnly(ReadDeliveryJarIds(plan).ToArray());
-        _masterSteps = Array.AsReadOnly(plan.MasterSteps
-            .Where(step => !IsMatch(step)).ToArray());
-        _slaveSteps = Array.AsReadOnly(plan.SlaveSteps
-            .Where(step => !IsMatch(step)).ToArray());
+        // MATCH 是零逻辑时间步骤，但仍然必须经过 StepApplier/Workshop.MarkJar。
+        // 保留完整路径，由 PumpInstantMatches 在正确的阶段边界立即应用。
+        _masterSteps = Array.AsReadOnly(plan.MasterSteps.ToArray());
+        _slaveSteps = Array.AsReadOnly(plan.SlaveSteps.ToArray());
 
         if (_deliveryJarIds.Distinct().Count() != _deliveryJarIds.Count)
             throw new InvalidOperationException("求解计划重复将同一只罐子作为交付物");
@@ -103,10 +103,18 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 ? WorldOrderExecutionStage.Transfer
                 : WorldOrderExecutionStage.MasterSteps;
 
-        // A 类纯 MATCH 计划没有耗时操作，准入后即可交付；先保持非终态，
-        // 只有完成清理、需求板登记与预留释放后才进入 Completed。
-        if (!manifest.IsPartitioned && _masterSteps.Count == 0)
-            CompleteSuccess();
+        // 先处理主台路径开头连续的零耗时 MATCH；后续 MATCH 会在前一个耗时步骤完成后处理。
+        if (Stage == WorldOrderExecutionStage.MasterSteps)
+            PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master");
+
+        if (!IsTerminal && Stage == WorldOrderExecutionStage.MasterSteps &&
+            _masterIndex == _masterSteps.Count)
+        {
+            if (manifest.IsPartitioned)
+                Stage = WorldOrderExecutionStage.Transfer;
+            else
+                CompleteSuccess();
+        }
     }
 
     /// <summary>
@@ -281,10 +289,20 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     TerminateFailure(transferError);
                     return;
                 }
-                _slave!.ClearMarks();
-                if (_slaveSteps.Count > 0)
-                    Stage = WorldOrderExecutionStage.SlaveSteps;
-                else
+                // 从台在准入时为空；只清除本次转入罐子的主台阶段标记。
+                foreach (var jarId in _manifest.TransferJarIds)
+                {
+                    var matches = _slave!.Jars.Where(jar => jar.Id == jarId).ToArray();
+                    if (matches.Length != 1)
+                        throw new InvalidOperationException($"转入从台的罐子 #{jarId} 丢失或身份重复");
+                    var clear = _slave.ClearMark(matches[0]);
+                    if (!clear.Success)
+                        throw new InvalidOperationException(clear.Reason ?? $"无法清除罐子 #{jarId} 的阶段标记");
+                }
+
+                Stage = WorldOrderExecutionStage.SlaveSteps;
+                PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave");
+                if (!IsTerminal && _slaveIndex == _slaveSteps.Count)
                     CompleteSuccess();
                 break;
 
@@ -318,6 +336,27 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         }
 
         index++;
+        PumpInstantMatches(workshop, steps, ref index, phase);
+    }
+
+    /// <summary>按计划顺序立即应用当前位置连续的 MATCH；MATCH 不消耗逻辑时间。</summary>
+    private void PumpInstantMatches(
+        Workshop workshop,
+        IReadOnlyList<WorldPlanStep> steps,
+        ref int index,
+        string phase)
+    {
+        while (index < steps.Count && IsMatch(steps[index]))
+        {
+            var result = _applier.Apply(workshop, steps[index]);
+            if (!result.Success)
+            {
+                TerminateFailure(phase + " MATCH 步骤 " + steps[index].Step + " 执行失败: " +
+                    (result.Reason ?? "MATCH 领域操作拒绝但未提供原因"));
+                return;
+            }
+            index++;
+        }
     }
 
     /// <summary>
@@ -459,11 +498,40 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 _slaveRollback.Execute(
                     _master, _slave, _ => { });
             }
-            _slave.ClearMarks();
             _slaveTransferCommitted = false;
         }
 
-        _master.ClearMarks();
+        ClearParticipantMarks();
+    }
+
+    /// <summary>
+    /// 只清理本订单资源清单中的罐子标记。其他订单/外部系统持有的罐子标记不属于本会话。
+    /// B 类资源回流后，参与罐子可能全部位于主台；交付罐可能已被移除。
+    /// </summary>
+    private void ClearParticipantMarks()
+    {
+        foreach (var jarId in _manifest.LockedJarIds)
+        {
+            var masterMatches = _master.Jars.Where(jar => jar.Id == jarId).ToArray();
+            var slaveMatches = _slave?.Jars.Where(jar => jar.Id == jarId).ToArray()
+                ?? Array.Empty<Jar>();
+
+            if (masterMatches.Length + slaveMatches.Length > 1)
+                throw new InvalidOperationException($"清理标记时发现参与罐子 #{jarId} 在多个工作台重复存在");
+
+            if (masterMatches.Length == 1)
+            {
+                var clear = _master.ClearMark(masterMatches[0]);
+                if (!clear.Success)
+                    throw new InvalidOperationException(clear.Reason ?? $"无法清理主台罐子 #{jarId} 的标记");
+            }
+            else if (slaveMatches.Length == 1)
+            {
+                var clear = _slave!.ClearMark(slaveMatches[0]);
+                if (!clear.Success)
+                    throw new InvalidOperationException(clear.Reason ?? $"无法清理从台罐子 #{jarId} 的标记");
+            }
+        }
     }
 
     private void ReleaseReservation()
