@@ -67,10 +67,10 @@ public sealed class ResourceWorldRuntime
             return false;
         }
 
-        if (_executionSessions.Count > 0)
+        if (_executionSessions.Any(existing => existing.DemandId == session.DemandId))
         {
-            if (!session.CancelBeforeExecution("世界已有活动订单执行会话；本会话未启动"))
-                throw new InvalidOperationException("Runtime 只允许一个活动订单会话，且无法安全取消已推进的会话");
+            if (!session.CancelBeforeExecution("该订单已有活动执行会话；本会话未启动"))
+                throw new InvalidOperationException("同一订单出现重复且已经推进的执行会话");
             return false;
         }
 
@@ -93,8 +93,6 @@ public sealed class ResourceWorldRuntime
         if (ReplacementBlocksWorld)
             return WorldOrderExecutionStartResult.Rejected("工作台替换正在进行或结果不确定，不能启动订单");
         _executionSessions.RemoveAll(session => session.IsTerminal);
-        if (_executionSessions.Count > 0)
-            return WorldOrderExecutionStartResult.Rejected("世界已有活动订单执行会话");
 
         var started = WorldOrderExecutionSession.TryStart(
             demandId, DemandBoard, solveBook, admission, Roster, logicalTimePerUnit);
