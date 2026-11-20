@@ -167,7 +167,9 @@ public sealed class WorldOrderSolveBookTests
     [Fact]
     public void ContinuousFulfillmentStartsCooldownAndExpiryAutomaticallyMarksDemandDirty()
     {
-        var board = Board(DemandAreaFulfillmentPolicy.Continuous);
+        var board = Board(
+            DemandAreaFulfillmentPolicy.Continuous,
+            DemandAreaFulfillmentPolicy.Continuous);
         var demand = Demand(cooldown: 2_000);
         board.AddDemand(demand, DemandAreaKind.Passive);
         using var book = new WorldOrderSolveBook(board);
@@ -185,6 +187,13 @@ public sealed class WorldOrderSolveBookTests
         Assert.True(book.MarkDirty(demand.Id, "外部输入变化"));
         Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
         book.MarkAllDirty("全局输入变化");
+        Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
+
+        var changedSnapshot = Snapshot(new Jar("圆罐"), new Jar("方罐"));
+        Assert.NotEqual(snapshot.Version, changedSnapshot.Version);
+        Assert.Equal(WorldOrderSolveState.NotReady,
+            book.Evaluate(demand.Id, changedSnapshot, Registry()).State);
+        Assert.True(board.MoveToArea(demand.Id, DemandAreaKind.Active));
         Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
 
         var resources = new ResourceArea(
