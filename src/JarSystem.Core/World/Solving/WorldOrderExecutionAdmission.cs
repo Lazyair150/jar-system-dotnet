@@ -26,6 +26,12 @@ public sealed class WorldOrderExecutionAdmission
         _reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
     }
 
+    internal bool IsBoundTo(
+        OrderDemandBoard board, WorldOrderSolveBook solveBook, WorkshopRoster roster) =>
+        ReferenceEquals(_board, board) &&
+        ReferenceEquals(_solveBook, solveBook) &&
+        ReferenceEquals(_roster, roster);
+
     /// <summary>
     /// 尝试准入一张订单。应在世界逻辑调度线程内同步调用，避免检查与预留之间插入世界变更。
     /// </summary>
