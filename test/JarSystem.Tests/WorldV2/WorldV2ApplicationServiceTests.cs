@@ -167,9 +167,20 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Single(before.Master!.Jars);
         Assert.Equal(1, before.Master.Liquids["酒"]);
 
+        var demandId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Active, 5_000));
+        Assert.True(app.StartActiveDemand(demandId).Success);
+
         var begin = app.BeginWorkshopReplacement(
             WorkshopRole.Master, "备用台", phaseDurationLogicalMilli: 1_000);
         Assert.True(begin.Success);
+
+        // 替换开始时真实执行会话已被中断，订单进入冷却且预留被释放。
+        var interrupted = app.GetWorldSnapshot();
+        Assert.Empty(interrupted.ActiveSessions);
+        Assert.Equal(0, interrupted.ReservationCount);
+        Assert.True(Assert.Single(interrupted.Demands).IsCoolingDown);
 
         // 第一个逻辑阶段完成重组，但尚未完成转移和岗位提交。
         app.AdvanceWorld(1_000);
@@ -195,6 +206,11 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Null(after.Master.Jars[0].Liquid);
         Assert.Equal(1, after.Master.Liquids["酒"]);
         Assert.False(after.RuntimeFaulted);
+        Assert.Empty(after.ActiveSessions);
+        Assert.Equal(0, after.ReservationCount);
+        var retainedDemand = Assert.Single(after.Demands);
+        Assert.Equal(demandId, retainedDemand.Id);
+        Assert.True(retainedDemand.IsCoolingDown);
 
         // 已提交的订单中断属于不可逆副作用，取消迁徙不会把它撤销。
         var secondCancel = app.CancelWorkshopReplacement();
