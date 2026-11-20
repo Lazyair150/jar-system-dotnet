@@ -115,7 +115,7 @@ public sealed class WorldV2BridgeSessionTests
 
         var demandId = session.AddJarDemand(new WorldV2AddJarDemandRequest(
             new[] { new WorldV2RequirementInput("圆罐", "酒") },
-            "保留订单",
+            "A",
             DemandAreaKind.Active,
             0));
 
@@ -145,7 +145,7 @@ public sealed class WorldV2BridgeSessionTests
         session.AdvanceWorld(1_000);
         session.AddJarDemand(new WorldV2AddJarDemandRequest(
             new[] { new WorldV2RequirementInput("圆罐", "酒") },
-            "旧世界订单",
+            "A",
             DemandAreaKind.Active,
             0));
 
