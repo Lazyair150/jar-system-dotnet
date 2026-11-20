@@ -89,12 +89,14 @@ The reservation of the slave role prevents a second B-class session from enterin
 
 - Stop immediately; do not apply later plan steps.
 - Keep all successful earlier operations and consumed liquids. No snapshot rollback is performed.
-- Return any remaining slave resources under the established SlaveRollback policy, clear marks, mark the still-attached demand Dirty, and release the reservation.
+- If this session crossed the transfer commit boundary, return its remaining slave resources under the established SlaveRollback policy and clear slave marks. Before that boundary, do not touch slave inventory that may have been added externally.
+- Clear master marks, mark the still-attached demand Dirty, and release the reservation.
 - This session does not choose the ordinary-failure CD policy. It marks the demand Dirty and releases the reservation; the upper-level execution policy must decide whether to start CD before allowing another solve. The workshop-replacement interruption contract explicitly starts CD.
 
 ### Workshop-replacement interruption
 
-- Return temporary slave resources, clear marks, start the demand's own CD, release the reservation, and enter Interrupted.
+- If this session owns transferred slave resources, return them and clear slave marks. Do not clear or move unrelated resources found on the slave before this session's transfer commit.
+- Clear master marks, start the demand's own CD, release the reservation, and enter Interrupted.
 - If the demand has zero CD duration, it remains immediately eligible but is marked Dirty so it must be solved against the changed world.
 - Already completed processing and consumed resources remain changed.
 
