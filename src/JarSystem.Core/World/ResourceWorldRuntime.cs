@@ -108,6 +108,12 @@ public sealed class ResourceWorldRuntime
             return WorldOrderExecutionStartResult.Rejected("世界运行时已故障，不能启动订单：" + FaultReason);
         if (Roster == null || DemandBoard == null)
             return WorldOrderExecutionStartResult.Rejected("当前 Runtime 没有需求板或工作台岗位集合");
+        if (solveBook == null) throw new ArgumentNullException(nameof(solveBook));
+        if (admission == null) throw new ArgumentNullException(nameof(admission));
+        if (logicalTimePerUnit <= 0)
+            throw new ArgumentOutOfRangeException(nameof(logicalTimePerUnit));
+        if (!admission.IsBoundTo(DemandBoard, solveBook, Roster))
+            throw new ArgumentException("求解簿、准入器与当前 Runtime 不属于同一世界", nameof(admission));
         if (ReplacementBlocksWorld)
             return WorldOrderExecutionStartResult.Rejected("工作台替换正在进行或结果不确定，不能启动订单");
         _executionSessions.RemoveAll(session => session.IsTerminal);
