@@ -61,7 +61,7 @@ public sealed class WorldV2FactoryTests
         using var world = WorldV2Factory.Create(options);
 
         Assert.Equal(new[] { "圆罐", "方罐" }, world.Resources.Producers.Generators.Keys);
-        Assert.Equal(1, world.Resources.Producers.Producers.Count);
+        Assert.Single(world.Resources.Producers.Producers);
         Assert.Equal(3, world.Resources.Inventory.LiquidCount("酒"));
         Assert.Equal(0, world.Resources.Inventory.LiquidCount("蜜"));
         Assert.Equal(1, world.Resources.JarFlowRate);
