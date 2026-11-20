@@ -32,6 +32,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private int _slaveIndex;
     private long _unitElapsedLogicalMilli;
     private bool _reservationReleased;
+    private bool _slaveTransferCommitted;
 
     public int DemandId { get; }
     internal bool IsBoundTo(OrderDemandBoard board, WorkshopRoster roster) =>
@@ -335,6 +336,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
         }
 
+        // 从这里开始从台资源由本会话独占。若后续提交阶段出现不变量异常，
+        // 收尾才有权把本次转移到从台的临时资源回流；预检失败时绝不触碰外部从台库存。
+        _slaveTransferCommitted = true;
+
         // 预检完成后，在单线程逻辑调度中连续提交。若端口与刚才的判定不一致，
         // 这是世界不变量破坏；不能将其降级为普通拒绝或尝试部分恢复。
         foreach (var id in _manifest.TransferJarIds)
@@ -419,14 +424,20 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
     private void CleanupTemporaryResources()
     {
-        if (_manifest.IsPartitioned && _slave != null && _slave.HasResources)
+        // 只有本会话已经越过全量转移预检并取得从台资源所有权，才允许回流从台。
+        // 若转移前发现从台被外部占用，失败路径必须原样保留那些外部资源与标记。
+        if (_manifest.IsPartitioned && _slave != null && _slaveTransferCommitted)
         {
-            _slaveRollback.Execute(
-                _master, _slave, _ => { });
+            if (_slave.HasResources)
+            {
+                _slaveRollback.Execute(
+                    _master, _slave, _ => { });
+            }
+            _slave.ClearMarks();
+            _slaveTransferCommitted = false;
         }
 
         _master.ClearMarks();
-        _slave?.ClearMarks();
     }
 
     private void ReleaseReservation()
