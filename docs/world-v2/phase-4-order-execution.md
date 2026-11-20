@@ -47,6 +47,7 @@ Any active stage -- workshop replacement --> Interrupted
 - logicalTimePerUnit is mandatory at session creation. The session does not invent a conversion from the old ProcessSystem tick to WorldClock logical time.
 - ResourceWorldRuntime can register a session and advances it with the exact logical delta returned by its WorldClock. Registration verifies that the session belongs to that runtime's demand board and workshop roster. A host that does not register it may advance it directly with logical time.
 - When workshop replacement begins through ResourceWorldRuntime, its interruption adapter first asks the supplied external adapter to interrupt its own orders, then interrupts every still-active session registered with that runtime. A failure after the external adapter commits is treated as an uncertain interruption and is not retried.
+- A session admitted after a replacement has already begun is immediately interrupted during registration; it cannot begin operating on the old or migrating workstations.
 
 ## Applying a step
 
