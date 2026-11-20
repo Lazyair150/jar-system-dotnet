@@ -150,6 +150,25 @@ public sealed class WorldV2ApplicationService
     }
 
 
+    /// <summary>取消尚未完成的工作台替换；已提交的订单中断不会被撤销。</summary>
+    public WorldV2WorkshopReplacementResultDto CancelWorkshopReplacement(
+        string reason = "工作台替换已取消")
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return new WorldV2WorkshopReplacementResultDto(false, "取消原因不能为空", null);
+
+        WorldV2WorkshopReplacementResultDto? result = null;
+        _host.ExecuteExclusive(context =>
+        {
+            var cancel = context.Runtime.CancelActiveReplacement(reason);
+            result = new WorldV2WorkshopReplacementResultDto(
+                cancel.Success,
+                cancel.Error,
+                ToReplacementDto(context.Runtime.ActiveReplacement));
+        });
+        return result!;
+    }
+
     /// <summary>
     /// 捕获当前世界的展示快照。所有集合和元素均为复制值，不包含 Core 可变实体引用。
     /// 该 DTO 不是 Solver 使用的 WorldSnapshot。
