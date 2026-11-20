@@ -57,6 +57,58 @@ public sealed class WorldV2ApplicationServiceTests
     };
 
     [Fact]
+    public void ApplicationServiceControlsPauseAndWorldSpeedThroughWorldClock()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        app.PauseWorld();
+        var pausedAdvance = app.AdvanceWorld(1_000);
+        var paused = app.GetWorldSnapshot();
+
+        Assert.Equal(0, pausedAdvance.LogicalTimeDeltaMilli);
+        Assert.True(paused.IsPaused);
+        Assert.Equal(0, paused.WorldTimeMilli);
+        Assert.Equal(0, paused.LogicalTimeMilli);
+
+        app.ResumeWorld();
+        app.SetWorldSpeedRatio(2.0);
+        var fastAdvance = app.AdvanceWorld(1_000);
+        var fast = app.GetWorldSnapshot();
+
+        Assert.Equal(2_000, fastAdvance.LogicalTimeDeltaMilli);
+        Assert.False(fast.IsPaused);
+        Assert.Equal(1_000, fast.WorldTimeMilli);
+        Assert.Equal(2_000, fast.LogicalTimeMilli);
+        Assert.Equal(2_000, fast.SpeedRatioMilli);
+    }
+
+    [Fact]
+    public void AddJarDemandCopiesCallerRequirementsBeforeEnteringHostOperation()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        var mutableRequirements = new List<WorldV2RequirementInput>
+        {
+            new("圆罐", "酒")
+        };
+        var request = new WorldV2AddJarDemandRequest(
+            mutableRequirements, "A", DemandAreaKind.Active, 0);
+
+        var id = app.AddJarDemand(request);
+        mutableRequirements[0] = new WorldV2RequirementInput("方罐", "蜜");
+        mutableRequirements.Clear();
+
+        var demand = Assert.Single(app.GetWorldSnapshot().Demands);
+        Assert.Equal(id, demand.Id);
+        Assert.Equal("圆罐", Assert.Single(demand.Requirements).Shape);
+        Assert.Equal("酒", demand.Requirements[0].Liquid);
+    }
+
+    [Fact]
     public void ApplicationServiceRunsActiveDemandEndToEndWithoutExposingContext()
     {
         using var host = new WorldV2HostService();
