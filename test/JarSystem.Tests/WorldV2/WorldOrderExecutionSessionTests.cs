@@ -118,6 +118,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(started.Session!.Succeeded, started.Session.Reason);
         Assert.Equal(1, started.Session.CompletedMasterSteps);
         Assert.Empty(master.Jars);
+        Assert.False(matchedJar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
     }
 
