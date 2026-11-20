@@ -283,6 +283,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private string? TransferToSlave()
     {
         var slave = _slave ?? throw new InvalidOperationException("B 类执行缺少从台");
+        if (slave.HasResources)
+            return "B 类资源转移前，从工作台必须仍为空";
+
         var jars = new Dictionary<int, Jar>();
 
         foreach (var id in _manifest.TransferJarIds)
@@ -339,14 +342,21 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     {
         var deliveryWorkshop = _manifest.IsPartitioned ? _slave! : _master;
 
+        // 先完整验证交付集合，再统一移除，避免前几个交付罐已离台后才发现后续 ID 缺失。
+        var deliveryJars = new List<Jar>();
         foreach (var id in _matchedJarIds)
         {
             var matches = deliveryWorkshop.Jars.Where(jar => jar.Id == id).ToArray();
             if (matches.Length != 1)
                 throw new InvalidOperationException(
                     $"订单交付罐 #{id} 在交付工作台中不存在或身份重复");
-            if (deliveryWorkshop.RemoveJar(matches[0]) == null)
-                throw new InvalidOperationException($"订单交付罐 #{id} 无法从工作台移除");
+            deliveryJars.Add(matches[0]);
+        }
+
+        foreach (var jar in deliveryJars)
+        {
+            if (deliveryWorkshop.RemoveJar(jar) == null)
+                throw new InvalidOperationException($"订单交付罐 #{jar.Id} 无法从工作台移除");
         }
 
         CleanupTemporaryResources();
