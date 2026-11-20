@@ -83,7 +83,7 @@ The reservation of the slave role prevents a second B-class session from enterin
 ### Success
 
 - The requirement-satisfying jar IDs are first all validated on the delivery workshop; only then are they removed as delivered resources.
-- For B-class orders, the remaining slave resources are returned to the master using the established SlaveRollback policy. This is the return of temporary tools and leftover liquid, not restoration of consumed resources.
+- For B-class orders, the remaining slave resources are returned to the master using the established SlaveRollback policy. This is the return of temporary tools and leftover liquid, not restoration of consumed resources. Unbanned free liquid is accepted up to master capacity and any remainder is discarded; banned free liquid is wholly discarded. A full jar containing a banned liquid still returns unchanged because the ban applies to free-liquid storage/use, not jar identity.
 - Only jars named by this order's `LockedJarIds` have their operation marks cleared on the master/slave workshops. Unrelated jar marks are preserved.
 - OrderDemandBoard.RecordSuccessfulFulfillment applies the area's OneShot/Continuous policy.
 - A continuous demand becomes AwaitingRearm through the existing solve-book event; this session does not automatically restart it.
@@ -120,6 +120,7 @@ The reservation of the slave role prevents a second B-class session from enterin
 - A-class processing, delivery, and reservation release.
 - Failure after external resource change: no later mutation, no consumed-resource restoration, reservation release, and solve-state invalidation.
 - B-class single-slave reservation and replacement interruption cleanup/CD.
+- Slave rollback returns full jars containing banned liquids unchanged, discards banned free liquid, and partially returns unbanned free liquid according to master capacity.
 
 ## Verification
 
@@ -129,4 +130,9 @@ Run the full local gate from the repository root:
 重构报告\verify.bat
 ~~~
 
-Baseline verification before the delivery-mark cleanup patch: branch head `ea5d29693964f39763cdd203650cd33c6df6a629` passed GitHub Actions `verify` and the repository owner's local full `重构报告\\verify.bat` (421 xUnit tests, 0 failures, `VERDICT=OK`). The delivery-mark cleanup patch adds a regression assertion and must be revalidated with the full local gate before this phase is considered verified at its new head.
+Branch head `91d922acb469321c6518f2ac4c57d6984e02b68f` passed GitHub Actions `verify` and the repository owner's local full `重构报告\\verify.bat` (421 xUnit tests, 0 failures, `VERDICT=OK`). A subsequent audit found that SlaveRollback documented banned-free-liquid discard but did not enforce the ban. The fix and regression test are in the commits immediately following that verified baseline and require a fresh full local gate.
+
+
+## Observability follow-up
+
+The session currently calls the legacy `SlaveRollback` with a no-op execution-log callback and without discard counters or a `ResourceLedger`. The rollback policy is applied, but capacity/ban discards are not yet exposed as world-level events or ledger records. A later world-event/ledger integration must surface these resource-loss facts without changing the established return/discard rules.
