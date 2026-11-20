@@ -30,6 +30,24 @@ public sealed class WorldV2ApplicationService
     /// <summary>创建或替换世界。配置在 Factory 内完成校验和复制。</summary>
     public void CreateOrReplaceWorld(WorldV2Options options) => _host.Replace(options);
 
+    /// <summary>设置世界流速倍率；1000 表示 1 倍，0 表示逻辑时间停止增长。</summary>
+    public void SetWorldSpeedRatio(double ratio)
+    {
+        _host.ExecuteExclusive(context => context.Runtime.Clock.SetSpeedRatio(ratio));
+    }
+
+    /// <summary>暂停世界时间。暂停期间 AdvanceWorld 不推进世界时钟、生产、冷却或执行。</summary>
+    public void PauseWorld()
+    {
+        _host.ExecuteExclusive(context => context.Runtime.Clock.Pause());
+    }
+
+    /// <summary>恢复世界时间推进。</summary>
+    public void ResumeWorld()
+    {
+        _host.ExecuteExclusive(context => context.Runtime.Clock.Resume());
+    }
+
     /// <summary>
     /// 推进世界并运行一轮调度。deltaWorldTimeMilli 的 1000 表示 1 个世界时间单位。
     /// 调度顺序由 WorldOrderScheduler 决定；这里仅将结果复制成 DTO。
@@ -60,6 +78,17 @@ public sealed class WorldV2ApplicationService
     {
         if (request == null) throw new ArgumentNullException(nameof(request));
         if (request.Requirements == null) throw new ArgumentException("订单需求不能为空", nameof(request));
+
+        // 在进入 Host 独占区之前复制调用方集合。IReadOnlyList 只限制接口，
+        // 不保证底层集合不可变；不能让外部并发修改影响 Host 回调中的领域对象构造。
+        var requirementInputs = request.Requirements.Select(item =>
+        {
+            if (item == null) throw new ArgumentException("订单需求项不能为 null", nameof(request));
+            return new WorldV2RequirementInput(item.Shape, item.Liquid);
+        }).ToArray();
+        var type = request.Type;
+        var area = request.Area;
+        var cooldownDuration = request.CooldownDurationLogicalMilli;
         int demandId = 0;
 
         _host.ExecuteExclusive(context =>
@@ -67,16 +96,13 @@ public sealed class WorldV2ApplicationService
             var vocabulary = new Vocabulary(
                 context.Resources.Producers.Generators.Keys,
                 context.Resources.Inventory.LiquidWarehouse.Keys);
-            var requirements = request.Requirements.Select(item =>
-            {
-                if (item == null) throw new ArgumentException("订单需求项不能为 null", nameof(request));
-                return new Requirement { Shape = item.Shape, Liquid = item.Liquid };
-            }).ToList();
+            var requirements = requirementInputs.Select(item =>
+                new Requirement { Shape = item.Shape, Liquid = item.Liquid }).ToList();
 
             var specification = new JarOrderSpecification(
-                requirements, request.Type, vocabulary: vocabulary);
-            var demand = new OrderDemand(specification, request.CooldownDurationLogicalMilli);
-            context.DemandBoard.AddDemand(demand, request.Area);
+                requirements, type, vocabulary: vocabulary);
+            var demand = new OrderDemand(specification, cooldownDuration);
+            context.DemandBoard.AddDemand(demand, area);
             demandId = demand.Id;
         });
 
