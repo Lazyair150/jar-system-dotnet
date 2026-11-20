@@ -145,7 +145,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(started.Session!.Succeeded, started.Session.Reason);
         Assert.True(unrelatedJar.IsMarked);
         Assert.Contains(master.Jars, jar => ReferenceEquals(jar, unrelatedJar));
-        Assert.Empty(setup.Reservations.Find(demand.Id)?.LockedJarIds ?? System.Array.Empty<int>());
+        Assert.Equal(0, setup.Reservations.Count);
     }
 
     [Fact]
