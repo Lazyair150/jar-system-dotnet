@@ -100,8 +100,8 @@ Ordinary execution failure does not start cooldown and is re-evaluated against t
 - Direct board/user changes can still request a scheduling-only pass without advancing time.
 - This is a convenience/orchestration boundary, not a new clock, timer, background loop, or automatic event subscription.
 
-## Verification status
+## Verification history
 
-- Owner's local `重构报告\\verify.bat`: passed; xUnit 430, Errors 0, Failed 0, Skipped 0; final `VERDICT=OK`.
-- GitHub Actions `verify` for HEAD `5f70fa41a07e73070798466b261396ce4b8a3256`: completed successfully (run #422).
-- PR #13 remains Draft and unmerged.
+- 4.5e baseline: local full verify passed with xUnit 430; GitHub Actions for HEAD `5f70fa41a07e73070798466b261396ce4b8a3256` succeeded (run #422); PR #13 remained Draft and unmerged.
+- 4.5f baseline: local full verify passed with xUnit 431 and `VERDICT=OK`; GitHub Actions for HEAD `9870f29a6068d6358f15614a7a1462d9928e2abe` succeeded; PR #14 remained Draft and unmerged.
+- Continuous-demand cooldown lifecycle repair: implementation and regression tests are on `world-v2/phase-4-continuous-demand-cooldown`; owner full verification is pending.
