@@ -45,69 +45,102 @@ public sealed class WorldV2HostServiceTests
     };
 
     [Fact]
-    public void ReplaceCreatesAndPublishesInitialWorld()
+    public void ReplaceCreatesAndPublishesInitialWorldLease()
     {
         using var host = new WorldV2HostService();
 
         Assert.False(host.HasWorld);
-        Assert.Throws<InvalidOperationException>(() => _ = host.Current);
+        Assert.Throws<InvalidOperationException>(() => host.AcquireCurrent());
 
-        var created = host.Replace(ValidOptions());
+        using var created = host.Replace(ValidOptions());
 
         Assert.True(host.HasWorld);
-        Assert.Same(created, host.Current);
-        Assert.False(created.IsDisposed);
+        using var current = host.AcquireCurrent();
+        Assert.Same(created.Context, current.Context);
+        Assert.False(created.Context.IsDisposed);
     }
 
     [Fact]
-    public void SuccessfulReplacePublishesNewWorldAndDisposesPreviousWorld()
+    public void SuccessfulReplaceRetiresPreviousWorldButWaitsForItsLeases()
     {
         using var host = new WorldV2HostService();
         var first = host.Replace(ValidOptions("第一主台"));
+        var firstContext = first.Context;
 
-        var second = host.Replace(ValidOptions("第二主台"));
+        using var second = host.Replace(ValidOptions("第二主台"));
 
-        Assert.NotSame(first, second);
-        Assert.Same(second, host.Current);
-        Assert.Equal("第二主台", host.Current.Roster.Master!.Name);
-        Assert.True(first.IsDisposed);
-        Assert.False(second.IsDisposed);
+        Assert.NotSame(firstContext, second.Context);
+        Assert.Equal("第二主台", second.Context.Roster.Master!.Name);
+        Assert.False(firstContext.IsDisposed);
+
+        first.Dispose();
+        Assert.True(firstContext.IsDisposed);
+        Assert.False(second.Context.IsDisposed);
     }
 
     [Fact]
-    public void FailedReplaceKeepsPreviousWorldAliveAndCurrent()
+    public void FailedReplaceKeepsPreviousWorldCurrentAndAlive()
     {
         using var host = new WorldV2HostService();
-        var previous = host.Replace(ValidOptions());
+        using var previous = host.Replace(ValidOptions());
+        var previousContext = previous.Context;
 
         var invalid = ValidOptions();
         invalid.MasterWorkshopName = "不存在";
 
         Assert.Throws<ArgumentException>(() => host.Replace(invalid));
 
-        Assert.Same(previous, host.Current);
-        Assert.False(previous.IsDisposed);
+        using var current = host.AcquireCurrent();
+        Assert.Same(previousContext, current.Context);
+        Assert.False(previousContext.IsDisposed);
     }
 
     [Fact]
-    public void HostsAreIndependentAndDisposeIsIdempotent()
+    public void HostDisposeDefersContextDisposalUntilLastLeaseIsReleased()
     {
-        var firstHost = new WorldV2HostService();
-        var secondHost = new WorldV2HostService();
-        var firstWorld = firstHost.Replace(ValidOptions());
-        var secondWorld = secondHost.Replace(ValidOptions());
+        var host = new WorldV2HostService();
+        var lease = host.Replace(ValidOptions());
+        var context = lease.Context;
+
+        host.Dispose();
+        host.Dispose();
+
+        Assert.False(host.HasWorld);
+        Assert.False(context.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => host.AcquireCurrent());
+        Assert.Throws<ObjectDisposedException>(() => host.Replace(ValidOptions()));
+
+        lease.Dispose();
+        Assert.True(context.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => _ = lease.Context);
+    }
+
+    [Fact]
+    public void HostsAreIndependentAndLeaseReleaseIsIdempotent()
+    {
+        using var firstHost = new WorldV2HostService();
+        using var secondHost = new WorldV2HostService();
+        var first = firstHost.Replace(ValidOptions());
+        using var second = secondHost.Replace(ValidOptions());
+
+        var firstContext = first.Context;
+        var secondContext = second.Context;
 
         firstHost.Dispose();
-        firstHost.Dispose();
+        first.Dispose();
+        first.Dispose();
 
-        Assert.True(firstWorld.IsDisposed);
-        Assert.False(secondWorld.IsDisposed);
-        Assert.Same(secondWorld, secondHost.Current);
-        Assert.False(firstHost.HasWorld);
-        Assert.Throws<ObjectDisposedException>(() => firstHost.Replace(ValidOptions()));
-        Assert.Throws<ObjectDisposedException>(() => _ = firstHost.Current);
+        Assert.True(firstContext.IsDisposed);
+        Assert.False(secondContext.IsDisposed);
+        using (var current = secondHost.AcquireCurrent())
+            Assert.Same(secondContext, current.Context);
 
+        // 释放调用方租约不会销毁仍由 Host 持有的当前世界。
+        second.Dispose();
+        Assert.False(secondContext.IsDisposed);
+
+        // Host 退役当前世界后，因租约已归零而立即释放。
         secondHost.Dispose();
-        Assert.True(secondWorld.IsDisposed);
+        Assert.True(secondContext.IsDisposed);
     }
 }
