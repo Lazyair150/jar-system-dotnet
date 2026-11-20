@@ -159,6 +159,15 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Single(runtime.ActiveExecutionSessions);
         Assert.Equal(1, setup.Reservations.Count);
         Assert.Null(setup.Reservations.Find(secondDemand.Id));
+
+        // 即使调用方绕过推荐入口先做了准入，Runtime 注册时也会安全取消尚未执行的第二个会话。
+        var admittedSecond = WorldOrderExecutionSession.TryStart(
+            secondDemand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        Assert.True(admittedSecond.Success, admittedSecond.Reason);
+        Assert.False(runtime.RegisterExecutionSession(admittedSecond.Session!));
+        Assert.Equal(WorldOrderExecutionStage.Cancelled, admittedSecond.Session!.Stage);
+        Assert.Equal(1, setup.Reservations.Count);
+        Assert.Null(setup.Reservations.Find(secondDemand.Id));
     }
 
     [Fact]
