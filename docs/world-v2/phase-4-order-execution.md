@@ -25,6 +25,7 @@ TryStart is the session entry point. Callers must not construct a session from a
 - A-class sessions reserve their referenced jars and initial master free-liquid budget.
 - B-class sessions additionally reserve the world's single slave role. Two B-class sessions cannot both be admitted while that role is occupied.
 - Reservations are ownership declarations, not mutations of inventory and not multi-threaded world transactions. The world remains driven by a serialized logical scheduler.
+- ResourceWorldRuntime allows one active order execution session at a time. This protects the existing per-workshop ClearMarks cycle: one order must not clear another active order's operation marks. This does not decide which eligible order wins; that remains the scheduler's policy.
 
 ## State machine
 
@@ -45,7 +46,7 @@ Any active stage -- workshop replacement --> Interrupted
 - The B-class transfer stage consumes one configured logical-time unit.
 - MATCH is not a processing operation and consumes no execution time. Delivery IDs are derived from each step's requirement and its After target state: the target jar is delivered when that final state satisfies the step's RequirementShape and RequirementLiquid. This includes direct MATCH and requirements satisfied by the final POUR_IN / POUR_OUT / RESHAPE operation. The old execution contract also treated direct matches as zero-time operations.
 - logicalTimePerUnit is mandatory at session creation. The session does not invent a conversion from the old ProcessSystem tick to WorldClock logical time.
-- ResourceWorldRuntime can register a session and advances it with the exact logical delta returned by its WorldClock. Registration verifies that the session belongs to that runtime's demand board and workshop roster. A host that does not register it may advance it directly with logical time.
+- The recommended ResourceWorldRuntime.TryStartExecutionSession entry checks that no other order session or workshop replacement is active before admission. ResourceWorldRuntime can also register a session and advances it with the exact logical delta returned by its WorldClock. Registration verifies that the session belongs to that runtime's demand board and workshop roster. A host that does not register it may advance it directly with logical time.
 - When workshop replacement begins through ResourceWorldRuntime, its interruption adapter first asks the supplied external adapter to interrupt its own orders, then interrupts every still-active session registered with that runtime. A failure after the external adapter commits is treated as an uncertain interruption and is not retried.
 - A session admitted after a replacement has already begun is immediately interrupted during registration; it cannot begin operating on the old or migrating workstations.
 
