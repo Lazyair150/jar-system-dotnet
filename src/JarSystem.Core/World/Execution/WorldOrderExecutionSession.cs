@@ -79,6 +79,12 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         if (_matchedJarIds.Distinct().Count() != _matchedJarIds.Count)
             throw new InvalidOperationException("求解计划重复将同一只罐子作为交付物");
+        if (manifest.IsPartitioned &&
+            _matchedJarIds.Any(id => !manifest.TransferJarIds.Contains(id)))
+            throw new InvalidOperationException("B 类交付罐没有包含在从主台转移的资源清单中");
+        if (!manifest.IsPartitioned &&
+            _matchedJarIds.Any(id => !manifest.MasterJarIds.Contains(id)))
+            throw new InvalidOperationException("A 类交付罐没有包含在主台资源清单中");
         if (!manifest.IsPartitioned && _slaveSteps.Count != 0)
             throw new InvalidOperationException("单阶段执行计划不能包含从台步骤");
 
