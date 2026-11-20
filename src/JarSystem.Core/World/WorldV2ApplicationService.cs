@@ -141,8 +141,9 @@ public sealed class WorldV2ApplicationService
             }
             catch (InvalidOperationException ex)
             {
-                result = new WorldV2WorkshopReplacementResultDto(false, ex.Message,
-                    ToReplacementDto(context.Runtime.ActiveReplacement));
+                // 构造阶段的拒绝发生在替换流程启动之前；不能把 Runtime 中上一次替换的状态
+                // 错误地作为本次请求的结果返回。
+                result = new WorldV2WorkshopReplacementResultDto(false, ex.Message, null);
             }
         });
         return result!;
