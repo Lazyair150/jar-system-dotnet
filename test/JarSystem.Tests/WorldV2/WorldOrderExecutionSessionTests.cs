@@ -246,6 +246,36 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
+    public void TransferPreflightDoesNotRollbackResourcesThatWereAlreadyOnTheSlave()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var plannedJar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(plannedJar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        Assert.True(started.Success, started.Reason);
+
+        // 外部写入发生在准入之后、转移之前。会话必须拒绝转移，但不能把这只罐子当成自己的临时资源回流。
+        var externalJar = new Jar("圆罐", vocabulary: Words);
+        Assert.True(slave.AddJar(externalJar));
+        var session = started.Session!;
+        for (var i = 0; i < 8 && !session.IsTerminal; i++)
+            session.AdvanceLogicalTime(1_000);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.Same(externalJar, Assert.Single(slave.Jars));
+        Assert.False(externalJar.IsMarked);
+        Assert.Contains(master.Jars, item => item.Id == plannedJar.Id);
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
     public void BOrderOwnsTheSingleSlaveAndInterruptionReturnsTemporaryResourcesAndStartsCooldown()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
