@@ -115,6 +115,48 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
+    public void RuntimeAllowsOnlyOneActiveOrderSessionWithoutTakingASecondReservation()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxJars: 8, maxLiquids: 8, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        master.AddLiquid("酒", 1);
+        master.AddLiquid("蜜", 1);
+        var firstDemand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var setup = Prepare(master, null, firstDemand);
+
+        var secondDemand = Demand(Constants.OrderType.A, "方罐", "蜜");
+        setup.Board.AddDemand(secondDemand, DemandAreaKind.Active);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        setup.Book.Evaluate(secondDemand.Id, WorldSnapshotFactory.Capture(setup.Roster), registry);
+
+        var resources = new ResourceArea(
+            new ProducerModule(Words),
+            new LiquidProduction(Words,
+                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0);
+        var runtime = new ResourceWorldRuntime(
+            resources, roster: setup.Roster, demandBoard: setup.Board);
+
+        var first = runtime.TryStartExecutionSession(
+            firstDemand.Id, setup.Book, setup.Admission, 1_000);
+        var second = runtime.TryStartExecutionSession(
+            secondDemand.Id, setup.Book, setup.Admission, 1_000);
+
+        Assert.True(first.Success, first.Reason);
+        Assert.False(second.Success);
+        Assert.Contains("活动订单执行会话", second.Reason);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Equal(1, setup.Reservations.Count);
+        Assert.Null(setup.Reservations.Find(secondDemand.Id));
+    }
+
+    [Fact]
     public void RuntimeReplacementInterruptsItsRegisteredSessionsBeforeStartingMigration()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
