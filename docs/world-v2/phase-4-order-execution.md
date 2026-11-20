@@ -90,7 +90,7 @@ The reservation of the slave role prevents a second B-class session from enterin
 - Stop immediately; do not apply later plan steps.
 - Keep all successful earlier operations and consumed liquids. No snapshot rollback is performed.
 - Return any remaining slave resources under the established SlaveRollback policy, clear marks, mark the still-attached demand Dirty, and release the reservation.
-- Ordinary execution failure does not automatically start CD; the existing interruption contract only specifies CD for workshop-replacement interruption.
+- This session does not choose the ordinary-failure CD policy. It marks the demand Dirty and releases the reservation; the upper-level execution policy must decide whether to start CD before allowing another solve. The workshop-replacement interruption contract explicitly starts CD.
 
 ### Workshop-replacement interruption
 
