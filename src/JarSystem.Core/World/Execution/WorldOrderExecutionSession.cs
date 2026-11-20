@@ -472,6 +472,13 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     {
         var deliveryWorkshop = _manifest.IsPartitioned ? _slave! : _master;
 
+        // 账本 tick 来源是外部回调。必须在任何交付罐标记/归属发生变化前取得，
+        // 避免交付已移除后，结算才调用外部 tick provider 并抛出异常。
+        int? settlementTick = null;
+        if (_resourceLedger != null && _manifest.IsPartitioned &&
+            _slaveTransferCommitted && _slave!.HasResources)
+            settlementTick = _resourceLedgerTick!();
+
         // 先完整验证交付集合，再统一移除，避免前几个交付罐已离台后才发现后续 ID 缺失。
         var deliveryJars = new List<Jar>();
         foreach (var id in _deliveryJarIds)
@@ -500,7 +507,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 throw new InvalidOperationException($"订单交付罐 #{jar.Id} 无法从工作台移除");
         }
 
-        CleanupTemporaryResources();
+        CleanupTemporaryResources(settlementTick);
         if (_board.RecordSuccessfulFulfillment(DemandId) == DemandFulfillmentResult.NotFound)
             throw new InvalidOperationException("执行成功时订单已不在需求板中");
 
@@ -526,7 +533,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         }
     }
 
-    private void CleanupTemporaryResources()
+    private void CleanupTemporaryResources(int? ledgerTickOverride = null)
     {
         // 只有本会话已经越过全量转移预检并取得从台资源所有权，才允许回流从台。
         // 若转移前发现从台被外部占用，失败路径必须原样保留那些外部资源与标记。
@@ -534,11 +541,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         {
             if (_slave.HasResources)
             {
+                Func<int>? tickOf = ledgerTickOverride.HasValue
+                    ? () => ledgerTickOverride.Value
+                    : _resourceLedgerTick;
                 _slaveRollback.Execute(
                     _master, _slave,
                     entry => _resourceSettlementLog.Add(entry),
                     ledger: _resourceLedger,
-                    tickOf: _resourceLedgerTick);
+                    tickOf: tickOf,
+                    ledgerTickOverride: ledgerTickOverride);
             }
             _slaveTransferCommitted = false;
         }
