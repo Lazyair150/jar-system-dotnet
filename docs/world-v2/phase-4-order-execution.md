@@ -18,7 +18,7 @@ ResourceWorldRuntime.TryStartExecutionSession
   -> WorldOrderExecutionSession
 ~~~
 
-ResourceWorldRuntime.TryStartExecutionSession is the public entry point. Session construction, registration, and logical-time advancement stay inside the runtime; callers cannot start a second concurrent session or advance a session on an independent clock.
+ResourceWorldRuntime.TryStartExecutionSession is the public entry point. Session construction, registration, and logical-time advancement stay inside the runtime; callers cannot advance a session on an independent clock.
 
 - The demand must still be on the board and have a current feasible plan.
 - The world snapshot is re-captured by admission before resources are reserved.
@@ -26,7 +26,7 @@ ResourceWorldRuntime.TryStartExecutionSession is the public entry point. Session
 - A-class sessions reserve their referenced jars and initial master free-liquid budget.
 - B-class sessions additionally reserve the world's single slave role. Two B-class sessions cannot both be admitted while that role is occupied.
 - Reservations are ownership declarations, not mutations of inventory and not multi-threaded world transactions. The world remains driven by a serialized logical scheduler.
-- ResourceWorldRuntime allows one active order execution session at a time. This protects the existing per-workshop ClearMarks cycle: one order must not clear another active order's operation marks. This does not decide which eligible order wins; that remains the scheduler's policy.
+- ResourceWorldRuntime may advance multiple sessions in the same logical tick. The reservation book prevents overlapping jar/liquid ownership, and B-class sessions additionally reserve the single slave role. Mark cleanup is scoped to each session's locked jar IDs, so one order cannot clear another order's operation marks. The scheduler still decides which eligible orders to start and in what priority order.
 
 ## State machine
 
