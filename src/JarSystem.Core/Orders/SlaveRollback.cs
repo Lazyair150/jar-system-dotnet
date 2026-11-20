@@ -33,12 +33,14 @@ internal sealed class SlaveRollback
         Action<int>? countDiscardedJars = null,
         Action<string, int>? countDiscardedLiquids = null,
         ResourceLedger? ledger = null,
-        Func<int>? tickOf = null)
+        Func<int>? tickOf = null,
+        int? ledgerTickOverride = null)
     {
         if (ReferenceEquals(master, slave)) return;
 
-        // 一次结算使用同一个账本 tick；tick 来源由世界装配层显式提供，不在此换算旧/新时间轴。
-        var ledgerTick = ledger == null ? 0 : tickOf?.Invoke() ?? 0;
+        // 一次结算使用同一个账本 tick；成功交付路径可在不可逆交付之前预取并显式传入。
+        // tick 来源由世界装配层提供，不在此换算旧/新时间轴。
+        var ledgerTick = ledger == null ? 0 : ledgerTickOverride ?? tickOf?.Invoke() ?? 0;
         var slaveJars = new List<Jar>(slave.Jars);
 
         foreach (var jar in slaveJars)
