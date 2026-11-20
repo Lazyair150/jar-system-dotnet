@@ -306,6 +306,16 @@ public class Workshop
         return (true, null);
     }
 
+    /// <summary>清除一只属于本工作台的罐子的操作标记，不影响同台其他罐子。</summary>
+    public (bool Success, string? Reason) ClearMark(Jar jar)
+    {
+        if (jar == null) throw new ArgumentNullException(nameof(jar));
+        if (!_jars.Any(existing => ReferenceEquals(existing, jar)))
+            return (false, "罐子不属于本工作台");
+        jar.Unmark();
+        return (true, null);
+    }
+
     /// <summary>清除全部罐子的操作标记（订单开始/结束、阶段切换时使用）。</summary>
     public void ClearMarks()
     {
