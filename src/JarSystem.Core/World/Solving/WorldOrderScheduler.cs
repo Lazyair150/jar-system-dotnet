@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 
 namespace JarSystem.Core.World.Solving;
@@ -128,7 +129,7 @@ public sealed class WorldOrderScheduler
                 decisions[demand.Id] = new WorldOrderSchedulingDecision(
                     demand.Id, initialAreas[demand.Id], record.State, started.Contains(demand.Id),
                     record.StateReason ?? record.DirtyReason ??
-                    (record.Result?.IsFeasible == false ? record.Result.Reason : null));
+                    (record.Result?.IsFeasible == false ? record.Result?.Reason : null));
             }
 
             return new WorldOrderSchedulingPassResult(
