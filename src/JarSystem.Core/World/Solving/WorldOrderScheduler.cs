@@ -145,6 +145,20 @@ public sealed class WorldOrderScheduler
     }
 
     /// <summary>
+    /// 推进一次世界时间，并在同一宿主调用中立即运行订单调度。
+    /// 这只是调用顺序的协调入口：时间仍由 Runtime 推进，订单仍由 RunSchedulingPass 决策。
+    /// </summary>
+    public WorldOrderScheduledStepResult AdvanceWorldAndSchedule(long deltaWorldTimeMilli)
+    {
+        if (_running)
+            throw new InvalidOperationException("当前正在执行调度过程，不能重入推进世界");
+
+        var worldStep = _runtime.AdvanceWorldTime(deltaWorldTimeMilli);
+        var scheduling = RunSchedulingPass();
+        return new WorldOrderScheduledStepResult(worldStep, scheduling);
+    }
+
+    /// <summary>
     /// 用户显式启动主动区域订单。此入口只接受 Active 订单，不替用户选择主动订单。
     /// 求解与准入仍使用和被动订单相同的快照、计划与资源规则。
     /// </summary>
@@ -169,6 +183,11 @@ public sealed class WorldOrderScheduler
             ? DemandAreaKind.Passive
             : DemandAreaKind.Active;
 }
+
+/// <summary>一次世界推进及其紧随其后的调度结果。</summary>
+public sealed record WorldOrderScheduledStepResult(
+    ResourceWorldStep WorldStep,
+    WorldOrderSchedulingPassResult Scheduling);
 
 /// <summary>一次调度轮次的可观测结果；不代表会话已完成。</summary>
 public sealed record WorldOrderSchedulingPassResult(
