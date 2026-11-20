@@ -148,47 +148,51 @@ public sealed class WorldV2HostServiceTests
     }
 
     [Fact]
-    public void AcquireCurrentWaitsUntilThePreviousOperationLeaseIsReleased()
+    public async Task AcquireCurrentWaitsUntilThePreviousOperationLeaseIsReleased()
     {
         using var host = new WorldV2HostService();
         var first = host.Replace(ValidOptions());
         var expectedContext = first.Context;
-        using var started = new ManualResetEventSlim();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var waitingAcquire = Task.Run(() =>
         {
-            started.Set();
+            started.SetResult();
             return host.AcquireCurrent();
-        });
+        }, cancellationToken);
 
-        Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
-        Assert.False(waitingAcquire.Wait(TimeSpan.FromMilliseconds(100)));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await Task.Delay(100, cancellationToken);
+        Assert.False(waitingAcquire.IsCompleted);
 
         first.Dispose();
-        using var second = waitingAcquire.GetAwaiter().GetResult();
+        using var second = await waitingAcquire.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
         Assert.Same(expectedContext, second.Context);
     }
 
     [Fact]
-    public void ReplaceWaitsUntilThePreviousOperationLeaseIsReleased()
+    public async Task ReplaceWaitsUntilThePreviousOperationLeaseIsReleased()
     {
         using var host = new WorldV2HostService();
-        using var first = host.Replace(ValidOptions("原主台"));
+        var first = host.Replace(ValidOptions("原主台"));
         var firstContext = first.Context;
-        using var started = new ManualResetEventSlim();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var waitingReplace = Task.Run(() =>
         {
-            started.Set();
+            started.SetResult();
             return host.Replace(ValidOptions("新主台"));
-        });
+        }, cancellationToken);
 
-        Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
-        Assert.False(waitingReplace.Wait(TimeSpan.FromMilliseconds(100)));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await Task.Delay(100, cancellationToken);
+        Assert.False(waitingReplace.IsCompleted);
         Assert.False(firstContext.IsDisposed);
 
         first.Dispose();
-        using var second = waitingReplace.GetAwaiter().GetResult();
+        using var second = await waitingReplace.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
         Assert.NotSame(firstContext, second.Context);
         Assert.Equal("新主台", second.Context.Roster.Master!.Name);
