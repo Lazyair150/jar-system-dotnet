@@ -154,7 +154,7 @@ Verified 4.5c baseline: commit `57ef91a2fa961e0bb7911a3166df88c7b35091d9` passed
 - The ledger is optional so isolated World v2 runtimes need not invent a host tick. A runtime configured with a ledger must receive the tick source explicitly.
 - Regression coverage includes ordinary B-class failure after the slave transfer commit, and interruption after transfer with ledger assertions for transfer, return, and banned-liquid discard.
 
-The 4.5c branch changes have not yet passed the repository owner's local full gate. Do not treat the 4.5b baseline result as verification of this branch.
+The strengthened 4.5c branch head is verified by the owner's 424-test local full gate and GitHub Actions; see the 4.5d section below for the separate verification status of this follow-up.
 
 
 ## Phase 4.5d — world execution fault boundary
