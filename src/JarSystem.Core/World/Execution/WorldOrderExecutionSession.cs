@@ -40,7 +40,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     public WorldOrderExecutionStage Stage { get; private set; }
     public bool IsTerminal =>
         Stage is WorldOrderExecutionStage.Completed or
-            WorldOrderExecutionStage.Failed or WorldOrderExecutionStage.Interrupted;
+            WorldOrderExecutionStage.Failed or WorldOrderExecutionStage.Interrupted or
+            WorldOrderExecutionStage.Cancelled;
     public bool Succeeded => Stage == WorldOrderExecutionStage.Completed;
     public string? Reason { get; private set; }
     public long UnitDurationLogicalMilli => _unitDurationLogicalMilli;
@@ -197,6 +198,24 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// 会话已准入但尚未执行任何计划步骤时，因 Runtime 已有活动会话或正在替换工作台而取消。
+    /// 不进入 CD，因为这张订单从未真正开始执行；只标记 Dirty 并释放刚取得的预留。
+    /// </summary>
+    internal bool CancelBeforeExecution(string reason)
+    {
+        if (IsTerminal) return true;
+        if (_masterIndex != 0 || _slaveIndex != 0 || _slaveTransferCommitted)
+            return false;
+
+        if (_board.Find(DemandId) != null)
+            _solveBook.MarkDirty(DemandId, reason);
+        ReleaseReservation();
+        Reason = reason;
+        Stage = WorldOrderExecutionStage.Cancelled;
+        return true;
     }
 
     /// <summary>
@@ -482,7 +501,8 @@ public enum WorldOrderExecutionStage
     SlaveSteps,
     Completed,
     Failed,
-    Interrupted
+    Interrupted,
+    Cancelled
 }
 
 public sealed record WorldOrderExecutionStartResult(
