@@ -123,10 +123,15 @@ public sealed class WorldOrderExecutionSessionTests
         master.AddJar(new Jar("方罐", vocabulary: Words));
         master.AddLiquid("酒", 1);
         master.AddLiquid("蜜", 1);
-        var firstDemand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var demandIds = new SequentialIdGenerator();
+        var firstDemand = new OrderDemand(new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.A, Words), 0, demandIds);
         var setup = Prepare(master, null, firstDemand);
 
-        var secondDemand = Demand(Constants.OrderType.A, "方罐", "蜜");
+        var secondDemand = new OrderDemand(new JarOrderSpecification(
+            new[] { new Requirement { Shape = "方罐", Liquid = "蜜" } },
+            Constants.OrderType.A, Words), 0, demandIds);
         setup.Board.AddDemand(secondDemand, DemandAreaKind.Active);
         var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
         {
