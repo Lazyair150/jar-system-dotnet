@@ -36,6 +36,13 @@ public sealed class WorldV2ApplicationServiceTests
             },
             new()
             {
+                Name = "从台",
+                BaseMarks = new List<string> { "圆罐", "方罐" },
+                MaxJars = 10,
+                MaxLiquids = 10
+            },
+            new()
+            {
                 Name = "备用台",
                 BaseMarks = new List<string> { "圆罐", "方罐" },
                 MaxJars = 10,
@@ -43,6 +50,7 @@ public sealed class WorldV2ApplicationServiceTests
             }
         },
         MasterWorkshopName = "主台",
+        SlaveWorkshopName = "从台",
         ExecutionLogicalTimePerUnit = 1_000,
         PassiveFulfillmentPolicy = DemandAreaFulfillmentPolicy.OneShot,
         ActiveFulfillmentPolicy = DemandAreaFulfillmentPolicy.OneShot
@@ -140,6 +148,30 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Empty(completed.ActiveSessions);
         Assert.Equal(0, completed.ReservationCount);
         Assert.True(Assert.Single(completed.Demands).IsCoolingDown);
+        Assert.False(completed.RuntimeFaulted);
+    }
+
+    [Fact]
+    public void ApplicationServiceCanReplaceSlaveWorkshopWithoutMovingResources()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        var begin = app.BeginWorkshopReplacement(
+            WorkshopRole.Slave, "备用台", phaseDurationLogicalMilli: 1_000);
+
+        Assert.True(begin.Success);
+        Assert.NotNull(begin.Replacement);
+        Assert.Equal(WorkshopRole.Slave, begin.Replacement!.Role);
+
+        app.AdvanceWorld(1_000);
+
+        var completed = app.GetWorldSnapshot();
+        Assert.Equal("主台", completed.Master!.Name);
+        Assert.Equal("备用台", completed.Slave!.Name);
+        Assert.True(completed.Replacement!.IsFinished);
+        Assert.True(completed.Replacement.Succeeded);
         Assert.False(completed.RuntimeFaulted);
     }
 
