@@ -105,4 +105,65 @@ public sealed class WorldV2BridgeSessionTests
         Assert.Throws<System.ObjectDisposedException>(() => _ = session.HasWorld);
         Assert.Throws<System.ObjectDisposedException>(() => session.GetWorldSnapshot());
     }
+
+    [Fact]
+    public void FailedWorldReplacementPreservesThePreviouslyRunningWorld()
+    {
+        using var session = new WorldV2BridgeSession();
+        session.CreateOrReplaceWorld(Options());
+        session.AdvanceWorld(1_000);
+
+        var demandId = session.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A",
+            DemandAreaKind.Active,
+            0));
+
+        var invalidOptions = Options();
+        invalidOptions.Workshops.Add(new WorldV2WorkshopOptions
+        {
+            Name = "主台",
+            BaseMarks = new List<string> { "圆罐" }
+        });
+
+        Assert.Throws<System.ArgumentException>(
+            () => session.CreateOrReplaceWorld(invalidOptions));
+
+        Assert.True(session.HasWorld);
+        var snapshot = session.GetWorldSnapshot();
+        Assert.Equal(1_000, snapshot.WorldTimeMilli);
+        Assert.Equal(1_000, snapshot.LogicalTimeMilli);
+        Assert.Equal("主台", snapshot.Master!.Name);
+        Assert.Equal(demandId, Assert.Single(snapshot.Demands).Id);
+    }
+
+    [Fact]
+    public void SuccessfulWorldReplacementPublishesFreshWorldWithoutOldState()
+    {
+        using var session = new WorldV2BridgeSession();
+        session.CreateOrReplaceWorld(Options());
+        session.AdvanceWorld(1_000);
+        session.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A",
+            DemandAreaKind.Active,
+            0));
+
+        var replacementOptions = Options();
+        replacementOptions.MasterWorkshopName = "从台";
+        replacementOptions.SlaveWorkshopName = "主台";
+
+        session.CreateOrReplaceWorld(replacementOptions);
+
+        var snapshot = session.GetWorldSnapshot();
+        Assert.Equal(0, snapshot.WorldTimeMilli);
+        Assert.Equal(0, snapshot.LogicalTimeMilli);
+        Assert.Equal("从台", snapshot.Master!.Name);
+        Assert.Equal("主台", snapshot.Slave!.Name);
+        Assert.Empty(snapshot.Demands);
+        Assert.Empty(snapshot.ActiveSessions);
+        Assert.Equal(0, snapshot.ReservationCount);
+        Assert.False(snapshot.RuntimeFaulted);
+    }
+
 }
