@@ -117,7 +117,7 @@ public sealed class WorldOrderExecutionSessionTests
         var jar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(jar);
         master.AddLiquid("酒", 1);
-        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒", cooldown: 2_500);
         var setup = Prepare(master, null, demand);
         var started = WorldOrderExecutionSession.TryStart(
             demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
@@ -133,6 +133,37 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(jar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Equal(WorldOrderSolveState.Dirty, setup.Book.Find(demand.Id)!.State);
+        Assert.True(demand.ReadyForSolve);
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
+    }
+
+    [Fact]
+    public void BTransferPreflightFailureMovesNoJarAndLeavesNoPartialSlaveInventory()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        Assert.True(started.Success, started.Reason);
+
+        // 准入后工作台容量发生变化，转移阶段必须重新全量预检。
+        slave.ResizeJarCapacity(0);
+        var session = started.Session!;
+        for (var i = 0; i < 8 && !session.IsTerminal; i++)
+            session.AdvanceLogicalTime(1_000);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.Empty(slave.Jars);
+        Assert.Equal(0, slave.LiquidStorage["酒"]);
+        Assert.Contains(master.Jars, item => item.Id == jar.Id);
+        Assert.Equal(0, setup.Reservations.Count);
     }
 
     [Fact]
