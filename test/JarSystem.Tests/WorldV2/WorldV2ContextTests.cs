@@ -39,11 +39,11 @@ public sealed class WorldV2ContextTests
         return master;
     }
 
-    private static OrderDemand CreateDemand() =>
+    private static OrderDemand CreateDemand(long cooldownDurationLogicalMilli = 0) =>
         new(new JarOrderSpecification(
             new[] { new Requirement { Shape = "圆罐" } },
             Constants.OrderType.A, Words),
-            cooldownDurationLogicalMilli: 0,
+            cooldownDurationLogicalMilli,
             ids: new SequentialIdGenerator());
 
     [Fact]
@@ -108,7 +108,9 @@ public sealed class WorldV2ContextTests
 
             first.Dispose();
 
-            var demand = CreateDemand();
+            // Continuous 成功后是否进入等待取决于订单自身 CD 时长。
+            // 这里使用非零 CD，才能验证保留订单且暂时不可再次求解。
+            var demand = CreateDemand(cooldownDurationLogicalMilli: 1_000);
             second.DemandBoard.AddDemand(demand, DemandAreaKind.Passive);
             var result = second.Scheduler.RunSchedulingPass();
 
