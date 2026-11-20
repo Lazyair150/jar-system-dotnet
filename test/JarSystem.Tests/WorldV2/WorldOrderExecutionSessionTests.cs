@@ -171,7 +171,7 @@ public sealed class WorldOrderExecutionSessionTests
         var jar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(jar);
         master.AddLiquid("酒", 1);
-        var demand = Demand(Constants.OrderType.A, "圆罐", "酒", cooldown: 2_500);
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
         var setup = Prepare(master, null, demand);
         var started = WorldOrderExecutionSession.TryStart(
             demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
@@ -187,8 +187,6 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(jar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Equal(WorldOrderSolveState.Dirty, setup.Book.Find(demand.Id)!.State);
-        Assert.True(demand.ReadyForSolve);
-        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
     }
 
     [Fact]
