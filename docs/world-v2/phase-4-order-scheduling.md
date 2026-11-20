@@ -45,14 +45,15 @@ A pass can start multiple passive sessions if their resource reservations do not
 
 The scheduler is deliberately called by the host; it does not create another clock, timer, thread, or frame loop.
 
-The recommended host sequence is:
+The scheduler provides a canonical combined entry point:
 
-~~~text
-world.AdvanceWorldTime(delta)
-scheduler.RunSchedulingPass()
+~~~csharp
+var result = scheduler.AdvanceWorldAndSchedule(deltaWorldTimeMilli);
 ~~~
 
-Call the pass after each logical world advancement and after direct board/user changes that should be reflected immediately. Repeated calls do not imply repeated DFS: the solve book caches results by the immutable content fingerprint, while CD expiry and board changes already mark affected records Dirty through existing events.
+It delegates time advancement to `ResourceWorldRuntime.AdvanceWorldTime` and then invokes `RunSchedulingPass` exactly once. The scheduler does not own or calculate time; it only prevents the host from accidentally omitting or reversing the required sequence.
+
+The host may still call `RunSchedulingPass()` directly after a board/user change that should be reflected immediately without advancing world time. Do not call both the combined entry point and a second pass for the same world step unless a separate board mutation occurred between them. Repeated calls do not imply repeated DFS: the solve book caches results by the immutable content fingerprint, while CD expiry and board changes already mark affected records Dirty through existing events.
 
 World snapshot versioning covers the current solve inputs on the master/slave workshops. A producer changing warehouse stock alone does not invalidate a solve result until that stock changes a workshop solve input; the warehouse itself is not a solver candidate pool.
 
@@ -83,6 +84,14 @@ A successful continuous demand remains in `AwaitingRearm`. A scheduling pass mus
 - No multi-threaded scheduler or concurrent solver execution.
 - No independent scheduling clock or unconditional per-frame solver search.
 - No change to the single master/slave workshop-role model.
+
+## Combined world-step boundary (4.5f)
+
+- `AdvanceWorldAndSchedule(deltaWorldTimeMilli)` delegates one world-time advance to Runtime, then runs one scheduling pass.
+- A Runtime advance exception propagates and prevents the scheduling pass; the 4.5d sticky-fault behavior remains authoritative.
+- A faulted Runtime is rejected by `RunSchedulingPass()`; no order is solved or started.
+- Direct board/user changes can still request a scheduling-only pass without advancing time.
+- This is a convenience/orchestration boundary, not a new clock, timer, background loop, or automatic event subscription.
 
 ## Verification status
 
