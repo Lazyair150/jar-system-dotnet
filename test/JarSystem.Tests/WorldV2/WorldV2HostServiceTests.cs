@@ -170,9 +170,11 @@ public sealed class WorldV2HostServiceTests
         var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var replacementAttempting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFirst = new ManualResetEventSlim();
+        WorldV2Context? activeContext = null;
 
         var firstOperation = Task.Run(() => host.ExecuteExclusive(context =>
         {
+            activeContext = context;
             Assert.Equal("旧主台", context.Roster.Master!.Name);
             firstEntered.TrySetResult();
             if (!releaseFirst.Wait(TimeSpan.FromSeconds(10)))
@@ -198,7 +200,9 @@ public sealed class WorldV2HostServiceTests
         }, cancellationToken);
 
         await replacementAttempting.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await Task.Delay(100, cancellationToken);
         Assert.False(replacement.IsCompleted);
+        Assert.False(activeContext!.IsDisposed);
 
         releaseFirst.Set();
         await firstOperation.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
@@ -206,6 +210,7 @@ public sealed class WorldV2HostServiceTests
         await replacement.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
         Assert.True(secondEntered.Task.IsCompleted);
+        Assert.True(activeContext.IsDisposed);
         string? currentMaster = null;
         host.ExecuteExclusive(context => currentMaster = context.Roster.Master!.Name);
         Assert.Equal("新主台", currentMaster);
@@ -221,9 +226,11 @@ public sealed class WorldV2HostServiceTests
         var operationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var disposeAttempting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseOperation = new ManualResetEventSlim();
+        WorldV2Context? activeContext = null;
 
-        var operation = Task.Run(() => host.ExecuteExclusive(_ =>
+        var operation = Task.Run(() => host.ExecuteExclusive(context =>
         {
+            activeContext = context;
             operationEntered.TrySetResult();
             if (!releaseOperation.Wait(TimeSpan.FromSeconds(10)))
                 throw new TimeoutException("测试未释放世界操作");
@@ -240,12 +247,14 @@ public sealed class WorldV2HostServiceTests
         await disposeAttempting.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
         await Task.Delay(100, cancellationToken);
         Assert.False(dispose.IsCompleted);
+        Assert.False(activeContext!.IsDisposed);
 
         releaseOperation.Set();
         await operation.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
         await dispose.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
         Assert.False(host.HasWorld);
+        Assert.True(activeContext.IsDisposed);
         Assert.Throws<ObjectDisposedException>(() =>
             host.ExecuteExclusive(_ => { }));
     }
