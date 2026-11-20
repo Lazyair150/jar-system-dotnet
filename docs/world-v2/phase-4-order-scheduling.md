@@ -11,7 +11,7 @@ This phase introduces the orchestration boundary only. It does not change solver
 | Component | Owns | Does not own |
 |---|---|---|
 | `OrderDemandBoard` | Active/passive membership, passive list order, cooldown progression, one-shot/continuous fulfillment | Solving, resource reservation, execution |
-| `WorldOrderSolveBook` | Per-demand Dirty/Current/NotReady/Detached/AwaitingRearm state and cached result | Choosing which order starts |
+| `WorldOrderSolveBook` | Per-demand Dirty/Current/NotReady/Detached state and cached result; cooldown is an eligibility gate | Choosing which order starts |
 | `WorldOrderSolverRegistry` | Dispatching a demand specification to its solver | Scheduling or resource reservation |
 | `WorldOrderExecutionAdmission` | Fresh snapshot validation, manifest validation, atomic resource reservation | Execution time or order priority |
 | `WorldOrderExecutionSession` | Applying one immutable admitted plan and settling its resources | Re-solving or selecting another plan |
@@ -57,9 +57,13 @@ The host may still call `RunSchedulingPass()` directly after a board/user change
 
 World snapshot versioning covers the current solve inputs on the master/slave workshops. A producer changing warehouse stock alone does not invalidate a solve result until that stock changes a workshop solve input; the warehouse itself is not a solver candidate pool.
 
-## Continuous demands
+## Continuous demands and cooldown
 
-A successful continuous demand remains in `AwaitingRearm`. A scheduling pass must not silently turn it Dirty. A separate upper-level fulfillment/rearm policy must explicitly call `WorldOrderSolveBook.MarkDirty` when the continuous demand is allowed to participate again.
+A successful continuous demand remains in its original area and starts its own configured logical-time cooldown. While the cooldown is positive, its solve-book state is `NotReady`; scheduling and world-version invalidation cannot bypass this gate. When the cooldown expires, the demand-board event automatically marks it `Dirty` so the normal scheduling pass can solve it again.
+
+A zero-duration cooldown creates no waiting period: the retained demand becomes `Dirty` immediately. A passive continuous demand can then be selected by the existing passive list order; an active continuous demand is re-solved but still requires an explicit `TryStartActiveDemand` request.
+
+Ordinary execution failure does not start cooldown and is re-evaluated against the current world. Workshop-replacement interruption continues to start the demand's own cooldown. One-shot success removes the demand and does not start cooldown.
 
 ## Fault behavior
 
@@ -75,12 +79,15 @@ A successful continuous demand remains in `AwaitingRearm`. A scheduling pass mus
 - Active demands are solved but not auto-started.
 - An explicit active-start request uses the same execution pipeline.
 - A passive demand cannot be started through the active-request entry.
-- Existing solve-book cache, snapshot invalidation, CD expiry, continuous AwaitingRearm, resource admission, and multi-session reservation tests remain valid.
+- Continuous success starts the configured demand cooldown; CD expiry returns it to Dirty and the passive/active launch rules remain distinct.
+- Global and per-demand invalidation cannot bypass a running cooldown.
+- Ordinary failure does not start cooldown; workshop-replacement interruption still does.
+- Existing solve-book cache, snapshot invalidation, resource admission, and multi-session reservation tests remain valid.
 
 ## Explicit non-goals
 
 - No active-vs-passive global priority policy.
-- No automatic rearm policy for continuous demands.
+- No separate rearm manager or resource-change wake-up policy; the demand's own cooldown defines the next eligible cycle.
 - No multi-threaded scheduler or concurrent solver execution.
 - No independent scheduling clock or unconditional per-frame solver search.
 - No change to the single master/slave workshop-role model.
