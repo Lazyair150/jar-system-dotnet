@@ -38,7 +38,7 @@ internal sealed class SlaveRollback
         if (ReferenceEquals(master, slave)) return;
 
         // 一次结算使用同一个账本 tick；tick 来源由世界装配层显式提供，不在此换算旧/新时间轴。
-        var ledgerTick = ledger == null ? 0 : ledgerTick;
+        var ledgerTick = ledger == null ? 0 : tickOf?.Invoke() ?? 0;
         var slaveJars = new List<Jar>(slave.Jars);
 
         foreach (var jar in slaveJars)
