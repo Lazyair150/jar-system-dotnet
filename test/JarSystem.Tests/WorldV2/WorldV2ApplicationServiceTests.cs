@@ -33,6 +33,13 @@ public sealed class WorldV2ApplicationServiceTests
                 BaseMarks = new List<string> { "圆罐", "方罐" },
                 MaxJars = 10,
                 MaxLiquids = 10
+            },
+            new()
+            {
+                Name = "备用台",
+                BaseMarks = new List<string> { "圆罐", "方罐" },
+                MaxJars = 10,
+                MaxLiquids = 10
             }
         },
         MasterWorkshopName = "主台",
@@ -89,6 +96,67 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(0, completed.ReservationCount);
         Assert.Equal(2_000, completed.LogicalTimeMilli);
         Assert.False(completed.RuntimeFaulted);
+    }
+
+    [Fact]
+    public void ApplicationServiceReplacementInterruptsActiveDemandAndCommitsMasterRole()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        app.AdvanceWorld(1_000);
+        var demandId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Active, 5_000));
+
+        Assert.True(app.StartActiveDemand(demandId).Success);
+        var beforeReplacement = app.GetWorldSnapshot();
+        Assert.Single(beforeReplacement.ActiveSessions);
+        Assert.Equal(1, beforeReplacement.ReservationCount);
+
+        var begin = app.BeginWorkshopReplacement(
+            WorkshopRole.Master, "备用台", phaseDurationLogicalMilli: 1_000);
+
+        Assert.True(begin.Success);
+        Assert.NotNull(begin.Replacement);
+        Assert.False(begin.Replacement!.IsFinished);
+        Assert.True(begin.Replacement.InterruptionCommitted);
+
+        var interrupted = app.GetWorldSnapshot();
+        Assert.Empty(interrupted.ActiveSessions);
+        Assert.Equal(0, interrupted.ReservationCount);
+        var interruptedDemand = Assert.Single(interrupted.Demands);
+        Assert.True(interruptedDemand.IsCoolingDown);
+
+        app.AdvanceWorld(2_000);
+
+        var completed = app.GetWorldSnapshot();
+        Assert.Equal("备用台", completed.Master!.Name);
+        Assert.NotNull(completed.Replacement);
+        Assert.True(completed.Replacement!.IsFinished);
+        Assert.True(completed.Replacement.Succeeded);
+        Assert.False(completed.Replacement.InterruptionOutcomeUncertain);
+        Assert.Empty(completed.ActiveSessions);
+        Assert.Equal(0, completed.ReservationCount);
+        Assert.True(Assert.Single(completed.Demands).IsCoolingDown);
+        Assert.False(completed.RuntimeFaulted);
+    }
+
+    [Fact]
+    public void ApplicationServiceRejectsUnknownWorkshopReplacementTarget()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        var result = app.BeginWorkshopReplacement(
+            WorkshopRole.Master, "不存在的工作台", phaseDurationLogicalMilli: 1_000);
+
+        Assert.False(result.Success);
+        Assert.Contains("找不到目标工作台", result.Error);
+        Assert.Null(result.Replacement);
+        Assert.Equal("主台", app.GetWorldSnapshot().Master!.Name);
     }
 
     [Fact]
