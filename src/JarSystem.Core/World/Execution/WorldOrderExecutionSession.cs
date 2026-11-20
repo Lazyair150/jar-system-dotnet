@@ -337,16 +337,31 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         foreach (var id in _manifest.TransferJarIds)
         {
             var jar = jars[id];
-            if (!ReferenceEquals(_master.TransferOut(jar), jar) || !slave.TransferIn(jar))
+            if (!ReferenceEquals(_master.TransferOut(jar), jar))
+                throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段无法从主台移出");
+
+            if (!slave.TransferIn(jar))
+            {
+                // 接收端口意外拒绝时，源工作台刚释放了一个罐位；立即恢复该实体归属。
+                if (!_master.TransferIn(jar))
+                    throw new InvalidOperationException($"罐子 #{id} 转移失败且无法恢复主台归属");
                 throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
+            }
         }
 
         foreach (var item in _manifest.TransferLiquids)
         {
             if (item.Value == 0) continue;
-            if (!_master.RemoveLiquid(item.Key, item.Value) ||
-                !slave.AddLiquid(item.Key, item.Value))
-                throw new InvalidOperationException($"液体「{item.Key}」在转移提交阶段违反预检结果");
+            if (!slave.AddLiquid(item.Key, item.Value))
+                throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
+
+            if (!_master.RemoveLiquid(item.Key, item.Value))
+            {
+                // 主台扣账意外失败时撤销刚刚加入从台的这一笔；此前已提交的资源由会话收尾处理。
+                if (!slave.RemoveLiquid(item.Key, item.Value))
+                    throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
+                throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
+            }
         }
 
         return null;
