@@ -18,7 +18,7 @@ The resource manifest is the single source of the resource list:
 - MasterInitialLiquidAmounts is the minimum initial free-liquid inventory needed to satisfy every path prefix, plus the amount that must remain at the master end to supply the slave path.
 - TransferLiquids is the slave path's required starting liquid amount. It is a movement budget, not an additional master inventory reservation. Adding it to MasterInitialLiquidAmounts would double-count the same liquid.
 
-The reservation book reserves MasterInitialLiquidAmounts once, and serializes jar/liquid claims under one lock. A failed attempt writes nothing.
+The reservation book reserves MasterInitialLiquidAmounts once, and serializes jar/liquid claims under one lock. A failed attempt writes nothing. In this phase the full liquid claim is held until explicit Release; per-step consumption/production reconciliation is not implemented yet. This is conservative (it may temporarily block another order from using liquid that becomes free during an active execution), but it cannot expose an already-claimed initial budget to a second order.
 
 ## Admission checks
 
