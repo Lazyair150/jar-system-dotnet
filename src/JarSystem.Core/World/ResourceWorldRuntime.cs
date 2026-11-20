@@ -56,19 +56,48 @@ public sealed class ResourceWorldRuntime
             throw new ArgumentException("执行会话必须绑定到当前 Runtime 的需求板与工作台岗位", nameof(session));
         if (session.IsTerminal) return false;
 
+        _executionSessions.RemoveAll(existing => existing.IsTerminal);
         if (ActiveReplacement is { IsFinished: false })
         {
-            // 会话可能在替换开始后才完成准入；不能让它在迁徙期间继续操作旧岗位。
-            // 立即走同一中断契约，释放刚取得的预留并启动该订单自己的 CD。
-            var interruption = session.InterruptForWorkshopReplacement();
-            if (!interruption.Success)
-                throw new InvalidOperationException(interruption.Error ?? "工作台替换期间无法中断新执行会话");
+            if (!session.CancelBeforeExecution("工作台替换已经开始；本会话未启动"))
+                throw new InvalidOperationException("工作台替换期间收到已经执行过步骤的未登记会话");
             return false;
         }
-        if (_executionSessions.Any(x => x.DemandId == session.DemandId))
-            throw new InvalidOperationException($"订单 {session.DemandId} 已有活动执行会话");
+
+        if (_executionSessions.Count > 0)
+        {
+            if (!session.CancelBeforeExecution("世界已有活动订单执行会话；本会话未启动"))
+                throw new InvalidOperationException("Runtime 只允许一个活动订单会话，且无法安全取消已推进的会话");
+            return false;
+        }
+
         _executionSessions.Add(session);
         return true;
+    }
+
+    /// <summary>
+    /// 推荐的订单启动入口：在执行准入之前检查 Runtime 是否允许开始新会话，
+    /// 避免在工作台迁徙或另一张订单执行期间先占用资源。
+    /// </summary>
+    public WorldOrderExecutionStartResult TryStartExecutionSession(
+        int demandId,
+        WorldOrderSolveBook solveBook,
+        WorldOrderExecutionAdmission admission,
+        long logicalTimePerUnit)
+    {
+        if (Roster == null || DemandBoard == null)
+            return WorldOrderExecutionStartResult.Rejected("当前 Runtime 没有需求板或工作台岗位集合");
+        if (ActiveReplacement is { IsFinished: false })
+            return WorldOrderExecutionStartResult.Rejected("工作台替换期间不能启动订单");
+        _executionSessions.RemoveAll(session => session.IsTerminal);
+        if (_executionSessions.Count > 0)
+            return WorldOrderExecutionStartResult.Rejected("世界已有活动订单执行会话");
+
+        var started = WorldOrderExecutionSession.TryStart(
+            demandId, DemandBoard, solveBook, admission, Roster, logicalTimePerUnit);
+        if (started.Success && started.Session != null)
+            RegisterExecutionSession(started.Session);
+        return started;
     }
 
     /// <summary>基于已登记岗位推进世界。构造时未提供 Roster 则不能使用此重载。</summary>
