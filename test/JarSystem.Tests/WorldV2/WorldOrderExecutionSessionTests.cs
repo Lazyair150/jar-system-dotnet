@@ -85,6 +85,10 @@ public sealed class WorldOrderExecutionSessionTests
         var setup = Prepare(master, null, demand);
 
         var runtime = CreateRuntime(setup.Board, setup.Roster);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            runtime.TryStartExecutionSession(demand.Id, setup.Book, setup.Admission, 0));
+        Assert.False(runtime.IsFaulted, "调用参数错误不能把世界标记为故障");
+
         var started = runtime.TryStartExecutionSession(
             demand.Id, setup.Book, setup.Admission, 1_000);
 
