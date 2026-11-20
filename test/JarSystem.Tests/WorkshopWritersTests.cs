@@ -39,6 +39,7 @@ public class WorkshopWritersTests
         ["Commands/JarCommands.cs"] = "玩家的手工命令：所有操作都经 Workshop 端口并检查返回值",
         ["Executor/SolverStepApplier.cs"] = "旧执行器：把求解器步骤逐条施加到真实工作台，MATCH 也经 Workshop.MarkJar",
         ["World/Execution/WorldPlanStepApplier.cs"] = "新世界计划步骤执行器：按不可变 WorldPlanStep 调用 Workshop 领域端口",
+        ["World/Execution/WorldOrderExecutionSession.cs"] = "新世界订单执行会话：按已准入计划执行并管理主从资源转移与收尾",
         ["Executor/GreedyPlanBuilder.cs"] = "执行器：求解器未判定时的贪心兜底",
         ["Orders/OrderEvent.cs"] = "订单交付：把交付罐从交付台上取下",
         ["Orders/SlaveRollback.cs"] = "失败/结束时的跨台回流（唯一被回滚的东西）",
