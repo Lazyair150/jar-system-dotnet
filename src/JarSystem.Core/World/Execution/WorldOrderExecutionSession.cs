@@ -113,7 +113,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     /// 先执行既有准入（重新验证快照并预留资源），再建立会话。
     /// logicalTimePerUnit 必须由世界装配/执行策略明确提供；本类不猜测旧 tick 与逻辑时间的换算。
     /// </summary>
-    public static WorldOrderExecutionStartResult TryStart(
+    internal static WorldOrderExecutionStartResult TryStart(
         int demandId,
         OrderDemandBoard board,
         WorldOrderSolveBook solveBook,
@@ -168,7 +168,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     /// 用世界逻辑时间推进执行。时间不足一个单位时只累计进度，不提前执行。
     /// 大步长可连续完成多个单位，但每个单位仍按计划顺序执行。
     /// </summary>
-    public void AdvanceLogicalTime(long deltaLogicalTimeMilli)
+    internal void AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
         if (deltaLogicalTimeMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
