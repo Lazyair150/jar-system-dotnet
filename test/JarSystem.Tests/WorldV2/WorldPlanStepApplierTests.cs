@@ -152,4 +152,20 @@ public sealed class WorldPlanStepApplierTests
         Assert.False(jar.IsMarked);
         Assert.Equal(1, workshop.LiquidStorage["酒"]);
     }
+    [Fact]
+    public void MatchMarksTheSelectedJarWithoutChangingItsContents()
+    {
+        var workshop = Workshop();
+        var jar = new Jar("圆罐", "酒", vocabulary: Words);
+        workshop.AddJar(jar);
+        var step = Step(jar, "MATCH", afterLiquid: "酒");
+
+        var result = new WorldPlanStepApplier().Apply(workshop, step);
+
+        Assert.True(result.Success, result.Reason);
+        Assert.True(jar.IsMarked);
+        Assert.Equal("圆罐", jar.Shape);
+        Assert.Equal("酒", jar.Liquid);
+    }
+
 }
