@@ -48,7 +48,6 @@ public sealed class WorldOrderExecutionAdmission
         {
             var reason = record?.State switch
             {
-                WorldOrderSolveState.AwaitingRearm => "持续订单尚未由上层策略重新唤醒",
                 WorldOrderSolveState.NotReady => "订单尚未具备求解资格",
                 WorldOrderSolveState.Detached => "订单已脱离需求板",
                 WorldOrderSolveState.Dirty => "订单求解结果已失效，必须重新求解",

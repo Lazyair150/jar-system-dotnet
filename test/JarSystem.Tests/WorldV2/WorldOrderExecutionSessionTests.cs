@@ -22,11 +22,11 @@ public sealed class WorldOrderExecutionSessionTests
     private static (OrderDemandBoard Board, WorldOrderSolveBook Book,
         WorkshopRoster Roster, WorldOrderExecutionAdmission Admission,
         WorldResourceReservationBook Reservations) Prepare(
-        Workshop master, Workshop? slave, OrderDemand demand)
+        Workshop master, Workshop? slave, OrderDemand demand,
+        DemandAreaFulfillmentPolicy passiveFulfillment = DemandAreaFulfillmentPolicy.OneShot,
+        DemandAreaFulfillmentPolicy activeFulfillment = DemandAreaFulfillmentPolicy.OneShot)
     {
-        var board = new OrderDemandBoard(
-            DemandAreaFulfillmentPolicy.OneShot,
-            DemandAreaFulfillmentPolicy.OneShot);
+        var board = new OrderDemandBoard(passiveFulfillment, activeFulfillment);
         board.AddDemand(demand, DemandAreaKind.Active);
         IEnumerable<Workshop> workshops = slave == null
             ? new Workshop[] { master }
@@ -106,6 +106,39 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(0, master.LiquidStorage["酒"]);
         Assert.Null(setup.Board.Find(demand.Id));
         Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
+    public void ContinuousSuccessStartsCooldownAfterTheCompletingWorldStep()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒", cooldown: 2_500);
+        var setup = Prepare(master, null, demand,
+            activeFulfillment: DemandAreaFulfillmentPolicy.Continuous);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+
+        runtime.AdvanceWorldTime(999);
+        Assert.False(session.IsTerminal);
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
+
+        runtime.AdvanceWorldTime(1);
+        Assert.True(session.Succeeded, session.Reason);
+        Assert.Same(demand, setup.Board.Find(demand.Id));
+        Assert.Equal(2_500, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.NotReady, setup.Book.Find(demand.Id)!.State);
+
+        runtime.AdvanceWorldTime(1_000);
+        Assert.Equal(1_500, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.NotReady, setup.Book.Find(demand.Id)!.State);
     }
 
     [Fact]
@@ -338,7 +371,7 @@ public sealed class WorldOrderExecutionSessionTests
         var jar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(jar);
         master.AddLiquid("酒", 1);
-        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒", cooldown: 2_500);
         var setup = Prepare(master, null, demand);
         var runtime = CreateRuntime(setup.Board, setup.Roster);
         var started = runtime.TryStartExecutionSession(
@@ -355,6 +388,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(jar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Equal(WorldOrderSolveState.Dirty, setup.Book.Find(demand.Id)!.State);
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
         Assert.False(runtime.IsFaulted, "可确认结算的普通订单失败不能冻结整个世界");
     }
 

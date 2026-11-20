@@ -17,10 +17,11 @@ public sealed class WorldOrderSchedulerTests
     private static readonly Vocabulary Words =
         new(new[] { "圆罐", "方罐" }, new[] { "酒", "蜜" });
 
-    private static OrderDemand Demand(string shape, DemandAreaKind area, SequentialIdGenerator ids) =>
+    private static OrderDemand Demand(
+        string shape, DemandAreaKind area, SequentialIdGenerator ids, long cooldown = 0) =>
         new(new JarOrderSpecification(
             new[] { new Requirement { Shape = shape } },
-            Constants.OrderType.A, Words), 0, ids);
+            Constants.OrderType.A, Words), cooldown, ids);
 
     private static (OrderDemandBoard Board, WorldOrderSolveBook Book,
         WorkshopRoster Roster, WorldResourceReservationBook Reservations,
@@ -103,7 +104,7 @@ public sealed class WorldOrderSchedulerTests
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
         master.AddJar(new Jar("圆罐", vocabulary: Words));
         var setup = Prepare(master);
-        var demand = Demand("圆罐", DemandAreaKind.Active, new SequentialIdGenerator());
+        var demand = Demand("圆罐", DemandAreaKind.Active, new SequentialIdGenerator(), cooldown: 2_500);
         setup.Board.AddDemand(demand, DemandAreaKind.Active);
 
         var pass = setup.Scheduler.RunSchedulingPass();
@@ -119,6 +120,7 @@ public sealed class WorldOrderSchedulerTests
         Assert.True(started.Success, started.Reason);
         Assert.True(started.Session!.Succeeded);
         Assert.Null(setup.Board.Find(demand.Id));
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
         Assert.Equal(0, setup.Reservations.Count);
     }
 
@@ -158,4 +160,64 @@ public sealed class WorldOrderSchedulerTests
         Assert.Equal(0, setup.Reservations.Count);
     }
 
+
+    [Fact]
+    public void PassiveContinuousDemandAutomaticallyRunsAgainAfterItsCooldownExpires()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var setup = Prepare(master, passive: DemandAreaFulfillmentPolicy.Continuous);
+        var demand = Demand("圆罐", DemandAreaKind.Passive,
+            new SequentialIdGenerator(), cooldown: 2_000);
+        setup.Board.AddDemand(demand, DemandAreaKind.Passive);
+
+        var firstPass = setup.Scheduler.RunSchedulingPass();
+        Assert.Contains(demand.Id, firstPass.StartedDemandIds);
+        Assert.Same(demand, setup.Board.Find(demand.Id));
+        Assert.Equal(2_000, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.NotReady, setup.Book.Find(demand.Id)!.State);
+
+        var waitingStep = setup.Scheduler.AdvanceWorldAndSchedule(1_000);
+        Assert.DoesNotContain(demand.Id, waitingStep.Scheduling.StartedDemandIds);
+        Assert.Equal(1_000, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.NotReady, setup.Book.Find(demand.Id)!.State);
+
+        Assert.True(master.AddJar(new Jar("圆罐", vocabulary: Words)));
+        var rearmedStep = setup.Scheduler.AdvanceWorldAndSchedule(1_000);
+        Assert.Contains(demand.Id, rearmedStep.Scheduling.StartedDemandIds);
+        Assert.Same(demand, setup.Board.Find(demand.Id));
+        Assert.Equal(2_000, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.NotReady, setup.Book.Find(demand.Id)!.State);
+    }
+
+    [Fact]
+    public void ActiveContinuousDemandReSolvesAfterCooldownButStillRequiresExplicitStart()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var setup = Prepare(master, active: DemandAreaFulfillmentPolicy.Continuous);
+        var demand = Demand("圆罐", DemandAreaKind.Active,
+            new SequentialIdGenerator(), cooldown: 1_000);
+        setup.Board.AddDemand(demand, DemandAreaKind.Active);
+
+        var firstStart = setup.Scheduler.TryStartActiveDemand(demand.Id);
+        Assert.True(firstStart.Success, firstStart.Reason);
+        Assert.True(firstStart.Session!.Succeeded);
+        Assert.Same(demand, setup.Board.Find(demand.Id));
+        Assert.Equal(1_000, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.NotReady, setup.Book.Find(demand.Id)!.State);
+
+        Assert.True(master.AddJar(new Jar("圆罐", vocabulary: Words)));
+        var expiryStep = setup.Scheduler.AdvanceWorldAndSchedule(1_000);
+        Assert.Empty(expiryStep.Scheduling.StartedDemandIds);
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.Current, setup.Book.Find(demand.Id)!.State);
+
+        var secondStart = setup.Scheduler.TryStartActiveDemand(demand.Id);
+        Assert.True(secondStart.Success, secondStart.Reason);
+        Assert.True(secondStart.Session!.Succeeded);
+        Assert.Equal(1_000, demand.CooldownRemainingLogicalMilli);
+    }
 }

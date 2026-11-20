@@ -165,10 +165,12 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
-    public void ContinuousFulfillmentWaitsForExplicitRearmPolicy()
+    public void ContinuousFulfillmentStartsCooldownAndExpiryAutomaticallyMarksDemandDirty()
     {
-        var board = Board(DemandAreaFulfillmentPolicy.Continuous);
-        var demand = Demand();
+        var board = Board(
+            DemandAreaFulfillmentPolicy.Continuous,
+            DemandAreaFulfillmentPolicy.Continuous);
+        var demand = Demand(cooldown: 2_000);
         board.AddDemand(demand, DemandAreaKind.Passive);
         using var book = new WorldOrderSolveBook(board);
         var snapshot = Snapshot(new Jar("圆罐"));
@@ -176,22 +178,59 @@ public sealed class WorldOrderSolveBookTests
 
         Assert.Equal(DemandFulfillmentResult.RetainedInArea,
             board.RecordSuccessfulFulfillment(demand.Id));
-        Assert.Equal(WorldOrderSolveState.AwaitingRearm, book.Find(demand.Id)!.State);
+        Assert.Equal(2_000, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
         Assert.Null(book.Find(demand.Id)!.Result);
 
-        var waiting = book.Evaluate(demand.Id, snapshot, Registry());
-        Assert.Equal(WorldOrderSolveState.AwaitingRearm, waiting.State);
+        Assert.Equal(WorldOrderSolveState.NotReady,
+            book.Evaluate(demand.Id, snapshot, Registry()).State);
+        Assert.True(book.MarkDirty(demand.Id, "外部输入变化"));
+        Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
+        book.MarkAllDirty("全局输入变化");
+        Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
 
-        Assert.True(book.MarkDirty(demand.Id, "持续订单策略明确允许再次参与"));
+        var changedSnapshot = Snapshot(new Jar("圆罐"), new Jar("方罐"));
+        Assert.NotEqual(snapshot.Version, changedSnapshot.Version);
+        Assert.Equal(WorldOrderSolveState.NotReady,
+            book.Evaluate(demand.Id, changedSnapshot, Registry()).State);
+        Assert.True(board.MoveToArea(demand.Id, DemandAreaKind.Active));
+        Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
+
+        var resources = new ResourceArea(
+            new ProducerModule(Words),
+            new LiquidProduction(Words,
+                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0);
+        var runtime = new ResourceWorldRuntime(resources, new WorldClock(), demandBoard: board);
+        runtime.AdvanceWorldTime(2_000, master: null);
+
+        Assert.True(demand.ReadyForSolve);
+        Assert.Equal(WorldOrderSolveState.Dirty, book.Find(demand.Id)!.State);
         Assert.Equal(WorldOrderSolveState.Current,
             book.Evaluate(demand.Id, snapshot, Registry()).State);
+    }
+
+    [Fact]
+    public void ZeroCooldownContinuousFulfillmentIsImmediatelyDirty()
+    {
+        var board = Board(DemandAreaFulfillmentPolicy.Continuous);
+        var demand = Demand(cooldown: 0);
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+
+        Assert.Equal(DemandFulfillmentResult.RetainedInArea,
+            board.RecordSuccessfulFulfillment(demand.Id));
+
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
+        Assert.Equal(WorldOrderSolveState.Dirty, book.Find(demand.Id)!.State);
     }
 
     [Fact]
     public void OneShotFulfillmentDetachesDemandFromSolveBook()
     {
         var board = Board(DemandAreaFulfillmentPolicy.OneShot);
-        var demand = Demand();
+        var demand = Demand(cooldown: 2_000);
         board.AddDemand(demand, DemandAreaKind.Passive);
         using var book = new WorldOrderSolveBook(board);
         var snapshot = Snapshot(new Jar("圆罐"));
@@ -200,22 +239,7 @@ public sealed class WorldOrderSolveBookTests
         Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
             board.RecordSuccessfulFulfillment(demand.Id));
         Assert.Equal(WorldOrderSolveState.Detached, book.Find(demand.Id)!.State);
-    }
-
-    [Fact]
-    public void GlobalInvalidationDoesNotAutomaticallyRearmCompletedContinuousDemand()
-    {
-        var board = Board(DemandAreaFulfillmentPolicy.Continuous);
-        var demand = Demand();
-        board.AddDemand(demand, DemandAreaKind.Passive);
-        using var book = new WorldOrderSolveBook(board);
-        var snapshot = Snapshot(new Jar("圆罐"));
-        book.Evaluate(demand.Id, snapshot, Registry());
-        board.RecordSuccessfulFulfillment(demand.Id);
-
-        book.MarkAllDirty("世界输入变化");
-
-        Assert.Equal(WorldOrderSolveState.AwaitingRearm, book.Find(demand.Id)!.State);
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
     }
 
     [Fact]
