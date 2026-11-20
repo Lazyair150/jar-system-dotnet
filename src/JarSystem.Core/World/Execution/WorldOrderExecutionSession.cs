@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
 using JarSystem.Core.World.Solving;
 
@@ -27,6 +28,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly WorldPlanStepApplier _applier;
     private readonly long _unitDurationLogicalMilli;
     private readonly SlaveRollback _slaveRollback = new();
+    private readonly ResourceLedger? _resourceLedger;
+    private readonly Func<int>? _resourceLedgerTick;
+    private readonly List<ExecutionLogEntry> _resourceSettlementLog = new();
 
     private int _masterIndex;
     private int _slaveIndex;
@@ -48,6 +52,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     public long UnitElapsedLogicalMilli => _unitElapsedLogicalMilli;
     public int CompletedMasterSteps => _masterIndex;
     public int CompletedSlaveSteps => _slaveIndex;
+    /// <summary>本会话从台结算产生的回流/丢弃日志；只读快照。</summary>
+    public IReadOnlyList<ExecutionLogEntry> ResourceSettlementLog => _resourceSettlementLog.AsReadOnly();
 
     private WorldOrderExecutionSession(
         int demandId,
@@ -57,7 +63,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         WorkshopRoster roster,
         WorldOrderResourceManifest manifest,
         WorldOrderSolvePlan plan,
-        long unitDurationLogicalMilli)
+        long unitDurationLogicalMilli,
+        ResourceLedger? resourceLedger,
+        Func<int>? resourceLedgerTick)
     {
         DemandId = demandId;
         _board = board;
@@ -70,6 +78,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             : null;
         _manifest = manifest;
         _unitDurationLogicalMilli = unitDurationLogicalMilli;
+        _resourceLedger = resourceLedger;
+        _resourceLedgerTick = resourceLedgerTick;
         _applier = new WorldPlanStepApplier();
 
         if (manifest.DemandId != demandId || manifest.IsPartitioned != plan.IsPartitioned)
@@ -127,7 +137,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         WorldOrderSolveBook solveBook,
         WorldOrderExecutionAdmission admission,
         WorkshopRoster roster,
-        long logicalTimePerUnit)
+        long logicalTimePerUnit,
+        ResourceLedger? resourceLedger,
+        Func<int>? resourceLedgerTick)
     {
         if (board == null) throw new ArgumentNullException(nameof(board));
         if (solveBook == null) throw new ArgumentNullException(nameof(solveBook));
@@ -162,7 +174,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
             var session = new WorldOrderExecutionSession(
                 demandId, board, solveBook, admission, roster,
-                admitted.Manifest, result.Plan, logicalTimePerUnit);
+                admitted.Manifest, result.Plan, logicalTimePerUnit,
+                resourceLedger, resourceLedgerTick);
             return WorldOrderExecutionStartResult.Started(session);
         }
         catch
@@ -420,6 +433,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     throw new InvalidOperationException($"罐子 #{id} 转移失败且无法恢复主台归属");
                 throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
             }
+            _resourceLedger?.Record(_resourceLedgerTick!(), ResourceCauses.Transfer,
+                ResourceKinds.Jar, jar.Shape, 1, from: _master.Name, to: slave.Name);
         }
 
         foreach (var item in _manifest.TransferLiquids)
@@ -435,6 +450,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
                 throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
             }
+            _resourceLedger?.Record(_resourceLedgerTick!(), ResourceCauses.Transfer,
+                ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
         }
 
         return null;
@@ -507,7 +524,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             if (_slave.HasResources)
             {
                 _slaveRollback.Execute(
-                    _master, _slave, _ => { });
+                    _master, _slave,
+                    entry => _resourceSettlementLog.Add(entry),
+                    ledger: _resourceLedger,
+                    tickOf: _resourceLedgerTick);
             }
             _slaveTransferCommitted = false;
         }
