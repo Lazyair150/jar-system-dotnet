@@ -45,7 +45,7 @@ Any active stage -- workshop replacement --> Interrupted
 
 - Each non-MATCH plan step consumes one configured logical-time unit.
 - The B-class transfer stage consumes one configured logical-time unit.
-- MATCH is not a processing operation and consumes no execution time. Delivery IDs are derived from each step's requirement and its After target state: the target jar is delivered when that final state satisfies the step's RequirementShape and RequirementLiquid. This includes direct MATCH and requirements satisfied by the final POUR_IN / POUR_OUT / RESHAPE operation. The old execution contract also treated direct matches as zero-time operations.
+- MATCH is not a processing operation and consumes no execution time, but it is still applied in plan order through `WorldPlanStepApplier` and `Workshop.MarkJar`. A MATCH at the current path position is applied immediately; it is not skipped. Delivery IDs are derived from each step's requirement and its After target state: the target jar is delivered when that final state satisfies the step's RequirementShape and RequirementLiquid. This includes direct MATCH and requirements satisfied by the final POUR_IN / POUR_OUT / RESHAPE operation.
 - logicalTimePerUnit is mandatory at session creation. The session does not invent a conversion from the old ProcessSystem tick to WorldClock logical time.
 - The recommended ResourceWorldRuntime.TryStartExecutionSession entry checks that no other order session or workshop replacement is active before admission. ResourceWorldRuntime can also register a session and advances it with the exact logical delta returned by its WorldClock. Registration verifies that the session belongs to that runtime's demand board and workshop roster. A host that does not register it may advance it directly with logical time.
 - When workshop replacement begins through ResourceWorldRuntime, its interruption adapter first asks the supplied external adapter to interrupt its own orders, then interrupts every still-active session registered with that runtime. A failure after the external adapter commits is treated as an uncertain interruption and is not retried.
@@ -84,7 +84,7 @@ The reservation of the slave role prevents a second B-class session from enterin
 
 - The requirement-satisfying jar IDs are first all validated on the delivery workshop; only then are they removed as delivered resources.
 - For B-class orders, the remaining slave resources are returned to the master using the established SlaveRollback policy. This is the return of temporary tools and leftover liquid, not restoration of consumed resources.
-- Both workshops have operation marks cleared.
+- Only jars named by this order's `LockedJarIds` have their operation marks cleared on the master/slave workshops. Unrelated jar marks are preserved.
 - OrderDemandBoard.RecordSuccessfulFulfillment applies the area's OneShot/Continuous policy.
 - A continuous demand becomes AwaitingRearm through the existing solve-book event; this session does not automatically restart it.
 - The reservation is released.
