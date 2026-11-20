@@ -190,6 +190,33 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
+    public void BOrderCompletesSlavePathDeliversJarAndReturnsTheEmptySlaveRole()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+
+        for (var i = 0; i < 12 && !session.IsTerminal; i++)
+            session.AdvanceLogicalTime(1_000);
+
+        Assert.True(session.Succeeded, session.Reason);
+        Assert.Empty(master.Jars);
+        Assert.Empty(slave.Jars);
+        Assert.False(slave.HasResources);
+        Assert.Null(setup.Board.Find(demand.Id));
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
     public void BTransferPreflightFailureMovesNoJarAndLeavesNoPartialSlaveInventory()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
