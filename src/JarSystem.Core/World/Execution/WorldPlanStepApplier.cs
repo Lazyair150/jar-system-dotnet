@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
+using JarSystem.Core.World.Solving;
 
 namespace JarSystem.Core.World.Execution;
 
@@ -26,9 +27,19 @@ public sealed class WorldPlanStepApplier
 
         var expectedBefore = step.Before[index];
         var expectedAfter = step.After[index];
+        for (var i = 0; i < step.Before.Count; i++)
+        {
+            var beforeState = step.Before[i];
+            var afterState = step.After[i];
+            if (beforeState.Id != afterState.Id || beforeState.MasterOrigin != afterState.MasterOrigin)
+                return Reject("计划步骤改变了罐子身份或来源标记");
+            if (i != index && (beforeState.Shape != afterState.Shape ||
+                beforeState.Liquid != afterState.Liquid || beforeState.IsMarked != afterState.IsMarked))
+                return Reject("计划步骤意外修改了非目标罐子");
+        }
         if (expectedBefore.Id is not > 0 || expectedAfter.Id != expectedBefore.Id ||
-            expectedAfter.MasterOrigin != expectedBefore.MasterOrigin)
-            return Reject("计划目标罐子的身份或来源标记不一致");
+            step.Before.Count(x => x.Id == expectedBefore.Id) != 1)
+            return Reject("计划目标罐子的 ID 无效或在步骤快照中重复");
         var transitionError = ValidateTransition(operation, expectedBefore, expectedAfter);
         if (transitionError != null) return Reject(transitionError);
 
