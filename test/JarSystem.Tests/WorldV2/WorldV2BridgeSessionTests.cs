@@ -102,7 +102,7 @@ public sealed class WorldV2BridgeSessionTests
         session.Dispose();
         session.Dispose();
 
-        Assert.Throws<System.ObjectDisposedException>(() => session.HasWorld);
+        Assert.Throws<System.ObjectDisposedException>(() => _ = session.HasWorld);
         Assert.Throws<System.ObjectDisposedException>(() => session.GetWorldSnapshot());
     }
 }
