@@ -9,7 +9,8 @@ This phase does not solve orders, choose scheduling priority, or automatically r
 ## Entry and ownership
 
 ~~~text
-WorldOrderExecutionSession.TryStart
+ResourceWorldRuntime.TryStartExecutionSession
+  -> WorldOrderExecutionSession.TryStart (runtime-internal)
   -> WorldOrderExecutionAdmission.TryAdmit
   -> current WorldOrderSolveBook result + immutable WorldOrderSolvePlan
   -> WorldOrderResourceManifest
@@ -17,7 +18,7 @@ WorldOrderExecutionSession.TryStart
   -> WorldOrderExecutionSession
 ~~~
 
-TryStart is the session entry point. Callers must not construct a session from an arbitrary plan or bypass admission.
+ResourceWorldRuntime.TryStartExecutionSession is the public entry point. Session construction, registration, and logical-time advancement stay inside the runtime; callers cannot start a second concurrent session or advance a session on an independent clock.
 
 - The demand must still be on the board and have a current feasible plan.
 - The world snapshot is re-captured by admission before resources are reserved.
