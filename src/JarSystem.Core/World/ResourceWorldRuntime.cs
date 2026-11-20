@@ -3,6 +3,7 @@ using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
+using JarSystem.Core.World.Execution;
 
 namespace JarSystem.Core.World;
 
@@ -17,6 +18,11 @@ public sealed class ResourceWorldRuntime
     public WorkshopRoster? Roster { get; }
     public OrderDemandBoard? DemandBoard { get; }
     public WorkshopReplacementProcess? ActiveReplacement { get; private set; }
+
+    private readonly List<WorldOrderExecutionSession> _executionSessions = new();
+    private readonly IReadOnlyList<WorldOrderExecutionSession> _executionSessionsView;
+    /// <summary>当前仍在推进的订单执行会话（只读视图）。</summary>
+    public IReadOnlyList<WorldOrderExecutionSession> ActiveExecutionSessions => _executionSessionsView;
 
     // 世界级资源服务由装配层提供，避免 Runtime 创建缺少账本/对象池依赖的迁徙事件。
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
@@ -33,6 +39,21 @@ public sealed class ResourceWorldRuntime
         Roster = roster;
         _masterSwitchFactory = masterSwitchFactory;
         DemandBoard = demandBoard;
+        _executionSessionsView = _executionSessions.AsReadOnly();
+    }
+
+    /// <summary>
+    /// 将已完成准入的订单会话交给世界运行时推进。
+    /// 会话使用本次 WorldClock 换算出的同一份逻辑时间，不另设时钟。
+    /// </summary>
+    public bool RegisterExecutionSession(WorldOrderExecutionSession session)
+    {
+        if (session == null) throw new ArgumentNullException(nameof(session));
+        if (session.IsTerminal) return false;
+        if (_executionSessions.Any(x => x.DemandId == session.DemandId))
+            throw new InvalidOperationException($"订单 {session.DemandId} 已有活动执行会话");
+        _executionSessions.Add(session);
+        return true;
     }
 
     /// <summary>基于已登记岗位推进世界。构造时未提供 Roster 则不能使用此重载。</summary>
@@ -87,6 +108,22 @@ public sealed class ResourceWorldRuntime
         var effectiveMaster = replacementWasActive ? null : requestedMaster;
 
         var resources = Resources.Advance(logicalDelta, effectiveMaster);
+
+        // 执行会话与生产、CD 共用同一个逻辑时间增量。先推进本片段的生产，
+        // 再推进已预留资源上的订单步骤；会话自身仍按步骤时长控制实际操作时点。
+        foreach (var session in _executionSessions.ToArray())
+        {
+            try
+            {
+                session.AdvanceLogicalTime(logicalDelta);
+            }
+            finally
+            {
+                if (session.IsTerminal)
+                    _executionSessions.Remove(session);
+            }
+        }
+
         return new ResourceWorldStep(logicalDelta, resources);
     }
 }
