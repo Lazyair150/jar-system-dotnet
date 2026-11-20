@@ -121,6 +121,22 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
+    public void CooldownStartMakesTheSolveRecordNotReadyImmediately()
+    {
+        var board = Board();
+        var demand = Demand(cooldown: 2_000);
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var snapshot = Snapshot(new Jar("圆罐"));
+        book.Evaluate(demand.Id, snapshot, Registry());
+
+        Assert.True(board.StartCooldown(demand.Id));
+
+        Assert.Equal(WorldOrderSolveState.NotReady, book.Find(demand.Id)!.State);
+        Assert.Null(book.Find(demand.Id)!.Result);
+    }
+
+    [Fact]
     public void CooldownExpiryMarksDemandDirtyAndEligibleForNewSolve()
     {
         var board = Board();
