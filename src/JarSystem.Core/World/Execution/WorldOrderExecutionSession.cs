@@ -86,9 +86,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             ? WorldOrderExecutionStage.MasterSteps
             : manifest.IsPartitioned
                 ? WorldOrderExecutionStage.Transfer
-                : WorldOrderExecutionStage.Completed;
+                : WorldOrderExecutionStage.MasterSteps;
 
-        if (Stage == WorldOrderExecutionStage.Completed)
+        // A 类纯 MATCH 计划没有耗时操作，准入后即可交付；先保持非终态，
+        // 只有完成清理、需求板登记与预留释放后才进入 Completed。
+        if (!manifest.IsPartitioned && _masterSteps.Count == 0)
             CompleteSuccess();
     }
 
@@ -237,10 +239,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     return;
                 }
                 _slave!.ClearMarks();
-                Stage = _slaveSteps.Count > 0
-                    ? WorldOrderExecutionStage.SlaveSteps
-                    : WorldOrderExecutionStage.Completed;
-                if (Stage == WorldOrderExecutionStage.Completed)
+                if (_slaveSteps.Count > 0)
+                    Stage = WorldOrderExecutionStage.SlaveSteps;
+                else
                     CompleteSuccess();
                 break;
 
