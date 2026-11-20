@@ -154,6 +154,16 @@ public sealed class WorldOrderScheduler
             throw new InvalidOperationException("当前正在执行调度过程，不能重入推进世界");
 
         var worldStep = _runtime.AdvanceWorldTime(deltaWorldTimeMilli);
+
+        // 暂停是世界级冻结：即使宿主继续提交帧/时间片，也不能借此自动求解或启动被动订单。
+        // 用户仍可通过显式命令启动主动订单；其执行会等到世界恢复后才消耗逻辑时间。
+        if (_runtime.Clock.IsPaused)
+        {
+            var pausedScheduling = new WorldOrderSchedulingPassResult(
+                0, Array.Empty<int>(), Array.Empty<WorldOrderSchedulingDecision>());
+            return new WorldOrderScheduledStepResult(worldStep, pausedScheduling);
+        }
+
         var scheduling = RunSchedulingPass();
         return new WorldOrderScheduledStepResult(worldStep, scheduling);
     }
