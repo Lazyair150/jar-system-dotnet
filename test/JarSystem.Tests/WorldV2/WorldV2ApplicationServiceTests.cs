@@ -129,6 +129,10 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.True(begin.Success);
         Assert.NotNull(begin.Replacement);
         Assert.False(begin.Replacement!.IsFinished);
+        Assert.Equal("主台", begin.Replacement.OldWorkshopName);
+        Assert.Equal("备用台", begin.Replacement.TargetWorkshopName);
+        Assert.Equal(1_000, begin.Replacement.PhaseDurationLogicalMilli);
+        Assert.Equal(0, begin.Replacement.PhaseElapsedLogicalMilli);
         Assert.True(begin.Replacement.InterruptionCommitted);
 
         var interrupted = app.GetWorldSnapshot();
