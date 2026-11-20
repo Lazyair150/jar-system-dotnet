@@ -139,12 +139,37 @@ public sealed class OrderDemandTests
     }
 
     [Fact]
+    public void ContinuousFulfillmentStartsEachDemandOwnCooldownInBothAreas()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = CreateBoard(
+            DemandAreaFulfillmentPolicy.Continuous,
+            DemandAreaFulfillmentPolicy.Continuous);
+        var passive = CreateDemand(ids, cooldown: 1_500);
+        var active = CreateDemand(ids, cooldown: 2_500);
+        board.AddDemand(passive, DemandAreaKind.Passive);
+        board.AddDemand(active, DemandAreaKind.Active);
+
+        Assert.Equal(DemandFulfillmentResult.RetainedInArea,
+            board.RecordSuccessfulFulfillment(passive.Id));
+        Assert.Equal(DemandFulfillmentResult.RetainedInArea,
+            board.RecordSuccessfulFulfillment(active.Id));
+
+        Assert.Equal(1_500, passive.CooldownRemainingLogicalMilli);
+        Assert.Equal(2_500, active.CooldownRemainingLogicalMilli);
+        Assert.False(passive.ReadyForSolve);
+        Assert.False(active.ReadyForSolve);
+        Assert.Same(passive, board.Find(passive.Id));
+        Assert.Same(active, board.Find(active.Id));
+    }
+
+    [Fact]
     public void SuccessfulFulfillmentOnlyUnloadsDemandAndDoesNotCloseOrDestroyIt()
     {
         var ids = new SequentialIdGenerator();
         var board = CreateBoard(DemandAreaFulfillmentPolicy.OneShot);
         var specification = CreateSpecification();
-        var demand = new OrderDemand(specification, 0, ids);
+        var demand = new OrderDemand(specification, 2_500, ids);
         board.AddDemand(demand, DemandAreaKind.Passive);
 
         Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
@@ -152,6 +177,7 @@ public sealed class OrderDemandTests
         Assert.Empty(board.Passive.Demands);
         Assert.Same(specification, demand.Specification);
         Assert.True(demand.ReadyForSolve);
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
         Assert.Equal(DemandFulfillmentResult.NotFound,
             board.RecordSuccessfulFulfillment(demand.Id));
     }
