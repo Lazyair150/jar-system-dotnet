@@ -104,6 +104,52 @@ public sealed class WorldV2ApplicationService
     }
 
     /// <summary>
+    /// 请求替换主/从工作台。订单中断由 World v2 Runtime 负责；当前应用服务没有外部订单系统，
+    /// 因此传入无副作用适配器，Runtime 随后仍会中断它自己持有的所有执行会话。
+    /// </summary>
+    public WorldV2WorkshopReplacementResultDto BeginWorkshopReplacement(
+        WorkshopRole role, string targetWorkshopName, long phaseDurationLogicalMilli)
+    {
+        if (!Enum.IsDefined(role))
+            return new WorldV2WorkshopReplacementResultDto(false, "工作台岗位类型无效", null);
+        if (string.IsNullOrWhiteSpace(targetWorkshopName))
+            return new WorldV2WorkshopReplacementResultDto(false, "目标工作台名称不能为空", null);
+        if (phaseDurationLogicalMilli <= 0)
+            return new WorldV2WorkshopReplacementResultDto(false, "替换阶段时长必须大于零", null);
+
+        WorldV2WorkshopReplacementResultDto? result = null;
+        _host.ExecuteExclusive(context =>
+        {
+            var target = context.Roster.Find(targetWorkshopName);
+            if (target == null)
+            {
+                result = new WorldV2WorkshopReplacementResultDto(
+                    false, "找不到目标工作台: " + targetWorkshopName, null);
+                return;
+            }
+
+            try
+            {
+                var begin = context.Runtime.BeginReplacement(
+                    role, target, NoExternalOrderInterruption.Instance, phaseDurationLogicalMilli);
+                result = new WorldV2WorkshopReplacementResultDto(
+                    begin.Success, begin.Error, ToReplacementDto(context.Runtime.ActiveReplacement));
+            }
+            catch (ArgumentException ex)
+            {
+                result = new WorldV2WorkshopReplacementResultDto(false, ex.Message, null);
+            }
+            catch (InvalidOperationException ex)
+            {
+                result = new WorldV2WorkshopReplacementResultDto(false, ex.Message,
+                    ToReplacementDto(context.Runtime.ActiveReplacement));
+            }
+        });
+        return result!;
+    }
+
+
+    /// <summary>
     /// 捕获当前世界的展示快照。所有集合和元素均为复制值，不包含 Core 可变实体引用。
     /// 该 DTO 不是 Solver 使用的 WorldSnapshot。
     /// </summary>
@@ -153,9 +199,31 @@ public sealed class WorldV2ApplicationService
                 ToWorkshopDto(slave),
                 CopyList(demands),
                 CopyList(sessions),
-                context.Reservations.Count);
+                context.Reservations.Count,
+                ToReplacementDto(context.Runtime.ActiveReplacement));
         });
         return snapshot!;
+    }
+
+    private static WorldV2WorkshopReplacementDto? ToReplacementDto(
+        WorkshopReplacementProcess? process)
+    {
+        if (process == null) return null;
+        return new WorldV2WorkshopReplacementDto(
+            process.Role,
+            process.IsFinished,
+            process.Succeeded,
+            process.InterruptionCommitted,
+            process.InterruptionOutcomeUncertain,
+            process.CompletedPhases,
+            process.FailureReason,
+            process.CommitWarning);
+    }
+
+    private sealed class NoExternalOrderInterruption : IOrderInterruptionPort
+    {
+        public static NoExternalOrderInterruption Instance { get; } = new();
+        public (bool Success, string? Error) InterruptForWorkshopReplacement() => (true, null);
     }
 
     private static WorldV2WorkshopDto? ToWorkshopDto(Workshop? workshop)
@@ -239,6 +307,21 @@ public sealed record WorldV2AdvanceResultDto(
 
 public sealed record WorldV2StartDemandResultDto(bool Success, string? Reason);
 
+public sealed record WorldV2WorkshopReplacementResultDto(
+    bool Success,
+    string? Error,
+    WorldV2WorkshopReplacementDto? Replacement);
+
+public sealed record WorldV2WorkshopReplacementDto(
+    WorkshopRole Role,
+    bool IsFinished,
+    bool Succeeded,
+    bool InterruptionCommitted,
+    bool InterruptionOutcomeUncertain,
+    int CompletedPhases,
+    string? FailureReason,
+    string? CommitWarning);
+
 public sealed record WorldV2SnapshotDto(
     long WorldTimeMilli,
     long LogicalTimeMilli,
@@ -252,4 +335,5 @@ public sealed record WorldV2SnapshotDto(
     WorldV2WorkshopDto? Slave,
     IReadOnlyList<WorldV2DemandDto> Demands,
     IReadOnlyList<WorldV2ExecutionSessionDto> ActiveSessions,
-    int ReservationCount);
+    int ReservationCount,
+    WorldV2WorkshopReplacementDto? Replacement);
