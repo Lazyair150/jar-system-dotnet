@@ -113,7 +113,10 @@ public sealed class WorldV2ContextTests
             var result = second.Scheduler.RunSchedulingPass();
 
             Assert.Contains(demand.Id, result.StartedDemandIds);
-            Assert.Null(second.DemandBoard.Find(demand.Id));
+            // 第二个世界的被动区明确配置为 Continuous：成功后应保留订单并启动 CD，
+            // 而不是像第一个世界的 OneShot 区域一样卸载订单。
+            Assert.Same(demand, second.DemandBoard.Find(demand.Id));
+            Assert.False(demand.ReadyForSolve);
         }
         finally
         {
