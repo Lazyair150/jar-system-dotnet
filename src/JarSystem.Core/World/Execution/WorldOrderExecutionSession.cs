@@ -17,6 +17,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly OrderDemandBoard _board;
     private readonly WorldOrderSolveBook _solveBook;
     private readonly WorldOrderExecutionAdmission _admission;
+    private readonly WorkshopRoster _roster;
     private readonly Workshop _master;
     private readonly Workshop? _slave;
     private readonly WorldOrderResourceManifest _manifest;
@@ -33,6 +34,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private bool _reservationReleased;
 
     public int DemandId { get; }
+    internal bool IsBoundTo(OrderDemandBoard board, WorkshopRoster roster) =>
+        ReferenceEquals(_board, board) && ReferenceEquals(_roster, roster);
     public WorldOrderExecutionStage Stage { get; private set; }
     public bool IsTerminal =>
         Stage is WorldOrderExecutionStage.Completed or
@@ -58,6 +61,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         _board = board;
         _solveBook = solveBook;
         _admission = admission;
+        _roster = roster;
         _master = roster.Master ?? throw new InvalidOperationException("执行开始时没有主工作台");
         _slave = manifest.IsPartitioned
             ? roster.Slave ?? throw new InvalidOperationException("B 类执行开始时没有从工作台")
@@ -119,6 +123,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (logicalTimePerUnit <= 0)
             throw new ArgumentOutOfRangeException(nameof(logicalTimePerUnit),
                 "每个执行单位的逻辑时间必须大于零");
+
+        if (!admission.IsBoundTo(board, solveBook, roster))
+            throw new ArgumentException("需求板、求解簿、准入器与工作台岗位必须属于同一世界");
 
         var demand = board.Find(demandId);
         if (demand == null)
