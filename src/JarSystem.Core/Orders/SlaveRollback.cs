@@ -72,8 +72,11 @@ internal sealed class SlaveRollback
             if (amount > 0)
             {
                 slave.RemoveLiquid(liquid, amount);
-                // 部分填充：主台可接收多少就接收多少，剩余丢弃（仓库单向流动，不回收）
-                int accepted = master.TryReceiveLiquid(liquid, amount);
+                // 禁令与容量是两种独立拒收原因：被主台禁用的游离液体全部丢弃；
+                // 未被禁用时才按容量部分接收。满罐中的液体随罐返回，不经过这里。
+                int accepted = master.IsBanned(liquid)
+                    ? 0
+                    : master.TryReceiveLiquid(liquid, amount);
                 int remainder = amount - accepted;
                 ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Return, ResourceKinds.Liquid,
                     liquid, accepted, from: slave.Name, to: master.Name);
