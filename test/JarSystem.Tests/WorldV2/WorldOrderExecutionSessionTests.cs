@@ -3,6 +3,7 @@ using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Production;
 using JarSystem.Core.Solver;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
@@ -74,6 +75,38 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(0, master.LiquidStorage["酒"]);
         Assert.Null(setup.Board.Find(demand.Id));
         Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
+    public void ResourceWorldRuntimeAdvancesRegisteredSessionUsingItsClockDelta()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var setup = Prepare(master, null, demand);
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        Assert.True(started.Success, started.Reason);
+
+        var resources = new ResourceArea(
+            new ProducerModule(Words),
+            new LiquidProduction(Words,
+                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0);
+        var runtime = new ResourceWorldRuntime(
+            resources, roster: setup.Roster, demandBoard: setup.Board);
+        Assert.True(runtime.RegisterExecutionSession(started.Session!));
+
+        var step = runtime.AdvanceWorldTime(1_000);
+
+        Assert.Equal(1_000, step.LogicalTimeDeltaMilli);
+        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        Assert.Empty(runtime.ActiveExecutionSessions);
+        Assert.Empty(master.Jars);
     }
 
     [Fact]
