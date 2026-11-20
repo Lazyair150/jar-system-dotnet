@@ -10,7 +10,7 @@ rem    (running from an open cmd window shows any error text)
 rem
 rem  WHAT IT DOES
 rem    1) dotnet build JarSystem.slnx -c Release
-rem       Godot host build (same Release configuration)
+rem       Old and new Godot host builds (same Release configuration)
 rem    2) test/JarSystem.Test       -c Release
 rem       test/JarSystem.Tests     -c Release (focused xUnit suite)
 rem    3) test/StrategyExperiment   -c Release
@@ -78,6 +78,12 @@ echo [1b/9] Godot host build (Release)
 echo [1b/9] Godot host build (Release) >> "%LOG%"
 dotnet build hosts\godot\Jar\jar.csproj -c Release --no-incremental --nologo >> "%LOG%" 2>&1
 if errorlevel 1 echo STEP-FAILED step1-godot >> "%LOG%"
+echo     exit=%ERRORLEVEL%
+
+echo [1c/9] World v2 Godot host build (Release)
+echo [1c/9] World v2 Godot host build (Release) >> "%LOG%"
+dotnet build hosts\godot\WorldV2\JarWorldV2.csproj -c Release --no-incremental --nologo >> "%LOG%" 2>&1
+if errorlevel 1 echo STEP-FAILED step1-world-v2-godot >> "%LOG%"
 echo     exit=%ERRORLEVEL%
 
 echo [2/9] JarSystem.Test + JarSystem.Tests   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 32 deterministic; xUnit clean)
