@@ -5,30 +5,15 @@ namespace JarSystem.Core.World;
 /// <summary>
 /// World v2 世界实例的生命周期所有者。
 ///
-/// 本类型只管理 Context 的创建、切换和释放：不推进逻辑时间、不启动后台线程，
-/// 也不决定宿主的墙钟节奏。宿主仍须在自己的串行边界内协调对 Current 的使用与 Replace。
+/// Host 管理当前 Context 的发布与退役。调用方通过 Lease 声明一次使用期；
+/// 替换或关闭 Host 时，旧 Context 只会在最后一个 Lease 释放后 Dispose。
+/// 本类型不推进逻辑时间、不启动后台线程，也不决定宿主的墙钟节奏。
 /// </summary>
 public sealed class WorldV2HostService : IDisposable
 {
     private readonly object _sync = new();
-    private WorldV2Context? _current;
+    private WorldEntry? _current;
     private bool _disposed;
-
-    /// <summary>
-    /// 当前世界。尚未创建或宿主已释放时抛出异常。
-    /// 返回的是 Context 本身；调用方必须避免在并发 Replace/Dispose 期间继续使用旧引用。
-    /// </summary>
-    public WorldV2Context Current
-    {
-        get
-        {
-            lock (_sync)
-            {
-                ThrowIfDisposed();
-                return _current ?? throw new InvalidOperationException("World v2 尚未创建");
-            }
-        }
-    }
 
     /// <summary>是否已经创建当前世界。</summary>
     public bool HasWorld
@@ -40,11 +25,25 @@ public sealed class WorldV2HostService : IDisposable
     }
 
     /// <summary>
-    /// 首次创建或原子替换当前世界。
-    /// 新 Context 完整创建成功后才发布；配置校验或装配失败时，旧 Context 保持不变。
-    /// 成功切换后释放旧 Context。该操作由内部锁串行化。
+    /// 获取当前世界的使用租约。
+    /// 调用方必须使用 using/finally 释放租约；租约存续期间世界不会被 Host 释放。
     /// </summary>
-    public WorldV2Context Replace(WorldV2Options options)
+    public WorldV2ContextLease AcquireCurrent()
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+            var entry = _current ?? throw new InvalidOperationException("World v2 尚未创建");
+            return Acquire(entry);
+        }
+    }
+
+    /// <summary>
+    /// 首次创建或原子替换当前世界，并返回新世界的使用租约。
+    /// 配置校验或装配失败时，当前世界保持不变。
+    /// 旧世界在所有已发放租约释放后才会被 Dispose。
+    /// </summary>
+    public WorldV2ContextLease Replace(WorldV2Options options)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
 
@@ -52,21 +51,22 @@ public sealed class WorldV2HostService : IDisposable
         {
             ThrowIfDisposed();
 
-            // 工厂在发布前完成完整校验与装配；此行抛出时 _current 尚未改变。
-            var next = WorldV2Factory.Create(options);
+            // 完整创建成功前不修改 _current。
+            var next = new WorldEntry(WorldV2Factory.Create(options));
             var previous = _current;
-
             _current = next;
 
-            // Context.Dispose 当前只解除内部事件订阅，不回滚世界状态。
-            // 在切换之后释放，避免释放失败时把当前引用退回一个半释放对象。
-            previous?.Dispose();
+            if (previous != null)
+                Retire(previous);
 
-            return next;
+            return Acquire(next);
         }
     }
 
-    /// <summary>释放当前世界并关闭宿主；重复调用安全。</summary>
+    /// <summary>
+    /// 关闭 Host 并退役当前世界。已有租约仍可安全完成工作；
+    /// 最后一个租约释放时，世界才真正 Dispose。重复调用安全。
+    /// </summary>
     public void Dispose()
     {
         lock (_sync)
@@ -76,13 +76,59 @@ public sealed class WorldV2HostService : IDisposable
             _disposed = true;
             var previous = _current;
             _current = null;
-            previous?.Dispose();
+
+            if (previous != null)
+                Retire(previous);
         }
+    }
+
+    private WorldV2ContextLease Acquire(WorldEntry entry)
+    {
+        if (entry.Retired || entry.Disposed)
+            throw new InvalidOperationException("不能为已退役的世界创建租约");
+
+        entry.LeaseCount++;
+        return new WorldV2ContextLease(entry.Context, () => Release(entry));
+    }
+
+    private void Release(WorldEntry entry)
+    {
+        lock (_sync)
+        {
+            if (entry.LeaseCount <= 0)
+                throw new InvalidOperationException("World v2 租约计数不平衡");
+
+            entry.LeaseCount--;
+            DisposeIfUnused(entry);
+        }
+    }
+
+    private void Retire(WorldEntry entry)
+    {
+        entry.Retired = true;
+        DisposeIfUnused(entry);
+    }
+
+    private static void DisposeIfUnused(WorldEntry entry)
+    {
+        if (!entry.Retired || entry.LeaseCount != 0 || entry.Disposed)
+            return;
+
+        entry.Disposed = true;
+        entry.Context.Dispose();
     }
 
     private void ThrowIfDisposed()
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(WorldV2HostService));
+    }
+
+    private sealed class WorldEntry(WorldV2Context context)
+    {
+        public WorldV2Context Context { get; } = context;
+        public int LeaseCount { get; set; }
+        public bool Retired { get; set; }
+        public bool Disposed { get; set; }
     }
 }
