@@ -21,6 +21,13 @@ public sealed class ResourceWorldRuntime
     public WorkshopRoster? Roster { get; }
     public OrderDemandBoard? DemandBoard { get; }
     public WorkshopReplacementProcess? ActiveReplacement { get; private set; }
+    /// <summary>首次发生无法确认世界状态的异常后置为 true；运行时不会自动恢复。</summary>
+    public bool IsFaulted => _faultException != null;
+    /// <summary>世界故障的首次原因；故障状态为 sticky，不能由后续异常覆盖。</summary>
+    public string? FaultReason { get; private set; }
+    /// <summary>导致世界进入故障状态的首次异常。</summary>
+    public Exception? FaultException => _faultException;
+    private Exception? _faultException;
     private bool ReplacementBlocksWorld =>
         ActiveReplacement is { IsFinished: false } or { InterruptionOutcomeUncertain: true };
 
@@ -61,6 +68,7 @@ public sealed class ResourceWorldRuntime
     /// </summary>
     internal bool RegisterExecutionSession(WorldOrderExecutionSession session)
     {
+        ThrowIfFaulted();
         if (session == null) throw new ArgumentNullException(nameof(session));
         if (Roster == null || DemandBoard == null ||
             !session.IsBoundTo(DemandBoard, Roster))
@@ -96,18 +104,28 @@ public sealed class ResourceWorldRuntime
         WorldOrderExecutionAdmission admission,
         long logicalTimePerUnit)
     {
+        if (IsFaulted)
+            return WorldOrderExecutionStartResult.Rejected("世界运行时已故障，不能启动订单：" + FaultReason);
         if (Roster == null || DemandBoard == null)
             return WorldOrderExecutionStartResult.Rejected("当前 Runtime 没有需求板或工作台岗位集合");
         if (ReplacementBlocksWorld)
             return WorldOrderExecutionStartResult.Rejected("工作台替换正在进行或结果不确定，不能启动订单");
         _executionSessions.RemoveAll(session => session.IsTerminal);
 
-        var started = WorldOrderExecutionSession.TryStart(
-            demandId, DemandBoard, solveBook, admission, Roster, logicalTimePerUnit,
-            _resourceLedger, _resourceLedgerTick);
-        if (started.Success && started.Session != null)
-            RegisterExecutionSession(started.Session);
-        return started;
+        try
+        {
+            var started = WorldOrderExecutionSession.TryStart(
+                demandId, DemandBoard, solveBook, admission, Roster, logicalTimePerUnit,
+                _resourceLedger, _resourceLedgerTick);
+            if (started.Success && started.Session != null)
+                RegisterExecutionSession(started.Session);
+            return started;
+        }
+        catch (Exception ex)
+        {
+            LatchFault(ex, "订单执行会话启动发生异常");
+            throw;
+        }
     }
 
     /// <summary>基于已登记岗位推进世界。构造时未提供 Roster 则不能使用此重载。</summary>
@@ -129,6 +147,8 @@ public sealed class ResourceWorldRuntime
         IOrderInterruptionPort interruptionPort,
         long phaseDurationMilli)
     {
+        if (IsFaulted)
+            return (false, "世界运行时已故障，不能替换工作台：" + FaultReason);
         if (Roster == null)
             return (false, "当前运行时没有工作台岗位集合");
         if (ReplacementBlocksWorld)
@@ -143,10 +163,36 @@ public sealed class ResourceWorldRuntime
         // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查。
         if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
             ActiveReplacement = process;
+
+        // 中断结果不确定，或订单中断已提交但替换初始化失败，均不能安全继续世界。
+        if (process.InterruptionOutcomeUncertain ||
+            (process.InterruptionCommitted && !result.Success))
+        {
+            LatchFault(
+                new InvalidOperationException(process.FailureReason ?? result.Error ?? "工作台替换提交边界异常"),
+                "工作台替换发生不可恢复故障");
+        }
         return result;
     }
 
     private ResourceWorldStep AdvanceCore(long deltaWorldTimeMilli, Workshop? requestedMaster)
+    {
+        ThrowIfFaulted();
+        if (deltaWorldTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(deltaWorldTimeMilli));
+
+        try
+        {
+            return AdvanceCoreUnsafe(deltaWorldTimeMilli, requestedMaster);
+        }
+        catch (Exception ex)
+        {
+            LatchFault(ex, "世界推进过程中发生异常；本次推进可能已部分生效");
+            throw;
+        }
+    }
+
+    private ResourceWorldStep AdvanceCoreUnsafe(long deltaWorldTimeMilli, Workshop? requestedMaster)
     {
         var logicalDelta = Clock.Advance(deltaWorldTimeMilli);
 
@@ -186,6 +232,20 @@ public sealed class ResourceWorldRuntime
         }
 
         return new ResourceWorldStep(logicalDelta, resources);
+    }
+
+    private void ThrowIfFaulted()
+    {
+        if (IsFaulted)
+            throw new InvalidOperationException(
+                "世界运行时已故障并被冻结：" + FaultReason, _faultException);
+    }
+
+    private void LatchFault(Exception exception, string context)
+    {
+        if (_faultException != null) return;
+        _faultException = exception ?? throw new ArgumentNullException(nameof(exception));
+        FaultReason = context + "：" + exception.Message;
     }
 
     /// <summary>
