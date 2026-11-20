@@ -177,6 +177,7 @@ public sealed class WorldOrderSolveBook : IDisposable
                 break;
 
             case OrderDemandBoardChangeKind.Moved:
+            {
                 var movedDemand = _board.Find(change.DemandId);
                 if (movedDemand == null)
                     SetDetached(change.DemandId);
@@ -186,6 +187,7 @@ public sealed class WorldOrderSolveBook : IDisposable
                     _records[change.DemandId] =
                         WorldOrderSolveRecord.Dirty(change.DemandId, "订单在主动/被动区域之间移动");
                 break;
+            }
 
             case OrderDemandBoardChangeKind.CooldownStarted:
                 _records[change.DemandId] = new WorldOrderSolveRecord(
@@ -194,11 +196,20 @@ public sealed class WorldOrderSolveBook : IDisposable
                 break;
 
             case OrderDemandBoardChangeKind.CooldownElapsed:
-                _records[change.DemandId] =
-                    WorldOrderSolveRecord.Dirty(change.DemandId, "订单 CD 结束");
+            {
+                var cooledDemand = _board.Find(change.DemandId);
+                if (cooledDemand == null)
+                    SetDetached(change.DemandId);
+                else if (!cooledDemand.ReadyForSolve)
+                    SetNotReady(change.DemandId);
+                else
+                    _records[change.DemandId] =
+                        WorldOrderSolveRecord.Dirty(change.DemandId, "订单 CD 结束");
                 break;
+            }
 
             case OrderDemandBoardChangeKind.FulfilledRetained:
+            {
                 // Board 在发布成功保留事件前已启动订单自身 CD。
                 // 有 CD 则 NotReady；CD 为 0 则 Dirty，允许下一轮立即重新求解。
                 var fulfilledDemand = _board.Find(change.DemandId);
@@ -210,6 +221,7 @@ public sealed class WorldOrderSolveBook : IDisposable
                     _records[change.DemandId] =
                         WorldOrderSolveRecord.Dirty(change.DemandId, "持续订单完成且 CD 为 0");
                 break;
+            }
 
             case OrderDemandBoardChangeKind.PassiveOrderChanged:
                 // 顺序影响被动执行调度，不改变订单在同一世界快照上的求解结论。
