@@ -12,7 +12,7 @@ namespace JarSystem.Tests;
 ///
 /// 背景：求解器只做推理、不碰真实工作台；真正改世界的是三类**主体** ——
 /// 玩家的手工命令、执行器（按计划/贪心）、以及换台与回溯。它们共用同一组
-/// <c>Workshop</c> 端口（PourIn / PourOut / TryReshape /
+/// <c>Workshop</c> 端口（MarkJar / PourIn / PourOut / TryReshape /
 /// AddJar / RemoveJar / TransferIn / TransferOut / AddLiquid / TryReceiveLiquid）。
 ///
 /// 这组测试钉三件事，都是"结构而不是数量"，所以不会随重构天天漂：
@@ -28,7 +28,7 @@ public class WorkshopWritersTests
     /// <summary>所有会改真实工作台的端口名。</summary>
     private static readonly string[] Ports =
     {
-        "PourIn", "PourOut", "TryReshape",
+        "PourIn", "PourOut", "TryReshape", "MarkJar",
         "AddJar", "RemoveJar", "TransferIn", "TransferOut",
         "AddLiquid", "TryReceiveLiquid"
     };
@@ -37,8 +37,8 @@ public class WorkshopWritersTests
     private static readonly Dictionary<string, string> AllowedWriters = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Commands/JarCommands.cs"] = "玩家的手工命令：所有操作都经 Workshop 端口并检查返回值",
-        ["Executor/SolverStepApplier.cs"] = "执行器：把求解器步骤逐条施加到真实工作台",
-        ["World/Execution/WorldPlanStepApplier.cs"] = "新世界计划步骤执行器：按不可变 WorldPlanStep 调用 Workshop 领域端口，MATCH 只标记目标罐子",
+        ["Executor/SolverStepApplier.cs"] = "旧执行器：把求解器步骤逐条施加到真实工作台，MATCH 也经 Workshop.MarkJar",
+        ["World/Execution/WorldPlanStepApplier.cs"] = "新世界计划步骤执行器：按不可变 WorldPlanStep 调用 Workshop 领域端口",
         ["Executor/GreedyPlanBuilder.cs"] = "执行器：求解器未判定时的贪心兜底",
         ["Orders/OrderEvent.cs"] = "订单交付：把交付罐从交付台上取下",
         ["Orders/SlaveRollback.cs"] = "失败/结束时的跨台回流（唯一被回滚的东西）",
