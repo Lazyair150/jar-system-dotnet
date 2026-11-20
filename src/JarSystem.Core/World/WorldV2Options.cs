@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.Solver;
@@ -18,25 +19,38 @@ namespace JarSystem.Core.World;
 /// </summary>
 public sealed class WorldV2Options
 {
+    [JsonPropertyName("shapes")]
     public List<string> Shapes { get; set; } = new();
+    [JsonPropertyName("liquids")]
     public List<string> Liquids { get; set; } = new() { "酒", "蜜" };
 
+    [JsonPropertyName("producers")]
     public List<WorldV2ProducerOptions> Producers { get; set; } = new();
+    [JsonPropertyName("liquidProductionRates")]
     public Dictionary<string, double> LiquidProductionRates { get; set; } = new();
+    [JsonPropertyName("initialLiquidStock")]
     public Dictionary<string, int> InitialLiquidStock { get; set; } = new();
 
+    [JsonPropertyName("jarFlowRatePerLogicalTime")]
     public double JarFlowRatePerLogicalTime { get; set; }
+    [JsonPropertyName("liquidFlowRatePerLogicalTime")]
     public double LiquidFlowRatePerLogicalTime { get; set; }
 
+    [JsonPropertyName("workshops")]
     public List<WorldV2WorkshopOptions> Workshops { get; set; } = new();
+    [JsonPropertyName("masterWorkshopName")]
     public string MasterWorkshopName { get; set; } = "";
+    [JsonPropertyName("slaveWorkshopName")]
     public string? SlaveWorkshopName { get; set; }
 
-    /// <summary>一次执行逻辑步对应的逻辑时间毫秒数；1000 = 1 个逻辑时间单位。</summary>
+    /// <summary>执行计划中每个操作步消耗的逻辑时间毫秒数；1000 = 1 个逻辑时间单位。</summary>
+    [JsonPropertyName("executionLogicalTimePerUnit")]
     public long ExecutionLogicalTimePerUnit { get; set; } = 1000;
 
+    [JsonPropertyName("passiveFulfillmentPolicy")]
     public DemandAreaFulfillmentPolicy PassiveFulfillmentPolicy { get; set; } =
         DemandAreaFulfillmentPolicy.OneShot;
+    [JsonPropertyName("activeFulfillmentPolicy")]
     public DemandAreaFulfillmentPolicy ActiveFulfillmentPolicy { get; set; } =
         DemandAreaFulfillmentPolicy.OneShot;
 
