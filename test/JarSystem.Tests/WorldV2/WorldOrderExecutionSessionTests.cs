@@ -42,6 +42,17 @@ public sealed class WorldOrderExecutionSessionTests
         return (board, book, roster, admission, reservations);
     }
 
+    private static ResourceWorldRuntime CreateRuntime(OrderDemandBoard board, WorkshopRoster roster)
+    {
+        var resources = new ResourceArea(
+            new ProducerModule(Words),
+            new LiquidProduction(Words,
+                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0);
+        return new ResourceWorldRuntime(resources, roster: roster, demandBoard: board);
+    }
+
     private sealed class ThrowingInterruptionPort : IOrderInterruptionPort
     {
         public (bool Success, string? Error) InterruptForWorkshopReplacement() =>
@@ -69,17 +80,18 @@ public sealed class WorldOrderExecutionSessionTests
         var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
         var setup = Prepare(master, null, demand);
 
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
 
         Assert.True(started.Success, started.Reason);
         var session = started.Session!;
         Assert.False(session.IsTerminal);
-        session.AdvanceLogicalTime(999);
+        runtime.AdvanceWorldTime(999);
         Assert.Null(jar.Liquid);
         Assert.False(session.IsTerminal);
 
-        session.AdvanceLogicalTime(1);
+        runtime.AdvanceWorldTime(1);
 
         Assert.True(session.Succeeded, session.Reason);
         Assert.Empty(master.Jars);
@@ -98,19 +110,12 @@ public sealed class WorldOrderExecutionSessionTests
         master.AddLiquid("酒", 1);
         var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
         var setup = Prepare(master, null, demand);
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
         Assert.True(started.Success, started.Reason);
 
-        var resources = new ResourceArea(
-            new ProducerModule(Words),
-            new LiquidProduction(Words,
-                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
-            jarFlowRate: 0,
-            liquidFlowRate: 0);
-        var runtime = new ResourceWorldRuntime(
-            resources, roster: setup.Roster, demandBoard: setup.Board);
-        Assert.True(runtime.RegisterExecutionSession(started.Session!));
+
 
         var step = runtime.AdvanceWorldTime(1_000);
 
@@ -220,14 +225,6 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(1, setup.Reservations.Count);
         Assert.Null(setup.Reservations.Find(secondDemand.Id));
 
-        // 即使调用方绕过推荐入口先做了准入，Runtime 注册时也会安全取消尚未执行的第二个会话。
-        var admittedSecond = WorldOrderExecutionSession.TryStart(
-            secondDemand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
-        Assert.True(admittedSecond.Success, admittedSecond.Reason);
-        Assert.False(runtime.RegisterExecutionSession(admittedSecond.Session!));
-        Assert.Equal(WorldOrderExecutionStage.Cancelled, admittedSecond.Session!.Stage);
-        Assert.Equal(1, setup.Reservations.Count);
-        Assert.Null(setup.Reservations.Find(secondDemand.Id));
     }
 
     [Fact]
@@ -253,19 +250,11 @@ public sealed class WorldOrderExecutionSessionTests
         book.Evaluate(demand.Id, WorldSnapshotFactory.Capture(roster), registry);
         var reservations = new WorldResourceReservationBook();
         var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, board, book, admission, roster, 1_000);
+        var runtime = CreateRuntime(board, roster);
+        var started = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
         Assert.True(started.Success, started.Reason);
 
-        var resources = new ResourceArea(
-            new ProducerModule(Words),
-            new LiquidProduction(Words,
-                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
-            jarFlowRate: 0,
-            liquidFlowRate: 0);
-        var runtime = new ResourceWorldRuntime(
-            resources, roster: roster, demandBoard: board);
-        Assert.True(runtime.RegisterExecutionSession(started.Session!));
+
 
         var replacement = runtime.BeginReplacement(
             WorkshopRole.Master, spare, new NoopInterruptionPort(), phaseDurationMilli: 1_000);
@@ -289,14 +278,15 @@ public sealed class WorldOrderExecutionSessionTests
         master.AddLiquid("酒", 1);
         var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
         var setup = Prepare(master, null, demand);
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
         Assert.True(started.Success, started.Reason);
 
         // 模拟执行开始后外部规则/资源变化：预留是占用声明，不是对真实世界的锁。
         // 执行器必须在真正动手时重新检查领域规则。
         master.RemoveLiquid("酒", 1);
-        started.Session!.AdvanceLogicalTime(1_000);
+        runtime.AdvanceWorldTime(1_000);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, started.Session.Stage);
         Assert.Null(jar.Liquid);
@@ -316,13 +306,14 @@ public sealed class WorldOrderExecutionSessionTests
         master.AddLiquid("酒", 1);
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
         var setup = Prepare(master, slave, demand);
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
         Assert.True(started.Success, started.Reason);
         var session = started.Session!;
 
         for (var i = 0; i < 12 && !session.IsTerminal; i++)
-            session.AdvanceLogicalTime(1_000);
+            runtime.AdvanceWorldTime(1_000);
 
         Assert.True(session.Succeeded, session.Reason);
         Assert.Empty(master.Jars);
@@ -344,15 +335,16 @@ public sealed class WorldOrderExecutionSessionTests
         master.AddLiquid("酒", 1);
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
         var setup = Prepare(master, slave, demand);
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
         Assert.True(started.Success, started.Reason);
 
         // 准入后工作台容量发生变化，转移阶段必须重新全量预检。
         slave.ResizeJarCapacity(0);
         var session = started.Session!;
         for (var i = 0; i < 8 && !session.IsTerminal; i++)
-            session.AdvanceLogicalTime(1_000);
+            runtime.AdvanceWorldTime(1_000);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
         Assert.Empty(slave.Jars);
@@ -373,8 +365,9 @@ public sealed class WorldOrderExecutionSessionTests
         master.AddLiquid("酒", 1);
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
         var setup = Prepare(master, slave, demand);
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
         Assert.True(started.Success, started.Reason);
 
         // 外部写入发生在准入之后、转移之前。会话必须拒绝转移，但不能把这只罐子当成自己的临时资源回流。
@@ -382,7 +375,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(slave.AddJar(externalJar));
         var session = started.Session!;
         for (var i = 0; i < 8 && !session.IsTerminal; i++)
-            session.AdvanceLogicalTime(1_000);
+            runtime.AdvanceWorldTime(1_000);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
         Assert.Same(externalJar, Assert.Single(slave.Jars));
@@ -404,14 +397,15 @@ public sealed class WorldOrderExecutionSessionTests
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒", cooldown: 3_000);
         var setup = Prepare(master, slave, demand);
 
-        var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster, 1_000);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
         Assert.True(started.Success, started.Reason);
         var session = started.Session!;
 
         // B 类可能先执行主台步骤；持续推进直到主从转移完成。
         for (var i = 0; i < 8 && !slave.HasResources && !session.IsTerminal; i++)
-            session.AdvanceLogicalTime(1_000);
+            runtime.AdvanceWorldTime(1_000);
 
         Assert.True(slave.HasResources, "B 类计划应先把清单资源转入从台");
         Assert.True(setup.Reservations.Find(demand.Id)!.UsesSlave);
