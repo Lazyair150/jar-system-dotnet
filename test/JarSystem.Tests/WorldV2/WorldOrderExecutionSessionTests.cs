@@ -42,6 +42,12 @@ public sealed class WorldOrderExecutionSessionTests
         return (board, book, roster, admission, reservations);
     }
 
+    private sealed class ThrowingInterruptionPort : IOrderInterruptionPort
+    {
+        public (bool Success, string? Error) InterruptForWorkshopReplacement() =>
+            throw new InvalidOperationException("模拟中断结果不确定");
+    }
+
     private sealed class NoopInterruptionPort : IOrderInterruptionPort
     {
         public (bool Success, string? Error) InterruptForWorkshopReplacement() => (true, null);
@@ -112,6 +118,56 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(started.Session!.Succeeded, started.Session.Reason);
         Assert.Empty(runtime.ActiveExecutionSessions);
         Assert.Empty(master.Jars);
+    }
+
+    [Fact]
+    public void UncertainReplacementFreezesRegisteredSessionsAndPreventsNewStarts()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var spare = new Workshop("备用台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒", cooldown: 2_500);
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot,
+            DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, spare }, master);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        book.Evaluate(demand.Id, WorldSnapshotFactory.Capture(roster), registry);
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
+        var resources = new ResourceArea(
+            new ProducerModule(Words),
+            new LiquidProduction(Words,
+                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0);
+        var runtime = new ResourceWorldRuntime(resources, roster: roster, demandBoard: board);
+        var started = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+
+        var replacement = runtime.BeginReplacement(
+            WorkshopRole.Master, spare, new ThrowingInterruptionPort(), phaseDurationMilli: 1_000);
+
+        Assert.False(replacement.Success);
+        Assert.True(runtime.ActiveReplacement!.InterruptionOutcomeUncertain);
+        runtime.AdvanceWorldTime(1_000);
+
+        Assert.Equal(0, started.Session!.CompletedMasterSteps);
+        Assert.Null(jar.Liquid);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Equal(1, reservations.Count);
+        var lateStart = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
+        Assert.False(lateStart.Success);
+        Assert.Contains("结果不确定", lateStart.Reason);
     }
 
     [Fact]
