@@ -288,7 +288,7 @@ public sealed class WorldOrderExecutionSessionTests
         master.RemoveLiquid("酒", 1);
         runtime.AdvanceWorldTime(1_000);
 
-        Assert.Equal(WorldOrderExecutionStage.Failed, started.Session.Stage);
+        Assert.Equal(WorldOrderExecutionStage.Failed, started.Session!.Stage);
         Assert.Null(jar.Liquid);
         Assert.False(jar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
