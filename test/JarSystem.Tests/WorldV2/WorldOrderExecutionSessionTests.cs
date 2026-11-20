@@ -218,7 +218,12 @@ public sealed class WorldOrderExecutionSessionTests
 
         Assert.False(replacement.Success);
         Assert.True(runtime.ActiveReplacement!.InterruptionOutcomeUncertain);
-        runtime.AdvanceWorldTime(1_000);
+        Assert.True(runtime.IsFaulted);
+        Assert.Contains("结果可能不确定", runtime.FaultReason);
+
+        var worldTimeBeforeRejectedAdvance = runtime.Clock.WorldTimeMilli;
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
+        Assert.Equal(worldTimeBeforeRejectedAdvance, runtime.Clock.WorldTimeMilli);
 
         Assert.Equal(0, started.Session!.CompletedMasterSteps);
         Assert.Null(jar.Liquid);
@@ -227,10 +232,10 @@ public sealed class WorldOrderExecutionSessionTests
         var secondReplacement = runtime.BeginReplacement(
             WorkshopRole.Master, spare, new NoopInterruptionPort(), phaseDurationMilli: 1_000);
         Assert.False(secondReplacement.Success);
-        Assert.Contains("不确定", secondReplacement.Error);
+        Assert.Contains("已故障", secondReplacement.Error);
         var lateStart = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
         Assert.False(lateStart.Success);
-        Assert.Contains("结果不确定", lateStart.Reason);
+        Assert.Contains("已故障", lateStart.Reason);
     }
 
     [Fact]
@@ -346,6 +351,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(jar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Equal(WorldOrderSolveState.Dirty, setup.Book.Find(demand.Id)!.State);
+        Assert.False(runtime.IsFaulted, "可确认结算的普通订单失败不能冻结整个世界");
     }
 
     [Fact]
@@ -487,6 +493,89 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Contains(master.Jars, item => item.Liquid == "酒");
         Assert.Equal(1, master.LiquidStorage["酒"]);
         Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
+    public void SettlementTickFailureFaultsRuntimeAndPreventsFurtherWorldMutation()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var spare = new Workshop("备用台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var firstJar = new Jar("圆罐", vocabulary: Words);
+        var secondJar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(firstJar);
+        master.AddJar(secondJar);
+        master.AddLiquid("酒", 2);
+
+        var demand = new OrderDemand(new JarOrderSpecification(
+            new[]
+            {
+                new Requirement { Shape = "圆罐", Liquid = "酒" },
+                new Requirement { Shape = "圆罐", Liquid = "酒" }
+            },
+            Constants.OrderType.B, Words), 0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot,
+            DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave, spare }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        book.Evaluate(demand.Id, WorldSnapshotFactory.Capture(roster), registry);
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
+        var ledger = new ResourceLedger();
+        var tickCalls = 0;
+        int Tick()
+        {
+            tickCalls++;
+            if (tickCalls == 2)
+                throw new InvalidOperationException("模拟账本 tick 来源故障");
+            return 17;
+        }
+
+        var runtime = CreateRuntime(board, roster, ledger, Tick);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, book, admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+
+        for (var i = 0; i < 8 && !slave.HasResources && !session.IsTerminal; i++)
+            runtime.AdvanceWorldTime(1_000);
+        Assert.True(slave.HasResources, "必须先完成主从资源转移，触发第一次账本 tick");
+
+        // 第二次 tick 在失败结算开始前抛出。资源仍留在从台，归属结果不能再被当作普通失败。
+        slave.ReplaceCapability(new WorkshopCapability(
+            slave.BaseMarks, slave.AdditionalMarks, new[] { "酒" }));
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
+
+        Assert.True(runtime.IsFaulted);
+        Assert.Contains("世界推进过程中发生异常", runtime.FaultReason);
+        Assert.IsType<InvalidOperationException>(runtime.FaultException);
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.True(slave.HasResources, "结算 tick 获取失败时，不应假装从台资源已完成回流");
+        Assert.Equal(0, reservations.Count);
+
+        var frozenWorldTime = runtime.Clock.WorldTimeMilli;
+        var frozenLiquid = slave.LiquidStorage["酒"];
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
+        Assert.Equal(frozenWorldTime, runtime.Clock.WorldTimeMilli);
+        Assert.Equal(frozenLiquid, slave.LiquidStorage["酒"]);
+
+        var lateStart = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
+        Assert.False(lateStart.Success);
+        Assert.Contains("已故障", lateStart.Reason);
+
+        var replacement = runtime.BeginReplacement(
+            WorkshopRole.Master, spare, new NoopInterruptionPort(), phaseDurationMilli: 1_000);
+        Assert.False(replacement.Success);
+        Assert.Contains("已故障", replacement.Error);
     }
 
     [Fact]
