@@ -483,4 +483,101 @@ public sealed class WorkshopReplacementTests
         Assert.Same(oldSlave, roster.Slave);
     }
 
+
+    [Fact]
+    public void RuntimeRejectsOverlappingReplacementButAllowsANewOneAfterCompletion()
+    {
+        var vocabulary = Vocabulary.Default;
+        var producers = new ProducerModule(vocabulary);
+        var liquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var resources = new ResourceArea(producers, liquids, jarFlowRate: 0, liquidFlowRate: 0);
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台");
+        var firstSpare = new Workshop("备用台一", new List<string> { "圆罐" });
+        var secondSpare = new Workshop("备用台二", new List<string> { "圆罐" });
+        var roster = new WorkshopRoster(
+            new[] { master, slave, firstSpare, secondSpare }, master, slave);
+        var runtime = new ResourceWorldRuntime(resources, roster: roster);
+
+        var first = runtime.BeginReplacement(
+            WorkshopRole.Master, firstSpare, new NoOrderInterruption(), 1_000);
+
+        Assert.True(first.Success);
+        var firstProcess = runtime.ActiveReplacement;
+        Assert.NotNull(firstProcess);
+
+        var overlapping = runtime.BeginReplacement(
+            WorkshopRole.Slave, secondSpare, new NoOrderInterruption(), 1_000);
+
+        Assert.False(overlapping.Success);
+        Assert.Contains("已有工作台替换过程", overlapping.Error);
+        Assert.Same(firstProcess, runtime.ActiveReplacement);
+        Assert.Same(master, roster.Master);
+        Assert.Same(slave, roster.Slave);
+
+        runtime.AdvanceWorldTime(2_000);
+
+        Assert.Same(firstSpare, roster.Master);
+        Assert.True(firstProcess!.IsFinished);
+        Assert.True(firstProcess.Succeeded);
+
+        // 第一个过程终结后，旧主台已成为备用台，可以合法接任从台。
+        var second = runtime.BeginReplacement(
+            WorkshopRole.Slave, master, new NoOrderInterruption(), 1_000);
+
+        Assert.True(second.Success);
+        Assert.NotSame(firstProcess, runtime.ActiveReplacement);
+        runtime.AdvanceWorldTime(1_000);
+
+        Assert.Same(master, roster.Slave);
+        Assert.True(runtime.ActiveReplacement!.IsFinished);
+        Assert.True(runtime.ActiveReplacement.Succeeded);
+        Assert.False(runtime.IsFaulted);
+    }
+
+    [Fact]
+    public void RuntimeFreezesAndRetainsReplacementWhenMigrationRollbackFails()
+    {
+        var vocabulary = Vocabulary.Default;
+        var producers = new ProducerModule(vocabulary);
+        var liquids = new LiquidProduction(
+            vocabulary, defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var resources = new ResourceArea(producers, liquids, jarFlowRate: 0, liquidFlowRate: 0);
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" });
+        var target = new Workshop("备用台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台");
+        var roster = new WorkshopRoster(new[] { oldMaster, target, slave }, oldMaster, slave);
+        var originalJar = new Jar("圆罐");
+        oldMaster.AddJar(originalJar);
+        var pool = new JarPool();
+        var runtime = new ResourceWorldRuntime(
+            resources,
+            roster: roster,
+            masterSwitchFactory: (oldWorkshop, newWorkshop) =>
+                new WorkshopSwitchEvent(oldWorkshop, newWorkshop, pool));
+
+        var begin = runtime.BeginReplacement(
+            WorkshopRole.Master, target, new NoOrderInterruption(), 1_000);
+        Assert.True(begin.Success);
+        Assert.True(runtime.ActiveReplacement!.InterruptionCommitted);
+
+        // 第一阶段已修改工作台；随后模拟快照所依赖的原始实体被对象池提前回收。
+        runtime.AdvanceWorldTime(1_000);
+        pool.Return(originalJar);
+
+        var cancel = runtime.CancelActiveReplacement("测试回滚失败");
+
+        Assert.False(cancel.Success);
+        Assert.True(runtime.IsFaulted);
+        Assert.Contains("回滚失败", runtime.FaultReason);
+        Assert.NotNull(runtime.ActiveReplacement);
+        Assert.False(runtime.ActiveReplacement!.IsFinished);
+        Assert.True(runtime.ActiveReplacement.InterruptionCommitted);
+        Assert.Same(oldMaster, roster.Master);
+
+        // 故障后不能再推进世界；替换对象仍保留，供快照/诊断读取。
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1));
+    }
+
 }
