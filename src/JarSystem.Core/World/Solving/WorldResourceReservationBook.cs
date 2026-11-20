@@ -6,7 +6,7 @@ using System.Linq;
 namespace JarSystem.Core.World.Solving;
 
 /// <summary>
-/// 执行期间的资源占用账本。只记录订单对罐子与主台初始游离液体的独占声明，不修改真实库存。
+/// 执行期间的资源占用账本。记录订单对罐子、主台初始游离液体及唯一从台岗位的独占声明，不修改真实库存。
 /// </summary>
 public sealed class WorldResourceReservationBook
 {
