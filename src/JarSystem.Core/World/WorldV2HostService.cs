@@ -1,17 +1,20 @@
 using System;
+using System.Threading;
 
 namespace JarSystem.Core.World;
 
 /// <summary>
 /// World v2 世界实例的生命周期所有者。
 ///
-/// Host 管理当前 Context 的发布与退役。调用方通过 Lease 声明一次使用期；
+/// Host 管理当前 Context 的发布与退役。调用方通过 Lease 声明一次独占操作期；
+/// 同一 Host 同一时刻只允许一个 Context Lease 存续，避免多个调用者并发修改世界。
 /// 替换或关闭 Host 时，旧 Context 只会在最后一个 Lease 释放后 Dispose。
 /// 本类型不推进逻辑时间、不启动后台线程，也不决定宿主的墙钟节奏。
 /// </summary>
 public sealed class WorldV2HostService : IDisposable
 {
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private WorldEntry? _current;
     private bool _disposed;
 
@@ -25,21 +28,30 @@ public sealed class WorldV2HostService : IDisposable
     }
 
     /// <summary>
-    /// 获取当前世界的使用租约。
-    /// 调用方必须使用 using/finally 释放租约；租约存续期间世界不会被 Host 释放。
+    /// 获取当前世界的独占操作租约。
+    /// 租约存续期间，其他 AcquireCurrent/Replace 调用会等待；调用方必须使用 using/finally 释放。
     /// </summary>
     public WorldV2ContextLease AcquireCurrent()
     {
-        lock (_sync)
+        _operationGate.Wait();
+        try
         {
-            ThrowIfDisposed();
-            var entry = _current ?? throw new InvalidOperationException("World v2 尚未创建");
-            return Acquire(entry);
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                var entry = _current ?? throw new InvalidOperationException("World v2 尚未创建");
+                return Acquire(entry);
+            }
+        }
+        catch
+        {
+            _operationGate.Release();
+            throw;
         }
     }
 
     /// <summary>
-    /// 首次创建或原子替换当前世界，并返回新世界的使用租约。
+    /// 等待当前独占操作结束后，首次创建或原子替换当前世界，并返回新世界的独占操作租约。
     /// 配置校验或装配失败时，当前世界保持不变。
     /// 旧世界在所有已发放租约释放后才会被 Dispose。
     /// </summary>
@@ -47,19 +59,28 @@ public sealed class WorldV2HostService : IDisposable
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
 
-        lock (_sync)
+        _operationGate.Wait();
+        try
         {
-            ThrowIfDisposed();
+            lock (_sync)
+            {
+                ThrowIfDisposed();
 
-            // 完整创建成功前不修改 _current。
-            var next = new WorldEntry(WorldV2Factory.Create(options));
-            var previous = _current;
-            _current = next;
+                // 完整创建成功前不修改 _current。
+                var next = new WorldEntry(WorldV2Factory.Create(options));
+                var previous = _current;
+                _current = next;
 
-            if (previous != null)
-                Retire(previous);
+                if (previous != null)
+                    Retire(previous);
 
-            return Acquire(next);
+                return Acquire(next);
+            }
+        }
+        catch
+        {
+            _operationGate.Release();
+            throw;
         }
     }
 
@@ -88,7 +109,17 @@ public sealed class WorldV2HostService : IDisposable
             throw new InvalidOperationException("不能为已退役的世界创建租约");
 
         entry.LeaseCount++;
-        return new WorldV2ContextLease(entry.Context, () => Release(entry));
+        return new WorldV2ContextLease(entry.Context, () =>
+        {
+            try
+            {
+                Release(entry);
+            }
+            finally
+            {
+                _operationGate.Release();
+            }
+        });
     }
 
     private void Release(WorldEntry entry)
