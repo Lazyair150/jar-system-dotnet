@@ -181,6 +181,34 @@ public sealed class ResourceWorldRuntime
         return result;
     }
 
+    /// <summary>
+    /// 取消当前尚未完成的工作台替换。迁徙状态由替换过程恢复；
+    /// 已提交的订单中断是不可逆副作用，不会随迁徙回滚。
+    /// </summary>
+    public (bool Success, string? Error) CancelActiveReplacement(
+        string reason = "工作台替换已取消")
+    {
+        if (IsFaulted)
+            return (false, "世界运行时已故障，不能取消替换：" + FaultReason);
+        if (ActiveReplacement == null)
+            return (false, "当前没有工作台替换过程");
+        if (ActiveReplacement.IsFinished)
+            return (false, "工作台替换过程已经结束");
+
+        try
+        {
+            ActiveReplacement.Cancel(reason);
+            return ActiveReplacement.IsFinished && !ActiveReplacement.Succeeded
+                ? (true, null)
+                : (false, "替换过程未能确认取消结果");
+        }
+        catch (Exception ex)
+        {
+            LatchFault(ex, "取消工作台替换时迁徙回滚失败；世界状态可能不完整");
+            return (false, FaultReason);
+        }
+    }
+
     private ResourceWorldStep AdvanceCore(long deltaWorldTimeMilli, Workshop? requestedMaster)
     {
         ThrowIfFaulted();
