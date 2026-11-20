@@ -56,12 +56,16 @@ public sealed class WorldV2ContextTests
             master,
             slave: null,
             solverRegistry: CreateSolverRegistry(),
-            logicalTimePerUnit: 1_000);
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous);
 
         Assert.Same(master, world.Roster.Master);
         Assert.Same(world.Roster, world.Runtime.Roster);
         Assert.Same(world.DemandBoard, world.Runtime.DemandBoard);
         Assert.Same(world.Resources, world.Runtime.Resources);
+        Assert.Equal(DemandAreaFulfillmentPolicy.OneShot, world.DemandBoard.Passive.FulfillmentPolicy);
+        Assert.Equal(DemandAreaFulfillmentPolicy.Continuous, world.DemandBoard.Active.FulfillmentPolicy);
 
         var demand = CreateDemand();
         world.DemandBoard.AddDemand(demand, DemandAreaKind.Passive);
@@ -80,10 +84,14 @@ public sealed class WorldV2ContextTests
         var secondMaster = CreateMaster();
         var first = WorldV2Context.Create(
             CreateResources(), new[] { firstMaster }, firstMaster, null,
-            CreateSolverRegistry(), logicalTimePerUnit: 1_000);
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous);
         var second = WorldV2Context.Create(
             CreateResources(), new[] { secondMaster }, secondMaster, null,
-            CreateSolverRegistry(), logicalTimePerUnit: 1_000);
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot);
 
         try
         {
@@ -93,6 +101,10 @@ public sealed class WorldV2ContextTests
             Assert.NotSame(first.Reservations, second.Reservations);
             Assert.NotSame(first.Runtime, second.Runtime);
             Assert.NotSame(first.Scheduler, second.Scheduler);
+            Assert.Equal(DemandAreaFulfillmentPolicy.OneShot, first.DemandBoard.Passive.FulfillmentPolicy);
+            Assert.Equal(DemandAreaFulfillmentPolicy.Continuous, first.DemandBoard.Active.FulfillmentPolicy);
+            Assert.Equal(DemandAreaFulfillmentPolicy.Continuous, second.DemandBoard.Passive.FulfillmentPolicy);
+            Assert.Equal(DemandAreaFulfillmentPolicy.OneShot, second.DemandBoard.Active.FulfillmentPolicy);
 
             first.Dispose();
 
@@ -118,6 +130,8 @@ public sealed class WorldV2ContextTests
         Assert.Throws<System.ArgumentOutOfRangeException>(() =>
             WorldV2Context.Create(
                 CreateResources(), new[] { master }, master, null,
-                CreateSolverRegistry(), logicalTimePerUnit: 0));
+                CreateSolverRegistry(), logicalTimePerUnit: 0,
+                passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+                activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot));
     }
 }
