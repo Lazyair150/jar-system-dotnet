@@ -140,7 +140,7 @@ public sealed class WorldOrderSolveBook : IDisposable
         return true;
     }
 
-    /// <summary>将当前已登记订单全部标记为 Dirty；用于外部确认的全局求解条件变化。</summary>
+    /// <summary>使当前已登记订单失效；仍处于 CD 的订单保持 NotReady。</summary>
     public void MarkAllDirty(string reason)
     {
         ThrowIfDisposed();
