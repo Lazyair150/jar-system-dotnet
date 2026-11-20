@@ -243,6 +243,28 @@ public sealed class OrderDemandTests
     }
 
     [Fact]
+    public void BoardStartsCooldownAndPublishesTheOrderSpecificChange()
+    {
+        var board = CreateBoard();
+        var demand = CreateDemand(new SequentialIdGenerator(), cooldown: 2_500);
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        OrderDemandBoardChange? observed = null;
+        board.Changed += change =>
+        {
+            if (change.Kind == OrderDemandBoardChangeKind.CooldownStarted)
+                observed = change;
+        };
+
+        Assert.True(board.StartCooldown(demand.Id));
+        Assert.False(demand.ReadyForSolve);
+        Assert.Equal(2_500, demand.CooldownRemainingLogicalMilli);
+        Assert.NotNull(observed);
+        Assert.Equal(demand.Id, observed!.DemandId);
+        Assert.Equal(OrderDemandBoardChangeKind.CooldownStarted, observed.Kind);
+        Assert.False(board.StartCooldown(demand.Id));
+    }
+
+    [Fact]
     public void ZeroCooldownDoesNotCreateAWaitingPeriod()
     {
         var demand = CreateDemand(new SequentialIdGenerator(), cooldown: 0);
