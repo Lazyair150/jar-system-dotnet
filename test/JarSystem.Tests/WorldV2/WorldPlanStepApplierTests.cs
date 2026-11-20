@@ -13,7 +13,7 @@ public sealed class WorldPlanStepApplierTests
     private static readonly Vocabulary Words =
         new(new[] { "圆罐", "方罐" }, new[] { "酒", "蜜" });
 
-    private static Workshop Workshop()
+    private static Workshop CreateWorkshop()
     {
         return new Workshop("主台", new List<string> { "圆罐", "方罐" },
             maxJars: 8, maxLiquids: 8,
@@ -39,7 +39,7 @@ public sealed class WorldPlanStepApplierTests
     [Fact]
     public void PourInUsesTheStableJarIdAndConsumesExactlyOneFreeLiquid()
     {
-        var workshop = Workshop();
+        var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", vocabulary: Words);
         workshop.AddJar(jar);
         workshop.AddLiquid("酒", 2);
@@ -58,7 +58,7 @@ public sealed class WorldPlanStepApplierTests
     [Fact]
     public void PourOutReturnsLiquidToTheFreePoolAlthoughConsumedIsEmpty()
     {
-        var workshop = Workshop();
+        var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", "酒", vocabulary: Words);
         workshop.AddJar(jar);
         var step = Step(jar, "POUR_OUT", afterLiquid: null);
@@ -74,7 +74,7 @@ public sealed class WorldPlanStepApplierTests
     [Fact]
     public void EmptyReshapeConsumesTheNamedFreeLiquid()
     {
-        var workshop = Workshop();
+        var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", vocabulary: Words);
         workshop.AddJar(jar);
         workshop.AddLiquid("蜜", 2);
@@ -93,7 +93,7 @@ public sealed class WorldPlanStepApplierTests
     [Fact]
     public void FullReshapeConsumesJarLiquidButDoesNotDebitFreePool()
     {
-        var workshop = Workshop();
+        var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", "酒", vocabulary: Words);
         workshop.AddJar(jar);
         workshop.AddLiquid("酒", 2);
@@ -113,7 +113,7 @@ public sealed class WorldPlanStepApplierTests
     [Fact]
     public void StaleExpectedStateIsRejectedWithoutChangingAnyResource()
     {
-        var workshop = Workshop();
+        var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", vocabulary: Words);
         workshop.AddJar(jar);
         workshop.AddLiquid("酒", 1);
@@ -137,7 +137,7 @@ public sealed class WorldPlanStepApplierTests
     [Fact]
     public void ConsumedMustMatchTheOperationAccountingBeforeMutation()
     {
-        var workshop = Workshop();
+        var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", vocabulary: Words);
         workshop.AddJar(jar);
         workshop.AddLiquid("酒", 1);
@@ -155,7 +155,7 @@ public sealed class WorldPlanStepApplierTests
     [Fact]
     public void MatchMarksTheSelectedJarWithoutChangingItsContents()
     {
-        var workshop = Workshop();
+        var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", "酒", vocabulary: Words);
         workshop.AddJar(jar);
         var step = Step(jar, "MATCH", afterLiquid: "酒");
