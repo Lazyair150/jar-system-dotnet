@@ -165,6 +165,10 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Null(jar.Liquid);
         Assert.Single(runtime.ActiveExecutionSessions);
         Assert.Equal(1, reservations.Count);
+        var secondReplacement = runtime.BeginReplacement(
+            WorkshopRole.Master, spare, new NoopInterruptionPort(), phaseDurationMilli: 1_000);
+        Assert.False(secondReplacement.Success);
+        Assert.Contains("不确定", secondReplacement.Error);
         var lateStart = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
         Assert.False(lateStart.Success);
         Assert.Contains("结果不确定", lateStart.Reason);
