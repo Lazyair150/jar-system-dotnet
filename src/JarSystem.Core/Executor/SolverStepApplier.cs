@@ -42,7 +42,7 @@ internal sealed class SolverStepApplier
 
         // 「一罐一操作」（Domain/Jar.cs:10）：同一只罐子在一份计划里只能被操作一次。
         // 这一道守卫必须住在**执行器**，不能只靠下游的 Workshop 判定 ——
-        // `MATCH` 分支直接 `jar.Mark()`，而 Mark 是幂等的：没有这里，
+        // Workshop.MarkJar 会拒绝重复标记，但执行器仍在此提前给出一致的“一罐一操作”错误：
         // 一条把同一只罐子 MATCH 两次的计划会"满足"两条需求，
         // 于是求解器的"可行"变成假的（玩家看到一张做不出来的订单被判可行）。
         if (jar.IsMarked)
