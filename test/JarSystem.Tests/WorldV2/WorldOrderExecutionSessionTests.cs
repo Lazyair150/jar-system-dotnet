@@ -120,7 +120,8 @@ public sealed class WorldOrderExecutionSessionTests
         var step = runtime.AdvanceWorldTime(1_000);
 
         Assert.Equal(1_000, step.LogicalTimeDeltaMilli);
-        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        var completedSession = started.Session!;
+        Assert.True(completedSession.Succeeded, completedSession.Reason);
         Assert.Empty(runtime.ActiveExecutionSessions);
         Assert.Empty(master.Jars);
     }
