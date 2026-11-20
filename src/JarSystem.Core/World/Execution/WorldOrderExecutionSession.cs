@@ -209,7 +209,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     }
 
     /// <summary>
-    /// 会话已准入但尚未执行任何计划步骤时，因 Runtime 已有活动会话或正在替换工作台而取消。
+    /// 会话已准入但尚未执行任何计划步骤时，因重复订单会话或工作台替换而取消。
     /// 不进入 CD，因为这张订单从未真正开始执行；只标记 Dirty 并释放刚取得的预留。
     /// </summary>
     internal bool CancelBeforeExecution(string reason)
