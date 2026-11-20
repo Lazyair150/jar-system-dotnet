@@ -52,7 +52,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     public long UnitElapsedLogicalMilli => _unitElapsedLogicalMilli;
     public int CompletedMasterSteps => _masterIndex;
     public int CompletedSlaveSteps => _slaveIndex;
-    /// <summary>本会话从台结算产生的回流/丢弃日志；只读快照。</summary>
+    /// <summary>本会话从台结算产生的丢弃解释日志；回流/丢弃数量以 ResourceLedger 为准。</summary>
     public IReadOnlyList<ExecutionLogEntry> ResourceSettlementLog => _resourceSettlementLog.AsReadOnly();
 
     private WorldOrderExecutionSession(
@@ -379,6 +379,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private string? TransferToSlave()
     {
         var slave = _slave ?? throw new InvalidOperationException("B 类执行缺少从台");
+        var ledgerTick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
         if (slave.HasResources)
             return "B 类资源转移前，从工作台必须仍为空";
 
@@ -433,7 +434,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     throw new InvalidOperationException($"罐子 #{id} 转移失败且无法恢复主台归属");
                 throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
             }
-            _resourceLedger?.Record(_resourceLedgerTick!(), ResourceCauses.Transfer,
+            _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
                 ResourceKinds.Jar, jar.Shape, 1, from: _master.Name, to: slave.Name);
         }
 
@@ -450,7 +451,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
                 throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
             }
-            _resourceLedger?.Record(_resourceLedgerTick!(), ResourceCauses.Transfer,
+            _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
                 ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
         }
 
