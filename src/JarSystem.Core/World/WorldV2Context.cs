@@ -8,12 +8,13 @@ using JarSystem.Core.World.Solving;
 namespace JarSystem.Core.World;
 
 /// <summary>
-/// 一个 World v2 世界的完整对象图。
+/// 一个 World v2 世界的完整协作对象图。
 ///
 /// Context 是装配边界，不是第二个运行时：它把同一世界的资源区、岗位、需求板、
 /// 求解簿、资源预留、执行准入、Runtime 与 Scheduler 放在一起，防止宿主分别创建
 /// 这些对象时误把不同世界的组件交叉连接。
 ///
+/// 注意：本类型接收已构造的资源区、工作台和求解器注册表；它不是 WorldOptions/JSON 配置工厂。
 /// 时间推进仍由 Runtime 执行；调度决策仍由 Scheduler 执行；本类型不启动线程、不推进时间。
 /// </summary>
 public sealed class WorldV2Context : IDisposable
@@ -50,8 +51,9 @@ public sealed class WorldV2Context : IDisposable
     }
 
     /// <summary>
-    /// 从世界的基础对象装配唯一一致的 World v2 对象图。
+    /// 从世界的基础对象装配唯一一致的 World v2 协作对象图。
     /// 调用方负责创建资源区、工作台和求解器注册表；其余协作对象由本方法统一创建。
+    /// 主动区与被动区的成功处理策略必须显式提供，避免配置遗漏时静默落入 OneShot。
     /// </summary>
     public static WorldV2Context Create(
         ResourceArea resources,
@@ -60,8 +62,8 @@ public sealed class WorldV2Context : IDisposable
         Workshop? slave,
         WorldOrderSolverRegistry solverRegistry,
         long logicalTimePerUnit,
-        DemandAreaFulfillmentPolicy passiveFulfillmentPolicy = DemandAreaFulfillmentPolicy.OneShot,
-        DemandAreaFulfillmentPolicy activeFulfillmentPolicy = DemandAreaFulfillmentPolicy.OneShot,
+        DemandAreaFulfillmentPolicy passiveFulfillmentPolicy,
+        DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
         WorldClock? clock = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
