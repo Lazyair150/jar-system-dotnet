@@ -438,17 +438,28 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
-    public void BOrderFailureAfterSlaveTransferReturnsTemporaryResourcesAndReleasesReservation()
+    public void BOrderFailureAfterOneSlaveOperationKeepsConsumedLiquidConsumed()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
         var slave = new Workshop("从台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
-        var jar = new Jar("圆罐", vocabulary: Words);
-        master.AddJar(jar);
-        master.AddLiquid("酒", 1);
-        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var firstJar = new Jar("圆罐", vocabulary: Words);
+        var secondJar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(firstJar);
+        master.AddJar(secondJar);
+        master.AddLiquid("酒", 2);
+        var demand = new OrderDemand(new JarOrderSpecification(
+            new[]
+            {
+                new Requirement { Shape = "圆罐", Liquid = "酒" },
+                new Requirement { Shape = "圆罐", Liquid = "酒" }
+            },
+            Constants.OrderType.B, Words), 0, new SequentialIdGenerator());
         var setup = Prepare(master, slave, demand);
+        var plan = setup.Book.Find(demand.Id)!.Result!.Plan!;
+        Assert.Equal(2, plan.SlaveSteps.Count(step => step.Operation?.Type == "POUR_IN"));
+
         var runtime = CreateRuntime(setup.Board, setup.Roster);
         var started = runtime.TryStartExecutionSession(
             demand.Id, setup.Book, setup.Admission, 1_000);
@@ -459,20 +470,21 @@ public sealed class WorldOrderExecutionSessionTests
             runtime.AdvanceWorldTime(1_000);
 
         Assert.True(slave.HasResources, "测试必须先越过 B 类全量转移边界");
-        Assert.True(slave.LiquidStorage["酒"] > 0,
-            "该计划应将执行所需的酒转入从台");
+        Assert.Equal(2, slave.LiquidStorage["酒"]);
 
-        // 在转移提交后改变从台规则，令后续使用酒的计划步骤被领域层拒绝。
-        // 这是普通执行失败，不是工作台替换中断。
+        // 先成功执行一个 POUR_IN，再让第二个 POUR_IN 因新禁令失败。
+        runtime.AdvanceWorldTime(1_000);
+        Assert.Equal(1, slave.Jars.Count(item => item.Liquid == "酒"));
+        Assert.Equal(1, slave.LiquidStorage["酒"]);
+
         slave.ReplaceCapability(new WorkshopCapability(
             slave.BaseMarks, slave.AdditionalMarks, new[] { "酒" }));
-
-        for (var i = 0; i < 12 && !session.IsTerminal; i++)
-            runtime.AdvanceWorldTime(1_000);
+        runtime.AdvanceWorldTime(1_000);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
         Assert.False(slave.HasResources, "失败收尾必须清空本订单临时从台资源");
-        Assert.Contains(master.Jars, item => item.Id == jar.Id);
+        Assert.Contains(master.Jars, item => item.Id == firstJar.Id || item.Id == secondJar.Id);
+        Assert.Contains(master.Jars, item => item.Liquid == "酒");
         Assert.Equal(1, master.LiquidStorage["酒"]);
         Assert.Equal(0, setup.Reservations.Count);
     }
