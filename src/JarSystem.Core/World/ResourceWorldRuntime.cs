@@ -21,6 +21,8 @@ public sealed class ResourceWorldRuntime
     public WorkshopRoster? Roster { get; }
     public OrderDemandBoard? DemandBoard { get; }
     public WorkshopReplacementProcess? ActiveReplacement { get; private set; }
+    private bool ReplacementBlocksWorld =>
+        ActiveReplacement is { IsFinished: false } or { InterruptionOutcomeUncertain: true };
 
     private readonly List<WorldOrderExecutionSession> _executionSessions = new();
     private readonly IReadOnlyList<WorldOrderExecutionSession> _executionSessionsView;
@@ -58,9 +60,9 @@ public sealed class ResourceWorldRuntime
         if (session.IsTerminal) return false;
 
         _executionSessions.RemoveAll(existing => existing.IsTerminal);
-        if (ActiveReplacement is { IsFinished: false })
+        if (ReplacementBlocksWorld)
         {
-            if (!session.CancelBeforeExecution("工作台替换已经开始；本会话未启动"))
+            if (!session.CancelBeforeExecution("工作台替换正在进行或结果不确定；本会话未启动"))
                 throw new InvalidOperationException("工作台替换期间收到已经执行过步骤的未登记会话");
             return false;
         }
@@ -88,8 +90,8 @@ public sealed class ResourceWorldRuntime
     {
         if (Roster == null || DemandBoard == null)
             return WorldOrderExecutionStartResult.Rejected("当前 Runtime 没有需求板或工作台岗位集合");
-        if (ActiveReplacement is { IsFinished: false })
-            return WorldOrderExecutionStartResult.Rejected("工作台替换期间不能启动订单");
+        if (ReplacementBlocksWorld)
+            return WorldOrderExecutionStartResult.Rejected("工作台替换正在进行或结果不确定，不能启动订单");
         _executionSessions.RemoveAll(session => session.IsTerminal);
         if (_executionSessions.Count > 0)
             return WorldOrderExecutionStartResult.Rejected("世界已有活动订单执行会话");
@@ -147,27 +149,32 @@ public sealed class ResourceWorldRuntime
         var replacementWasActive = ActiveReplacement is { IsFinished: false };
         if (replacementWasActive)
             ActiveReplacement!.AdvanceLogicalTime(logicalDelta);
+        var replacementOutcomeUncertain = ActiveReplacement is { InterruptionOutcomeUncertain: true };
+        var replacementBlocksWorld = replacementWasActive || replacementOutcomeUncertain;
 
         // 一个世界推进片段只要与替换过程有重叠，就全片段暂停流入。
         // 生产仍然推进并留在仓库；替换完成后的下一片段才向新主台流入。
         // 不在这里重新读取 Roster.Master：无参重载已在入口处解析岗位，
         // 显式参数重载则必须保留调用者指定的目标（包括 null）。
-        var effectiveMaster = replacementWasActive ? null : requestedMaster;
+        var effectiveMaster = replacementBlocksWorld ? null : requestedMaster;
 
         var resources = Resources.Advance(logicalDelta, effectiveMaster);
 
         // 执行会话与生产、CD 共用同一个逻辑时间增量。先推进本片段的生产，
         // 再推进已预留资源上的订单步骤；会话自身仍按步骤时长控制实际操作时点。
-        foreach (var session in _executionSessions.ToArray())
+        if (!replacementBlocksWorld)
         {
-            try
+            foreach (var session in _executionSessions.ToArray())
             {
-                session.AdvanceLogicalTime(logicalDelta);
-            }
-            finally
-            {
-                if (session.IsTerminal)
-                    _executionSessions.Remove(session);
+                try
+                {
+                    session.AdvanceLogicalTime(logicalDelta);
+                }
+                finally
+                {
+                    if (session.IsTerminal)
+                        _executionSessions.Remove(session);
+                }
             }
         }
 
