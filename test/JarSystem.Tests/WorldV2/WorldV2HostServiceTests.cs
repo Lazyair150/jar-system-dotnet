@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 using Xunit;
@@ -45,102 +47,215 @@ public sealed class WorldV2HostServiceTests
     };
 
     [Fact]
-    public void ReplaceCreatesAndPublishesInitialWorldLease()
+    public void ReplaceCreatesAndPublishesInitialWorld()
     {
         using var host = new WorldV2HostService();
 
         Assert.False(host.HasWorld);
-        Assert.Throws<InvalidOperationException>(() => host.AcquireCurrent());
+        Assert.Throws<InvalidOperationException>(() =>
+            host.ExecuteExclusive(_ => { }));
 
-        using var created = host.Replace(ValidOptions());
+        host.Replace(ValidOptions());
+
+        string? masterName = null;
+        host.ExecuteExclusive(context => masterName = context.Roster.Master!.Name);
 
         Assert.True(host.HasWorld);
-        using var current = host.AcquireCurrent();
-        Assert.Same(created.Context, current.Context);
-        Assert.False(created.Context.IsDisposed);
+        Assert.Equal("主台", masterName);
     }
 
     [Fact]
-    public void SuccessfulReplaceRetiresPreviousWorldButWaitsForItsLeases()
+    public void SuccessfulReplaceDisposesPreviousWorldAfterPublishingNewWorld()
     {
         using var host = new WorldV2HostService();
-        var first = host.Replace(ValidOptions("第一主台"));
-        var firstContext = first.Context;
+        host.Replace(ValidOptions("第一主台"));
 
-        using var second = host.Replace(ValidOptions("第二主台"));
+        WorldV2Context? previous = null;
+        host.ExecuteExclusive(context => previous = context);
 
-        Assert.NotSame(firstContext, second.Context);
-        Assert.Equal("第二主台", second.Context.Roster.Master!.Name);
-        Assert.False(firstContext.IsDisposed);
+        host.Replace(ValidOptions("第二主台"));
 
-        first.Dispose();
-        Assert.True(firstContext.IsDisposed);
-        Assert.False(second.Context.IsDisposed);
+        Assert.NotNull(previous);
+        Assert.True(previous!.IsDisposed);
+
+        string? currentMaster = null;
+        host.ExecuteExclusive(context => currentMaster = context.Roster.Master!.Name);
+        Assert.Equal("第二主台", currentMaster);
     }
 
     [Fact]
     public void FailedReplaceKeepsPreviousWorldCurrentAndAlive()
     {
         using var host = new WorldV2HostService();
-        using var previous = host.Replace(ValidOptions());
-        var previousContext = previous.Context;
+        host.Replace(ValidOptions());
+
+        WorldV2Context? previous = null;
+        host.ExecuteExclusive(context => previous = context);
 
         var invalid = ValidOptions();
         invalid.MasterWorkshopName = "不存在";
 
         Assert.Throws<ArgumentException>(() => host.Replace(invalid));
 
-        using var current = host.AcquireCurrent();
-        Assert.Same(previousContext, current.Context);
-        Assert.False(previousContext.IsDisposed);
+        string? currentMaster = null;
+        host.ExecuteExclusive(context => currentMaster = context.Roster.Master!.Name);
+
+        Assert.Equal("主台", currentMaster);
+        Assert.False(previous!.IsDisposed);
     }
 
     [Fact]
-    public void HostDisposeDefersContextDisposalUntilLastLeaseIsReleased()
+    public void DisposeIsIdempotentAndDisposesCurrentWorld()
     {
         var host = new WorldV2HostService();
-        var lease = host.Replace(ValidOptions());
-        var context = lease.Context;
+        host.Replace(ValidOptions());
+
+        WorldV2Context? current = null;
+        host.ExecuteExclusive(context => current = context);
 
         host.Dispose();
         host.Dispose();
 
         Assert.False(host.HasWorld);
-        Assert.False(context.IsDisposed);
-        Assert.Throws<ObjectDisposedException>(() => host.AcquireCurrent());
+        Assert.True(current!.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() =>
+            host.ExecuteExclusive(_ => { }));
         Assert.Throws<ObjectDisposedException>(() => host.Replace(ValidOptions()));
-
-        lease.Dispose();
-        Assert.True(context.IsDisposed);
-        Assert.Throws<ObjectDisposedException>(() => _ = lease.Context);
     }
 
     [Fact]
-    public void HostsAreIndependentAndLeaseReleaseIsIdempotent()
+    public void ExclusiveOperationRejectsNestedExecutionAndLifecycleChanges()
+    {
+        using var host = new WorldV2HostService();
+        host.Replace(ValidOptions());
+
+        host.ExecuteExclusive(_ =>
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+                host.ExecuteExclusive(__ => { }));
+            Assert.Throws<InvalidOperationException>(() =>
+                host.Replace(ValidOptions("嵌套替换")));
+            Assert.Throws<InvalidOperationException>(() => host.Dispose());
+        });
+
+        Assert.True(host.HasWorld);
+    }
+
+    [Fact]
+    public void DifferentHostsHaveIndependentOperationBoundaries()
     {
         using var firstHost = new WorldV2HostService();
         using var secondHost = new WorldV2HostService();
-        var first = firstHost.Replace(ValidOptions());
-        using var second = secondHost.Replace(ValidOptions());
+        firstHost.Replace(ValidOptions("第一主台"));
+        secondHost.Replace(ValidOptions("第二主台"));
 
-        var firstContext = first.Context;
-        var secondContext = second.Context;
+        string? firstName = null;
+        string? secondName = null;
+        firstHost.ExecuteExclusive(context => firstName = context.Roster.Master!.Name);
+        secondHost.ExecuteExclusive(context => secondName = context.Roster.Master!.Name);
 
-        firstHost.Dispose();
-        first.Dispose();
-        first.Dispose();
+        Assert.Equal("第一主台", firstName);
+        Assert.Equal("第二主台", secondName);
+    }
 
-        Assert.True(firstContext.IsDisposed);
-        Assert.False(secondContext.IsDisposed);
-        using (var current = secondHost.AcquireCurrent())
-            Assert.Same(secondContext, current.Context);
+    [Fact]
+    public async Task OperationsAndReplacementAreSerialized()
+    {
+        using var host = new WorldV2HostService();
+        host.Replace(ValidOptions("旧主台"));
 
-        // 释放调用方租约不会销毁仍由 Host 持有的当前世界。
-        second.Dispose();
-        Assert.False(secondContext.IsDisposed);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondAttempting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replacementAttempting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseFirst = new ManualResetEventSlim();
+        WorldV2Context? activeContext = null;
 
-        // Host 退役当前世界后，因租约已归零而立即释放。
-        secondHost.Dispose();
-        Assert.True(secondContext.IsDisposed);
+        var firstOperation = Task.Run(() => host.ExecuteExclusive(context =>
+        {
+            activeContext = context;
+            Assert.Equal("旧主台", context.Roster.Master!.Name);
+            firstEntered.TrySetResult();
+            if (!releaseFirst.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("测试未释放第一个独占操作");
+        }), cancellationToken);
+
+        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+
+        var secondOperation = Task.Run(() =>
+        {
+            secondAttempting.TrySetResult();
+            host.ExecuteExclusive(_ => secondEntered.TrySetResult());
+        }, cancellationToken);
+
+        await secondAttempting.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await Task.Delay(100, cancellationToken);
+        Assert.False(secondEntered.Task.IsCompleted);
+
+        var replacement = Task.Run(() =>
+        {
+            replacementAttempting.TrySetResult();
+            host.Replace(ValidOptions("新主台"));
+        }, cancellationToken);
+
+        await replacementAttempting.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await Task.Delay(100, cancellationToken);
+        Assert.False(replacement.IsCompleted);
+        Assert.False(activeContext!.IsDisposed);
+
+        releaseFirst.Set();
+        await firstOperation.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await secondOperation.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await replacement.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+
+        Assert.True(secondEntered.Task.IsCompleted);
+        Assert.True(activeContext.IsDisposed);
+        string? currentMaster = null;
+        host.ExecuteExclusive(context => currentMaster = context.Roster.Master!.Name);
+        Assert.Equal("新主台", currentMaster);
+    }
+
+    [Fact]
+    public async Task DisposeWaitsForActiveWorldOperation()
+    {
+        var host = new WorldV2HostService();
+        host.Replace(ValidOptions());
+
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var operationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposeAttempting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseOperation = new ManualResetEventSlim();
+        WorldV2Context? activeContext = null;
+
+        var operation = Task.Run(() => host.ExecuteExclusive(context =>
+        {
+            activeContext = context;
+            operationEntered.TrySetResult();
+            if (!releaseOperation.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("测试未释放世界操作");
+        }), cancellationToken);
+
+        await operationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+
+        var dispose = Task.Run(() =>
+        {
+            disposeAttempting.TrySetResult();
+            host.Dispose();
+        }, cancellationToken);
+
+        await disposeAttempting.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await Task.Delay(100, cancellationToken);
+        Assert.False(dispose.IsCompleted);
+        Assert.False(activeContext!.IsDisposed);
+
+        releaseOperation.Set();
+        await operation.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await dispose.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+
+        Assert.False(host.HasWorld);
+        Assert.True(activeContext.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() =>
+            host.ExecuteExclusive(_ => { }));
     }
 }

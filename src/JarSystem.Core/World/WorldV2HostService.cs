@@ -1,18 +1,23 @@
 using System;
+using System.Threading;
 
 namespace JarSystem.Core.World;
 
 /// <summary>
-/// World v2 世界实例的生命周期所有者。
+/// World v2 世界实例的生命周期所有者与宿主操作边界。
 ///
-/// Host 管理当前 Context 的发布与退役。调用方通过 Lease 声明一次使用期；
-/// 替换或关闭 Host 时，旧 Context 只会在最后一个 Lease 释放后 Dispose。
+/// 外部只能在 ExecuteExclusive 回调期间访问当前 Context；
+/// Replace 与 Dispose 使用同一个操作门，因此不会与世界操作重叠。
+/// 回调必须同步完成，不能把 Context 或其可变子对象保存到回调之外。
+///
 /// 本类型不推进逻辑时间、不启动后台线程，也不决定宿主的墙钟节奏。
 /// </summary>
 public sealed class WorldV2HostService : IDisposable
 {
     private readonly object _sync = new();
-    private WorldEntry? _current;
+    // 世界操作、替换和关闭共用一个串行门。
+    private readonly object _operationSync = new();
+    private WorldV2Context? _current;
     private bool _disposed;
 
     /// <summary>是否已经创建当前世界。</summary>
@@ -25,110 +30,93 @@ public sealed class WorldV2HostService : IDisposable
     }
 
     /// <summary>
-    /// 获取当前世界的使用租约。
-    /// 调用方必须使用 using/finally 释放租约；租约存续期间世界不会被 Host 释放。
+    /// 首次创建或原子替换当前世界。
+    /// 新世界完整创建成功后才发布；配置校验或装配失败时，当前世界保持不变。
+    /// 替换与正在执行的 ExecuteExclusive 回调串行，不会提前释放正在使用的 Context。
     /// </summary>
-    public WorldV2ContextLease AcquireCurrent()
-    {
-        lock (_sync)
-        {
-            ThrowIfDisposed();
-            var entry = _current ?? throw new InvalidOperationException("World v2 尚未创建");
-            return Acquire(entry);
-        }
-    }
-
-    /// <summary>
-    /// 首次创建或原子替换当前世界，并返回新世界的使用租约。
-    /// 配置校验或装配失败时，当前世界保持不变。
-    /// 旧世界在所有已发放租约释放后才会被 Dispose。
-    /// </summary>
-    public WorldV2ContextLease Replace(WorldV2Options options)
+    public void Replace(WorldV2Options options)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
+        ThrowIfOperationReentrant();
 
-        lock (_sync)
+        lock (_operationSync)
         {
-            ThrowIfDisposed();
+            lock (_sync) ThrowIfDisposed();
 
-            // 完整创建成功前不修改 _current。
-            var next = new WorldEntry(WorldV2Factory.Create(options));
-            var previous = _current;
-            _current = next;
+            // Factory 失败时尚未改动当前世界。
+            var next = WorldV2Factory.Create(options);
+            WorldV2Context? previous;
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                previous = _current;
+                _current = next;
+            }
 
-            if (previous != null)
-                Retire(previous);
-
-            return Acquire(next);
+            // 操作门仍被持有，因此没有宿主操作正在使用旧 Context。
+            previous?.Dispose();
         }
     }
 
     /// <summary>
-    /// 关闭 Host 并退役当前世界。已有租约仍可安全完成工作；
-    /// 最后一个租约释放时，世界才真正 Dispose。重复调用安全。
+    /// 在 Host 独占操作范围内访问当前世界。
+    ///
+    /// 回调是同步操作：禁止 async/await、async void，禁止把 Context 或其可变子对象
+    /// 保存到回调之外。需要向外返回数据时，应在回调内复制为独立 DTO/值对象。
+    /// 不要在回调中等待另一个会再次调用同一 Host 的任务。
+    /// </summary>
+    public void ExecuteExclusive(Action<WorldV2Context> operation)
+    {
+        if (operation == null) throw new ArgumentNullException(nameof(operation));
+        ThrowIfOperationReentrant();
+
+        lock (_operationSync)
+        {
+            WorldV2Context current;
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                current = _current ?? throw new InvalidOperationException("World v2 尚未创建");
+            }
+
+            operation(current);
+        }
+    }
+
+    /// <summary>
+    /// 关闭 Host。若有世界操作正在执行，关闭会等待该操作结束；
+    /// 随后退役并释放当前 Context。重复调用安全。
     /// </summary>
     public void Dispose()
     {
-        lock (_sync)
+        ThrowIfOperationReentrant();
+
+        lock (_operationSync)
         {
-            if (_disposed) return;
+            WorldV2Context? previous;
+            lock (_sync)
+            {
+                if (_disposed) return;
 
-            _disposed = true;
-            var previous = _current;
-            _current = null;
+                _disposed = true;
+                previous = _current;
+                _current = null;
+            }
 
-            if (previous != null)
-                Retire(previous);
+            previous?.Dispose();
         }
     }
 
-    private WorldV2ContextLease Acquire(WorldEntry entry)
+    private void ThrowIfOperationReentrant()
     {
-        if (entry.Retired || entry.Disposed)
-            throw new InvalidOperationException("不能为已退役的世界创建租约");
-
-        entry.LeaseCount++;
-        return new WorldV2ContextLease(entry.Context, () => Release(entry));
-    }
-
-    private void Release(WorldEntry entry)
-    {
-        lock (_sync)
-        {
-            if (entry.LeaseCount <= 0)
-                throw new InvalidOperationException("World v2 租约计数不平衡");
-
-            entry.LeaseCount--;
-            DisposeIfUnused(entry);
-        }
-    }
-
-    private void Retire(WorldEntry entry)
-    {
-        entry.Retired = true;
-        DisposeIfUnused(entry);
-    }
-
-    private static void DisposeIfUnused(WorldEntry entry)
-    {
-        if (!entry.Retired || entry.LeaseCount != 0 || entry.Disposed)
-            return;
-
-        entry.Disposed = true;
-        entry.Context.Dispose();
+        if (Monitor.IsEntered(_operationSync))
+            throw new InvalidOperationException(
+                "World v2 Host 独占操作不可重入，也不能在操作回调内替换或关闭 Host");
     }
 
     private void ThrowIfDisposed()
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(WorldV2HostService));
-    }
-
-    private sealed class WorldEntry(WorldV2Context context)
-    {
-        public WorldV2Context Context { get; } = context;
-        public int LeaseCount { get; set; }
-        public bool Retired { get; set; }
-        public bool Disposed { get; set; }
     }
 }
