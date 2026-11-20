@@ -132,7 +132,8 @@ public sealed class WorldV2HostServiceTests
 
         Assert.True(firstContext.IsDisposed);
         Assert.False(secondContext.IsDisposed);
-        Assert.Same(secondContext, secondHost.AcquireCurrent().Context);
+        using (var current = secondHost.AcquireCurrent())
+            Assert.Same(secondContext, current.Context);
 
         second.Dispose();
         Assert.True(secondContext.IsDisposed);
