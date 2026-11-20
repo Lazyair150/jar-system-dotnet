@@ -211,6 +211,10 @@ public sealed class WorldV2ApplicationService
         if (process == null) return null;
         return new WorldV2WorkshopReplacementDto(
             process.Role,
+            process.OldWorkshopName,
+            process.TargetWorkshopName,
+            process.PhaseDurationLogicalMilli,
+            process.PhaseElapsedLogicalMilli,
             process.IsFinished,
             process.Succeeded,
             process.InterruptionCommitted,
@@ -314,6 +318,10 @@ public sealed record WorldV2WorkshopReplacementResultDto(
 
 public sealed record WorldV2WorkshopReplacementDto(
     WorkshopRole Role,
+    string OldWorkshopName,
+    string TargetWorkshopName,
+    long PhaseDurationLogicalMilli,
+    long PhaseElapsedLogicalMilli,
     bool IsFinished,
     bool Succeeded,
     bool InterruptionCommitted,
