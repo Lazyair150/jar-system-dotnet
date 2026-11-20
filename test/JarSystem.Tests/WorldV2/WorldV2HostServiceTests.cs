@@ -135,7 +135,12 @@ public sealed class WorldV2HostServiceTests
         using (var current = secondHost.AcquireCurrent())
             Assert.Same(secondContext, current.Context);
 
+        // 释放调用方租约不会销毁仍由 Host 持有的当前世界。
         second.Dispose();
+        Assert.False(secondContext.IsDisposed);
+
+        // Host 退役当前世界后，因租约已归零而立即释放。
+        secondHost.Dispose();
         Assert.True(secondContext.IsDisposed);
     }
 }
