@@ -10,8 +10,8 @@ using JarSystem.Core.World.Execution;
 namespace JarSystem.Core.World;
 
 /// <summary>
-/// World v2 的持续运行时：先推进统一逻辑时间，再推进需求 CD、岗位替换与资源生产。
-/// 替换活动期间继续生产，但关闭仓库到主台的流入。
+/// World v2 的持续运行时：统一推进逻辑时间、需求 CD、岗位替换、资源生产与已登记订单会话。
+/// 替换活动期间继续生产，但关闭仓库到主台的流入；替换开始时先中断全部已登记订单会话。
 /// </summary>
 public sealed class ResourceWorldRuntime
 {
@@ -82,8 +82,11 @@ public sealed class ResourceWorldRuntime
         if (ActiveReplacement is { IsFinished: false })
             return (false, "已有工作台替换过程正在进行");
 
+        // 已登记会话也是当前世界中的活动订单。先让外部适配器完成其负责的订单中断，
+        // 再逐个中断本 Runtime 持有的会话；任何后续失败都按“不确定”处理，不自动重试。
+        var combinedInterruption = new RuntimeOrderInterruptionPort(_executionSessions, interruptionPort);
         var process = new WorkshopReplacementProcess(
-            Roster, role, target, interruptionPort, phaseDurationMilli, _masterSwitchFactory);
+            Roster, role, target, combinedInterruption, phaseDurationMilli, _masterSwitchFactory);
         var result = process.Begin();
         // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查。
         if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
@@ -95,8 +98,7 @@ public sealed class ResourceWorldRuntime
     {
         var logicalDelta = Clock.Advance(deltaWorldTimeMilli);
 
-        // CD 与资源生产使用同一份逻辑时间；暂停/零流速时 logicalDelta 为 0，CD 不减少。
-        // 返回的到期需求 ID 暂由调用方忽略，阶段四将接入 Dirty/重新求解调度。
+        // CD 与资源生产、订单执行使用同一份逻辑时间；暂停/零流速时 logicalDelta 为 0。
         DemandBoard?.AdvanceLogicalTime(logicalDelta);
 
         var replacementWasActive = ActiveReplacement is { IsFinished: false };
@@ -127,6 +129,42 @@ public sealed class ResourceWorldRuntime
         }
 
         return new ResourceWorldStep(logicalDelta, resources);
+    }
+
+    /// <summary>
+    /// 把外部订单中断适配器与 Runtime 已登记的执行会话合并。
+    /// 先调用外部适配器，确保它拒绝时本 Runtime 尚未产生中断副作用；
+    /// 外部适配器成功后，若某个会话清理失败则抛异常，让替换流程按结果不确定处理。
+    /// </summary>
+    private sealed class RuntimeOrderInterruptionPort : IOrderInterruptionPort
+    {
+        private readonly List<WorldOrderExecutionSession> _sessions;
+        private readonly IOrderInterruptionPort _downstream;
+
+        public RuntimeOrderInterruptionPort(
+            List<WorldOrderExecutionSession> sessions,
+            IOrderInterruptionPort downstream)
+        {
+            _sessions = sessions;
+            _downstream = downstream ?? throw new ArgumentNullException(nameof(downstream));
+        }
+
+        public (bool Success, string? Error) InterruptForWorkshopReplacement()
+        {
+            var external = _downstream.InterruptForWorkshopReplacement();
+            if (!external.Success) return external;
+
+            foreach (var session in _sessions.ToArray())
+            {
+                if (session.IsTerminal) continue;
+                var result = session.InterruptForWorkshopReplacement();
+                if (!result.Success)
+                    throw new InvalidOperationException(result.Error ?? "订单执行会话中断失败");
+            }
+
+            _sessions.RemoveAll(session => session.IsTerminal);
+            return (true, null);
+        }
     }
 }
 
