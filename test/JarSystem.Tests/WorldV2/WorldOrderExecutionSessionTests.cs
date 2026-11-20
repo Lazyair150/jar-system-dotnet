@@ -101,6 +101,54 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
+    public void DirectMatchIsAppliedAsAZeroTimeStepBeforeAOrderIsDelivered()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var matchedJar = new Jar("圆罐", "酒", vocabulary: Words);
+        master.AddJar(matchedJar);
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var setup = Prepare(master, null, demand);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
+
+        Assert.True(started.Success, started.Reason);
+        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        Assert.Equal(1, started.Session.CompletedMasterSteps);
+        Assert.Empty(master.Jars);
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
+    public void SessionCleanupDoesNotClearMarksOnUnrelatedMasterJars()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var targetJar = new Jar("圆罐", vocabulary: Words);
+        var unrelatedJar = new Jar("方罐", vocabulary: Words);
+        master.AddJar(targetJar);
+        master.AddJar(unrelatedJar);
+        master.AddLiquid("酒", 1);
+        Assert.True(master.MarkJar(unrelatedJar).Success);
+
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var setup = Prepare(master, null, demand);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+
+        runtime.AdvanceWorldTime(1_000);
+
+        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        Assert.True(unrelatedJar.IsMarked);
+        Assert.Contains(master.Jars, jar => ReferenceEquals(jar, unrelatedJar));
+        Assert.Empty(setup.Reservations.Find(demand.Id)?.LockedJarIds ?? System.Array.Empty<int>());
+    }
+
+    [Fact]
     public void ResourceWorldRuntimeAdvancesRegisteredSessionUsingItsClockDelta()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
