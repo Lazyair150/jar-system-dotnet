@@ -579,6 +579,58 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
+    public void SuccessSettlementTickIsFetchedBeforeDeliveryJarsAreRemoved()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var ledger = new ResourceLedger();
+        var tickCalls = 0;
+        int Tick()
+        {
+            tickCalls++;
+            if (tickCalls == 2)
+                throw new InvalidOperationException("模拟成功结算前的 tick 来源故障");
+            return 23;
+        }
+
+        var runtime = CreateRuntime(setup.Board, setup.Roster, ledger, Tick);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+
+        Exception? observed = null;
+        for (var i = 0; i < 16 && !session.IsTerminal && observed == null; i++)
+        {
+            try
+            {
+                runtime.AdvanceWorldTime(1_000);
+            }
+            catch (InvalidOperationException ex)
+            {
+                observed = ex;
+            }
+        }
+
+        Assert.NotNull(observed);
+        Assert.True(runtime.IsFaulted);
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.NotNull(setup.Board.Find(demand.Id));
+        Assert.Contains(master.Jars, candidate => candidate.Id == jar.Id);
+        Assert.False(jar.IsMarked);
+        Assert.Equal(0, setup.Reservations.Count);
+        Assert.True(tickCalls >= 3,
+            "失败收尾应在预取失败后重新执行可确认的从台回流结算");
+    }
+
+    [Fact]
     public void BOrderInterruptionRecordsTransferReturnAndDiscardInWorldResourceLedger()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
