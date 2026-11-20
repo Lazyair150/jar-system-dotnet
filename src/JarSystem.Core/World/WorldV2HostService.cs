@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace JarSystem.Core.World;
 
@@ -12,6 +13,8 @@ namespace JarSystem.Core.World;
 public sealed class WorldV2HostService : IDisposable
 {
     private readonly object _sync = new();
+    // 所有由宿主协调的世界操作共用一个串行门；生命周期锁只保护 Entry 元数据。
+    private readonly object _operationSync = new();
     private WorldEntry? _current;
     private bool _disposed;
 
@@ -25,8 +28,9 @@ public sealed class WorldV2HostService : IDisposable
     }
 
     /// <summary>
-    /// 获取当前世界的使用租约。
-    /// 调用方必须使用 using/finally 释放租约；租约存续期间世界不会被 Host 释放。
+    /// 获取当前世界的生命周期租约。
+    /// 租约只阻止 Context 被释放，不提供并发访问/修改互斥。
+    /// 若要访问或修改世界状态，优先使用 ExecuteExclusive。
     /// </summary>
     public WorldV2ContextLease AcquireCurrent()
     {
@@ -39,9 +43,9 @@ public sealed class WorldV2HostService : IDisposable
     }
 
     /// <summary>
-    /// 首次创建或原子替换当前世界，并返回新世界的使用租约。
+    /// 在没有宿主协调操作正在执行时，首次创建或原子替换当前世界。
     /// 配置校验或装配失败时，当前世界保持不变。
-    /// 旧世界在所有已发放租约释放后才会被 Dispose。
+    /// 旧世界在所有已发放生命周期租约释放后才会被 Dispose。
     /// </summary>
     public WorldV2ContextLease Replace(WorldV2Options options)
     {
@@ -69,6 +73,7 @@ public sealed class WorldV2HostService : IDisposable
     /// </summary>
     public void Dispose()
     {
+        lock (_operationSync)
         lock (_sync)
         {
             if (_disposed) return;
@@ -80,6 +85,36 @@ public sealed class WorldV2HostService : IDisposable
             if (previous != null)
                 Retire(previous);
         }
+    }
+
+    /// <summary>
+    /// 在 Host 的独占操作门内访问当前世界。
+    /// 同一 Host 上的 ExecuteExclusive、Replace 与 Dispose 串行执行；
+    /// 回调必须同步完成，不能把 Context 或其可变子对象保存到回调之外。
+    /// 返回值应是脱离世界对象图的结果数据，而不是 Context/Runtime/Board 等对象引用。
+    /// </summary>
+    public TResult ExecuteExclusive<TResult>(Func<WorldV2Context, TResult> operation)
+    {
+        if (operation == null) throw new ArgumentNullException(nameof(operation));
+        if (Monitor.IsEntered(_operationSync))
+            throw new InvalidOperationException("World v2 Host 独占操作不可重入");
+
+        lock (_operationSync)
+        {
+            using var lease = AcquireCurrent();
+            return operation(lease.Context);
+        }
+    }
+
+    /// <summary>执行不需要返回结果的独占世界操作。</summary>
+    public void ExecuteExclusive(Action<WorldV2Context> operation)
+    {
+        if (operation == null) throw new ArgumentNullException(nameof(operation));
+        ExecuteExclusive(context =>
+        {
+            operation(context);
+            return true;
+        });
     }
 
     private WorldV2ContextLease Acquire(WorldEntry entry)
