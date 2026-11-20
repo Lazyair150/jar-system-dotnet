@@ -23,7 +23,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly WorldOrderResourceManifest _manifest;
     private readonly IReadOnlyList<WorldPlanStep> _masterSteps;
     private readonly IReadOnlyList<WorldPlanStep> _slaveSteps;
-    private readonly IReadOnlyList<int> _matchedJarIds;
+    private readonly IReadOnlyList<int> _deliveryJarIds;
     private readonly WorldPlanStepApplier _applier;
     private readonly long _unitDurationLogicalMilli;
     private readonly SlaveRollback _slaveRollback = new();
@@ -73,21 +73,22 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (manifest.DemandId != demandId || manifest.IsPartitioned != plan.IsPartitioned)
             throw new InvalidOperationException("资源清单与求解计划不属于同一订单或执行类型");
 
-        // MATCH 是需求匹配/交付选择，不是加工动作，不占用执行时间。
-        // 与旧 OrderExecutionSession 一致：保留其罐子 ID，成功时从交付工作台移除。
-        _matchedJarIds = Array.AsReadOnly(ReadMatchedJarIds(plan).ToArray());
+        // 每个 SolverStep 都绑定一条需求。只有该步骤 After 中的目标罐子最终满足
+        // RequirementShape/RequirementLiquid 时，它才是该需求的交付罐。
+        // 不能只找 MATCH：POUR_IN / POUR_OUT / RESHAPE 也可能是满足需求的最后一步。
+        _deliveryJarIds = Array.AsReadOnly(ReadDeliveryJarIds(plan).ToArray());
         _masterSteps = Array.AsReadOnly(plan.MasterSteps
             .Where(step => !IsMatch(step)).ToArray());
         _slaveSteps = Array.AsReadOnly(plan.SlaveSteps
             .Where(step => !IsMatch(step)).ToArray());
 
-        if (_matchedJarIds.Distinct().Count() != _matchedJarIds.Count)
+        if (_deliveryJarIds.Distinct().Count() != _deliveryJarIds.Count)
             throw new InvalidOperationException("求解计划重复将同一只罐子作为交付物");
         if (manifest.IsPartitioned &&
-            _matchedJarIds.Any(id => !manifest.TransferJarIds.Contains(id)))
+            _deliveryJarIds.Any(id => !manifest.TransferJarIds.Contains(id)))
             throw new InvalidOperationException("B 类交付罐没有包含在从主台转移的资源清单中");
         if (!manifest.IsPartitioned &&
-            _matchedJarIds.Any(id => !manifest.MasterJarIds.Contains(id)))
+            _deliveryJarIds.Any(id => !manifest.MasterJarIds.Contains(id)))
             throw new InvalidOperationException("A 类交付罐没有包含在主台资源清单中");
         if (!manifest.IsPartitioned && _slaveSteps.Count != 0)
             throw new InvalidOperationException("单阶段执行计划不能包含从台步骤");
@@ -373,7 +374,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         // 先完整验证交付集合，再统一移除，避免前几个交付罐已离台后才发现后续 ID 缺失。
         var deliveryJars = new List<Jar>();
-        foreach (var id in _matchedJarIds)
+        foreach (var id in _deliveryJarIds)
         {
             var matches = deliveryWorkshop.Jars.Where(jar => jar.Id == id).ToArray();
             if (matches.Length != 1)
@@ -437,18 +438,26 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private static bool IsMatch(WorldPlanStep step) =>
         string.Equals(step.Operation?.Type, "MATCH", StringComparison.Ordinal);
 
-    private static IEnumerable<int> ReadMatchedJarIds(WorldOrderSolvePlan plan)
+    private static IEnumerable<int> ReadDeliveryJarIds(WorldOrderSolvePlan plan)
     {
         foreach (var step in plan.MasterSteps.Concat(plan.SlaveSteps))
         {
-            if (!IsMatch(step)) continue;
-            var index = step.Operation!.JarIndex;
-            if (!index.HasValue || index.Value < 0 || index.Value >= step.Before.Count)
-                throw new InvalidOperationException("MATCH 步骤的 JarIndex 无效");
-            var id = step.Before[index.Value].Id;
-            if (id is not > 0)
-                throw new InvalidOperationException("MATCH 步骤没有有效罐子 ID");
-            yield return id.Value;
+            var index = step.Operation?.JarIndex;
+            if (!index.HasValue || index.Value < 0 ||
+                index.Value >= step.Before.Count || index.Value >= step.After.Count)
+                throw new InvalidOperationException("求解步骤的 JarIndex 无效，无法识别交付罐");
+
+            if (string.IsNullOrWhiteSpace(step.RequirementShape))
+                throw new InvalidOperationException("求解步骤没有绑定需求形状，无法识别交付罐");
+
+            var target = step.After[index.Value];
+            if (target.Shape != step.RequirementShape ||
+                target.Liquid != step.RequirementLiquid)
+                continue;
+
+            if (!target.IsMarked || target.Id is not > 0)
+                throw new InvalidOperationException("满足需求的步骤终态缺少有效罐子 ID 或操作标记");
+            yield return target.Id.Value;
         }
     }
 }
