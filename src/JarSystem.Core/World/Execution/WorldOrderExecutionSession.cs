@@ -455,6 +455,17 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             deliveryJars.Add(matches[0]);
         }
 
+        // 交付罐也属于本订单锁定的参与资源。先通过工作台领域入口清除标记，
+        // 再将罐子移出工作台；否则后续 ClearParticipantMarks 已经找不到它，
+        // 会把 IsMarked 状态带到交付边界之外。
+        foreach (var jar in deliveryJars)
+        {
+            var clear = deliveryWorkshop.ClearMark(jar);
+            if (!clear.Success)
+                throw new InvalidOperationException(
+                    clear.Reason ?? $"无法清理交付罐 #{jar.Id} 的操作标记");
+        }
+
         foreach (var jar in deliveryJars)
         {
             if (deliveryWorkshop.RemoveJar(jar) == null)
