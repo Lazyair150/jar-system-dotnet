@@ -83,3 +83,9 @@ A successful continuous demand remains in `AwaitingRearm`. A scheduling pass mus
 - No multi-threaded scheduler or concurrent solver execution.
 - No independent scheduling clock or unconditional per-frame solver search.
 - No change to the single master/slave workshop-role model.
+
+## Verification status
+
+- Owner's local `重构报告\\verify.bat`: passed; xUnit 430, Errors 0, Failed 0, Skipped 0; final `VERDICT=OK`.
+- GitHub Actions `verify` for HEAD `5f70fa41a07e73070798466b261396ce4b8a3256`: completed successfully (run #422).
+- PR #13 remains Draft and unmerged.
