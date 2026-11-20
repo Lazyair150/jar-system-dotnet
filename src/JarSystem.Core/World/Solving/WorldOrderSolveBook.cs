@@ -119,14 +119,15 @@ public sealed class WorldOrderSolveBook : IDisposable
 
     /// <summary>
     /// 使一张仍登记的订单失效。若订单仍处于 CD，则保持 NotReady，不能绕过冷却。
-    /// 对持续订单成功后的重新求解，必须由上层策略明确调用，而不是自动循环。
+    /// 持续订单在 CD 到期后由需求板事件自动重新标记为 Dirty。
     /// </summary>
     public bool MarkDirty(int demandId, string reason)
     {
         ThrowIfDisposed();
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("失效原因不能为空", nameof(reason));
-        if (_board.Find(demandId) == null)
+        var demand = _board.Find(demandId);
+        if (demand == null)
         {
             SetDetached(demandId);
             return false;
