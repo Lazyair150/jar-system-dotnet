@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 using Xunit;
@@ -142,5 +144,52 @@ public sealed class WorldV2HostServiceTests
         // Host 退役当前世界后，因租约已归零而立即释放。
         secondHost.Dispose();
         Assert.True(secondContext.IsDisposed);
+    }
+
+    [Fact]
+    public void AcquireCurrentWaitsUntilThePreviousOperationLeaseIsReleased()
+    {
+        using var host = new WorldV2HostService();
+        using var first = host.Replace(ValidOptions());
+        using var started = new ManualResetEventSlim();
+
+        var waitingAcquire = Task.Run(() =>
+        {
+            started.Set();
+            return host.AcquireCurrent();
+        });
+
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+        Assert.False(waitingAcquire.Wait(TimeSpan.FromMilliseconds(100)));
+
+        first.Dispose();
+        using var second = waitingAcquire.GetAwaiter().GetResult();
+        Assert.Same(first.Context, second.Context);
+    }
+
+    [Fact]
+    public void ReplaceWaitsUntilThePreviousOperationLeaseIsReleased()
+    {
+        using var host = new WorldV2HostService();
+        using var first = host.Replace(ValidOptions("原主台"));
+        var firstContext = first.Context;
+        using var started = new ManualResetEventSlim();
+
+        var waitingReplace = Task.Run(() =>
+        {
+            started.Set();
+            return host.Replace(ValidOptions("新主台"));
+        });
+
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+        Assert.False(waitingReplace.Wait(TimeSpan.FromMilliseconds(100)));
+        Assert.False(firstContext.IsDisposed);
+
+        first.Dispose();
+        using var second = waitingReplace.GetAwaiter().GetResult();
+
+        Assert.NotSame(firstContext, second.Context);
+        Assert.Equal("新主台", second.Context.Roster.Master!.Name);
+        Assert.True(firstContext.IsDisposed);
     }
 }
