@@ -60,17 +60,19 @@ public sealed class WorldOrderScheduler
         _running = true;
         try
         {
-            var decisions = new List<WorldOrderSchedulingDecision>();
+            var initialDemands = _board.AllDemands.ToArray();
+            var decisions = new Dictionary<int, WorldOrderSchedulingDecision>();
             var started = new List<int>();
 
             // 所有订单先共享同一份只读世界快照。Evaluate 会复用同版本缓存，
             // 只对 Dirty、NotReady 到期或世界版本变化的订单真正调用求解器。
             var sharedSnapshot = WorldSnapshotFactory.Capture(_roster);
-            foreach (var demand in _board.AllDemands.ToArray())
+            foreach (var demand in initialDemands)
             {
                 var record = _solveBook.Evaluate(demand.Id, sharedSnapshot, _solverRegistry);
-                decisions.Add(new WorldOrderSchedulingDecision(
-                    demand.Id, AreaOf(demand.Id), record.State, false, record.StateReason ?? record.DirtyReason));
+                decisions[demand.Id] = new WorldOrderSchedulingDecision(
+                    demand.Id, AreaOf(demand.Id), record.State, false,
+                    record.StateReason ?? record.DirtyReason);
             }
 
             // 被动订单的列表顺序就是同一调度轮次中的竞争顺序。
@@ -85,9 +87,9 @@ public sealed class WorldOrderScheduler
                 if (record.State != WorldOrderSolveState.Current ||
                     record.Result == null || !record.Result.IsFeasible)
                 {
-                    decisions.Add(new WorldOrderSchedulingDecision(
+                    decisions[demand.Id] = new WorldOrderSchedulingDecision(
                         demand.Id, DemandAreaKind.Passive, record.State, false,
-                        record.StateReason ?? record.DirtyReason ?? record.Result?.Reason ?? "订单当前不可执行"));
+                        record.StateReason ?? record.DirtyReason ?? record.Result?.Reason ?? "订单当前不可执行");
                     continue;
                 }
 
@@ -96,19 +98,21 @@ public sealed class WorldOrderScheduler
                 if (result.Success)
                 {
                     started.Add(demand.Id);
-                    decisions.Add(new WorldOrderSchedulingDecision(
-                        demand.Id, DemandAreaKind.Passive, record.State, true, null));
+                    decisions[demand.Id] = new WorldOrderSchedulingDecision(
+                        demand.Id, DemandAreaKind.Passive, record.State, true, null);
                 }
                 else
                 {
-                    decisions.Add(new WorldOrderSchedulingDecision(
+                    decisions[demand.Id] = new WorldOrderSchedulingDecision(
                         demand.Id, DemandAreaKind.Passive, record.State, false,
-                        result.Reason ?? "执行准入拒绝"));
+                        result.Reason ?? "执行准入拒绝");
                 }
             }
 
             return new WorldOrderSchedulingPassResult(
-                _board.Count, started.AsReadOnly(), decisions.AsReadOnly());
+                initialDemands.Length,
+                started.AsReadOnly(),
+                initialDemands.Select(demand => decisions[demand.Id]).ToArray());
         }
         finally
         {
