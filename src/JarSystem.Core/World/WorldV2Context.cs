@@ -21,6 +21,9 @@ public sealed class WorldV2Context : IDisposable
 {
     private bool _disposed;
 
+    /// <summary>Context 是否已释放；释放后不得再作为当前世界使用。</summary>
+    public bool IsDisposed => _disposed;
+
     public ResourceArea Resources { get; }
     public WorkshopRoster Roster { get; }
     public OrderDemandBoard DemandBoard { get; }
