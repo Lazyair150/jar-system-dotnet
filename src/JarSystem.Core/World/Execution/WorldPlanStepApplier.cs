@@ -129,25 +129,31 @@ public sealed class WorldPlanStepApplier
                     return "MATCH 不应改变罐子形状";
                 if (before.Liquid != operation.TargetLiquid && operation.TargetLiquid != null)
                     return "MATCH 不应改变罐内液体";
-                if (!jar.IsMarked) jar.Mark();
-                return null;
+                var mark = workshop.MarkJar(jar);
+                return mark.Success ? null : mark.Reason ?? "MATCH 标记失败";
 
             case "POUR_IN":
                 if (string.IsNullOrWhiteSpace(operation.TargetLiquid))
                     return "POUR_IN 缺少 TargetLiquid";
-                return workshop.PourIn(jar, operation.TargetLiquid).Reason;
+                var pourIn = workshop.PourIn(jar, operation.TargetLiquid);
+                return pourIn.Success ? null : pourIn.Reason ?? "POUR_IN 执行失败";
 
             case "POUR_OUT":
-                return workshop.PourOut(jar).Reason;
+                var pourOut = workshop.PourOut(jar);
+                if (!pourOut.Success) return pourOut.Reason ?? "POUR_OUT 执行失败";
+                if (!string.Equals(pourOut.Liquid, before.Liquid, StringComparison.Ordinal))
+                    throw new InvalidOperationException("POUR_OUT 成功返回的液体与计划 Before 不一致");
+                return null;
 
             case "RESHAPE":
                 if (string.IsNullOrWhiteSpace(operation.TargetShape))
                     return "RESHAPE 缺少 TargetShape";
-                return workshop.TryReshape(
+                var reshape = workshop.TryReshape(
                     jar,
                     operation.TargetShape,
                     operation.FullReshape ? ReshapeMode.Full : ReshapeMode.Empty,
-                    operation.FullReshape ? null : operation.CostLiquid).Reason;
+                    operation.FullReshape ? null : operation.CostLiquid);
+                return reshape.Success ? null : reshape.Reason ?? "RESHAPE 执行失败";
 
             default:
                 return "未知计划操作类型：" + (operation.Type ?? "(null)");
