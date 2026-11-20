@@ -45,7 +45,8 @@ Any active stage -- workshop replacement --> Interrupted
 - The B-class transfer stage consumes one configured logical-time unit.
 - MATCH is a delivery selection, not a processing operation. It consumes no execution time; its jar ID is retained and removed from the delivery workshop only after all required processing succeeds. This preserves the old execution contract where direct matches did not consume a process unit.
 - logicalTimePerUnit is mandatory at session creation. The session does not invent a conversion from the old ProcessSystem tick to WorldClock logical time.
-- ResourceWorldRuntime can register a session and advances it with the exact logical delta returned by its WorldClock. A host that does not register it may advance it directly with logical time.
+- ResourceWorldRuntime can register a session and advances it with the exact logical delta returned by its WorldClock. Registration verifies that the session belongs to that runtime's demand board and workshop roster. A host that does not register it may advance it directly with logical time.
+- When workshop replacement begins through ResourceWorldRuntime, its interruption adapter first asks the supplied external adapter to interrupt its own orders, then interrupts every still-active session registered with that runtime. A failure after the external adapter commits is treated as an uncertain interruption and is not retried.
 
 ## Applying a step
 
@@ -104,7 +105,7 @@ The reservation of the slave role prevents a second B-class session from enterin
 - No fallback to greedy execution occurs when a plan step fails.
 - No implicit rollback of completed processing occurs.
 - No multi-threaded transaction is claimed.
-- No main/slave workshop replacement algorithm is implemented here; the session only implements the interruption port required by that later lifecycle.
+- No main/slave workshop replacement algorithm is implemented here; the session only implements the interruption port consumed by that lifecycle.
 
 ## Tests added
 
