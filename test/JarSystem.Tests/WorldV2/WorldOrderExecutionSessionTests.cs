@@ -229,7 +229,7 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
-    public void RuntimeAllowsOnlyOneActiveOrderSessionWithoutTakingASecondReservation()
+    public void RuntimeAdvancesMultipleSessionsWhenTheirReservedResourcesDoNotOverlap()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
             maxJars: 8, maxLiquids: 8, vocabulary: Words);
@@ -253,27 +253,26 @@ public sealed class WorldOrderExecutionSessionTests
         });
         setup.Book.Evaluate(secondDemand.Id, WorldSnapshotFactory.Capture(setup.Roster), registry);
 
-        var resources = new ResourceArea(
-            new ProducerModule(Words),
-            new LiquidProduction(Words,
-                defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
-            jarFlowRate: 0,
-            liquidFlowRate: 0);
-        var runtime = new ResourceWorldRuntime(
-            resources, roster: setup.Roster, demandBoard: setup.Board);
-
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
         var first = runtime.TryStartExecutionSession(
             firstDemand.Id, setup.Book, setup.Admission, 1_000);
         var second = runtime.TryStartExecutionSession(
             secondDemand.Id, setup.Book, setup.Admission, 1_000);
 
         Assert.True(first.Success, first.Reason);
-        Assert.False(second.Success);
-        Assert.Contains("活动订单执行会话", second.Reason);
-        Assert.Single(runtime.ActiveExecutionSessions);
-        Assert.Equal(1, setup.Reservations.Count);
-        Assert.Null(setup.Reservations.Find(secondDemand.Id));
+        Assert.True(second.Success, second.Reason);
+        Assert.Equal(2, runtime.ActiveExecutionSessions.Count);
+        Assert.Equal(2, setup.Reservations.Count);
 
+        runtime.AdvanceWorldTime(1_000);
+
+        Assert.True(first.Session!.Succeeded, first.Session.Reason);
+        Assert.True(second.Session!.Succeeded, second.Session.Reason);
+        Assert.Empty(runtime.ActiveExecutionSessions);
+        Assert.Empty(master.Jars);
+        Assert.Null(setup.Board.Find(firstDemand.Id));
+        Assert.Null(setup.Board.Find(secondDemand.Id));
+        Assert.Equal(0, setup.Reservations.Count);
     }
 
     [Fact]
