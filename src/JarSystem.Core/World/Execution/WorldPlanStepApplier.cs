@@ -26,8 +26,11 @@ public sealed class WorldPlanStepApplier
 
         var expectedBefore = step.Before[index];
         var expectedAfter = step.After[index];
-        if (expectedBefore.Id is not > 0)
-            return Reject("计划目标罐子没有有效 ID");
+        if (expectedBefore.Id is not > 0 || expectedAfter.Id != expectedBefore.Id ||
+            expectedAfter.MasterOrigin != expectedBefore.MasterOrigin)
+            return Reject("计划目标罐子的身份或来源标记不一致");
+        var transitionError = ValidateTransition(operation, expectedBefore, expectedAfter);
+        if (transitionError != null) return Reject(transitionError);
 
         var matches = workshop.Jars.Where(j => j.Id == expectedBefore.Id).ToArray();
         if (matches.Length != 1)
@@ -69,6 +72,33 @@ public sealed class WorldPlanStepApplier
         }
 
         return new WorldPlanStepApplyResult(true, expectedBefore.Id, operation.Type, null);
+    }
+
+    private static string? ValidateTransition(
+        WorldPlanOperation operation, WorldPlanJarState before, WorldPlanJarState after)
+    {
+        if (!after.IsMarked) return "计划步骤的 After 状态没有标记目标罐子";
+        switch (operation.Type)
+        {
+            case "MATCH":
+                return after.Shape == before.Shape && after.Liquid == before.Liquid
+                    ? null : "MATCH 的 After 状态改变了罐子内容";
+            case "POUR_IN":
+                return before.Liquid == null && after.Shape == before.Shape &&
+                    !string.IsNullOrWhiteSpace(operation.TargetLiquid) &&
+                    after.Liquid == operation.TargetLiquid
+                    ? null : "POUR_IN 的 After 状态不符合操作语义";
+            case "POUR_OUT":
+                return before.Liquid != null && after.Shape == before.Shape && after.Liquid == null
+                    ? null : "POUR_OUT 的 After 状态不符合操作语义";
+            case "RESHAPE":
+                return !string.IsNullOrWhiteSpace(operation.TargetShape) &&
+                    after.Shape == operation.TargetShape && after.Liquid == null &&
+                    (operation.FullReshape ? before.Liquid != null : before.Liquid == null)
+                    ? null : "RESHAPE 的 After 状态不符合操作语义";
+            default:
+                return "未知计划操作类型：" + (operation.Type ?? "(null)");
+        }
     }
 
     private static string? ApplyOperation(
