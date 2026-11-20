@@ -73,6 +73,20 @@ public sealed class OrderDemandBoard
         return DemandFulfillmentResult.RetainedInArea;
     }
 
+    /// <summary>
+    /// 订单执行被工作台替换等外部事件中断时启动该订单自己的 CD。
+    /// 普通执行失败不自动进入 CD；失败后由求解簿重新评估当前世界。
+    /// </summary>
+    public bool StartCooldown(int demandId)
+    {
+        var demand = Find(demandId);
+        if (demand == null || !demand.EnterCooldown()) return false;
+        var area = AreaOf(demand);
+        Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.CooldownStarted,
+            demand.Id, area.Kind, area.Kind));
+        return true;
+    }
+
     /// <summary>将需求移到另一个区域；跨区移动追加到目标区域末尾。</summary>
     public bool MoveToArea(int demandId, DemandAreaKind targetArea)
     {
@@ -165,6 +179,7 @@ public enum OrderDemandBoardChangeKind
     Removed,
     Moved,
     PassiveOrderChanged,
+    CooldownStarted,
     CooldownElapsed,
     FulfilledRetained
 }
