@@ -51,8 +51,11 @@ internal sealed class SolverStepApplier
         switch (type)
         {
             case "MATCH":
-                jar.Mark();
+            {
+                var mark = w.MarkJar(jar);
+                if (!mark.Success) return (false, null, mark.Reason ?? "MATCH 标记失败");
                 return (true, new ExecutionLogEntry { Phase = phase, Action = "direct_match", Jar = jar.GetDescription() }, null);
+            }
 
             case "POUR_IN":
             {
