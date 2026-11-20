@@ -36,7 +36,6 @@
 | `NotReady` | 订单仍处于 CD，不能求解 |
 | `Detached` | 订单已不在需求板中，旧计划被清除 |
 
-
 `Current` 不等于可执行。读取结果时还会核对需求板归属、CD 和当前 `WorldSnapshot.Version`。版本不匹配时立即丢弃结果并转为 `Dirty`。
 
 ## 自动失效规则
