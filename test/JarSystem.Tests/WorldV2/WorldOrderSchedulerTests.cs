@@ -139,4 +139,23 @@ public sealed class WorldOrderSchedulerTests
         Assert.NotNull(setup.Board.Find(demand.Id));
         Assert.Empty(setup.Runtime.ActiveExecutionSessions);
     }
+    [Fact]
+    public void AdvanceWorldAndScheduleRunsOneSchedulingPassAfterWorldAdvance()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var setup = Prepare(master);
+        var demand = Demand("圆罐", DemandAreaKind.Passive, new SequentialIdGenerator());
+        setup.Board.AddDemand(demand, DemandAreaKind.Passive);
+
+        var result = setup.Scheduler.AdvanceWorldAndSchedule(1_000);
+
+        Assert.Equal(1_000, result.WorldStep.LogicalTimeDeltaMilli);
+        Assert.Contains(demand.Id, result.Scheduling.StartedDemandIds);
+        Assert.Equal(1, result.Scheduling.VisitedDemandCount);
+        Assert.Null(setup.Board.Find(demand.Id));
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
 }
