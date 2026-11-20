@@ -106,8 +106,8 @@ public sealed class WorldV2ApplicationServiceTests
         var second = app.GetWorldSnapshot();
 
         Assert.Equal(1, firstJarCount);
-        Assert.Equal(1, first.Master.Jars.Count);
-        Assert.Equal(2, second.Master!.Jars.Count);
+        Assert.Single(first.Master.Jars);
+        Assert.Collection(second.Master!.Jars, _ => { }, _ => { });
     }
 
     [Fact]
