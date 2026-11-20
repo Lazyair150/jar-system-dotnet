@@ -52,7 +52,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     public long UnitElapsedLogicalMilli => _unitElapsedLogicalMilli;
     public int CompletedMasterSteps => _masterIndex;
     public int CompletedSlaveSteps => _slaveIndex;
-    /// <summary>本会话从台结算产生的丢弃解释日志；回流/丢弃数量以 ResourceLedger 为准。</summary>
+    /// <summary>本会话从台结算产生的丢弃解释日志（只读视图）；回流/丢弃数量以 ResourceLedger 为准。</summary>
     public IReadOnlyList<ExecutionLogEntry> ResourceSettlementLog => _resourceSettlementLog.AsReadOnly();
 
     private WorldOrderExecutionSession(
@@ -131,6 +131,16 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     /// 先执行既有准入（重新验证快照并预留资源），再建立会话。
     /// logicalTimePerUnit 必须由世界装配/执行策略明确提供；本类不猜测旧 tick 与逻辑时间的换算。
     /// </summary>
+    // 保留原内部调用形状；未配置账本的独立测试/宿主继续使用无账本执行。
+    internal static WorldOrderExecutionStartResult TryStart(
+        int demandId,
+        OrderDemandBoard board,
+        WorldOrderSolveBook solveBook,
+        WorldOrderExecutionAdmission admission,
+        WorkshopRoster roster,
+        long logicalTimePerUnit) =>
+        TryStart(demandId, board, solveBook, admission, roster, logicalTimePerUnit, null, null);
+
     internal static WorldOrderExecutionStartResult TryStart(
         int demandId,
         OrderDemandBoard board,
