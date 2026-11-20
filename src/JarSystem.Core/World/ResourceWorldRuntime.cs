@@ -124,8 +124,8 @@ public sealed class ResourceWorldRuntime
     {
         if (Roster == null)
             return (false, "当前运行时没有工作台岗位集合");
-        if (ActiveReplacement is { IsFinished: false })
-            return (false, "已有工作台替换过程正在进行");
+        if (ReplacementBlocksWorld)
+            return (false, "已有工作台替换过程正在进行，或上一替换结果仍不确定");
 
         // 已登记会话也是当前世界中的活动订单。先让外部适配器完成其负责的订单中断，
         // 再逐个中断本 Runtime 持有的会话；任何后续失败都按“不确定”处理，不自动重试。
