@@ -156,6 +156,53 @@ public sealed class WorldV2ApplicationServiceTests
     }
 
     [Fact]
+    public void ApplicationServiceCanCancelMasterReplacementAndRestoreMigrationSnapshot()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        app.AdvanceWorld(1_000);
+        var before = app.GetWorldSnapshot();
+        Assert.Single(before.Master!.Jars);
+        Assert.Equal(1, before.Master.Liquids["酒"]);
+
+        var begin = app.BeginWorkshopReplacement(
+            WorkshopRole.Master, "备用台", phaseDurationLogicalMilli: 1_000);
+        Assert.True(begin.Success);
+
+        // 第一个逻辑阶段完成重组，但尚未完成转移和岗位提交。
+        app.AdvanceWorld(1_000);
+        var reshaped = app.GetWorldSnapshot();
+        Assert.Equal("主台", reshaped.Master!.Name);
+        Assert.Equal("酒", Assert.Single(reshaped.Master.Jars).Liquid);
+        Assert.Equal(0, reshaped.Master.Liquids["酒"]);
+        Assert.False(reshaped.Replacement!.IsFinished);
+        Assert.Equal(1, reshaped.Replacement.CompletedPhases);
+
+        var cancel = app.CancelWorkshopReplacement("用户取消主台替换");
+
+        Assert.True(cancel.Success);
+        Assert.NotNull(cancel.Replacement);
+        Assert.True(cancel.Replacement!.IsFinished);
+        Assert.False(cancel.Replacement.Succeeded);
+        Assert.True(cancel.Replacement.InterruptionCommitted);
+        Assert.Equal("用户取消主台替换", cancel.Replacement.FailureReason);
+
+        var after = app.GetWorldSnapshot();
+        Assert.Equal("主台", after.Master!.Name);
+        Assert.Single(after.Master.Jars);
+        Assert.Null(after.Master.Jars[0].Liquid);
+        Assert.Equal(1, after.Master.Liquids["酒"]);
+        Assert.False(after.RuntimeFaulted);
+
+        // 已提交的订单中断属于不可逆副作用，取消迁徙不会把它撤销。
+        var secondCancel = app.CancelWorkshopReplacement();
+        Assert.False(secondCancel.Success);
+        Assert.Contains("已经结束", secondCancel.Error);
+    }
+
+    [Fact]
     public void ApplicationServiceCanReplaceSlaveWorkshopWithoutMovingResources()
     {
         using var host = new WorldV2HostService();
