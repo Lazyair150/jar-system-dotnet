@@ -253,6 +253,13 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             return;
         }
 
+        if (!ReferenceEquals(_roster.Master, _master) ||
+            (_manifest.IsPartitioned && !ReferenceEquals(_roster.Slave, _slave)))
+        {
+            TerminateFailure("订单执行期间主从工作台岗位发生变化");
+            return;
+        }
+
         switch (Stage)
         {
             case WorldOrderExecutionStage.MasterSteps:
