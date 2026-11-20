@@ -51,6 +51,9 @@ public sealed class ResourceWorldRuntime
     public bool RegisterExecutionSession(WorldOrderExecutionSession session)
     {
         if (session == null) throw new ArgumentNullException(nameof(session));
+        if (Roster == null || DemandBoard == null ||
+            !session.IsBoundTo(DemandBoard, Roster))
+            throw new ArgumentException("执行会话必须绑定到当前 Runtime 的需求板与工作台岗位", nameof(session));
         if (session.IsTerminal) return false;
         if (_executionSessions.Any(x => x.DemandId == session.DemandId))
             throw new InvalidOperationException($"订单 {session.DemandId} 已有活动执行会话");
