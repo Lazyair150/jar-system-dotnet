@@ -57,6 +57,35 @@ public sealed class WorldV2ApplicationServiceTests
     };
 
     [Fact]
+    public void PausedWorldDoesNotRunAutomaticPassiveScheduling()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+        app.AdvanceWorld(1_000);
+
+        var demandId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Passive, 0));
+
+        app.PauseWorld();
+        var pausedAdvance = app.AdvanceWorld(1_000);
+        var paused = app.GetWorldSnapshot();
+
+        Assert.Equal(0, pausedAdvance.LogicalTimeDeltaMilli);
+        Assert.Empty(pausedAdvance.StartedDemandIds);
+        Assert.Empty(paused.ActiveSessions);
+        Assert.Single(paused.Demands);
+        Assert.Equal(demandId, paused.Demands[0].Id);
+
+        app.ResumeWorld();
+        var resumedAdvance = app.AdvanceWorld(0);
+
+        Assert.Contains(demandId, resumedAdvance.StartedDemandIds);
+        Assert.Single(app.GetWorldSnapshot().ActiveSessions);
+    }
+
+    [Fact]
     public void ApplicationServiceControlsPauseAndWorldSpeedThroughWorldClock()
     {
         using var host = new WorldV2HostService();
