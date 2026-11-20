@@ -293,6 +293,29 @@ public class Workshop
     /// <summary>接收罐子。</summary>
     public bool TransferIn(Jar? j) => j != null && AddJar(j);
 
+    /// <summary>
+    /// 标记一只属于本工作台的罐子，表示它已在当前执行周期内完成一次操作或需求匹配。
+    /// MATCH 也必须经过工作台入口，避免执行器绕过工作台的资源所有权边界直接修改 Jar。
+    /// </summary>
+    public (bool Success, string? Reason) MarkJar(Jar jar)
+    {
+        if (jar == null) throw new ArgumentNullException(nameof(jar));
+        if (!_jars.Contains(jar)) return (false, "罐子不属于本工作台");
+        if (jar.IsMarked) return (false, "罐子已被操作");
+        jar.Mark();
+        return (true, null);
+    }
+
+    /// <summary>清除一只属于本工作台的罐子的操作标记，不影响同台其他罐子。</summary>
+    public (bool Success, string? Reason) ClearMark(Jar jar)
+    {
+        if (jar == null) throw new ArgumentNullException(nameof(jar));
+        if (!_jars.Any(existing => ReferenceEquals(existing, jar)))
+            return (false, "罐子不属于本工作台");
+        jar.Unmark();
+        return (true, null);
+    }
+
     /// <summary>清除全部罐子的操作标记（订单开始/结束、阶段切换时使用）。</summary>
     public void ClearMarks()
     {

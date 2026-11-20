@@ -154,6 +154,57 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
+    public void OnlyOnePartitionedOrderCanReserveTheSingleSlaveRole()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxJars: 8, maxLiquids: 8, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" },
+            maxJars: 8, maxLiquids: 8, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        master.AddLiquid("酒", 1);
+        master.AddLiquid("蜜", 1);
+
+        var ids = new SequentialIdGenerator();
+        var first = new OrderDemand(new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.B, Words), 0, ids);
+        var second = new OrderDemand(new JarOrderSpecification(
+            new[] { new Requirement { Shape = "方罐", Liquid = "蜜" } },
+            Constants.OrderType.B, Words), 0, ids);
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot,
+            DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(first, DemandAreaKind.Active);
+        board.AddDemand(second, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+        Assert.True(book.Evaluate(first.Id, snapshot, registry).Result!.IsFeasible);
+        Assert.True(book.Evaluate(second.Id, snapshot, registry).Result!.IsFeasible);
+
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
+
+        var firstAdmission = admission.TryAdmit(first.Id);
+        var secondAdmission = admission.TryAdmit(second.Id);
+
+        Assert.True(firstAdmission.Success, firstAdmission.Reason);
+        Assert.False(secondAdmission.Success);
+        Assert.Contains("从工作台正由订单", secondAdmission.Reason);
+        Assert.Equal(first.Id, reservations.Find(first.Id)!.DemandId);
+        Assert.Null(reservations.Find(second.Id));
+        Assert.True(admission.Release(first.Id));
+
+        var secondAfterRelease = admission.TryAdmit(second.Id);
+        Assert.True(secondAfterRelease.Success, secondAfterRelease.Reason);
+    }
+
+    [Fact]
     public void AdmissionRejectsSolveResultAfterWorldVersionChanges()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },

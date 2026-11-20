@@ -112,7 +112,7 @@ public class ResourceFlowSemanticsTests
     public void BOrderReturnsLiquidProducedByAToolJar()
     {
         var master = new Workshop(
-            "主台", ["圆罐"], [], ["酒"], maxJars: 6, maxLiquids: 5,
+            "主台", ["圆罐"], [], [], maxJars: 6, maxLiquids: 5,
             vocabulary: Vocabulary.Default);
         var slave = new Workshop(
             "从台", ["圆罐"], [], ["蜜"], maxJars: 6, maxLiquids: 5,

@@ -183,6 +183,12 @@ public sealed class WorldOrderSolveBook : IDisposable
                         WorldOrderSolveRecord.Dirty(change.DemandId, "订单在主动/被动区域之间移动");
                 break;
 
+            case OrderDemandBoardChangeKind.CooldownStarted:
+                _records[change.DemandId] = new WorldOrderSolveRecord(
+                    change.DemandId, WorldOrderSolveState.NotReady, null, null,
+                    "订单因执行中断进入 CD");
+                break;
+
             case OrderDemandBoardChangeKind.CooldownElapsed:
                 if (!_records.TryGetValue(change.DemandId, out var cooledRecord) ||
                     cooledRecord.State != WorldOrderSolveState.AwaitingRearm)

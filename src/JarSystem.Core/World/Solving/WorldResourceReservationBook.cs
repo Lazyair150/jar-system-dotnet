@@ -6,13 +6,15 @@ using System.Linq;
 namespace JarSystem.Core.World.Solving;
 
 /// <summary>
-/// 执行期间的资源占用账本。只记录订单对罐子与主台初始游离液体的独占声明，不修改真实库存。
+/// 执行期间的资源占用账本。记录订单对罐子、主台初始游离液体及唯一从台岗位的独占声明，不修改真实库存。
 /// </summary>
 public sealed class WorldResourceReservationBook
 {
     private readonly object _gate = new();
     private readonly Dictionary<int, WorldResourceReservation> _byDemand = new();
     private readonly Dictionary<int, int> _jarOwners = new();
+    // 当前世界只有一个从台岗位；B 类执行会独占它直到会话终结。
+    private int? _slaveOwnerDemandId;
 
     public int Count { get { lock (_gate) return _byDemand.Count; } }
 
@@ -59,6 +61,12 @@ public sealed class WorldResourceReservationBook
                 return false;
             }
 
+            if (manifest.IsPartitioned && _slaveOwnerDemandId.HasValue)
+            {
+                reason = $"从工作台正由订单 {_slaveOwnerDemandId.Value} 占用";
+                return false;
+            }
+
             if (manifest.LockedJarIds.Any(id => id <= 0) ||
                 manifest.LockedJarIds.Distinct().Count() != manifest.LockedJarIds.Count)
             {
@@ -96,10 +104,12 @@ public sealed class WorldResourceReservationBook
             // 所有检查通过后才写入，失败路径不会留下部分预留。
             var reservation = new WorldResourceReservation(
                 manifest.DemandId, manifest.WorldVersion,
-                manifest.LockedJarIds, manifest.MasterInitialLiquidAmounts);
+                manifest.LockedJarIds, manifest.MasterInitialLiquidAmounts, manifest.IsPartitioned);
             _byDemand.Add(manifest.DemandId, reservation);
             foreach (var jarId in reservation.LockedJarIds)
                 _jarOwners.Add(jarId, manifest.DemandId);
+            if (reservation.UsesSlave)
+                _slaveOwnerDemandId = manifest.DemandId;
 
             reason = null;
             return true;
@@ -118,6 +128,8 @@ public sealed class WorldResourceReservationBook
                 if (_jarOwners.TryGetValue(jarId, out var owner) && owner == demandId)
                     _jarOwners.Remove(jarId);
             }
+            if (_slaveOwnerDemandId == demandId)
+                _slaveOwnerDemandId = null;
             return true;
         }
     }
@@ -130,13 +142,15 @@ public sealed class WorldResourceReservation
     public string WorldVersion { get; }
     public IReadOnlyList<int> LockedJarIds { get; }
     public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
+    public bool UsesSlave { get; }
 
     internal WorldResourceReservation(
         int demandId, string worldVersion, IEnumerable<int> jarIds,
-        IReadOnlyDictionary<string, int> liquids)
+        IReadOnlyDictionary<string, int> liquids, bool usesSlave)
     {
         DemandId = demandId;
         WorldVersion = worldVersion;
+        UsesSlave = usesSlave;
         LockedJarIds = Array.AsReadOnly(jarIds.ToArray());
         MasterInitialLiquidAmounts = new ReadOnlyDictionary<string, int>(
             liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));

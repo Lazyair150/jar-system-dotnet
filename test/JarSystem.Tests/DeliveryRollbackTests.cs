@@ -104,6 +104,26 @@ public class DeliveryRollbackTests
     }
 
     [Fact]
+    public void BannedFreeLiquidIsDiscardedInsteadOfReturningToTheMaster()
+    {
+        // 禁令作用于从台回落的游离液体；与满罐液体随罐原样返回的规则不同。
+        var master = Bench("主台", maxLiquids: 10, ban: "酒");
+        var slave = Bench("从台");
+        slave.AddLiquid("酒", 3);
+
+        var discarded = 0;
+        var log = Run(master, slave,
+            countDiscardedLiquids: (_, amount) => discarded += amount);
+
+        Assert.Equal(0, master.LiquidStorage["酒"]);
+        Assert.Equal(0, slave.LiquidStorage["酒"]);
+        var discard = Assert.Single(log);
+        Assert.Equal("discard_liquid", discard.Command);
+        Assert.Contains("主台禁酒", discard.Reason);
+        Assert.Equal(3, discarded);
+    }
+
+    [Fact]
     public void EveryRemainingLiquidPartiallyFillsAndDiscardsTheRemainder()
     {
         var master = Bench("主台", maxLiquids: 1);
