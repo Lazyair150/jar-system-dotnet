@@ -4,4 +4,5 @@
   <Project Path="test\JarSystem.Test\JarSystem.Test.csproj" />
   <Project Path="test\JarSystem.Tests\JarSystem.Tests.csproj" />
   <Project Path="test\StrategyExperiment\StrategyExperiment.csproj" />
+  <Project Path="hosts\godot\WorldV2Bridge\JarSystem.WorldV2Bridge.csproj" />
 </Solution>
