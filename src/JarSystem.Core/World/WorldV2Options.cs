@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization;
+using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.Solver;
