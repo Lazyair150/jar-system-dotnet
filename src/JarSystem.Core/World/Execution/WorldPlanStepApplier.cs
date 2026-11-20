@@ -57,9 +57,16 @@ public sealed class WorldPlanStepApplier
         if (jar.IsMarked)
             return Reject($"罐子 #{expectedBefore.Id} 已被本周期其他操作标记");
 
+        if (operation.Consumed == null)
+            return Reject("计划 Consumed 账目不能为空");
         var expectedConsumed = ExpectedConsumed(operation, expectedBefore);
         if (expectedConsumed == null || !DictionaryEqual(expectedConsumed, operation.Consumed))
             return Reject("计划 Consumed 与操作类型的液体账目语义不一致");
+        if (operation.Type == "RESHAPE" &&
+            (string.IsNullOrWhiteSpace(operation.TargetShape) ||
+             !jar.IsValidShapeIn(operation.TargetShape) ||
+             !workshop.CanTransform(jar.Shape, operation.TargetShape)))
+            return Reject("工作台或罐子词表不允许计划中的目标形状");
 
         var liquidBefore = workshop.LiquidStorage.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
         var result = ApplyOperation(workshop, jar, operation, expectedBefore);
