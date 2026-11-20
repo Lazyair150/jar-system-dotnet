@@ -55,6 +55,16 @@ public sealed class ResourceWorldRuntime
             !session.IsBoundTo(DemandBoard, Roster))
             throw new ArgumentException("执行会话必须绑定到当前 Runtime 的需求板与工作台岗位", nameof(session));
         if (session.IsTerminal) return false;
+
+        if (ActiveReplacement is { IsFinished: false })
+        {
+            // 会话可能在替换开始后才完成准入；不能让它在迁徙期间继续操作旧岗位。
+            // 立即走同一中断契约，释放刚取得的预留并启动该订单自己的 CD。
+            var interruption = session.InterruptForWorkshopReplacement();
+            if (!interruption.Success)
+                throw new InvalidOperationException(interruption.Error ?? "工作台替换期间无法中断新执行会话");
+            return false;
+        }
         if (_executionSessions.Any(x => x.DemandId == session.DemandId))
             throw new InvalidOperationException($"订单 {session.DemandId} 已有活动执行会话");
         _executionSessions.Add(session);
