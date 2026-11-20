@@ -29,7 +29,7 @@ public class WorkshopWritersTests
     private static readonly string[] Ports =
     {
         "PourIn", "PourOut", "TryReshape", "MarkJar",
-        "AddJar", "RemoveJar", "TransferIn", "TransferOut",
+        "AddJar", "RemoveJar", "TransferIn", "TransferOut", "ClearMark",
         "AddLiquid", "TryReceiveLiquid"
     };
 
