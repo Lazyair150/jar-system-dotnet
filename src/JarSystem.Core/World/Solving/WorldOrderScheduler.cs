@@ -62,6 +62,8 @@ public sealed class WorldOrderScheduler
         {
             var initialDemands = _board.AllDemands.ToArray();
             var decisions = new Dictionary<int, WorldOrderSchedulingDecision>();
+            var initialAreas = initialDemands.ToDictionary(
+                demand => demand.Id, demand => AreaOf(demand.Id));
             var started = new List<int>();
 
             // 所有订单先共享同一份只读世界快照。Evaluate 会复用同版本缓存，
@@ -77,13 +79,19 @@ public sealed class WorldOrderScheduler
 
             // 被动订单的列表顺序就是同一调度轮次中的竞争顺序。
             // 每次启动后都重新捕获快照：会话构造可能立即执行零时间 MATCH 并改变罐子标记。
+            var currentSnapshot = sharedSnapshot;
+            var refreshSnapshot = false;
             foreach (var demand in _board.Passive.Demands.ToArray())
             {
                 if (_runtime.IsFaulted) break;
                 if (!ReferenceEquals(_board.Find(demand.Id), demand)) continue;
 
-                var snapshot = WorldSnapshotFactory.Capture(_roster);
-                var record = _solveBook.Evaluate(demand.Id, snapshot, _solverRegistry);
+                if (refreshSnapshot)
+                {
+                    currentSnapshot = WorldSnapshotFactory.Capture(_roster);
+                    refreshSnapshot = false;
+                }
+                var record = _solveBook.Evaluate(demand.Id, currentSnapshot, _solverRegistry);
                 if (record.State != WorldOrderSolveState.Current ||
                     record.Result == null || !record.Result.IsFeasible)
                 {
@@ -98,6 +106,8 @@ public sealed class WorldOrderScheduler
                 if (result.Success)
                 {
                     started.Add(demand.Id);
+                    // 会话构造可能立即执行 MATCH；下一张被动订单必须针对新世界版本求解。
+                    refreshSnapshot = true;
                     decisions[demand.Id] = new WorldOrderSchedulingDecision(
                         demand.Id, DemandAreaKind.Passive, record.State, true, null);
                 }
@@ -107,6 +117,18 @@ public sealed class WorldOrderScheduler
                         demand.Id, DemandAreaKind.Passive, record.State, false,
                         result.Reason ?? "执行准入拒绝");
                 }
+            }
+
+            // 把本轮末尾仍登记的订单记录同步到最终世界版本。被动启动过程中若发生
+            // 零时间 MATCH/即时交付，主动订单的早期求解结果也不能被报告为当前结果。
+            var finalSnapshot = WorldSnapshotFactory.Capture(_roster);
+            foreach (var demand in initialDemands)
+            {
+                var record = _solveBook.Evaluate(demand.Id, finalSnapshot, _solverRegistry);
+                decisions[demand.Id] = new WorldOrderSchedulingDecision(
+                    demand.Id, initialAreas[demand.Id], record.State, started.Contains(demand.Id),
+                    record.StateReason ?? record.DirtyReason ??
+                    (record.Result?.IsFeasible == false ? record.Result.Reason : null));
             }
 
             return new WorldOrderSchedulingPassResult(
