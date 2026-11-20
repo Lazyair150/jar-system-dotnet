@@ -143,7 +143,7 @@ Run the full local gate from the repository root:
 重构报告\verify.bat
 ~~~
 
-Verified 4.5c baseline: commit `57ef91a2fa961e0bb7911a3166df88c7b35091d9` passed the repository owner's local full `重构报告\\verify.bat` (424 xUnit tests, 0 failures, `QUALITY-OK`, `VERDICT=OK`); its GitHub Actions verify run also succeeded. This is the baseline for the 4.5d fault-boundary branch, not verification of the current branch.
+Verified 4.5c baseline: commit `57ef91a2fa961e0bb7911a3166df88c7b35091d9` passed the repository owner's local full `重构报告\\verify.bat` (424 xUnit tests, 0 failures, `QUALITY-OK`, `VERDICT=OK`); its GitHub Actions verify run also succeeded. This is the baseline for the 4.5d fault-boundary branch.
 
 ## Phase 4.5c — settlement completeness and observability
 
@@ -165,4 +165,4 @@ The strengthened 4.5c branch head is verified by the owner's 424-test local full
 - An uncertain interruption result, or an interruption that committed but could not initialize replacement, latches the same runtime fault. A clean external refusal before interruption commit remains a normal rejected replacement request.
 - A normal plan operation rejection with successful cleanup remains an ordinary order failure and does not fault the world.
 - Successful B-class delivery prefetches the external ledger tick before any delivery mark or jar ownership mutation, then passes that fixed tick into slave settlement. This closes the callback exception window after delivery removal.
-- The current branch still requires the repository owner's full local `重构报告\\verify.bat` and CI before it can be treated as verified.
+- Verified head `9a4a96109e612fb547b1b814056aa622baf6c991` passed the repository owner's full local `重构报告\\verify.bat` (426 xUnit tests, 0 failures, `QUALITY-OK`, `VERDICT=OK`) and its GitHub Actions `verify` run succeeded on the same HEAD.
