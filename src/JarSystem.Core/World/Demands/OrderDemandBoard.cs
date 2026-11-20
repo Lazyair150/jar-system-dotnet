@@ -52,7 +52,8 @@ public sealed class OrderDemandBoard
 
     /// <summary>
     /// 执行过程报告订单成功后，由区域策略决定是否卸载该订单。
-    /// 本方法只处理区域归属，不负责验证执行结果或回滚资源。
+    /// 持续订单保留在原区域并启动自身 CD；CD 为 0 时立即具备下一轮求解资格。
+    /// 本方法不验证执行结果，也不回滚已发生的世界变化。
     /// </summary>
     public DemandFulfillmentResult RecordSuccessfulFulfillment(int demandId)
     {
@@ -68,6 +69,9 @@ public sealed class OrderDemandBoard
             return DemandFulfillmentResult.RemovedFromArea;
         }
 
+        // 持续订单成功代表一个执行周期结束。订单仍留在原区域，但必须等待
+        // 自己配置的逻辑 CD；CD 为 0 时 EnterCooldown 不制造等待。
+        demand.EnterCooldown();
         Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.FulfilledRetained, demand.Id,
             area.Kind, area.Kind));
         return DemandFulfillmentResult.RetainedInArea;
