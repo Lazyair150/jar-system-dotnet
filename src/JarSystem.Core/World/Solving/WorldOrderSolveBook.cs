@@ -65,7 +65,7 @@ public sealed class WorldOrderSolveBook : IDisposable
 
     /// <summary>
     /// 对指定订单求解或复用当前版本的缓存结果。
-    /// AwaitingRearm 的持续订单不会被自动再次求解，必须由上层策略显式 MarkDirty。
+    /// 订单自身 CD 是求解资格的硬门槛；任何 Dirty/invalidation 都不能绕过它。
     /// </summary>
     public WorldOrderSolveRecord Evaluate(
         int demandId,
@@ -88,9 +88,6 @@ public sealed class WorldOrderSolveBook : IDisposable
             record = WorldOrderSolveRecord.Dirty(demandId, "订单首次进入求解簿");
             _records[demandId] = record;
         }
-
-        if (record.State == WorldOrderSolveState.AwaitingRearm)
-            return record;
 
         if (!demand.ReadyForSolve)
         {
@@ -121,7 +118,7 @@ public sealed class WorldOrderSolveBook : IDisposable
     }
 
     /// <summary>
-    /// 显式使一张仍登记的订单重新具备求解资格。
+    /// 使一张仍登记的订单失效。若订单仍处于 CD，则保持 NotReady，不能绕过冷却。
     /// 对持续订单成功后的重新求解，必须由上层策略明确调用，而不是自动循环。
     /// </summary>
     public bool MarkDirty(int demandId, string reason)
@@ -135,7 +132,10 @@ public sealed class WorldOrderSolveBook : IDisposable
             return false;
         }
 
-        _records[demandId] = WorldOrderSolveRecord.Dirty(demandId, reason);
+        if (!demand.ReadyForSolve)
+            SetNotReady(demandId);
+        else
+            _records[demandId] = WorldOrderSolveRecord.Dirty(demandId, reason);
         return true;
     }
 
@@ -148,11 +148,10 @@ public sealed class WorldOrderSolveBook : IDisposable
 
         foreach (var demand in _board.AllDemands)
         {
-            if (_records.TryGetValue(demand.Id, out var current) &&
-                current.State == WorldOrderSolveState.AwaitingRearm)
-                continue;
-
-            _records[demand.Id] = WorldOrderSolveRecord.Dirty(demand.Id, reason);
+            if (!demand.ReadyForSolve)
+                SetNotReady(demand.Id);
+            else
+                _records[demand.Id] = WorldOrderSolveRecord.Dirty(demand.Id, reason);
         }
     }
 
@@ -177,8 +176,12 @@ public sealed class WorldOrderSolveBook : IDisposable
                 break;
 
             case OrderDemandBoardChangeKind.Moved:
-                if (!_records.TryGetValue(change.DemandId, out var movedRecord) ||
-                    movedRecord.State != WorldOrderSolveState.AwaitingRearm)
+                var movedDemand = _board.Find(change.DemandId);
+                if (movedDemand == null)
+                    SetDetached(change.DemandId);
+                else if (!movedDemand.ReadyForSolve)
+                    SetNotReady(change.DemandId);
+                else
                     _records[change.DemandId] =
                         WorldOrderSolveRecord.Dirty(change.DemandId, "订单在主动/被动区域之间移动");
                 break;
@@ -190,16 +193,21 @@ public sealed class WorldOrderSolveBook : IDisposable
                 break;
 
             case OrderDemandBoardChangeKind.CooldownElapsed:
-                if (!_records.TryGetValue(change.DemandId, out var cooledRecord) ||
-                    cooledRecord.State != WorldOrderSolveState.AwaitingRearm)
-                    _records[change.DemandId] =
-                        WorldOrderSolveRecord.Dirty(change.DemandId, "订单 CD 结束");
+                _records[change.DemandId] =
+                    WorldOrderSolveRecord.Dirty(change.DemandId, "订单 CD 结束");
                 break;
 
             case OrderDemandBoardChangeKind.FulfilledRetained:
-                _records[change.DemandId] = new WorldOrderSolveRecord(
-                    change.DemandId, WorldOrderSolveState.AwaitingRearm, null, null,
-                    "持续订单已完成；等待上层策略决定何时重新参与求解");
+                // Board 在发布成功保留事件前已启动订单自身 CD。
+                // 有 CD 则 NotReady；CD 为 0 则 Dirty，允许下一轮立即重新求解。
+                var fulfilledDemand = _board.Find(change.DemandId);
+                if (fulfilledDemand == null)
+                    SetDetached(change.DemandId);
+                else if (!fulfilledDemand.ReadyForSolve)
+                    SetNotReady(change.DemandId);
+                else
+                    _records[change.DemandId] =
+                        WorldOrderSolveRecord.Dirty(change.DemandId, "持续订单完成且 CD 为 0");
                 break;
 
             case OrderDemandBoardChangeKind.PassiveOrderChanged:
@@ -241,6 +249,5 @@ public enum WorldOrderSolveState
     Dirty,
     Current,
     NotReady,
-    Detached,
-    AwaitingRearm
+    Detached
 }
