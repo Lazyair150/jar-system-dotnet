@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 using Xunit;
@@ -113,6 +115,71 @@ public sealed class WorldV2HostServiceTests
         lease.Dispose();
         Assert.True(context.IsDisposed);
         Assert.Throws<ObjectDisposedException>(() => _ = lease.Context);
+    }
+
+
+    [Fact]
+    public void ExclusiveOperationsAreSerializedAndReplacementWaitsForActiveOperation()
+    {
+        using var host = new WorldV2HostService();
+        using var initial = host.Replace(ValidOptions("旧主台"));
+
+        using var firstEntered = new ManualResetEventSlim();
+        using var releaseFirst = new ManualResetEventSlim();
+        using var secondAttempting = new ManualResetEventSlim();
+        using var secondEntered = new ManualResetEventSlim();
+        using var replacementAttempting = new ManualResetEventSlim();
+
+        var firstOperation = Task.Run(() => host.ExecuteExclusive(context =>
+        {
+            Assert.Equal("旧主台", context.Roster.Master!.Name);
+            firstEntered.Set();
+            Assert.True(releaseFirst.Wait(TimeSpan.FromSeconds(10)));
+        }));
+
+        Assert.True(firstEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        var secondOperation = Task.Run(() =>
+        {
+            secondAttempting.Set();
+            host.ExecuteExclusive(_ => secondEntered.Set());
+        });
+
+        Assert.True(secondAttempting.Wait(TimeSpan.FromSeconds(5)));
+        Assert.False(secondEntered.Wait(TimeSpan.FromMilliseconds(100)));
+
+        var replacement = Task.Run(() =>
+        {
+            replacementAttempting.Set();
+            using var next = host.Replace(ValidOptions("新主台"));
+            return next.Context.Roster.Master!.Name;
+        });
+
+        Assert.True(replacementAttempting.Wait(TimeSpan.FromSeconds(5)));
+        Assert.False(replacement.IsCompleted);
+
+        releaseFirst.Set();
+        Assert.True(Task.WaitAll(new[] { firstOperation, secondOperation }, TimeSpan.FromSeconds(5)));
+        Assert.True(secondEntered.IsSet);
+        Assert.Equal("新主台", replacement.GetAwaiter().GetResult());
+    }
+
+    [Fact]
+    public void ExclusiveOperationRejectsNestedExecutionAndLifecycleChanges()
+    {
+        using var host = new WorldV2HostService();
+        using var current = host.Replace(ValidOptions());
+
+        host.ExecuteExclusive(_ =>
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+                host.ExecuteExclusive(__ => { }));
+            Assert.Throws<InvalidOperationException>(() =>
+                host.Replace(ValidOptions("嵌套替换")));
+            Assert.Throws<InvalidOperationException>(() => host.Dispose());
+        });
+
+        Assert.True(host.HasWorld);
     }
 
     [Fact]
