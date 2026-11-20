@@ -51,7 +51,7 @@ public sealed class ResourceWorldRuntime
     /// 将已完成准入的订单会话交给世界运行时推进。
     /// 会话使用本次 WorldClock 换算出的同一份逻辑时间，不另设时钟。
     /// </summary>
-    public bool RegisterExecutionSession(WorldOrderExecutionSession session)
+    internal bool RegisterExecutionSession(WorldOrderExecutionSession session)
     {
         if (session == null) throw new ArgumentNullException(nameof(session));
         if (Roster == null || DemandBoard == null ||
