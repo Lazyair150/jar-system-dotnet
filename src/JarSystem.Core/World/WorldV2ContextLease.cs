@@ -4,9 +4,9 @@ using System.Threading;
 namespace JarSystem.Core.World;
 
 /// <summary>
-/// 对某个 World v2 Context 的生命周期租约。
-/// 持有租约期间，即使 Host 替换或关闭，该 Context 也不会被释放。
-/// 使用者必须在完成本次访问后 Dispose 租约。
+/// 对某个 World v2 Context 的独占操作租约。
+/// 持有租约期间，Context 不会被释放，且同一 Host 不会向其他调用者发放操作租约。
+/// 使用者必须在完成本次操作后 Dispose 租约。
 /// </summary>
 public sealed class WorldV2ContextLease : IDisposable
 {
