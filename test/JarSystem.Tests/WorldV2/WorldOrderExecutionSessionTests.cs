@@ -27,9 +27,9 @@ public sealed class WorldOrderExecutionSessionTests
             DemandAreaFulfillmentPolicy.OneShot,
             DemandAreaFulfillmentPolicy.OneShot);
         board.AddDemand(demand, DemandAreaKind.Active);
-        var workshops = slave == null
-            ? new[] { master }
-            : new[] { master, slave };
+        IEnumerable<Workshop> workshops = slave == null
+            ? new Workshop[] { master }
+            : new Workshop[] { master, slave };
         var roster = new WorkshopRoster(workshops, master, slave);
         var book = new WorldOrderSolveBook(board);
         var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
