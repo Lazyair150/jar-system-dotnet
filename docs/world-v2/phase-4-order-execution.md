@@ -130,9 +130,15 @@ Run the full local gate from the repository root:
 重构报告\verify.bat
 ~~~
 
-Branch head `91d922acb469321c6518f2ac4c57d6984e02b68f` passed GitHub Actions `verify` and the repository owner's local full `重构报告\\verify.bat` (421 xUnit tests, 0 failures, `VERDICT=OK`). A subsequent audit found that SlaveRollback documented banned-free-liquid discard but did not enforce the ban. The fix and regression test are in the commits immediately following that verified baseline and require a fresh full local gate.
+Verified baseline before the 4.5c branch: commit `9fe699d290d53831aec8764f8768502c536cd3a8` passed the repository owner's local full `重构报告\\verify.bat` (422 xUnit tests, 0 failures, `QUALITY-OK`, `VERDICT=OK`). The banned-free-liquid rollback fix and its regression test are included in that baseline.
 
+## Phase 4.5c — settlement completeness and observability
 
-## Observability follow-up
+- `ResourceWorldRuntime` accepts an optional `ResourceLedger` together with an explicit `Func<int>` tick source. They must be supplied together. World v2 does not silently convert `WorldClock.LogicalTimeMilli` into the legacy integer process tick.
+- When a ledger is supplied, B-class jar/liquid transfers are recorded as `transfer`; `SlaveRollback` records accepted resources as `return` and rejected capacity/ban overflow as `discard`.
+- One rollback batch captures its tick once, so all facts in that settlement share the same caller-defined tick.
+- Each session exposes its rollback discard log through `ResourceSettlementLog`. The `ResourceLedger` is the authoritative resource-quantity record for both return and discard; the session log preserves the explanatory rollback entries.
+- The ledger is optional so isolated World v2 runtimes need not invent a host tick. A runtime configured with a ledger must receive the tick source explicitly.
+- Regression coverage includes ordinary B-class failure after the slave transfer commit, and interruption after transfer with ledger assertions for transfer, return, and banned-liquid discard.
 
-The session currently calls the legacy `SlaveRollback` with a no-op execution-log callback and without discard counters or a `ResourceLedger`. The rollback policy is applied, but capacity/ban discards are not yet exposed as world-level events or ledger records. A later world-event/ledger integration must surface these resource-loss facts without changing the established return/discard rules.
+The 4.5c branch changes have not yet passed the repository owner's local full gate. Do not treat the 4.5b baseline result as verification of this branch.

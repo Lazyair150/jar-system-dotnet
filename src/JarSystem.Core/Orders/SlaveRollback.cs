@@ -37,6 +37,8 @@ internal sealed class SlaveRollback
     {
         if (ReferenceEquals(master, slave)) return;
 
+        // 一次结算使用同一个账本 tick；tick 来源由世界装配层显式提供，不在此换算旧/新时间轴。
+        var ledgerTick = ledger == null ? 0 : tickOf?.Invoke() ?? 0;
         var slaveJars = new List<Jar>(slave.Jars);
 
         foreach (var jar in slaveJars)
@@ -48,7 +50,7 @@ internal sealed class SlaveRollback
             if (!master.TransferIn(jar))
             {
                 countDiscardedJars?.Invoke(1);
-                ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Discard, ResourceKinds.Jar,
+                ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Jar,
                     jar.Shape, 1, from: slave.Name, to: null, reason: "主台罐子容量满");
                 appendLog(new ExecutionLogEntry
                 {
@@ -60,7 +62,7 @@ internal sealed class SlaveRollback
             }
             else
             {
-                ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Return, ResourceKinds.Jar,
+                ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Jar,
                     jar.Shape, 1, from: slave.Name, to: master.Name);
             }
         }
@@ -78,12 +80,12 @@ internal sealed class SlaveRollback
                     ? 0
                     : master.TryReceiveLiquid(liquid, amount);
                 int remainder = amount - accepted;
-                ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Return, ResourceKinds.Liquid,
+                ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Liquid,
                     liquid, accepted, from: slave.Name, to: master.Name);
                 if (remainder > 0)
                 {
                     countDiscardedLiquids?.Invoke(liquid, remainder);
-                    ledger?.Record(tickOf?.Invoke() ?? 0, ResourceCauses.Discard, ResourceKinds.Liquid,
+                    ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Liquid,
                         liquid, remainder, from: slave.Name, to: null,
                         reason: master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满");
                     appendLog(new ExecutionLogEntry

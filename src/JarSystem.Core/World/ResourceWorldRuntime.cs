@@ -31,19 +31,27 @@ public sealed class ResourceWorldRuntime
 
     // 世界级资源服务由装配层提供，避免 Runtime 创建缺少账本/对象池依赖的迁徙事件。
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
+    private readonly ResourceLedger? _resourceLedger;
+    private readonly Func<int>? _resourceLedgerTick;
 
     public ResourceWorldRuntime(
         ResourceArea resources,
         WorldClock? clock = null,
         WorkshopRoster? roster = null,
         Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null,
-        OrderDemandBoard? demandBoard = null)
+        OrderDemandBoard? demandBoard = null,
+        ResourceLedger? resourceLedger = null,
+        Func<int>? resourceLedgerTick = null)
     {
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         Clock = clock ?? new WorldClock();
         Roster = roster;
         _masterSwitchFactory = masterSwitchFactory;
         DemandBoard = demandBoard;
+        if ((resourceLedger == null) != (resourceLedgerTick == null))
+            throw new ArgumentException("资源账本与其 tick 来源必须同时提供；World v2 不隐式换算旧系统 tick");
+        _resourceLedger = resourceLedger;
+        _resourceLedgerTick = resourceLedgerTick;
         _executionSessionsView = _executionSessions.AsReadOnly();
     }
 
@@ -95,7 +103,8 @@ public sealed class ResourceWorldRuntime
         _executionSessions.RemoveAll(session => session.IsTerminal);
 
         var started = WorldOrderExecutionSession.TryStart(
-            demandId, DemandBoard, solveBook, admission, Roster, logicalTimePerUnit);
+            demandId, DemandBoard, solveBook, admission, Roster, logicalTimePerUnit,
+            _resourceLedger, _resourceLedgerTick);
         if (started.Success && started.Session != null)
             RegisterExecutionSession(started.Session);
         return started;

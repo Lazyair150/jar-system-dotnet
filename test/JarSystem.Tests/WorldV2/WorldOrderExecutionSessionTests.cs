@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
@@ -42,7 +43,9 @@ public sealed class WorldOrderExecutionSessionTests
         return (board, book, roster, admission, reservations);
     }
 
-    private static ResourceWorldRuntime CreateRuntime(OrderDemandBoard board, WorkshopRoster roster)
+    private static ResourceWorldRuntime CreateRuntime(
+        OrderDemandBoard board, WorkshopRoster roster,
+        ResourceLedger? resourceLedger = null, Func<int>? resourceLedgerTick = null)
     {
         var resources = new ResourceArea(
             new ProducerModule(Words),
@@ -50,7 +53,8 @@ public sealed class WorldOrderExecutionSessionTests
                 defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 }),
             jarFlowRate: 0,
             liquidFlowRate: 0);
-        return new ResourceWorldRuntime(resources, roster: roster, demandBoard: board);
+        return new ResourceWorldRuntime(resources, roster: roster, demandBoard: board,
+            resourceLedger: resourceLedger, resourceLedgerTick: resourceLedgerTick);
     }
 
     private sealed class ThrowingInterruptionPort : IOrderInterruptionPort
@@ -431,6 +435,112 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(externalJar.IsMarked);
         Assert.Contains(master.Jars, item => item.Id == plannedJar.Id);
         Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
+    public void BOrderFailureAfterOneSlaveOperationKeepsConsumedLiquidConsumed()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var firstJar = new Jar("圆罐", vocabulary: Words);
+        var secondJar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(firstJar);
+        master.AddJar(secondJar);
+        master.AddLiquid("酒", 2);
+        var demand = new OrderDemand(new JarOrderSpecification(
+            new[]
+            {
+                new Requirement { Shape = "圆罐", Liquid = "酒" },
+                new Requirement { Shape = "圆罐", Liquid = "酒" }
+            },
+            Constants.OrderType.B, Words), 0, new SequentialIdGenerator());
+        var setup = Prepare(master, slave, demand);
+        var plan = setup.Book.Find(demand.Id)!.Result!.Plan!;
+        Assert.Equal(2, plan.SlaveSteps.Count(step => step.Operation?.Type == "POUR_IN"));
+
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+
+        for (var i = 0; i < 8 && !slave.HasResources && !session.IsTerminal; i++)
+            runtime.AdvanceWorldTime(1_000);
+
+        Assert.True(slave.HasResources, "测试必须先越过 B 类全量转移边界");
+        Assert.Equal(2, slave.LiquidStorage["酒"]);
+
+        // 先成功执行一个 POUR_IN，再让第二个 POUR_IN 因新禁令失败。
+        runtime.AdvanceWorldTime(1_000);
+        Assert.Equal(1, slave.Jars.Count(item => item.Liquid == "酒"));
+        Assert.Equal(1, slave.LiquidStorage["酒"]);
+
+        slave.ReplaceCapability(new WorkshopCapability(
+            slave.BaseMarks, slave.AdditionalMarks, new[] { "酒" }));
+        runtime.AdvanceWorldTime(1_000);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.False(slave.HasResources, "失败收尾必须清空本订单临时从台资源");
+        Assert.Contains(master.Jars, item => item.Id == firstJar.Id || item.Id == secondJar.Id);
+        Assert.Contains(master.Jars, item => item.Liquid == "酒");
+        Assert.Equal(1, master.LiquidStorage["酒"]);
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
+    public void BOrderInterruptionRecordsTransferReturnAndDiscardInWorldResourceLedger()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒", cooldown: 2_000);
+        var setup = Prepare(master, slave, demand);
+        var ledger = new ResourceLedger();
+        var runtime = CreateRuntime(setup.Board, setup.Roster, ledger, () => 17);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+
+        for (var i = 0; i < 8 && !slave.HasResources && !session.IsTerminal; i++)
+            runtime.AdvanceWorldTime(1_000);
+
+        Assert.True(slave.HasResources, "测试必须先越过 B 类全量转移边界");
+        Assert.True(slave.LiquidStorage["酒"] > 0);
+
+        // 资源已转入从台后，主台新增禁令；中断结算时游离酒应被丢弃，不能回流。
+        master.ReplaceCapability(new WorkshopCapability(
+            master.BaseMarks, master.AdditionalMarks, new[] { "酒" }));
+        var interrupted = session.InterruptForWorkshopReplacement();
+
+        Assert.True(interrupted.Success, interrupted.Error);
+        Assert.Equal(WorldOrderExecutionStage.Interrupted, session.Stage);
+        Assert.False(slave.HasResources);
+        Assert.Contains(master.Jars, item => item.Id == jar.Id);
+        Assert.Equal(0, master.LiquidStorage["酒"]);
+        Assert.Equal(0, setup.Reservations.Count);
+
+        Assert.Contains(ledger.For(ResourceCauses.Transfer),
+            entry => entry.Kind == ResourceKinds.Jar && entry.Name == "圆罐" &&
+                entry.From == master.Name && entry.To == slave.Name);
+        Assert.Contains(ledger.For(ResourceCauses.Transfer),
+            entry => entry.Kind == ResourceKinds.Liquid && entry.Name == "酒" &&
+                entry.From == master.Name && entry.To == slave.Name);
+        Assert.Contains(ledger.For(ResourceCauses.Return),
+            entry => entry.Kind == ResourceKinds.Jar && entry.Name == "圆罐" &&
+                entry.From == slave.Name && entry.To == master.Name);
+        Assert.Contains(ledger.For(ResourceCauses.Discard),
+            entry => entry.Kind == ResourceKinds.Liquid && entry.Name == "酒" &&
+                entry.From == slave.Name && entry.To == null);
+        Assert.All(ledger.Entries, entry => Assert.Equal(17, entry.Tick));
+        Assert.Contains(session.ResourceSettlementLog,
+            entry => entry.Command == "discard_liquid");
     }
 
     [Fact]
