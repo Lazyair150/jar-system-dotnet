@@ -338,7 +338,7 @@ public sealed class WorldOrderExecutionSessionTests
         var jar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(jar);
         master.AddLiquid("酒", 1);
-        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒", cooldown: 2_500);
         var setup = Prepare(master, null, demand);
         var runtime = CreateRuntime(setup.Board, setup.Roster);
         var started = runtime.TryStartExecutionSession(
@@ -355,6 +355,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(jar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Equal(WorldOrderSolveState.Dirty, setup.Book.Find(demand.Id)!.State);
+        Assert.Equal(0, demand.CooldownRemainingLogicalMilli);
         Assert.False(runtime.IsFaulted, "可确认结算的普通订单失败不能冻结整个世界");
     }
 
