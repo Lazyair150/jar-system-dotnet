@@ -39,6 +39,10 @@ public sealed class WorkshopReplacementProcess
     /// <summary>迁徙已提交后，外部账本/统计/对象池副作用若失败，记录警告而不回滚已提交世界。</summary>
     public string? CommitWarning { get; private set; }
     public WorkshopRole Role => _role;
+    public string OldWorkshopName => _oldWorkshop.Name;
+    public string TargetWorkshopName => _targetWorkshop.Name;
+    public long PhaseDurationLogicalMilli => _phaseDurationMilli;
+    public long PhaseElapsedLogicalMilli => _phaseElapsedMilli;
     public int CompletedPhases => _phase;
 
     public WorkshopReplacementProcess(
