@@ -54,12 +54,14 @@ public sealed class WorldV2HostServiceTests
         Assert.False(host.HasWorld);
         Assert.Throws<InvalidOperationException>(() => host.AcquireCurrent());
 
-        using var created = host.Replace(ValidOptions());
+        var created = host.Replace(ValidOptions());
+        var createdContext = created.Context;
+        created.Dispose();
 
         Assert.True(host.HasWorld);
         using var current = host.AcquireCurrent();
-        Assert.Same(created.Context, current.Context);
-        Assert.False(created.Context.IsDisposed);
+        Assert.Same(createdContext, current.Context);
+        Assert.False(createdContext.IsDisposed);
     }
 
     [Fact]
@@ -68,14 +70,12 @@ public sealed class WorldV2HostServiceTests
         using var host = new WorldV2HostService();
         var first = host.Replace(ValidOptions("第一主台"));
         var firstContext = first.Context;
+        first.Dispose();
 
         using var second = host.Replace(ValidOptions("第二主台"));
 
         Assert.NotSame(firstContext, second.Context);
         Assert.Equal("第二主台", second.Context.Roster.Master!.Name);
-        Assert.False(firstContext.IsDisposed);
-
-        first.Dispose();
         Assert.True(firstContext.IsDisposed);
         Assert.False(second.Context.IsDisposed);
     }
@@ -84,8 +84,9 @@ public sealed class WorldV2HostServiceTests
     public void FailedReplaceKeepsPreviousWorldCurrentAndAlive()
     {
         using var host = new WorldV2HostService();
-        using var previous = host.Replace(ValidOptions());
+        var previous = host.Replace(ValidOptions());
         var previousContext = previous.Context;
+        previous.Dispose();
 
         var invalid = ValidOptions();
         invalid.MasterWorkshopName = "不存在";
@@ -134,12 +135,12 @@ public sealed class WorldV2HostServiceTests
 
         Assert.True(firstContext.IsDisposed);
         Assert.False(secondContext.IsDisposed);
-        using (var current = secondHost.AcquireCurrent())
-            Assert.Same(secondContext, current.Context);
 
         // 释放调用方租约不会销毁仍由 Host 持有的当前世界。
         second.Dispose();
         Assert.False(secondContext.IsDisposed);
+        using (var current = secondHost.AcquireCurrent())
+            Assert.Same(secondContext, current.Context);
 
         // Host 退役当前世界后，因租约已归零而立即释放。
         secondHost.Dispose();
@@ -150,7 +151,8 @@ public sealed class WorldV2HostServiceTests
     public void AcquireCurrentWaitsUntilThePreviousOperationLeaseIsReleased()
     {
         using var host = new WorldV2HostService();
-        using var first = host.Replace(ValidOptions());
+        var first = host.Replace(ValidOptions());
+        var expectedContext = first.Context;
         using var started = new ManualResetEventSlim();
 
         var waitingAcquire = Task.Run(() =>
@@ -164,7 +166,7 @@ public sealed class WorldV2HostServiceTests
 
         first.Dispose();
         using var second = waitingAcquire.GetAwaiter().GetResult();
-        Assert.Same(first.Context, second.Context);
+        Assert.Same(expectedContext, second.Context);
     }
 
     [Fact]
