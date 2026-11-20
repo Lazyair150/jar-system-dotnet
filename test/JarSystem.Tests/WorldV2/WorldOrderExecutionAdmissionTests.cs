@@ -112,6 +112,48 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
+    public void BAdmissionReservesMasterStartingLiquidOnlyOnceAndChecksSlaveTransfer()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot,
+            DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+        var solved = book.Evaluate(demand.Id, snapshot, registry);
+        Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+        Assert.True(solved.Result.Plan!.IsPartitioned);
+
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(1, admitted.Manifest!.MasterInitialLiquidAmounts["酒"]);
+        Assert.Equal(1, admitted.Manifest.TransferLiquids["酒"]);
+        Assert.Equal(new[] { jar.Id!.Value }, admitted.Manifest.LockedJarIds);
+        Assert.Equal(1, reservations.ReservedLiquidAmount("酒"));
+    }
+
+    [Fact]
     public void AdmissionRejectsSolveResultAfterWorldVersionChanges()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
