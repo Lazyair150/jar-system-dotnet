@@ -50,7 +50,9 @@ public sealed class WorldV2HostService : IDisposable
     public WorldV2ContextLease Replace(WorldV2Options options)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
+        ThrowIfOperationReentrant();
 
+        lock (_operationSync)
         lock (_sync)
         {
             ThrowIfDisposed();
@@ -73,6 +75,7 @@ public sealed class WorldV2HostService : IDisposable
     /// </summary>
     public void Dispose()
     {
+        ThrowIfOperationReentrant();
         lock (_operationSync)
         lock (_sync)
         {
@@ -96,8 +99,7 @@ public sealed class WorldV2HostService : IDisposable
     public TResult ExecuteExclusive<TResult>(Func<WorldV2Context, TResult> operation)
     {
         if (operation == null) throw new ArgumentNullException(nameof(operation));
-        if (Monitor.IsEntered(_operationSync))
-            throw new InvalidOperationException("World v2 Host 独占操作不可重入");
+        ThrowIfOperationReentrant();
 
         lock (_operationSync)
         {
@@ -151,6 +153,12 @@ public sealed class WorldV2HostService : IDisposable
 
         entry.Disposed = true;
         entry.Context.Dispose();
+    }
+
+    private void ThrowIfOperationReentrant()
+    {
+        if (Monitor.IsEntered(_operationSync))
+            throw new InvalidOperationException("World v2 Host 独占操作不可重入或嵌套生命周期变更");
     }
 
     private void ThrowIfDisposed()
