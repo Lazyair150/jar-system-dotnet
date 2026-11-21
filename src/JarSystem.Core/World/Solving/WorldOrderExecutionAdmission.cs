@@ -187,7 +187,11 @@ public sealed class WorldOrderExecutionAdmission
             ? slaveValue.Capture()
             : null;
         var activeOrders = _scopesByDemand.OrderBy(pair => pair.Key)
-            .Select(pair => new WorldOrderExecutionScopeSnapshot(pair.Key, pair.Value.Slave != null))
+            .Select(pair => new WorldOrderExecutionScopeSnapshot(
+                pair.Key,
+                pair.Value.Slave != null,
+                masterStaging?.ReservedCapacityByOrder.ContainsKey(pair.Key) ?? false,
+                slaveStaging?.ReservedCapacityByOrder.ContainsKey(pair.Key) ?? false))
             .ToArray();
         return new WorldOrderExecutionAdmissionSnapshot(masterStaging, slaveStaging, activeOrders);
     }
@@ -219,13 +223,17 @@ public sealed class WorldOrderExecutionAdmission
                 ?? throw new InvalidOperationException("活动订单缺少资源预留：" + active.DemandId);
             if (reservation.UsesSlave != active.UsesSlave)
                 throw new InvalidOperationException("活动订单的从台占用状态与资源预留不一致：" + active.DemandId);
-            if (snapshot.MasterStaging == null ||
-                !snapshot.MasterStaging.ReservedCapacityByOrder.ContainsKey(active.DemandId))
-                throw new InvalidOperationException("活动订单缺少主台液体容量预留：" + active.DemandId);
-            if (active.UsesSlave &&
-                (snapshot.SlaveStaging == null ||
-                 !snapshot.SlaveStaging.ReservedCapacityByOrder.ContainsKey(active.DemandId)))
-                throw new InvalidOperationException("B 类活动订单缺少从台液体容量预留：" + active.DemandId);
+            var masterHasReservation = snapshot.MasterStaging?.ReservedCapacityByOrder
+                .ContainsKey(active.DemandId) ?? false;
+            var slaveHasReservation = snapshot.SlaveStaging?.ReservedCapacityByOrder
+                .ContainsKey(active.DemandId) ?? false;
+            if (active.MasterCapacityReserved != masterHasReservation)
+                throw new InvalidOperationException("活动订单主台容量预留状态与暂存快照不一致：" + active.DemandId);
+            if (active.SlaveCapacityReserved != slaveHasReservation)
+                throw new InvalidOperationException("活动订单从台容量预留状态与暂存快照不一致：" + active.DemandId);
+            if (active.UsesSlave != reservation.UsesSlave ||
+                active.SlaveCapacityReserved != active.UsesSlave)
+                throw new InvalidOperationException("活动订单的从台使用状态与容量预留不一致：" + active.DemandId);
             if (!active.UsesSlave && reservation.UsesSlave)
                 throw new InvalidOperationException("A 类订单不能占用从台。");
         }
@@ -236,14 +244,18 @@ public sealed class WorldOrderExecutionAdmission
 
         var masterReservedIds = snapshot.MasterStaging?.ReservedCapacityByOrder.Keys.ToHashSet()
             ?? new HashSet<int>();
-        if (!masterReservedIds.SetEquals(activeIds))
-            throw new InvalidOperationException("主台容量预留集合与活动订单范围集合不一致。");
-        var slaveOrderIds = snapshot.ActiveOrders.Where(item => item.UsesSlave)
+        var expectedMasterReservedIds = snapshot.ActiveOrders
+            .Where(item => item.MasterCapacityReserved)
+            .Select(item => item.DemandId).ToHashSet();
+        if (!masterReservedIds.SetEquals(expectedMasterReservedIds))
+            throw new InvalidOperationException("主台容量预留集合与活动订单阶段状态不一致。");
+        var expectedSlaveReservedIds = snapshot.ActiveOrders
+            .Where(item => item.SlaveCapacityReserved)
             .Select(item => item.DemandId).ToHashSet();
         var slaveReservedIds = snapshot.SlaveStaging?.ReservedCapacityByOrder.Keys.ToHashSet()
             ?? new HashSet<int>();
-        if (!slaveReservedIds.SetEquals(slaveOrderIds))
-            throw new InvalidOperationException("从台容量预留集合与 B 类活动订单集合不一致。");
+        if (!slaveReservedIds.SetEquals(expectedSlaveReservedIds))
+            throw new InvalidOperationException("从台容量预留集合与活动订单阶段状态不一致。");
         if (snapshot.MasterStaging != null &&
             snapshot.MasterStaging.Accounts.Keys.Any(id => !activeIds.Contains(id)))
             throw new InvalidOperationException("主台暂存账户属于未登记的活动订单。");
@@ -443,7 +455,11 @@ public sealed record WorldOrderExecutionAdmissionResult(
 
 
 /// <summary>一张活动订单在主/从台暂存区中的资源范围声明。</summary>
-public sealed record WorldOrderExecutionScopeSnapshot(int DemandId, bool UsesSlave);
+public sealed record WorldOrderExecutionScopeSnapshot(
+    int DemandId,
+    bool UsesSlave,
+    bool MasterCapacityReserved = true,
+    bool SlaveCapacityReserved = false);
 
 /// <summary>准入器持有的活动暂存区与订单范围快照。</summary>
 public sealed class WorldOrderExecutionAdmissionSnapshot
