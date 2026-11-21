@@ -55,7 +55,8 @@ public sealed class WorkshopReplacementProcess
         IOrderInterruptionPort interruptionPort,
         long phaseDurationMilli,
         Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null,
-        Action<Workshop>? masterPrefill = null)
+        Func<Workshop, WorkshopPrefillTransaction>? masterPrefill = null,
+        Action<WorkshopPrefillTransaction>? rollbackMasterPrefill = null)
     {
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _role = role;
@@ -123,7 +124,7 @@ public sealed class WorkshopReplacementProcess
                 throw new InvalidOperationException("订单中断已成功，但旧从工作台仍有资源；拒绝继续替换");
 
             // 必须在订单中断与从台结算之后拍快照，确保回滚不会复活已中断订单的临时资源。
-            // 前置补液是切换流程中独立提交的资源流转；迁徙失败/取消时目标备用台保留该库存，重试不会重复扣款。
+            // 前置补液与迁徙共享替换生命周期；迁徙失败/取消时回滚预置余额和自机扣款。
             if (_role == WorkshopRole.Master) _prefillTransaction = _masterPrefill?.Invoke(_targetWorkshop);
             _masterSwitch?.Begin();
             _begun = true;
@@ -194,16 +195,8 @@ public sealed class WorkshopReplacementProcess
                         {
                             CommitWarning = "迁徙已提交，但外部副作用提交失败: " + commitError.Message;
                         }
-                        try
-                        {
-                            _prefillTransaction?.Commit();
-                            _prefillTransaction = null;
-                        }
-                        catch (Exception prefillCommitError)
-                        {
-                            CommitWarning = (CommitWarning == null ? "" : CommitWarning + "；") +
-                                "主台前置补液提交确认失败: " + prefillCommitError.Message;
-                        }
+                        _prefillTransaction?.Commit();
+                        _prefillTransaction = null;
                         Succeed();
                     }
                     catch (Exception ex)
