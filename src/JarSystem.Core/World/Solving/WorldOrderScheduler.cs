@@ -70,7 +70,7 @@ public sealed class WorldOrderScheduler
 
             // 所有订单先共享同一份只读世界快照。Evaluate 会复用同版本缓存，
             // 只对 Dirty、NotReady 到期或世界版本变化的订单真正调用求解器。
-            var sharedSnapshot = WorldSnapshotFactory.Capture(_roster);
+            var sharedSnapshot = WorldSnapshotFactory.Capture(_roster, _admission.ShipLiquidInventory);
             foreach (var demand in initialDemands)
             {
                 var record = _solveBook.Evaluate(demand.Id, sharedSnapshot, _solverRegistry);
