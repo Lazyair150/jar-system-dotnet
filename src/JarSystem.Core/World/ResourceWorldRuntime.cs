@@ -53,7 +53,7 @@ public sealed class ResourceWorldRuntime
         ArgumentNullException.ThrowIfNull(snapshots);
         if (ledgerTick < 0) throw new ArgumentOutOfRangeException(nameof(ledgerTick));
         ThrowIfFaulted();
-        if (_executionSessions.Count != 0 || ReplacementBlocksWorld || ActiveReplacement != null)
+        if (_executionSessions.Count != 0 || ReplacementBlocksWorld)
             throw new InvalidOperationException("只能向没有活动会话或工作台替换的 Runtime 恢复执行。");
         if (Roster == null || DemandBoard == null)
             throw new InvalidOperationException("当前 Runtime 缺少需求板或工作台岗位，不能恢复会话。");
