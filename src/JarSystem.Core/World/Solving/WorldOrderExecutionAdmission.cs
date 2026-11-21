@@ -317,9 +317,9 @@ public sealed class WorldOrderExecutionAdmission
             return null;
 
         var requested = new Dictionary<string, int>(StringComparer.Ordinal);
-        Merge(requested, scopes.Master.Staging.DrainOrder(demandId));
-        if (scopes.Slave != null)
-            Merge(requested, scopes.Slave.Staging.DrainOrder(demandId));
+        Merge(requested, scopes.Value.Master.Staging.DrainOrder(demandId));
+        if (scopes.Value.Slave != null)
+            Merge(requested, scopes.Value.Slave.Staging.DrainOrder(demandId));
 
         var receipt = _shipLiquidInventory.Return(requested);
         return lease!.RecordSettlement(receipt);
