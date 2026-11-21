@@ -105,6 +105,16 @@ public sealed class WorldV2ApplicationService
         return checkpoint!;
     }
 
+    /// <summary>
+    /// 将检查点恢复到当前已装配的空世界。恢复在 Host 独占操作内执行，
+    /// 配置兼容性和所有快照预检由 Context 保证。
+    /// </summary>
+    public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
+        _host.ExecuteExclusive(context => context.RestoreExecutionResourceCheckpoint(checkpoint));
+    }
+
     /// <summary>添加罐子订单。输入仅包含玩法数据，不接受外部构造的领域对象。</summary>
     public int AddJarDemand(WorldV2AddJarDemandRequest request)
     {
