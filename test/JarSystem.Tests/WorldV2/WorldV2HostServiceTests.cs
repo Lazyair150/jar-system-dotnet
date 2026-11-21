@@ -168,6 +168,10 @@ public sealed class WorldV2HostServiceTests
         var clockWireDiagnostic = WorldClockWireDto.FromSnapshot(beforePump.Clock);
         Assert.Equal(beforePump.Clock.WorldTimeMilli, clockWireDiagnostic.WorldTimeMilli);
         _ = beforePump.Sessions.Select(WorldOrderExecutionSessionWireDto.FromSnapshot).ToList();
+        _ = beforePump.ResourceArea.Producers.GeneratorAccumulatedMicro.Keys.ToList();
+        _ = beforePump.ShipLiquidInventory.Balances.Keys.ToList();
+        beforePump.ReservationLeases.Validate();
+        _ = new WorldResourceReservationBookWireDto(beforePump.ReservationLeases.Leases);
         var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
             beforePumpWire, beforePump.ConfigurationFingerprint);
