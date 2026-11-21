@@ -259,7 +259,7 @@ public sealed class WorldOrderExecutionAdmissionTests
 
         var admissionSnapshot = admission.Capture();
         var reservationSnapshot = reservations.Capture();
-        Assert.Equal(1, admissionSnapshot.ActiveOrders.Count);
+        Assert.Single(admissionSnapshot.ActiveOrders);
         Assert.True(admissionSnapshot.ActiveOrders[0].UsesSlave);
         Assert.Equal(admitted.Manifest!.MasterStagingPeakCapacity,
             admissionSnapshot.MasterStaging!.ReservedCapacityByOrder[demand.Id]);
