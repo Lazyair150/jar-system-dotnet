@@ -192,7 +192,14 @@ public sealed class WorldV2HostServiceTests
         {
             throw new InvalidOperationException("根级检查点 JSON 编码失败：" + exception, exception);
         }
-        beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
+        try
+        {
+            beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException("根级检查点 JSON 解码/领域重建失败：" + exception, exception);
+        }
         Assert.DoesNotContain(beforePump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
         Assert.Equal(2, beforePump.ShipLiquidInventory.Balances["酒"]);
