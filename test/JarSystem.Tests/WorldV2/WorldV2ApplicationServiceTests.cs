@@ -230,8 +230,8 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(2, snapshot.ShipLiquidInventory!.UsedCapacity);
         Assert.Equal(1, snapshot.ShipLiquidInventory.Balances["酒"]);
         Assert.Equal(1, snapshot.ShipLiquidInventory.Balances["蜜"]);
-        Assert.Empty(snapshot.Master!.Liquids);
-        Assert.Empty(snapshot.Slave!.Liquids);
+        Assert.All(snapshot.Master!.Liquids.Values, amount => Assert.Equal(0, amount));
+        Assert.All(snapshot.Slave!.Liquids.Values, amount => Assert.Equal(0, amount));
 
         var second = app.AdvanceWorld(1_000);
         Assert.Equal(3, second.LiquidProductionReceipts.Sum(item => item.ProducedAmount));
@@ -306,7 +306,7 @@ public sealed class WorldV2ApplicationServiceTests
         var before = app.GetWorldSnapshot();
         Assert.Single(before.Master!.Jars);
         Assert.Equal(1, before.ShipLiquidInventory!.Balances["酒"]);
-        Assert.Empty(before.Master.Liquids);
+        Assert.Equal(0, before.Master.Liquids["酒"]);
 
         var demandId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
             new[] { new WorldV2RequirementInput("圆罐", "酒") },
@@ -328,7 +328,7 @@ public sealed class WorldV2ApplicationServiceTests
         var reshaped = app.GetWorldSnapshot();
         Assert.Equal("主台", reshaped.Master!.Name);
         Assert.Equal("酒", Assert.Single(reshaped.Master.Jars).Liquid);
-        Assert.Empty(reshaped.Master.Liquids);
+        Assert.Equal(0, reshaped.Master.Liquids["酒"]);
         Assert.False(reshaped.Replacement!.IsFinished);
         Assert.Equal(1, reshaped.Replacement.CompletedPhases);
 
@@ -346,7 +346,7 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Single(after.Master.Jars);
         Assert.Null(after.Master.Jars[0].Liquid);
         Assert.Equal(1, after.ShipLiquidInventory!.Balances["酒"]);
-        Assert.Empty(after.Master.Liquids);
+        Assert.Equal(0, after.Master.Liquids["酒"]);
         var returned = Assert.Single(app.GetResourceLedger().Events,
             item => item.Cause == "return" && item.Kind == "liquid" && item.Name == "酒");
         Assert.Equal("订单暂存", returned.From);
