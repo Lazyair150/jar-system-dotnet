@@ -835,11 +835,13 @@ public sealed class WorldOrderExecutionSessionTests
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 0);
         var jar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(jar);
         master.AddLiquid("酒", 1); // 当前求解快照的兼容投影
         var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
-        var setup = Prepare(master, null, demand);
+        var setup = Prepare(master, slave, demand);
         var ship = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 2 });
         ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
@@ -853,6 +855,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(started.Success, started.Reason);
         var scopes = admission.GetLiquidScopes(demand.Id);
         Assert.True(scopes.HasValue);
+        Assert.Null(scopes.Value.Slave);
         Assert.Equal(1, scopes.Value.Master.GetAmount("酒"));
         Assert.Equal(1, ship.GetAmount("酒"));
 
