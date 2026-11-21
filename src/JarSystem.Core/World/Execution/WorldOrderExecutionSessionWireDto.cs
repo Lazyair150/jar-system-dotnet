@@ -41,6 +41,14 @@ public sealed class WorldOrderExecutionSessionWireDto
         };
     }
 
+    private static bool LiquidMapsEqual(
+        IReadOnlyDictionary<string, int> left,
+        IReadOnlyDictionary<string, int> right)
+    {
+        if (left.Count != right.Count) return false;
+        return left.All(item => right.TryGetValue(item.Key, out var value) && value == item.Value);
+    }
+
     public WorldOrderExecutionSessionProgressSnapshot ToSnapshot()
     {
         Validate();
@@ -76,6 +84,10 @@ public sealed class WorldOrderExecutionSessionWireDto
         Plan.Validate();
         if (Manifest.DemandId != DemandId || Manifest.IsPartitioned != Plan.IsPartitioned)
             throw new InvalidOperationException("会话 Wire DTO 的订单身份或主从类型不一致。");
+        if (!Manifest.TransferJarIds.OrderBy(x => x).SequenceEqual(
+                Plan.TransferJarIds.OrderBy(x => x)) ||
+            !LiquidMapsEqual(Manifest.TransferLiquids, Plan.TransferLiquids))
+            throw new InvalidOperationException("会话 Wire DTO 的 Manifest 与 Plan 转移资源不一致。");
         if (CompletedMasterSteps < 0 || CompletedMasterSteps > Plan.MasterSteps.Length ||
             CompletedSlaveSteps < 0 || CompletedSlaveSteps > Plan.SlaveSteps.Length)
             throw new InvalidOperationException("会话 Wire DTO 的步骤游标越界。");
