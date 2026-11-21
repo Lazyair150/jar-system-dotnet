@@ -172,6 +172,22 @@ public sealed class WorldResourceReservationBook
         }
     }
 
+    /// <summary>将快照恢复到空预留簿；派生索引由 Restore 重新构建。</summary>
+    public void RestoreFrom(WorldResourceReservationBookSnapshot snapshot)
+    {
+        var restored = Restore(snapshot);
+        lock (_gate)
+        {
+            if (_byDemand.Count != 0 || _jarOwners.Count != 0 || _slaveOwnerDemandId.HasValue)
+                throw new InvalidOperationException("只能向空资源预留簿恢复快照。");
+            foreach (var pair in restored._byDemand)
+                _byDemand.Add(pair.Key, pair.Value);
+            foreach (var pair in restored._jarOwners)
+                _jarOwners.Add(pair.Key, pair.Value);
+            _slaveOwnerDemandId = restored._slaveOwnerDemandId;
+        }
+    }
+
     /// <summary>订单结束、取消或中断时释放占用声明；不回滚真实资源变化。</summary>
     public bool Release(int demandId)
     {
