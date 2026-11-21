@@ -170,7 +170,7 @@ public sealed class WorldV2Context : IDisposable
             DemandBoard, SolveBook, Roster, stagedReservations, stagedShip);
         stagedAdmission.Restore(checkpoint.Admission);
         var stagedLedger = ResourceLedger.Restore(checkpoint.ResourceLedger);
-        var stagedClock = WorldClock.Restore(checkpoint.Clock);
+        _ = WorldClock.Restore(checkpoint.Clock);
         var activeScopeIds = checkpoint.Admission.ActiveOrders.Select(item => item.DemandId).ToHashSet();
         var sessionIds = checkpoint.Sessions.Select(item => item.DemandId).ToHashSet();
         if (!activeScopeIds.SetEquals(sessionIds))
