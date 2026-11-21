@@ -352,4 +352,39 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Equal(2, ship.GetAmount("酒"));
     }
 
+
+    [Fact]
+    public void NewOrderStagingUsesIndependentAggregateCapacityNotLegacyPerLiquidLimit()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxJars: 4, maxLiquids: 1, vocabulary: Words, liquidStagingCapacity: 2);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐", Liquid = "酒" },
+                    new Requirement { Shape = "方罐", Liquid = "蜜" }
+                }, Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        var scope = admission.GetLiquidScopes(demand.Id)!.Value.Master;
+        Assert.Equal(1, master.MaxLiquids);
+        Assert.Equal(2, master.LiquidStagingCapacity);
+        Assert.Equal(2, scope.Staging.Capacity);
+        Assert.Equal(2, scope.Staging.UsedCapacity);
+        Assert.Equal(1, scope.GetAmount("酒"));
+        Assert.Equal(1, scope.GetAmount("蜜"));
+    }
+
 }
