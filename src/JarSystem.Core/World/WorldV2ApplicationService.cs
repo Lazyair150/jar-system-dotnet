@@ -211,8 +211,7 @@ public sealed class WorldV2ApplicationService
             result = new WorldV2WorkshopReplacementResultDto(
                 cancel.Success,
                 cancel.Error,
-                ToReplacementDto(context.Runtime.ActiveReplacement),
-                ToShipLiquidInventoryDto(context.ShipLiquidInventory));
+                ToReplacementDto(context.Runtime.ActiveReplacement));
         });
         return result!;
     }
@@ -268,7 +267,8 @@ public sealed class WorldV2ApplicationService
                 CopyList(demands),
                 CopyList(sessions),
                 context.Reservations.Count,
-                ToReplacementDto(context.Runtime.ActiveReplacement));
+                ToReplacementDto(context.Runtime.ActiveReplacement),
+                ToShipLiquidInventoryDto(context.ShipLiquidInventory));
         });
         return snapshot!;
     }
