@@ -77,18 +77,28 @@ public sealed class OrderResourceLease
     {
         if (Stage != OrderResourceLeaseStage.Admitted)
             throw new InvalidOperationException("只能恢复尚未进入执行阶段的资源租约。");
-        if (stage == OrderResourceLeaseStage.MasterExecuting)
-            MarkMasterExecuting();
-        else if (stage == OrderResourceLeaseStage.TransferPending)
-            MarkTransferPending();
-        else if (stage == OrderResourceLeaseStage.SlaveExecuting)
+        switch (stage)
         {
-            MarkTransferPending();
-            MarkTransferCommitted();
-            MarkSlaveExecuting();
-        }
-        else
-            throw new InvalidOperationException("检查点中的资源租约阶段无效。");
+            case OrderResourceLeaseStage.Admitted:
+                return;
+            case OrderResourceLeaseStage.MasterExecuting:
+                MarkMasterExecuting();
+                return;
+            case OrderResourceLeaseStage.TransferPending:
+                MarkTransferPending();
+                return;
+            case OrderResourceLeaseStage.TransferCommitted:
+                MarkTransferPending();
+                MarkTransferCommitted();
+                return;
+            case OrderResourceLeaseStage.SlaveExecuting:
+                MarkTransferPending();
+                MarkTransferCommitted();
+                MarkSlaveExecuting();
+                return;
+            default:
+                throw new InvalidOperationException("检查点中的资源租约阶段无效。");
+        };
     }
 
     internal void MarkSettled()
@@ -107,6 +117,7 @@ public sealed class OrderResourceLease
             reservation.MasterInitialLiquidAmounts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
         UsesSlave = reservation.UsesSlave;
         Reservation = new WorldResourceReservation(
-            DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave);
+            DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave, reservation.Stage);
+        RestoreExecutionStage(reservation.Stage);
     }
 }
