@@ -29,7 +29,7 @@ public sealed class OrderResourceLease
     public OrderResourceLeaseStage Stage { get; private set; } = OrderResourceLeaseStage.Admitted;
 
     /// <summary>兼容既有 ReservationBook/Restore API 的不可变只读视图。</summary>
-    public WorldResourceReservation Reservation { get; }
+    public WorldResourceReservation Reservation => CaptureReservation();
 
     internal OrderResourceLease(WorldOrderResourceManifest manifest)
     {
@@ -40,8 +40,6 @@ public sealed class OrderResourceLease
         InitialLiquidSupply = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
             manifest.MasterInitialLiquidAmounts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
         UsesSlave = manifest.IsPartitioned;
-        Reservation = new WorldResourceReservation(
-            DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave, Stage);
     }
 
     internal void MarkMasterExecuting()
@@ -119,8 +117,6 @@ public sealed class OrderResourceLease
         InitialLiquidSupply = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
             reservation.MasterInitialLiquidAmounts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
         UsesSlave = reservation.UsesSlave;
-        Reservation = new WorldResourceReservation(
-            DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave, reservation.Stage);
         RestoreExecutionStage(reservation.Stage);
     }
 }
