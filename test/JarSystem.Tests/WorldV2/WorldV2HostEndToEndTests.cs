@@ -4,6 +4,7 @@ using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Production;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 using Xunit;
