@@ -19,9 +19,13 @@ public sealed class WorldResourceReservationBook
     public int Count { get { lock (_gate) return _byDemand.Count; } }
 
     /// <summary>捕获包含结算状态的租约 wire 快照；不保存可重建的索引。</summary>
-    public WorldResourceReservationBookWireDto CaptureWire() =>
-        new(_byDemand.Values.OrderBy(item => item.DemandId)
-            .Select(OrderResourceLeaseWireDto.FromLease));
+    public WorldResourceReservationBookWireDto CaptureWire()
+    {
+        lock (_gate)
+            return new WorldResourceReservationBookWireDto(
+                _byDemand.Values.OrderBy(item => item.DemandId)
+                    .Select(OrderResourceLeaseWireDto.FromLease));
+    }
 
     /// <summary>从完整租约 wire DTO 恢复预留簿及其派生索引。</summary>
     public static WorldResourceReservationBook RestoreWire(WorldResourceReservationBookWireDto snapshot)
@@ -232,6 +236,22 @@ public sealed class WorldResourceReservationBook
 
             reason = null;
             return true;
+        }
+    }
+
+    /// <summary>将完整租约 wire 状态恢复到空预留簿；派生索引重新构建，结算收据随租约恢复。</summary>
+    public void RestoreFromWire(WorldResourceReservationBookWireDto snapshot)
+    {
+        var restored = RestoreWire(snapshot);
+        lock (_gate)
+        {
+            if (_byDemand.Count != 0 || _jarOwners.Count != 0 || _slaveOwnerDemandId.HasValue)
+                throw new InvalidOperationException("只能向空资源预留簿恢复 wire 快照。");
+            foreach (var pair in restored._byDemand)
+                _byDemand.Add(pair.Key, pair.Value);
+            foreach (var pair in restored._jarOwners)
+                _jarOwners.Add(pair.Key, pair.Value);
+            _slaveOwnerDemandId = restored._slaveOwnerDemandId;
         }
     }
 
