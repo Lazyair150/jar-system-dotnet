@@ -390,6 +390,10 @@ public sealed class WorldV2ContextTests
             maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
         var secondShip = new ShipLiquidInventory(10);
         var secondResources = CreateProductionArea(secondShip);
+        // 恢复不仅要补余数，也要恢复运行中被修改过的速率与流入配置。
+        secondResources.Producers.UpdateRate("罐源", "圆罐", 1.0);
+        secondResources.LiquidProduction.SetRate("酒", 1.0);
+        secondResources.SetFlowRates(jarFlowRate: 1.0, liquidFlowRate: 0);
         using var secondWorld = WorldV2Context.Create(
             secondResources, new[] { secondMaster }, secondMaster, null,
             CreateSolverRegistry(), logicalTimePerUnit: 1_000,
