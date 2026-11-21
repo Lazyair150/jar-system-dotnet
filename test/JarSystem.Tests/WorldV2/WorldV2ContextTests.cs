@@ -254,23 +254,12 @@ public sealed class WorldV2ContextTests
         var capturedLease = Assert.Single(firstWorld.Reservations.Capture().Reservations);
         Assert.Equal(OrderResourceLeaseStage.MasterExecuting, capturedLease.Stage);
         Assert.Empty(capturedLease.TransferLiquidAmounts);
-        var capturedReservation = Assert.Single(checkpoint.Reservations.Reservations);
-        var mismatchedReservation = new WorldResourceReservation(
-            capturedReservation.DemandId,
-            capturedReservation.WorldVersion,
-            capturedReservation.LockedJarIds,
-            capturedReservation.MasterInitialLiquidAmounts,
-            capturedReservation.UsesSlave,
-            OrderResourceLeaseStage.TransferPending,
-            capturedReservation.TransferLiquidAmounts,
-            capturedReservation.MasterStagingPeakCapacity,
-            capturedReservation.SlaveStagingPeakCapacity);
         var originalLeaseWire = Assert.Single(checkpoint.ReservationLeases.Leases);
         var mismatchedLeaseWire = new OrderResourceLeaseWireDto
         {
             DemandId = originalLeaseWire.DemandId,
             WorldVersion = originalLeaseWire.WorldVersion,
-            LockedJarIds = new List<int>(originalLeaseWire.LockedJarIds),
+            LockedJarIds = new List<int> { originalLeaseWire.LockedJarIds[0] + 100000 },
             InitialLiquidSupply = new Dictionary<string, int>(originalLeaseWire.InitialLiquidSupply),
             TransferLiquidAmounts = new Dictionary<string, int>(originalLeaseWire.TransferLiquidAmounts),
             MasterStagingPeakCapacity = originalLeaseWire.MasterStagingPeakCapacity,
@@ -290,7 +279,7 @@ public sealed class WorldV2ContextTests
             checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint,
             checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
             checkpoint.Admission,
-            new WorldResourceReservationBookSnapshot(new[] { mismatchedReservation }),
+            checkpoint.Reservations,
             new WorldResourceReservationBookWireDto(new[] { mismatchedLeaseWire }),
             checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick, checkpoint.Sessions);
         Assert.Throws<InvalidOperationException>(
