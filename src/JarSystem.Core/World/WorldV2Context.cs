@@ -115,7 +115,11 @@ public sealed class WorldV2Context : IDisposable
             : new WorldOrderExecutionAdmission(board, solveBook, roster, reservations, shipLiquidInventory);
         var runtime = new ResourceWorldRuntime(
             resources, clock: clock, roster: roster, demandBoard: board,
-            resourceLedger: resourceLedger);
+            resourceLedger: resourceLedger,
+            masterPrefill: shipLiquidInventory == null
+                ? null
+                : targetWorkshop => admission.PrefillMasterWorkshop(
+                    targetWorkshop, resources.LiquidProductionPriority));
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
