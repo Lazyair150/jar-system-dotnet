@@ -554,3 +554,19 @@ Envelope 建议：
 5. 最后才清理兼容层、统一 Godot 端 API，并转向完整游戏流程集成。
 
 工程节奏调整：优先交付完整模块与跨模块链路；除非新边界引入风险，否则不为单一方法增加大量重复测试。每个阶段保留少量关键回归和 CI 基线即可。
+
+
+## 19. Lease 完整 Wire 状态进入执行检查点（2026-11-22）
+
+本轮不再只把 Lease 投影成 Reservation，而是增加独立的 JSON 可构造 wire contract：
+
+- `OrderResourceLeaseWireDto` 保存订单身份、锁定罐子、初始供给、B 类交接液体、主从暂存峰值、执行阶段、结算阶段、稳定 SettlementOperationId，以及逐液种 Requested/Accepted/Discarded 收据。
+- `WorldResourceReservationBookWireDto` 保存活动 Lease 集合；不保存罐子所有者索引和从台所有者索引，恢复时由 ReservationBook 从 Lease 重建派生索引。
+- Wire 校验拒绝重复订单、重复罐子、多个从台占用者、A 类从台字段、非法阶段、错误 OperationId，以及不守恒的结算收据。
+- `WorldResourceReservationBook.CaptureWire / RestoreWire` 提供完整捕获与重建入口。
+- `WorldV2ExecutionResourceCheckpoint` 新增 `ReservationLeases`；Context 捕获时保存完整 Lease wire，恢复预检和提交都改用该 wire 数据，因此 SettlementReceipt/SettlementStage 不再在 Checkpoint → ReservationBook 之间丢失。
+- 旧 `Reservations` 快照暂时保留为兼容投影，不再作为完整恢复的事实来源。
+
+边界说明：这让 Lease/Reservation 子图具备明确的 JSON wire DTO 和检查点往返入口，但还不代表整个 World V2 根检查点已可独立 JSON 序列化；Admission 的 staging 快照、Workshop/ResourceArea、DemandBoard、Ledger、Clock、Session 等组件仍需各自的 wire mapping。账本也尚未按 SettlementOperationId 去重，因此不能宣称跨崩溃 exactly-once。
+
+下一步直接扩展根检查点 DTO，并把 Prepare/Commit 恢复边界显式化；避免再在多个对象上分别维护同一份 Lease 结算事实。
