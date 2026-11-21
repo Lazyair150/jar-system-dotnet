@@ -235,7 +235,7 @@ public sealed class WorldV2ContextTests
         secondWorld.DemandBoard.AddDemand(restoredDemand, DemandAreaKind.Active);
 
         var invalidClockCheckpoint = new WorldV2ExecutionResourceCheckpoint(
-            checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ShipLiquidInventory,
+            checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint, checkpoint.ShipLiquidInventory,
             checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
             checkpoint.Admission, checkpoint.Reservations, checkpoint.ResourceLedger,
             new WorldClockSnapshot(-1, checkpoint.Clock.LogicalTimeMilli,
