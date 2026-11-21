@@ -23,15 +23,19 @@ public sealed class WorldSnapshot
     public string Version { get; }
     public WorkshopSolveSnapshot? Master { get; }
     public WorkshopSolveSnapshot? Slave { get; }
+    /// <summary>新液体资源路径的自机液库纯值快照；为空表示旧版兼容求解输入。</summary>
+    public ShipLiquidInventorySnapshot? ShipLiquidInventory { get; }
 
     internal WorldSnapshot(
         string version,
         WorkshopSolveSnapshot? master,
-        WorkshopSolveSnapshot? slave)
+        WorkshopSolveSnapshot? slave,
+        ShipLiquidInventorySnapshot? shipLiquidInventory)
     {
         Version = version;
         Master = master;
         Slave = slave;
+        ShipLiquidInventory = shipLiquidInventory;
     }
 }
 
@@ -195,7 +199,8 @@ public sealed record WorldRuleModifierSnapshot(
 /// <summary>从当前主从岗位捕获同一时刻的求解输入，并生成内容指纹版本。</summary>
 public static class WorldSnapshotFactory
 {
-    public static WorldSnapshot Capture(WorkshopRoster roster)
+    public static WorldSnapshot Capture(
+        WorkshopRoster roster, ShipLiquidInventory? shipLiquidInventory = null)
     {
         if (roster == null) throw new ArgumentNullException(nameof(roster));
 
@@ -203,23 +208,43 @@ public static class WorldSnapshotFactory
         var slaveWorkshop = roster.Slave;
         var master = masterWorkshop == null ? null : new WorkshopSolveSnapshot(masterWorkshop);
         var slave = slaveWorkshop == null ? null : new WorkshopSolveSnapshot(slaveWorkshop);
-        var version = ComputeVersion(master, slave);
-        return new WorldSnapshot(version, master, slave);
+        var ship = shipLiquidInventory?.Capture();
+        var version = ComputeVersion(master, slave, ship);
+        return new WorldSnapshot(version, master, slave, ship);
     }
 
     private static string ComputeVersion(
         WorkshopSolveSnapshot? master,
-        WorkshopSolveSnapshot? slave)
+        WorkshopSolveSnapshot? slave,
+        ShipLiquidInventorySnapshot? ship)
     {
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
-            writer.Write("JarSystem.WorldSolveSnapshot.v2");
+            writer.Write("JarSystem.WorldSolveSnapshot.v3");
             WriteWorkshop(writer, master);
             WriteWorkshop(writer, slave);
+            WriteShipLiquidInventory(writer, ship);
         }
 
         return Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant();
+    }
+
+
+    private static void WriteShipLiquidInventory(
+        BinaryWriter writer, ShipLiquidInventorySnapshot? ship)
+    {
+        writer.Write(ship != null);
+        if (ship == null) return;
+
+        writer.Write(ship.Capacity);
+        var balances = ship.Balances.OrderBy(item => item.Key, StringComparer.Ordinal).ToArray();
+        writer.Write(balances.Length);
+        foreach (var item in balances)
+        {
+            writer.Write(item.Key);
+            writer.Write(item.Value);
+        }
     }
 
     private static void WriteWorkshop(BinaryWriter writer, WorkshopSolveSnapshot? workshop)
