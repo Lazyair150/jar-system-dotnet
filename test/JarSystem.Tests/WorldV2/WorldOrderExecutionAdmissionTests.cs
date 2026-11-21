@@ -306,14 +306,14 @@ public sealed class WorldOrderExecutionAdmissionTests
     [Fact]
     public void ConcurrentShipLiquidAdmissionsReserveAggregateStagingWithoutDoubleSubtractingInventory()
     {
-        var master = new Workshop("主台", new List<string> { "圆罐" },
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
             maxLiquids: 4, vocabulary: Words);
         master.AddJar(new Jar("圆罐", vocabulary: Words));
-        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
         master.AddLiquid("酒", 2);
         var ids = new SequentialIdGenerator();
         var first = Demand("圆罐", "酒", ids);
-        var second = Demand("圆罐", "酒", ids);
+        var second = Demand("方罐", "酒", ids);
         var setup = Prepare(master, first, second);
         var ship = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 2 });
