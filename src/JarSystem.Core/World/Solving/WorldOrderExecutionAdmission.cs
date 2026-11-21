@@ -16,6 +16,7 @@ public sealed class WorldOrderExecutionAdmission
     private readonly WorkshopRoster _roster;
     private readonly WorldResourceReservationBook _reservations;
     private readonly ShipLiquidInventory? _shipLiquidInventory;
+    internal ShipLiquidInventory? ShipLiquidInventory => _shipLiquidInventory;
     private readonly Dictionary<Workshop, WorkshopLiquidStaging> _stagingByWorkshop =
         new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<int, (OrderLiquidScope Master, OrderLiquidScope? Slave)> _scopesByDemand = new();
@@ -77,7 +78,7 @@ public sealed class WorldOrderExecutionAdmission
             return WorldOrderExecutionAdmissionResult.Rejected(reason);
         }
 
-        var snapshot = WorldSnapshotFactory.Capture(_roster);
+        var snapshot = WorldSnapshotFactory.Capture(_roster, _shipLiquidInventory);
         var result = _solveBook.GetCurrentResult(demandId, snapshot);
         if (result == null)
             return WorldOrderExecutionAdmissionResult.Rejected("求解结果不存在或与当前世界版本不一致");
