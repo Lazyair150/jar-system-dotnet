@@ -152,6 +152,9 @@ public sealed class WorldV2HostServiceTests
 
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
+        _ = ProducerModuleWireDto.FromSnapshot(beforePump.ResourceArea.Producers);
+        _ = LiquidProductionWireDto.FromSnapshot(beforePump.ResourceArea.LiquidProduction);
+        _ = WarehouseWireDto.FromSnapshot(beforePump.ResourceArea.Warehouse);
         _ = ResourceAreaWireDto.FromSnapshot(beforePump.ResourceArea);
         _ = DemandBoardWireDto.FromSnapshot(beforePump.DemandBoard);
         _ = ShipLiquidInventoryWireDto.FromSnapshot(beforePump.ShipLiquidInventory);
