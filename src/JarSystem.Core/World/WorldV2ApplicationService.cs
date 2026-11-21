@@ -94,6 +94,17 @@ public sealed class WorldV2ApplicationService
         return result!;
     }
 
+    /// <summary>
+    /// 捕获当前活动执行的资源检查点。返回值为脱离 Context 的纯值快照，
+    /// 调用方不能据此绕过 Host 直接修改世界。
+    /// </summary>
+    public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
+    {
+        WorldV2ExecutionResourceCheckpoint? checkpoint = null;
+        _host.ExecuteExclusive(context => checkpoint = context.CaptureExecutionResourceCheckpoint());
+        return checkpoint!;
+    }
+
     /// <summary>添加罐子订单。输入仅包含玩法数据，不接受外部构造的领域对象。</summary>
     public int AddJarDemand(WorldV2AddJarDemandRequest request)
     {
