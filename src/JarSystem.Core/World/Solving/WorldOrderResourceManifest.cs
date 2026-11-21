@@ -20,7 +20,7 @@ public sealed class WorldOrderResourceManifest
     public IReadOnlyList<int> LockedJarIds { get; }
     public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
     public IReadOnlyDictionary<string, int> TransferLiquids { get; }
-    /// <summary>主台路径完成后实际剩余的全部游离液体；B 类泵送此完整余额，而非仅泵送最低需求量。</summary>
+    /// <summary>主台路径完成后的实际全部剩余游离液体；仅用于核对主台终态，不代表泵送批次。</summary>
     public IReadOnlyDictionary<string, int> MasterTransferLiquidAmounts { get; }
     public int MasterStagingPeakCapacity { get; }
     public int SlaveStagingPeakCapacity { get; }
@@ -107,7 +107,8 @@ public sealed class WorldOrderResourceManifest
             if (!DictionaryAtLeast(masterTransfer, transferLiquids))
                 throw new InvalidOperationException("主台路径结束时的液体余额不足以满足从台路径");
             masterPeak = masterSimulation.PeakCapacity;
-            var slaveSimulation = SimulatePath(plan.SlaveSteps, masterTransfer);
+            // 从台只接收其执行路径所需的最低初始供给；主台额外剩余液体不进入从台容量计算。
+            var slaveSimulation = SimulatePath(plan.SlaveSteps, transferLiquids);
             slavePeak = slaveSimulation.PeakCapacity;
         }
 
