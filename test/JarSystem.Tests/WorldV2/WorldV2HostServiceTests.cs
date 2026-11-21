@@ -156,6 +156,8 @@ public sealed class WorldV2HostServiceTests
 
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
+        var beforePumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(beforePump);
+        beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
         Assert.Empty(beforePump.ResourceLedger.Entries.Where(item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
         Assert.Single(beforePump.ResourceLedger.Entries, item =>
@@ -188,6 +190,8 @@ public sealed class WorldV2HostServiceTests
 
         // Checkpoint B：交接已提交、从台拥有订单液体。恢复不得再次泵送。
         var afterPump = application.CaptureExecutionResourceCheckpoint();
+        var afterPumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(afterPump);
+        afterPump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(afterPumpJson);
         Assert.Single(afterPump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
         Assert.Single(afterPump.ResourceLedger.Entries, item =>
