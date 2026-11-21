@@ -806,4 +806,40 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Contains(master.Jars, item => item.Id == jar.Id);
     }
 
+
+    [Fact]
+    public void AOrderExecutesAgainstShipFundedScopeAndKeepsLegacyWorkshopPoolUntouched()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1); // 当前求解快照的兼容投影
+        var demand = Demand(Constants.OrderType.A, "圆罐", "酒");
+        var setup = Prepare(master, null, demand);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 2 });
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, admission, 1_000);
+
+        Assert.True(started.Success, started.Reason);
+        var scopes = admission.GetLiquidScopes(demand.Id);
+        Assert.True(scopes.HasValue);
+        Assert.Equal(1, scopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(1, ship.GetAmount("酒"));
+
+        runtime.AdvanceWorldTime(1_000);
+
+        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        Assert.Empty(master.Jars);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        Assert.Equal(1, master.LiquidStorage["酒"]);
+        Assert.Equal(0, scopes.Value.Master.Staging.UsedCapacity);
+        Assert.Equal(0, scopes.Value.Master.Staging.ReservedCapacity);
+    }
+
 }
