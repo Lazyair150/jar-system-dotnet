@@ -164,6 +164,67 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
+    public void BackwardLiquidDemandBoundRejectsUnfundedSecondRequirementAcrossMultipleLiquidKinds()
+    {
+        var free = new Workshop("反向需求台", new List<string> { "圆罐" },
+            maxJars: 6, maxLiquids: 5);
+        var info = Info(free);
+        var requirements = new List<Requirement>
+        {
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "蜜" }
+        };
+        var jars = Jars("酒", null, null);
+        var liquids = new Dictionary<string, int> { ["酒"] = 0, ["蜜"] = 1 };
+
+        var reason = SolverPrecheck.ProveInfeasible(requirements, info, jars, liquids, int.MaxValue);
+
+        Assert.NotNull(reason);
+        Assert.Contains("酒", reason);
+        Assert.Contains("至少需要 1 份", reason);
+    }
+
+    [Fact]
+    public void BackwardLiquidDemandBoundAllowsDirectMatchPlusExactlyOneRequiredUnit()
+    {
+        var free = new Workshop("反向需求台", new List<string> { "圆罐" },
+            maxJars: 6, maxLiquids: 5);
+        var info = Info(free);
+        var requirements = new List<Requirement>
+        {
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" }
+        };
+        var jars = Jars("酒", null);
+        var liquids = new Dictionary<string, int> { ["酒"] = 1 };
+
+        var reason = SolverPrecheck.ProveInfeasible(requirements, info, jars, liquids, int.MaxValue);
+
+        Assert.Null(reason);
+        var result = new PrecheckedStateSpaceSolver().Solve(requirements, info, jars, liquids);
+        Assert.True(result.Feasible, result.Blockage);
+    }
+
+    [Fact]
+    public void BackwardLiquidDemandBoundTreatsBannedLiquidAsZeroExternalSupply()
+    {
+        var info = Info(Bench());
+        var requirements = new List<Requirement>
+        {
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" }
+        };
+        var jars = Jars("酒", null);
+
+        var reason = SolverPrecheck.ProveInfeasible(
+            requirements, info, jars, new Dictionary<string, int> { ["酒"] = 10 }, int.MaxValue);
+
+        Assert.NotNull(reason);
+        Assert.Contains("被禁", reason);
+    }
+
+    [Fact]
     public void AggregateStagingCapacityRejectsAPathNeedingTwoInitialLiquidUnits()
     {
         var info = Info(new Workshop("总容量一", new List<string> { "圆罐" },
