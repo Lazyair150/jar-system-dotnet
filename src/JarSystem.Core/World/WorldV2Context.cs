@@ -131,6 +131,7 @@ public sealed class WorldV2Context : IDisposable
             Reservations.Capture(),
             ResourceLedger.Capture(),
             Runtime.Clock.Capture(),
+            Runtime.LedgerTick,
             Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()));
     }
 
@@ -159,6 +160,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         WorldResourceReservationBookSnapshot reservations,
         ResourceLedgerSnapshot resourceLedger,
         WorldClockSnapshot clock,
+        int runtimeLedgerTick,
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
     {
         ShipLiquidInventory = shipLiquidInventory;
@@ -168,6 +170,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         Reservations = reservations;
         ResourceLedger = resourceLedger;
         Clock = clock;
+        RuntimeLedgerTick = runtimeLedgerTick;
         Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
     }
 
@@ -178,5 +181,6 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     public WorldResourceReservationBookSnapshot Reservations { get; }
     public ResourceLedgerSnapshot ResourceLedger { get; }
     public WorldClockSnapshot Clock { get; }
+    public int RuntimeLedgerTick { get; }
     public IReadOnlyList<WorldOrderExecutionSessionProgressSnapshot> Sessions { get; }
 }
