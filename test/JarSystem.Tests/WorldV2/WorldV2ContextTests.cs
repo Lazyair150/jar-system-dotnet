@@ -153,6 +153,9 @@ public sealed class WorldV2ContextTests
 
         var first = world.CaptureExecutionResourceCheckpoint();
         Assert.Equal(0, first.ShipLiquidInventory.Balances.Values.Sum());
+        Assert.Single(first.MasterWorkshop.Jars);
+        Assert.Equal(master.Jars[0].Id, first.MasterWorkshop.Jars[0].Id);
+        Assert.Null(first.SlaveWorkshop);
         Assert.Equal(1, first.Admission.MasterStaging!.Accounts[demand.Id]["酒"]);
         Assert.Empty(first.Admission.SlaveStaging?.Accounts ?? new Dictionary<int, IReadOnlyDictionary<string, int>>());
         Assert.Single(first.Admission.ActiveOrders);
