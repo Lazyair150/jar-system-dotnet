@@ -88,30 +88,15 @@ public sealed class WorldOrderExecutionSessionWireDto
                 Plan.TransferJarIds.OrderBy(x => x)) ||
             !LiquidMapsEqual(Manifest.TransferLiquids, Plan.TransferLiquids))
             throw new InvalidOperationException("会话 Wire DTO 的 Manifest 与 Plan 转移资源不一致。");
-        if (CompletedMasterSteps < 0 || CompletedMasterSteps > Plan.MasterSteps.Length ||
-            CompletedSlaveSteps < 0 || CompletedSlaveSteps > Plan.SlaveSteps.Length)
-            throw new InvalidOperationException("会话 Wire DTO 的步骤游标越界。");
-
-        // 与运行时 RestoreProgress 使用同一阶段/游标契约，避免 DTO 接受
-        // 一个 JSON 可读、但运行时永远无法恢复的会话状态。
-        var validProgress = stage switch
-        {
-            WorldOrderExecutionStage.MasterSteps =>
-                CompletedMasterSteps < Plan.MasterSteps.Length &&
-                CompletedSlaveSteps == 0 && !SlaveTransferCommitted,
-            WorldOrderExecutionStage.Transfer =>
-                Plan.IsPartitioned &&
-                CompletedMasterSteps == Plan.MasterSteps.Length &&
-                CompletedSlaveSteps == 0 && !SlaveTransferCommitted,
-            WorldOrderExecutionStage.SlaveSteps =>
-                Plan.IsPartitioned &&
-                CompletedMasterSteps == Plan.MasterSteps.Length &&
-                CompletedSlaveSteps < Plan.SlaveSteps.Length &&
-                SlaveTransferCommitted,
-            _ => false
-        };
-        if (!validProgress || Reason != null)
-            throw new InvalidOperationException("会话 Wire DTO 的阶段、步骤游标与交接标记组合无效。");
+        ExecutionProgressInvariants.Validate(
+            stage,
+            CompletedMasterSteps,
+            Plan.MasterSteps.Length,
+            CompletedSlaveSteps,
+            Plan.SlaveSteps.Length,
+            Plan.IsPartitioned,
+            SlaveTransferCommitted,
+            Reason);
     }
 }
 
