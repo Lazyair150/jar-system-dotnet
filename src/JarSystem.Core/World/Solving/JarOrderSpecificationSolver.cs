@@ -244,7 +244,8 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
                     additionalMarks,
                     bannedLiquids),
                 MaxJars = workshopInfo.MaxJars,
-                MaxLiquids = workshopInfo.MaxLiquids
+                MaxLiquids = workshopInfo.MaxLiquids,
+                MaxLiquidCapacity = workshopInfo.MaxLiquidCapacity
             };
 
             var projectedJars = removedShapes.Count == 0
