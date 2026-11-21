@@ -266,11 +266,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             throw new ArgumentException("恢复会话的需求板、求解簿、准入器与岗位不属于同一世界。");
         if (board.Find(snapshot.DemandId) == null)
             throw new InvalidOperationException("恢复会话对应的订单不在需求板中。");
-        if (snapshot.Manifest.DemandId != snapshot.DemandId ||
-            snapshot.Manifest.IsPartitioned != snapshot.Plan.IsPartitioned ||
-            snapshot.Stage is WorldOrderExecutionStage.Completed or WorldOrderExecutionStage.Failed or
-                WorldOrderExecutionStage.Interrupted or WorldOrderExecutionStage.Cancelled)
-            throw new InvalidOperationException("执行会话快照的订单身份、计划类型或阶段无效。");
+        if (snapshot.Stage is WorldOrderExecutionStage.Completed or WorldOrderExecutionStage.Failed or
+            WorldOrderExecutionStage.Interrupted or WorldOrderExecutionStage.Cancelled)
+            throw new InvalidOperationException("执行会话快照的阶段无效。");
+        ExecutionProgressInvariants.ValidateManifestPlan(
+            snapshot.DemandId, snapshot.Manifest, snapshot.Plan);
         if (snapshot.UnitDurationLogicalMilli <= 0 ||
             snapshot.UnitElapsedLogicalMilli < 0 ||
             snapshot.UnitElapsedLogicalMilli >= snapshot.UnitDurationLogicalMilli)
