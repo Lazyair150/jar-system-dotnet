@@ -222,4 +222,32 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(WorldOrderSolveStatus.Infeasible, second.Status);
     }
 
+
+    [Fact]
+    public void BPartitionCountsRequiredSlaveTransferAgainstMasterStagingCapacity()
+    {
+        var master = new Workshop("主台", new List<string>(),
+            maxJars: 4, maxLiquids: 1, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 2 });
+        var snapshot = WorldSnapshotFactory.Capture(roster, ship);
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐", Liquid = "酒" },
+                    new Requirement { Shape = "圆罐", Liquid = "酒" }
+                }, Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, snapshot);
+
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
+        Assert.Contains("主台订单液体路径及从台交接预留", result.Reason ?? string.Empty);
+    }
+
 }
