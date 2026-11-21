@@ -161,4 +161,40 @@ public sealed class LiquidResourceAccountsTests
         Assert.Equal(3, staging.GetAmount(202, "蜜"));
         Assert.Equal(3, staging.UsedCapacity);
     }
+
+    [Fact]
+    public void ReservedOrderCapacityAllowsAtomicMultiLiquidPumpWithinAggregateQuotaOnly()
+    {
+        var master = new WorkshopLiquidStaging(8);
+        var slave = new WorkshopLiquidStaging(8);
+        Assert.True(master.TryReserveOrderCapacity(101, 6));
+        Assert.True(slave.TryReserveOrderCapacity(101, 3));
+        Assert.Equal(2, master.Receive(101, "酒", 2).AcceptedAmount);
+        Assert.Equal(2, master.Receive(101, "蜜", 2).AcceptedAmount);
+
+        var oversized = new Dictionary<string, int>
+        {
+            ["酒"] = 2,
+            ["蜜"] = 2
+        };
+        Assert.False(OrderLiquidTransfer.TryExecute(
+            101, master, slave, oversized, out _));
+        Assert.Equal(2, master.GetAmount(101, "酒"));
+        Assert.Equal(2, master.GetAmount(101, "蜜"));
+        Assert.Equal(0, slave.UsedCapacity);
+
+        var fitting = new Dictionary<string, int>
+        {
+            ["酒"] = 1,
+            ["蜜"] = 2
+        };
+        Assert.True(OrderLiquidTransfer.TryExecute(
+            101, master, slave, fitting, out var reason), reason);
+        Assert.Equal(1, master.GetAmount(101, "酒"));
+        Assert.Equal(0, master.GetAmount(101, "蜜"));
+        Assert.Equal(1, slave.GetAmount(101, "酒"));
+        Assert.Equal(2, slave.GetAmount(101, "蜜"));
+        Assert.Equal(3, slave.UsedCapacity);
+    }
+
 }
