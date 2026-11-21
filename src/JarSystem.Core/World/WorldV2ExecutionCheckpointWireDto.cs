@@ -101,7 +101,8 @@ public sealed class WorldV2ExecutionCheckpointWireDto
     private static WorldResourceReservationBookWireDto Clone(WorldResourceReservationBookWireDto source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        return new WorldResourceReservationBookWireDto(source.Leases.Select(item => new OrderResourceLeaseWireDto
+        var clone = new WorldResourceReservationBookWireDto();
+        clone.Leases = source.Leases.Select(item => new OrderResourceLeaseWireDto
         {
             DemandId = item.DemandId,
             WorldVersion = item.WorldVersion,
@@ -117,7 +118,8 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             SettlementRequested = item.SettlementRequested == null ? null : Copy(item.SettlementRequested),
             SettlementAccepted = item.SettlementAccepted == null ? null : Copy(item.SettlementAccepted),
             SettlementDiscarded = item.SettlementDiscarded == null ? null : Copy(item.SettlementDiscarded)
-        }));
+        }).ToList();
+        return clone;
     }
 
     internal static Dictionary<string, int> Copy(IReadOnlyDictionary<string, int> source) =>
