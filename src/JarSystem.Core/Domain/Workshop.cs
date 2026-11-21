@@ -440,7 +440,7 @@ public class Workshop
         if (jar.IsEmpty())
         {
             foreach (var pair in scope.Balance)
-                if (scope.CanConsume(pair.Key, 1).Granted)
+                if (!IsBanned(pair.Key) && scope.CanConsume(pair.Key, 1).Granted)
                     return ReshapeGrant.Yes();
             return ReshapeGrant.No("no-cost-liquid", "没有可支付的改形成本液体");
         }
