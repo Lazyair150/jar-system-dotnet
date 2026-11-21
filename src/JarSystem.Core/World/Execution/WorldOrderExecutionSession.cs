@@ -131,6 +131,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         if (initializeExecution)
         {
+            if (Stage == WorldOrderExecutionStage.MasterSteps)
+                admission.Reservations.MarkMasterExecuting(demandId);
+            else
+                admission.Reservations.MarkTransferPending(demandId);
+
             // 先处理主台路径开头连续的零耗时 MATCH；后续 MATCH 会在前一个耗时步骤完成后处理。
             if (Stage == WorldOrderExecutionStage.MasterSteps)
                 PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master", _masterLiquidScope);
@@ -139,7 +144,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 _masterIndex == _masterSteps.Count)
             {
                 if (manifest.IsPartitioned)
+                {
                     Stage = WorldOrderExecutionStage.Transfer;
+                    admission.Reservations.MarkTransferPending(demandId);
+                }
                 else
                     CompleteSuccess();
             }
@@ -317,6 +325,14 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         var masterIndex = snapshot.CompletedMasterSteps;
         var slaveIndex = snapshot.CompletedSlaveSteps;
+        var leaseStage = snapshot.Stage switch
+        {
+            WorldOrderExecutionStage.MasterSteps => OrderResourceLeaseStage.MasterExecuting,
+            WorldOrderExecutionStage.Transfer => OrderResourceLeaseStage.TransferPending,
+            WorldOrderExecutionStage.SlaveSteps => OrderResourceLeaseStage.SlaveExecuting,
+            _ => throw new InvalidOperationException("无法从活动会话阶段恢复资源租约。")
+        };
+        reservations.RestoreExecutionStage(snapshot.DemandId, leaseStage);
 
         var restored = new WorldOrderExecutionSession(
             snapshot.DemandId, board, solveBook, admission, roster,
@@ -514,7 +530,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 if (_masterIndex == _masterSteps.Count)
                 {
                     if (_manifest.IsPartitioned)
+                    {
                         Stage = WorldOrderExecutionStage.Transfer;
+                        _admission.Reservations.MarkTransferPending(DemandId);
+                    }
                     else
                         CompleteSuccess();
                 }
@@ -538,7 +557,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                         throw new InvalidOperationException(clear.Reason ?? $"无法清除罐子 #{jarId} 的阶段标记");
                 }
 
+                _admission.Reservations.MarkTransferCommitted(DemandId);
                 Stage = WorldOrderExecutionStage.SlaveSteps;
+                _admission.Reservations.MarkSlaveExecuting(DemandId);
                 PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave", _slaveLiquidScope);
                 if (!IsTerminal && _slaveIndex == _slaveSteps.Count)
                     CompleteSuccess();
