@@ -51,6 +51,19 @@ public sealed class WorldOrderExecutionAdmissionTests
         return (board, book, roster, reservations, admission);
     }
 
+    private static void ReevaluateWithShip(
+        WorldOrderSolveBook book, WorkshopRoster roster, ShipLiquidInventory ship,
+        params int[] demandIds)
+    {
+        var snapshot = WorldSnapshotFactory.Capture(roster, ship);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        foreach (var demandId in demandIds)
+            book.Evaluate(demandId, snapshot, registry);
+    }
+
     [Fact]
     public void AdmissionReservesJarAndInitialLiquidThenReleaseMakesThemAvailable()
     {
@@ -254,6 +267,7 @@ public sealed class WorldOrderExecutionAdmissionTests
         var setup = Prepare(master, demand);
         var ship = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 2 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
 
@@ -291,6 +305,7 @@ public sealed class WorldOrderExecutionAdmissionTests
         var setup = Prepare(master, demand);
         var ship = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
 
@@ -318,10 +333,12 @@ public sealed class WorldOrderExecutionAdmissionTests
         var setup = Prepare(master, first, second);
         var ship = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 2 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, first.Id, second.Id);
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
 
         var firstAdmitted = admission.TryAdmit(first.Id);
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, second.Id);
         var secondAdmitted = admission.TryAdmit(second.Id);
 
         Assert.True(firstAdmitted.Success, firstAdmitted.Reason);
