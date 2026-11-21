@@ -61,6 +61,7 @@ public sealed class WorldV2HostEndToEndTests
         var producedJars = 0;
         var flowedJars = 0;
         var flowedWine = 0;
+        var shipWineAfterProduction = -1;
         var startedDemand = false;
         var activeSessionsBeforeCompletion = -1;
         var activeSessionsAfterCompletion = -1;
@@ -75,7 +76,8 @@ public sealed class WorldV2HostEndToEndTests
             var productionStep = context.Scheduler.AdvanceWorldAndSchedule(1_000);
             producedJars = productionStep.WorldStep.Resources.ProducedJarCount;
             flowedJars = productionStep.WorldStep.Resources.FlowedJarCount;
-            flowedWine = productionStep.WorldStep.Resources.FlowedLiquids["酒"];
+            flowedWine = productionStep.WorldStep.Resources.FlowedLiquids.GetValueOrDefault("酒");
+            shipWineAfterProduction = context.ShipLiquidInventory!.GetAmount("酒");
 
             // 2. 外部输入只表达订单规格与区域，不直接调用 Solver 或执行器。
             var vocabulary = new Vocabulary(
@@ -106,7 +108,8 @@ public sealed class WorldV2HostEndToEndTests
 
         Assert.Equal(1, producedJars);
         Assert.Equal(1, flowedJars);
-        Assert.Equal(1, flowedWine);
+        Assert.Equal(0, flowedWine);
+        Assert.Equal(1, shipWineAfterProduction);
         Assert.True(startedDemand);
         Assert.Equal(1, activeSessionsBeforeCompletion);
         Assert.Equal(0, activeSessionsAfterCompletion);
