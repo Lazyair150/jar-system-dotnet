@@ -161,6 +161,8 @@ public sealed class WorldV2HostServiceTests
         _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.MasterWorkshop);
         _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.SlaveWorkshop!);
         _ = AdmissionWireDto.FromSnapshot(beforePump.Admission);
+        _ = beforePump.ResourceLedger.Entries.Select(ResourceEventWireDto.FromEvent).ToList();
+        _ = beforePump.ResourceLedger.OperationIds.ToList();
         _ = ResourceLedgerWireDto.FromSnapshot(beforePump.ResourceLedger);
         _ = WorldClockWireDto.FromSnapshot(beforePump.Clock);
         _ = beforePump.Sessions.Select(WorldOrderExecutionSessionWireDto.FromSnapshot).ToList();
