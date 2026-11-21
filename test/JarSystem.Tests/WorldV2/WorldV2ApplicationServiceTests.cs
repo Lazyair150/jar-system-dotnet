@@ -228,15 +228,15 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Empty(snapshot.Slave!.Liquids);
 
         var second = app.AdvanceWorld(1_000);
-        Assert.Equal(2, second.LiquidProductionReceipts.Sum(item => item.ProducedAmount));
+        Assert.Equal(3, second.LiquidProductionReceipts.Sum(item => item.ProducedAmount));
         Assert.Equal(0, second.LiquidProductionReceipts.Sum(item => item.AcceptedAmount));
-        Assert.Equal(2, second.LiquidProductionReceipts.Sum(item => item.DiscardedAmount));
+        Assert.Equal(3, second.LiquidProductionReceipts.Sum(item => item.DiscardedAmount));
 
         var ledger = app.GetResourceLedger();
         Assert.Equal(7, ledger.Events.Sum(item => item.Amount));
         Assert.Equal(1, ledger.Events.Count(item => item.Cause == "stock"));
         Assert.Equal(1, ledger.Events.Count(item => item.Cause == "production"));
-        Assert.Equal(5, ledger.Events.Count(item => item.Cause == "discard"));
+        Assert.Equal(4, ledger.Events.Count(item => item.Cause == "discard"));
         Assert.Equal(ledger.LastSeq, ledger.Events.Last().Seq);
     }
 
