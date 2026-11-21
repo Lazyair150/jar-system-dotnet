@@ -557,7 +557,7 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Equal(1, lease.InitialLiquidSupply["酒"]);
         Assert.False(lease.UsesSlave);
         Assert.Equal(OrderResourceLeaseStage.Admitted, lease.Stage);
-        var ownedScopes = Assert.NotNull(lease.LiquidScopes).Value;
+        var ownedScopes = lease.LiquidScopes ?? throw new InvalidOperationException("A 类租约缺少主台液体范围。");
         Assert.Null(ownedScopes.Slave);
         Assert.Same(ownedScopes.Master, setup.Admission.GetLiquidScopes(demand.Id)!.Value.Master);
         Assert.Throws<System.InvalidOperationException>(
