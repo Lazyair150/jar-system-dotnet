@@ -147,6 +147,100 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     }
 
     /// <summary>
+    /// 校验会话游标与同一检查点中的工作台罐子状态一致。
+    /// 用计划步骤的 Before/After 纯值状态验证已经完成的路径，不执行任何操作。
+    /// </summary>
+    internal static void ValidateProgressAgainstWorkshopSnapshots(
+        WorldOrderExecutionSessionProgressSnapshot snapshot,
+        WorkshopRuntimeStateSnapshot master,
+        WorkshopRuntimeStateSnapshot? slave)
+    {
+        var plan = snapshot.Plan;
+        var isPartitioned = snapshot.Manifest.IsPartitioned;
+        if (isPartitioned != (slave != null))
+            throw new InvalidOperationException("执行会话计划类型与工作台快照岗位不一致。");
+
+        switch (snapshot.Stage)
+        {
+            case WorldOrderExecutionStage.MasterSteps:
+            {
+                var expected = snapshot.CompletedMasterSteps == 0
+                    ? plan.MasterSteps[0].Before
+                    : plan.MasterSteps[snapshot.CompletedMasterSteps - 1].After;
+                EnsureWorkshopMatches(master, expected, null, "主台");
+                if (isPartitioned && slave!.Jars.Count != 0)
+                    throw new InvalidOperationException("主台阶段的 B 类检查点从台不应持有罐子。");
+                break;
+            }
+            case WorldOrderExecutionStage.Transfer:
+            {
+                if (plan.MasterSteps.Count > 0)
+                    EnsureWorkshopMatches(master, plan.MasterSteps[^1].After, null, "主台");
+                else
+                    EnsureTransferJarsRemainOnMaster(master, snapshot.Manifest.TransferJarIds);
+                if (slave!.Jars.Count != 0)
+                    throw new InvalidOperationException("泵送前的 B 类检查点从台不应持有罐子。");
+                break;
+            }
+            case WorldOrderExecutionStage.SlaveSteps:
+            {
+                var expectedSlave = snapshot.CompletedSlaveSteps == 0
+                    ? plan.SlaveSteps[0].Before
+                    : plan.SlaveSteps[snapshot.CompletedSlaveSteps - 1].After;
+                EnsureWorkshopMatches(slave!, expectedSlave, null, "从台");
+                if (plan.MasterSteps.Count > 0)
+                    EnsureWorkshopMatches(master, plan.MasterSteps[^1].After,
+                        snapshot.Manifest.TransferJarIds.ToHashSet(), "主台");
+                else
+                    EnsureNoTransferJarsOnMaster(master, snapshot.Manifest.TransferJarIds);
+                break;
+            }
+            default:
+                throw new InvalidOperationException("活动执行检查点包含终态或未知阶段。");
+        }
+    }
+
+    private static void EnsureWorkshopMatches(
+        WorkshopRuntimeStateSnapshot workshop,
+        IReadOnlyList<WorldPlanJarState> expected,
+        HashSet<int>? excludedIds,
+        string role)
+    {
+        var expectedById = expected
+            .Where(item => !excludedIds?.Contains(item.Id ?? 0) == true)
+            .ToDictionary(item => item.Id ?? throw new InvalidOperationException("计划快照包含无 ID 罐子。"));
+        var actualById = workshop.Jars.ToDictionary(item =>
+            item.Id ?? throw new InvalidOperationException(role + "快照包含无 ID 罐子。"));
+        if (actualById.Count != expectedById.Count)
+            throw new InvalidOperationException(role + "罐子数量与执行计划游标不一致。");
+        foreach (var pair in expectedById)
+        {
+            if (!actualById.TryGetValue(pair.Key, out var actual) ||
+                actual.Shape != pair.Value.Shape ||
+                actual.Liquid != pair.Value.Liquid ||
+                actual.IsMarked != pair.Value.IsMarked)
+                throw new InvalidOperationException(role + "罐子 #" + pair.Key +
+                    " 的状态与执行计划游标不一致。");
+        }
+    }
+
+    private static void EnsureTransferJarsRemainOnMaster(
+        WorkshopRuntimeStateSnapshot master, IReadOnlyList<int> transferJarIds)
+    {
+        var ids = master.Jars.Select(item => item.Id!.Value).ToHashSet();
+        if (transferJarIds.Any(id => !ids.Contains(id)))
+            throw new InvalidOperationException("泵送前主台缺少计划要求转移的罐子。");
+    }
+
+    private static void EnsureNoTransferJarsOnMaster(
+        WorkshopRuntimeStateSnapshot master, IReadOnlyList<int> transferJarIds)
+    {
+        var ids = master.Jars.Select(item => item.Id!.Value).ToHashSet();
+        if (transferJarIds.Any(ids.Contains))
+            throw new InvalidOperationException("泵送后仍有应转移罐子留在主台。");
+    }
+
+    /// <summary>
     /// 从已恢复的资源/工作台状态重建会话游标。此路径不重新准入、不扣液、不泵送、
     /// 不执行 MATCH；它只恢复已发生的执行进度。
     /// </summary>
