@@ -430,7 +430,7 @@ public sealed class WorkshopRuntimeStateWireDto
         if (string.IsNullOrWhiteSpace(Name) || MaxJars <= 0 || MaxLiquids <= 0 ||
             LiquidStagingCapacity < 0 || BaseMarks == null || AdditionalMarks == null ||
             BannedLiquids == null || Jars == null || LiquidStorage == null ||
-            Jars.Count > MaxJars || LiquidStorage.Any(item => string.IsNullOrWhiteSpace(item.Key) ||
+            Jars.Count > MaxJars || Jars.Any(item => item == null) || LiquidStorage.Any(item => string.IsNullOrWhiteSpace(item.Key) ||
                 item.Value < 0 || item.Value > MaxLiquids))
             throw new InvalidOperationException("工作台 Wire DTO 无效。");
         var ids = Jars.Select(item => item.Id).ToArray();
@@ -465,7 +465,7 @@ public sealed class AdmissionWireDto
         if (ActiveOrders == null) throw new InvalidOperationException("准入 Wire DTO 缺少活动订单集合。");
         MasterStaging?.Validate();
         SlaveStaging?.Validate();
-        if (ActiveOrders.Any(item => item.DemandId <= 0) ||
+        if (ActiveOrders.Any(item => item == null || item.DemandId <= 0) ||
             ActiveOrders.Select(item => item.DemandId).Distinct().Count() != ActiveOrders.Count ||
             ActiveOrders.Any(item => item.UsesSlave != item.SlaveCapacityReserved))
             throw new InvalidOperationException("准入 Wire DTO 活动订单边界无效。");
@@ -511,7 +511,7 @@ public sealed class WorkshopLiquidStagingWireDto
             PrefillBalances.Any(item => string.IsNullOrWhiteSpace(item.Key) || item.Value < 0))
             throw new InvalidOperationException("工作台液体暂存 Wire DTO 无效。");
         var ids = Accounts.Keys.Concat(ReservedCapacityByOrder.Keys).Distinct().ToArray();
-        var occupied = (long)PrefillBalances.Values.Sum(value => value);
+        var occupied = PrefillBalances.Values.Sum(value => (long)value);
         foreach (var id in ids)
             occupied += Math.Max(ReservedCapacityByOrder.GetValueOrDefault(id),
                 Accounts.TryGetValue(id, out var account) ? account.Values.Sum(value => (long)value) : 0L);
