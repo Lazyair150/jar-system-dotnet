@@ -444,13 +444,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 throw new InvalidOperationException("新液体资源路径的 B 类会话缺少从台订单范围");
             var outgoing = _masterLiquidScope.Balance;
             foreach (var item in outgoing)
-            {
                 if (_masterLiquidScope.GetAmount(item.Key) != item.Value)
                     throw new InvalidOperationException("主台订单液体快照读取不一致");
-                if (!_slaveLiquidScope.Staging.CanReceiveForTransfer(
-                    DemandId, item.Key, item.Value))
-                    return $"从台订单暂存区不能接收液体「{item.Key}」×{item.Value}";
-            }
+            if (!_slaveLiquidScope.Staging.CanReceiveTransferBatch(DemandId, outgoing))
+                return "从台订单暂存区不能接收主台当前全部游离液体（禁令或总容量不足）";
         }
 
         // 从这里开始从台资源由本会话独占。若后续提交阶段出现不变量异常，
