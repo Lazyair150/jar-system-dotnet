@@ -27,6 +27,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly IReadOnlyList<WorldPlanStep> _slaveSteps;
     private readonly IReadOnlyList<int> _deliveryJarIds;
     private readonly WorldPlanStepApplier _applier;
+    private readonly OrderTransferService _transferService = new();
     private readonly OrderLiquidScope? _masterLiquidScope;
     private readonly OrderLiquidScope? _slaveLiquidScope;
     private readonly long _unitDurationLogicalMilli;
@@ -628,123 +629,17 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     /// B 类主台→从台交接：核对主台终态，再预检从台所需批次，最后执行 Jar 与液体转移。
     /// 任何预检失败都不移动一只罐子、不扣一份液体。
     /// </summary>
-    private string? TransferToSlave()
-    {
-        var slave = _slave ?? throw new InvalidOperationException("B 类执行缺少从台");
-        var ledgerTick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
-        if (slave.HasResources)
-            return "B 类资源转移前，从工作台的旧版资源池必须为空";
-
-        var jars = new Dictionary<int, Jar>();
-
-        foreach (var id in _manifest.TransferJarIds)
-        {
-            var matches = _master.Jars.Where(jar => jar.Id == id).ToArray();
-            if (matches.Length != 1)
-                return matches.Length == 0
-                    ? $"转移前主台找不到罐子 #{id}"
-                    : $"转移前主台存在重复罐子 ID #{id}";
-            if (slave.Jars.Any(jar => jar.Id == id))
-                return $"从台已存在待转移罐子 #{id}";
-            jars.Add(id, matches[0]);
-        }
-
-        if (_manifest.TransferJarIds.Count > slave.MaxJars - slave.Jars.Count)
-            return "从台罐位不足，无法完整接收转移罐子清单";
-
-        if (_masterLiquidScope == null)
-        {
-            foreach (var item in _manifest.TransferLiquids)
-            {
-                if (item.Value < 0)
-                    return $"转移液体「{item.Key}」数量无效";
-                if (item.Value == 0) continue;
-                var available = _master.LiquidStorage.GetValueOrDefault(item.Key);
-                if (available < item.Value)
-                    return $"主台液体「{item.Key}」不足：需要 {item.Value}，当前 {available}";
-                if (slave.IsBanned(item.Key))
-                    return $"从台禁用液体「{item.Key}」，不能转移执行所需液体";
-                var storage = slave.CanStoreLiquid(item.Key, item.Value);
-                if (!storage.Granted)
-                    return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
-            }
-        }
-        else
-        {
-            if (_slaveLiquidScope == null)
-                throw new InvalidOperationException("新液体资源路径的 B 类会话缺少从台订单范围");
-            var masterFinalBalances = _masterLiquidScope.Balance;
-            foreach (var item in masterFinalBalances)
-                if (_masterLiquidScope.GetAmount(item.Key) != item.Value)
-                    throw new InvalidOperationException("主台订单液体快照读取不一致");
-            if (!LiquidBalancesEqual(masterFinalBalances, _manifest.MasterFinalLiquidBalances))
-                return "主台订单液体余额与资源清单预测不一致，拒绝执行跨台泵送";
-            var requiredTransfer = _manifest.TransferLiquids
-                .Where(item => item.Value > 0)
-                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
-            if (!_slaveLiquidScope.Staging.CanReceiveTransferBatch(DemandId, requiredTransfer))
-                return "从台订单暂存区不能接收从台路径所需液体（禁令或总容量不足）";
-        }
-
-        // 从这里开始从台资源由本会话独占。若后续提交阶段出现不变量异常，
-        // 收尾才有权把本次转移到从台的临时资源回流；预检失败时绝不触碰外部从台库存。
-        _slaveTransferCommitted = true;
-
-        // 预检完成后，在单线程逻辑调度中连续提交。若端口与刚才的判定不一致，
-        // 这是世界不变量破坏；不能将其降级为普通拒绝或尝试部分恢复。
-        foreach (var id in _manifest.TransferJarIds)
-        {
-            var jar = jars[id];
-            if (!ReferenceEquals(_master.TransferOut(jar), jar))
-                throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段无法从主台移出");
-
-            if (!slave.TransferIn(jar))
-            {
-                // 接收端口意外拒绝时，源工作台刚释放了一个罐位；立即恢复该实体归属。
-                if (!_master.TransferIn(jar))
-                    throw new InvalidOperationException($"罐子 #{id} 转移失败且无法恢复主台归属");
-                throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
-            }
-            _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
-                ResourceKinds.Jar, jar.Shape, 1, from: _master.Name, to: slave.Name);
-        }
-
-        if (_masterLiquidScope == null)
-        {
-            foreach (var item in _manifest.TransferLiquids)
-            {
-                if (item.Value == 0) continue;
-                if (!slave.AddLiquid(item.Key, item.Value))
-                    throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
-
-                if (!_master.RemoveLiquid(item.Key, item.Value))
-                {
-                    if (!slave.RemoveLiquid(item.Key, item.Value))
-                        throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
-                    throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
-                }
-                _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
-                    ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
-            }
-        }
-        else
-        {
-            var requiredTransfer = _manifest.TransferLiquids
-                .Where(item => item.Value > 0)
-                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
-            if (!OrderLiquidTransfer.TryExecute(
-                DemandId, _masterLiquidScope.Staging, _slaveLiquidScope!.Staging,
-                requiredTransfer, out var transferReason))
-                throw new InvalidOperationException(
-                    transferReason ?? "主从订单液体交接在提交阶段违反预检结果");
-            foreach (var item in requiredTransfer)
-                _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
-                    ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
-            _masterLiquidScope.Staging.ReleaseOrderCapacity(DemandId);
-        }
-
-        return null;
-    }
+    private string? TransferToSlave() =>
+        _transferService.Transfer(
+            DemandId,
+            _manifest,
+            _master,
+            _slave ?? throw new InvalidOperationException("B 类执行缺少从台"),
+            _masterLiquidScope,
+            _slaveLiquidScope,
+            _resourceLedger,
+            _resourceLedgerTick,
+            () => _slaveTransferCommitted = true);
 
     private void CompleteSuccess()
     {
