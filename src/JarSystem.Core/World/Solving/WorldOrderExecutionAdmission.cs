@@ -227,6 +227,23 @@ public sealed class WorldOrderExecutionAdmission
         if (!reservationIds.SetEquals(activeIds))
             throw new InvalidOperationException("资源预留集合与活动订单液体范围集合不一致。");
 
+        var masterReservedIds = snapshot.MasterStaging?.ReservedCapacityByOrder.Keys.ToHashSet()
+            ?? new HashSet<int>();
+        if (!masterReservedIds.SetEquals(activeIds))
+            throw new InvalidOperationException("主台容量预留集合与活动订单范围集合不一致。");
+        var slaveOrderIds = snapshot.ActiveOrders.Where(item => item.UsesSlave)
+            .Select(item => item.DemandId).ToHashSet();
+        var slaveReservedIds = snapshot.SlaveStaging?.ReservedCapacityByOrder.Keys.ToHashSet()
+            ?? new HashSet<int>();
+        if (!slaveReservedIds.SetEquals(slaveOrderIds))
+            throw new InvalidOperationException("从台容量预留集合与 B 类活动订单集合不一致。");
+        if (snapshot.MasterStaging != null &&
+            snapshot.MasterStaging.Accounts.Keys.Any(id => !activeIds.Contains(id)))
+            throw new InvalidOperationException("主台暂存账户属于未登记的活动订单。");
+        if (snapshot.SlaveStaging != null &&
+            snapshot.SlaveStaging.Accounts.Keys.Any(id => !slaveOrderIds.Contains(id)))
+            throw new InvalidOperationException("从台暂存账户属于非 B 类活动订单。");
+
         if (snapshot.MasterStaging != null)
             _stagingByWorkshop.Add(master, WorkshopLiquidStaging.Restore(snapshot.MasterStaging));
         if (snapshot.SlaveStaging != null)
