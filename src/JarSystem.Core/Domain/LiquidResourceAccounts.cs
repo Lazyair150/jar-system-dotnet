@@ -286,9 +286,12 @@ public sealed class WorkshopPrefillTransaction
             if (_committed) throw new InvalidOperationException("已提交的主台预置补液不能回滚。");
             return;
         }
-        _staging.RemovePrefillForRollback(Receipt.Accepted);
-        _shipReservation?.Rollback();
-        if (_shipReservation != null) _staging.CompletePrefillTransaction();
+        if (_shipReservation != null)
+        {
+            _staging.RemovePrefillForRollback(Receipt.Accepted);
+            _shipReservation.Rollback();
+            _staging.CompletePrefillTransaction();
+        }
         _completed = true;
     }
 }
