@@ -115,6 +115,19 @@ public sealed class WorldV2ApplicationService
         _host.ExecuteExclusive(context => context.RestoreExecutionResourceCheckpoint(checkpoint));
     }
 
+    /// <summary>
+    /// 以新配置装配独立 Context，完整恢复检查点后原子替换 Host 当前世界。
+    /// 失败时当前世界保持运行，不会暴露部分恢复状态。
+    /// </summary>
+    public void RestoreExecutionResourceCheckpoint(
+        WorldV2Options options,
+        WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        if (options == null) throw new ArgumentNullException(nameof(options));
+        if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
+        _host.RestoreExecutionResourceCheckpoint(options, checkpoint);
+    }
+
     /// <summary>添加罐子订单。输入仅包含玩法数据，不接受外部构造的领域对象。</summary>
     public int AddJarDemand(WorldV2AddJarDemandRequest request)
     {
