@@ -250,4 +250,50 @@ public sealed class LiquidResourceAccountsTests
         Assert.Equal(3, slave.UsedCapacity);
     }
 
+    [Fact]
+    public void MasterPrefillUsesDeterministicProductionPriorityAndRespectsSharedCapacity()
+    {
+        var ship = new ShipLiquidInventory(20, new Dictionary<string, int> { ["酒"] = 4, ["蜜"] = 4, ["水"] = 4 });
+        var staging = new WorkshopLiquidStaging(6);
+        var receipt = staging.PrefillFromShip(ship, new[] { "蜜", "酒" });
+        Assert.Equal(6, receipt.AcceptedTotal);
+        Assert.Equal(2, staging.PrefillBalances["蜜"]);
+        Assert.Equal(4, staging.PrefillBalances["酒"]);
+        Assert.False(staging.PrefillBalances.ContainsKey("水"));
+        Assert.Equal(6, staging.UsedCapacity);
+        Assert.Equal(0, staging.AvailableCapacity);
+        Assert.Equal(2, ship.GetAmount("蜜"));
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(4, ship.GetAmount("水"));
+        var restored = WorkshopLiquidStaging.Restore(staging.Capture());
+        Assert.Equal(staging.PrefillBalances, restored.PrefillBalances);
+        Assert.Equal(staging.UsedCapacity, restored.UsedCapacity);
+    }
+
+    [Fact]
+    public void MasterPrefillAllowsPartialSupplyAndSkipsBannedLiquids()
+    {
+        var ship = new ShipLiquidInventory(5, new Dictionary<string, int> { ["酒"] = 2, ["蜜"] = 1 });
+        var staging = new WorkshopLiquidStaging(8, new[] { "酒" });
+        var receipt = staging.PrefillFromShip(ship, new[] { "酒", "蜜" });
+        Assert.Equal(1, receipt.AcceptedTotal);
+        Assert.Equal(1, staging.PrefillBalances["蜜"]);
+        Assert.Equal(2, ship.GetAmount("酒"));
+        Assert.Equal(0, ship.GetAmount("蜜"));
+        Assert.Equal(7, staging.AvailableCapacity);
+    }
+
+    [Fact]
+    public void PrefillCanBeWithdrawnIntoAnOrderWithoutDoubleCountingCapacity()
+    {
+        var staging = new WorkshopLiquidStaging(4);
+        staging.RestorePrefill(new Dictionary<string, int> { ["酒"] = 3 });
+        var allocated = staging.WithdrawPrefillUpTo(new Dictionary<string, int> { ["酒"] = 2 });
+        Assert.Equal(2, allocated["酒"]);
+        Assert.True(staging.TryReserveOrderCapacity(7, 4));
+        Assert.True(staging.TryReceiveExact(7, "酒", 2, out _));
+        Assert.Equal(1, staging.PrefillBalances["酒"]);
+        Assert.Equal(3, staging.UsedCapacity);
+        Assert.Equal(0, staging.AvailableCapacity);
+    }
 }
