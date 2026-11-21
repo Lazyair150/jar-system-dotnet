@@ -187,6 +187,8 @@ public sealed class ShipLiquidInventorySnapshot
 public sealed class WorkshopLiquidStaging
 {
     private readonly Dictionary<int, Dictionary<string, int>> _accounts = new();
+    // 订单预留的是整条路径可能达到的总库存峰值，而不是额外可用量。
+    private readonly Dictionary<int, int> _reservedCapacityByOrder = new();
     private readonly HashSet<string> _banned;
     private readonly IReadOnlyCollection<string> _bannedView;
 
@@ -205,7 +207,42 @@ public sealed class WorkshopLiquidStaging
     public int Capacity { get; }
     public int UsedCapacity => ShipLiquidInventory.TotalAmount(
         _accounts.Values.SelectMany(account => account));
-    public int AvailableCapacity => Capacity - UsedCapacity;
+    public int ReservedCapacity => _reservedCapacityByOrder.Values.Sum();
+    public int OccupiedCapacity
+    {
+        get
+        {
+            var occupied = 0;
+            foreach (var pair in _accounts)
+                occupied = checked(occupied + Math.Max(
+                    _reservedCapacityByOrder.GetValueOrDefault(pair.Key),
+                    ShipLiquidInventory.TotalAmount(pair.Value)));
+            foreach (var reservation in _reservedCapacityByOrder)
+                if (!_accounts.ContainsKey(reservation.Key))
+                    occupied = checked(occupied + reservation.Value);
+            return occupied;
+        }
+    }
+    public int AvailableCapacity => Capacity - OccupiedCapacity;
+
+    /// <summary>
+    /// 为订单预留整条执行路径的液体峰值容量。预留总和与其他订单的已用/预留容量共同受总容量约束。
+    /// </summary>
+    public bool TryReserveOrderCapacity(int orderId, int peakCapacity)
+    {
+        ValidateOrderId(orderId);
+        if (peakCapacity < 0) throw new DomainValidationException("订单液体容量预留不能为负数。");
+        if (_reservedCapacityByOrder.ContainsKey(orderId)) return false;
+        if (peakCapacity > AvailableCapacity) return false;
+        _reservedCapacityByOrder.Add(orderId, peakCapacity);
+        return true;
+    }
+
+    public bool ReleaseOrderCapacity(int orderId)
+    {
+        ValidateOrderId(orderId);
+        return _reservedCapacityByOrder.Remove(orderId);
+    }
     public IReadOnlyCollection<string> BannedLiquids => _bannedView;
 
     public int GetAmount(int orderId, string liquid)
@@ -236,7 +273,7 @@ public sealed class WorkshopLiquidStaging
         if (_banned.Contains(liquid))
             return new LiquidInventoryReceipt(amount, 0, amount, "工作台禁" + liquid);
 
-        var accepted = Math.Min(amount, AvailableCapacity);
+        var accepted = Math.Min(amount, AvailableCapacityFor(orderId));
         AddUnchecked(orderId, liquid, accepted);
         return new LiquidInventoryReceipt(amount, accepted, amount - accepted);
     }
@@ -267,12 +304,22 @@ public sealed class WorkshopLiquidStaging
     /// 操作合法性专用检查：必须同时满足工作台 ban 与工作台所有订单共享的总容量。
     /// 与普通 Receive 的部分接收语义不同，Workshop 操作必须完整接收其固定产出量。
     /// </summary>
+    public LiquidGrant CanAcceptOperation(int orderId, string liquid, int amount)
+    {
+        ValidateOrderId(orderId);
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
+        if (_banned.Contains(liquid)) return LiquidGrant.Banned(liquid);
+        return AvailableCapacityFor(orderId) >= amount
+            ? LiquidGrant.Yes()
+            : LiquidGrant.OverCapacity(liquid);
+    }
+
     public LiquidGrant CanAcceptOperation(string liquid, int amount)
     {
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
-        if (_banned.Contains(liquid))
-            return LiquidGrant.Banned(liquid);
+        if (_banned.Contains(liquid)) return LiquidGrant.Banned(liquid);
         return AvailableCapacity >= amount
             ? LiquidGrant.Yes()
             : LiquidGrant.OverCapacity(liquid);
@@ -282,7 +329,7 @@ public sealed class WorkshopLiquidStaging
     public bool TryReceiveExact(int orderId, string liquid, int amount, out LiquidGrant result)
     {
         ValidateOrderId(orderId);
-        result = CanAcceptOperation(liquid, amount);
+        result = CanAcceptOperation(orderId, liquid, amount);
         if (!result.Granted) return false;
         AddUnchecked(orderId, liquid, amount);
         return true;
@@ -306,7 +353,7 @@ public sealed class WorkshopLiquidStaging
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
-        return !_banned.Contains(liquid) && AvailableCapacity >= amount;
+        return !_banned.Contains(liquid) && AvailableCapacityFor(orderId) >= amount;
     }
 
     internal bool TryTransferOut(int orderId, string liquid, int amount)
@@ -318,6 +365,18 @@ public sealed class WorkshopLiquidStaging
 
     internal void ReceiveTransferUnchecked(int orderId, string liquid, int amount) =>
         AddUnchecked(orderId, liquid, amount);
+
+    private int AvailableCapacityFor(int orderId)
+    {
+        if (_reservedCapacityByOrder.TryGetValue(orderId, out var quota))
+        {
+            var used = _accounts.TryGetValue(orderId, out var account)
+                ? ShipLiquidInventory.TotalAmount(account)
+                : 0;
+            return Math.Max(0, quota - used);
+        }
+        return AvailableCapacity;
+    }
 
     private void AddUnchecked(int orderId, string liquid, int delta)
     {
@@ -438,7 +497,7 @@ public sealed class OrderLiquidScope
     public LiquidGrant CanConsume(string liquid, int amount) => Staging.CanConsume(OrderId, liquid, amount);
     public bool TryConsume(string liquid, int amount) => Staging.TryConsume(OrderId, liquid, amount);
     public LiquidGrant CanReceiveOperation(string liquid, int amount) =>
-        Staging.CanAcceptOperation(liquid, amount);
+        Staging.CanAcceptOperation(OrderId, liquid, amount);
     public bool TryReceiveOperation(string liquid, int amount, out LiquidGrant result) =>
         Staging.TryReceiveExact(OrderId, liquid, amount, out result);
 }
