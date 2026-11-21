@@ -276,9 +276,12 @@ public sealed class WorldV2ContextTests
         secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
 
         var restoredLease = Assert.Single(secondWorld.Reservations.Capture().Reservations);
-        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting, restoredLease.Stage);
-        Assert.Equal(1, restoredLease.TransferLiquidAmounts["酒"]);
-        Assert.Equal(capturedLease.SlaveStagingPeakCapacity, restoredLease.SlaveStagingPeakCapacity);
+        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, restoredLease.Stage);
+        Assert.Empty(restoredLease.TransferLiquidAmounts);
+        Assert.Equal(0, restoredLease.SlaveStagingPeakCapacity);
+        var restoredLeaseScopes = secondWorld.Reservations.FindLease(restoredDemand.Id)!.LiquidScopes!.Value;
+        Assert.Null(restoredLeaseScopes.Slave);
+        Assert.Same(restoredLeaseScopes.Master, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Master);
         Assert.Equal(1, secondShip.GetAmount("酒"));
         Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Master.GetAmount("酒"));
         var restoredSession = Assert.Single(secondWorld.Runtime.ActiveExecutionSessions);
@@ -325,8 +328,8 @@ public sealed class WorldV2ContextTests
         Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
             firstWorld.Reservations.FindLease(firstDemand.Id)!.Stage);
         var capturedLease = Assert.Single(firstWorld.Reservations.Capture().Reservations);
-        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting, capturedLease.Stage);
-        Assert.Equal(1, capturedLease.TransferLiquidAmounts["酒"]);
+        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, capturedLease.Stage);
+        Assert.Empty(capturedLease.TransferLiquidAmounts);
         Assert.Equal(firstWorld.Reservations.FindLease(firstDemand.Id)!.SlaveStagingPeakCapacity,
             capturedLease.SlaveStagingPeakCapacity);
         Assert.Throws<InvalidOperationException>(
