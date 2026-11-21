@@ -21,6 +21,27 @@ public sealed class WorldClock
     public long SpeedRatioMilli { get; private set; } = RatioUnit;
     public bool IsPaused { get; private set; }
 
+    /// <summary>捕获时间轴与倍率换算余数；恢复后分段推进仍保持整数时间一致性。</summary>
+    public WorldClockSnapshot Capture() => new(
+        WorldTimeMilli, LogicalTimeMilli, SpeedRatioMilli, IsPaused, _conversionRemainder);
+
+    /// <summary>从已验证的纯值快照恢复独立时钟。</summary>
+    public static WorldClock Restore(WorldClockSnapshot snapshot)
+    {
+        if (snapshot.WorldTimeMilli < 0 || snapshot.LogicalTimeMilli < 0 ||
+            snapshot.SpeedRatioMilli < 0 || snapshot.ConversionRemainder < 0 ||
+            snapshot.ConversionRemainder >= RatioUnit)
+            throw new ArgumentOutOfRangeException(nameof(snapshot), "世界时钟快照包含无效时间或换算余数。");
+        return new WorldClock
+        {
+            WorldTimeMilli = snapshot.WorldTimeMilli,
+            LogicalTimeMilli = snapshot.LogicalTimeMilli,
+            SpeedRatioMilli = snapshot.SpeedRatioMilli,
+            IsPaused = snapshot.IsPaused,
+            _conversionRemainder = snapshot.ConversionRemainder
+        };
+    }
+
     /// <summary>世界流速倍率。必须是有限非负数；零表示时间停止推进。</summary>
     public void SetSpeedRatio(double ratio)
     {
@@ -67,6 +88,17 @@ public sealed class WorldClock
         return logicalDelta;
     }
 
+    /// <summary>将已验证时钟快照恢复到当前时钟实例。</summary>
+    public void RestoreFrom(WorldClockSnapshot snapshot)
+    {
+        var restored = Restore(snapshot);
+        WorldTimeMilli = restored.WorldTimeMilli;
+        LogicalTimeMilli = restored.LogicalTimeMilli;
+        SpeedRatioMilli = restored.SpeedRatioMilli;
+        IsPaused = restored.IsPaused;
+        _conversionRemainder = restored._conversionRemainder;
+    }
+
     /// <summary>清零时间与换算余数，保留当前流速设置。</summary>
     public void Reset()
     {
@@ -76,3 +108,12 @@ public sealed class WorldClock
         IsPaused = false;
     }
 }
+
+
+/// <summary>世界时钟纯值快照，包含流速换算的未满千分之一余数。</summary>
+public sealed record WorldClockSnapshot(
+    long WorldTimeMilli,
+    long LogicalTimeMilli,
+    long SpeedRatioMilli,
+    bool IsPaused,
+    long ConversionRemainder);

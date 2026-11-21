@@ -22,10 +22,13 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly Workshop _master;
     private readonly Workshop? _slave;
     private readonly WorldOrderResourceManifest _manifest;
+    private readonly WorldOrderSolvePlan _plan;
     private readonly IReadOnlyList<WorldPlanStep> _masterSteps;
     private readonly IReadOnlyList<WorldPlanStep> _slaveSteps;
     private readonly IReadOnlyList<int> _deliveryJarIds;
     private readonly WorldPlanStepApplier _applier;
+    private readonly OrderLiquidScope? _masterLiquidScope;
+    private readonly OrderLiquidScope? _slaveLiquidScope;
     private readonly long _unitDurationLogicalMilli;
     private readonly SlaveRollback _slaveRollback = new();
     private readonly ResourceLedger? _resourceLedger;
@@ -55,6 +58,14 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     /// <summary>本会话从台结算产生的丢弃解释日志（只读视图）；回流/丢弃数量以 ResourceLedger 为准。</summary>
     public IReadOnlyList<ExecutionLogEntry> ResourceSettlementLog => _resourceSettlementLog.AsReadOnly();
 
+    /// <summary>
+    /// 捕获会话的执行游标。Manifest/Plan 都是不可变纯值对象；
+    /// 该快照描述执行进度，不单独包含工作台罐子状态，必须与世界状态快照配套使用。
+    /// </summary>
+    public WorldOrderExecutionSessionProgressSnapshot CaptureProgress() => new(
+        DemandId, Stage, _masterIndex, _slaveIndex, _unitElapsedLogicalMilli,
+        _unitDurationLogicalMilli, _slaveTransferCommitted, Reason, _manifest, _plan);
+
     private WorldOrderExecutionSession(
         int demandId,
         OrderDemandBoard board,
@@ -65,7 +76,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         WorldOrderSolvePlan plan,
         long unitDurationLogicalMilli,
         ResourceLedger? resourceLedger,
-        Func<int>? resourceLedgerTick)
+        Func<int>? resourceLedgerTick,
+        bool initializeExecution = true)
     {
         DemandId = demandId;
         _board = board;
@@ -77,10 +89,14 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             ? roster.Slave ?? throw new InvalidOperationException("B 类执行开始时没有从工作台")
             : null;
         _manifest = manifest;
+        _plan = plan;
         _unitDurationLogicalMilli = unitDurationLogicalMilli;
         _resourceLedger = resourceLedger;
         _resourceLedgerTick = resourceLedgerTick;
         _applier = new WorldPlanStepApplier();
+        var liquidScopes = admission.GetLiquidScopes(demandId);
+        _masterLiquidScope = liquidScopes?.Master;
+        _slaveLiquidScope = liquidScopes?.Slave;
 
         if (manifest.DemandId != demandId || manifest.IsPartitioned != plan.IsPartitioned)
             throw new InvalidOperationException("资源清单与求解计划不属于同一订单或执行类型");
@@ -113,18 +129,224 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 ? WorldOrderExecutionStage.Transfer
                 : WorldOrderExecutionStage.MasterSteps;
 
-        // 先处理主台路径开头连续的零耗时 MATCH；后续 MATCH 会在前一个耗时步骤完成后处理。
-        if (Stage == WorldOrderExecutionStage.MasterSteps)
-            PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master");
-
-        if (!IsTerminal && Stage == WorldOrderExecutionStage.MasterSteps &&
-            _masterIndex == _masterSteps.Count)
+        if (initializeExecution)
         {
-            if (manifest.IsPartitioned)
-                Stage = WorldOrderExecutionStage.Transfer;
-            else
-                CompleteSuccess();
+            // 先处理主台路径开头连续的零耗时 MATCH；后续 MATCH 会在前一个耗时步骤完成后处理。
+            if (Stage == WorldOrderExecutionStage.MasterSteps)
+                PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master", _masterLiquidScope);
+
+            if (!IsTerminal && Stage == WorldOrderExecutionStage.MasterSteps &&
+                _masterIndex == _masterSteps.Count)
+            {
+                if (manifest.IsPartitioned)
+                    Stage = WorldOrderExecutionStage.Transfer;
+                else
+                    CompleteSuccess();
+            }
         }
+    }
+
+    /// <summary>
+    /// 校验会话游标与同一检查点中的工作台罐子状态一致。
+    /// 用计划步骤的 Before/After 纯值状态验证已经完成的路径，不执行任何操作。
+    /// </summary>
+    internal static void ValidateProgressAgainstWorkshopSnapshots(
+        WorldOrderExecutionSessionProgressSnapshot snapshot,
+        WorkshopRuntimeStateSnapshot master,
+        WorkshopRuntimeStateSnapshot? slave)
+    {
+        var plan = snapshot.Plan;
+        var isPartitioned = snapshot.Manifest.IsPartitioned;
+        var lockedIds = snapshot.Manifest.LockedJarIds.ToHashSet();
+        if (isPartitioned && slave == null)
+            throw new InvalidOperationException("B 类执行会话缺少从台工作台快照。");
+
+        switch (snapshot.Stage)
+        {
+            case WorldOrderExecutionStage.MasterSteps:
+            {
+                var expected = snapshot.CompletedMasterSteps == 0
+                    ? plan.MasterSteps[0].Before
+                    : plan.MasterSteps[snapshot.CompletedMasterSteps - 1].After;
+                EnsureWorkshopMatches(master, expected, lockedIds, null, "主台");
+                if (isPartitioned && slave!.Jars.Count != 0)
+                    throw new InvalidOperationException("主台阶段的 B 类检查点从台不应持有罐子。");
+                break;
+            }
+            case WorldOrderExecutionStage.Transfer:
+            {
+                if (plan.MasterSteps.Count > 0)
+                    EnsureWorkshopMatches(master, plan.MasterSteps[^1].After, lockedIds, null, "主台");
+                else
+                    EnsureTransferJarsRemainOnMaster(master, snapshot.Manifest.TransferJarIds);
+                if (slave!.Jars.Count != 0)
+                    throw new InvalidOperationException("泵送前的 B 类检查点从台不应持有罐子。");
+                break;
+            }
+            case WorldOrderExecutionStage.SlaveSteps:
+            {
+                var expectedSlave = snapshot.CompletedSlaveSteps == 0
+                    ? plan.SlaveSteps[0].Before
+                    : plan.SlaveSteps[snapshot.CompletedSlaveSteps - 1].After;
+                EnsureWorkshopMatches(slave!, expectedSlave,
+                    snapshot.Manifest.TransferJarIds.ToHashSet(), null, "从台");
+                if (plan.MasterSteps.Count > 0)
+                    EnsureWorkshopMatches(master, plan.MasterSteps[^1].After,
+                        snapshot.Manifest.MasterJarIds.ToHashSet(),
+                        snapshot.Manifest.TransferJarIds.ToHashSet(), "主台");
+                else
+                    EnsureNoTransferJarsOnMaster(master, snapshot.Manifest.TransferJarIds);
+                break;
+            }
+            default:
+                throw new InvalidOperationException("活动执行检查点包含终态或未知阶段。");
+        }
+    }
+
+    private static void EnsureWorkshopMatches(
+        WorkshopRuntimeStateSnapshot workshop,
+        IReadOnlyList<WorldPlanJarState> expected,
+        HashSet<int> includedIds,
+        HashSet<int>? excludedIds,
+        string role)
+    {
+        var expectedById = expected
+            .Where(item => item.Id.HasValue && includedIds.Contains(item.Id.Value) &&
+                (excludedIds == null || !excludedIds.Contains(item.Id.Value)))
+            .ToDictionary(item => item.Id!.Value);
+        var actualById = workshop.Jars
+            .Where(item => includedIds.Contains(item.Id!.Value) &&
+                (excludedIds == null || !excludedIds.Contains(item.Id!.Value)))
+            .ToDictionary(item => item.Id!.Value);
+        if (actualById.Count != expectedById.Count)
+            throw new InvalidOperationException(role + "参与罐子数量与执行计划游标不一致。");
+        foreach (var pair in expectedById)
+        {
+            if (!actualById.TryGetValue(pair.Key, out var actual) ||
+                actual.Shape != pair.Value.Shape ||
+                actual.Liquid != pair.Value.Liquid ||
+                actual.IsMarked != pair.Value.IsMarked)
+                throw new InvalidOperationException(role + "罐子 #" + pair.Key +
+                    " 的状态与执行计划游标不一致。");
+        }
+    }
+
+    private static void EnsureTransferJarsRemainOnMaster(
+        WorkshopRuntimeStateSnapshot master, IReadOnlyList<int> transferJarIds)
+    {
+        var ids = master.Jars.Select(item => item.Id!.Value).ToHashSet();
+        if (transferJarIds.Any(id => !ids.Contains(id)))
+            throw new InvalidOperationException("泵送前主台缺少计划要求转移的罐子。");
+    }
+
+    private static void EnsureNoTransferJarsOnMaster(
+        WorkshopRuntimeStateSnapshot master, IReadOnlyList<int> transferJarIds)
+    {
+        var ids = master.Jars.Select(item => item.Id!.Value).ToHashSet();
+        if (transferJarIds.Any(ids.Contains))
+            throw new InvalidOperationException("泵送后仍有应转移罐子留在主台。");
+    }
+
+    /// <summary>
+    /// 从已恢复的资源/工作台状态重建会话游标。此路径不重新准入、不扣液、不泵送、
+    /// 不执行 MATCH；它只恢复已发生的执行进度。
+    /// </summary>
+    internal static WorldOrderExecutionSession RestoreProgress(
+        WorldOrderExecutionSessionProgressSnapshot snapshot,
+        OrderDemandBoard board,
+        WorldOrderSolveBook solveBook,
+        WorldOrderExecutionAdmission admission,
+        WorkshopRoster roster,
+        WorldResourceReservationBook reservations,
+        ResourceLedger? resourceLedger,
+        Func<int>? resourceLedgerTick)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!admission.IsBoundTo(board, solveBook, roster))
+            throw new ArgumentException("恢复会话的需求板、求解簿、准入器与岗位不属于同一世界。");
+        if (board.Find(snapshot.DemandId) == null)
+            throw new InvalidOperationException("恢复会话对应的订单不在需求板中。");
+        if (snapshot.Manifest.DemandId != snapshot.DemandId ||
+            snapshot.Manifest.IsPartitioned != snapshot.Plan.IsPartitioned ||
+            snapshot.Stage is WorldOrderExecutionStage.Completed or WorldOrderExecutionStage.Failed or
+                WorldOrderExecutionStage.Interrupted or WorldOrderExecutionStage.Cancelled)
+            throw new InvalidOperationException("执行会话快照的订单身份、计划类型或阶段无效。");
+        if (snapshot.UnitDurationLogicalMilli <= 0 ||
+            snapshot.UnitElapsedLogicalMilli < 0 ||
+            snapshot.UnitElapsedLogicalMilli >= snapshot.UnitDurationLogicalMilli)
+            throw new InvalidOperationException("执行会话快照的逻辑时间进度无效。");
+        if (snapshot.CompletedMasterSteps < 0 ||
+            snapshot.CompletedMasterSteps > snapshot.Plan.MasterSteps.Count ||
+            snapshot.CompletedSlaveSteps < 0 ||
+            snapshot.CompletedSlaveSteps > snapshot.Plan.SlaveSteps.Count)
+            throw new InvalidOperationException("执行会话快照的步骤游标越界。");
+
+        var reservation = reservations.Find(snapshot.DemandId)
+            ?? throw new InvalidOperationException("恢复执行会话缺少资源预留。");
+        if (reservation.UsesSlave != snapshot.Manifest.IsPartitioned ||
+            !string.Equals(reservation.WorldVersion, snapshot.Manifest.WorldVersion, StringComparison.Ordinal) ||
+            !reservation.LockedJarIds.ToHashSet().SetEquals(snapshot.Manifest.LockedJarIds) ||
+            !LiquidBalancesEqual(reservation.MasterInitialLiquidAmounts,
+                snapshot.Manifest.MasterInitialLiquidAmounts))
+            throw new InvalidOperationException("执行会话快照与资源预留的版本、罐子或液体占用不一致。");
+        var scopes = admission.GetLiquidScopes(snapshot.DemandId);
+        if (!scopes.HasValue || scopes.Value.Master.OrderId != snapshot.DemandId)
+            throw new InvalidOperationException("执行会话快照缺少订单主台液体范围。");
+
+        var masterReservations = scopes.Value.Master.Staging.Capture().ReservedCapacityByOrder;
+        var hasMasterReservation = masterReservations.TryGetValue(snapshot.DemandId, out var masterQuota);
+        var expectsMasterReservation = snapshot.Stage != WorldOrderExecutionStage.SlaveSteps;
+        if (hasMasterReservation != expectsMasterReservation ||
+            (hasMasterReservation && masterQuota != snapshot.Manifest.MasterStagingPeakCapacity))
+            throw new InvalidOperationException("执行会话阶段与主台容量预留状态不一致。");
+
+        if (snapshot.Manifest.IsPartitioned)
+        {
+            if (scopes.Value.Slave == null || scopes.Value.Slave.OrderId != snapshot.DemandId ||
+                !scopes.Value.Slave.Staging.Capture().ReservedCapacityByOrder.TryGetValue(
+                    snapshot.DemandId, out var slaveQuota) ||
+                slaveQuota != snapshot.Manifest.SlaveStagingPeakCapacity)
+                throw new InvalidOperationException("B 类执行会话与从台容量预留不一致。");
+        }
+        else if (scopes.Value.Slave != null)
+        {
+            throw new InvalidOperationException("A 类执行会话不能恢复从台液体范围。");
+        }
+
+        var masterIndex = snapshot.CompletedMasterSteps;
+        var slaveIndex = snapshot.CompletedSlaveSteps;
+        var validStage = snapshot.Stage switch
+        {
+            WorldOrderExecutionStage.MasterSteps =>
+                masterIndex < snapshot.Plan.MasterSteps.Count &&
+                slaveIndex == 0 && !snapshot.SlaveTransferCommitted,
+            WorldOrderExecutionStage.Transfer =>
+                snapshot.Manifest.IsPartitioned &&
+                masterIndex == snapshot.Plan.MasterSteps.Count &&
+                slaveIndex == 0 && !snapshot.SlaveTransferCommitted,
+            WorldOrderExecutionStage.SlaveSteps =>
+                snapshot.Manifest.IsPartitioned &&
+                masterIndex == snapshot.Plan.MasterSteps.Count &&
+                slaveIndex < snapshot.Plan.SlaveSteps.Count &&
+                snapshot.SlaveTransferCommitted,
+            _ => false
+        };
+        if (!validStage || snapshot.Reason != null)
+            throw new InvalidOperationException("执行会话快照的阶段与步骤游标组合无效。");
+
+        var restored = new WorldOrderExecutionSession(
+            snapshot.DemandId, board, solveBook, admission, roster,
+            snapshot.Manifest, snapshot.Plan, snapshot.UnitDurationLogicalMilli,
+            resourceLedger, resourceLedgerTick, initializeExecution: false)
+        {
+            Stage = snapshot.Stage,
+            _masterIndex = snapshot.CompletedMasterSteps,
+            _slaveIndex = snapshot.CompletedSlaveSteps,
+            _unitElapsedLogicalMilli = snapshot.UnitElapsedLogicalMilli,
+            _slaveTransferCommitted = snapshot.SlaveTransferCommitted,
+            Reason = snapshot.Reason
+        };
+        return restored;
     }
 
     /// <summary>
@@ -186,6 +408,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 demandId, board, solveBook, admission, roster,
                 admitted.Manifest, result.Plan, logicalTimePerUnit,
                 resourceLedger, resourceLedgerTick);
+
+            // 只有新自机液库路径才记录这笔实际扣款；旧兼容准入不伪造新的资源流向。
+            if (resourceLedger != null && admission.ShipLiquidInventory != null)
+            {
+                var tick = resourceLedgerTick?.Invoke() ?? 0;
+                foreach (var item in admitted.Manifest.MasterInitialLiquidAmounts)
+                    resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
+                        item.Key, item.Value, from: "自机液库", to: roster.Master!.Name);
+            }
             return WorldOrderExecutionStartResult.Started(session);
         }
         catch
@@ -324,7 +555,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 }
 
                 Stage = WorldOrderExecutionStage.SlaveSteps;
-                PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave");
+                PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave", _slaveLiquidScope);
                 if (!IsTerminal && _slaveIndex == _slaveSteps.Count)
                     CompleteSuccess();
                 break;
@@ -350,7 +581,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (index >= steps.Count)
             throw new InvalidOperationException(phase + " 执行索引越界");
 
-        var result = _applier.Apply(workshop, steps[index]);
+        var scope = phase == "master" ? _masterLiquidScope : _slaveLiquidScope;
+        var result = scope == null
+            ? _applier.Apply(workshop, steps[index])
+            : _applier.Apply(workshop, steps[index], scope);
         if (!result.Success)
         {
             TerminateFailure(phase + " 步骤 " + steps[index].Step + " 执行失败: " +
@@ -359,7 +593,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         }
 
         index++;
-        PumpInstantMatches(workshop, steps, ref index, phase);
+        PumpInstantMatches(workshop, steps, ref index, phase, scope);
     }
 
     /// <summary>按计划顺序立即应用当前位置连续的 MATCH；MATCH 不消耗逻辑时间。</summary>
@@ -367,11 +601,14 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         Workshop workshop,
         IReadOnlyList<WorldPlanStep> steps,
         ref int index,
-        string phase)
+        string phase,
+        OrderLiquidScope? scope)
     {
         while (index < steps.Count && IsMatch(steps[index]))
         {
-            var result = _applier.Apply(workshop, steps[index]);
+            var result = scope == null
+                ? _applier.Apply(workshop, steps[index])
+                : _applier.Apply(workshop, steps[index], scope);
             if (!result.Success)
             {
                 TerminateFailure(phase + " MATCH 步骤 " + steps[index].Step + " 执行失败: " +
@@ -383,7 +620,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     }
 
     /// <summary>
-    /// B 类主台→从台转移：先全量预检，再执行所有移动。
+    /// B 类主台→从台交接：核对主台终态，再预检从台所需批次，最后执行 Jar 与液体转移。
     /// 任何预检失败都不移动一只罐子、不扣一份液体。
     /// </summary>
     private string? TransferToSlave()
@@ -391,7 +628,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         var slave = _slave ?? throw new InvalidOperationException("B 类执行缺少从台");
         var ledgerTick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
         if (slave.HasResources)
-            return "B 类资源转移前，从工作台必须仍为空";
+            return "B 类资源转移前，从工作台的旧版资源池必须为空";
 
         var jars = new Dictionary<int, Jar>();
 
@@ -410,19 +647,38 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (_manifest.TransferJarIds.Count > slave.MaxJars - slave.Jars.Count)
             return "从台罐位不足，无法完整接收转移罐子清单";
 
-        foreach (var item in _manifest.TransferLiquids)
+        if (_masterLiquidScope == null)
         {
-            if (item.Value < 0)
-                return $"转移液体「{item.Key}」数量无效";
-            if (item.Value == 0) continue;
-            var available = _master.LiquidStorage.GetValueOrDefault(item.Key);
-            if (available < item.Value)
-                return $"主台液体「{item.Key}」不足：需要 {item.Value}，当前 {available}";
-            if (slave.IsBanned(item.Key))
-                return $"从台禁用液体「{item.Key}」，不能转移执行所需液体";
-            var storage = slave.CanStoreLiquid(item.Key, item.Value);
-            if (!storage.Granted)
-                return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
+            foreach (var item in _manifest.TransferLiquids)
+            {
+                if (item.Value < 0)
+                    return $"转移液体「{item.Key}」数量无效";
+                if (item.Value == 0) continue;
+                var available = _master.LiquidStorage.GetValueOrDefault(item.Key);
+                if (available < item.Value)
+                    return $"主台液体「{item.Key}」不足：需要 {item.Value}，当前 {available}";
+                if (slave.IsBanned(item.Key))
+                    return $"从台禁用液体「{item.Key}」，不能转移执行所需液体";
+                var storage = slave.CanStoreLiquid(item.Key, item.Value);
+                if (!storage.Granted)
+                    return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
+            }
+        }
+        else
+        {
+            if (_slaveLiquidScope == null)
+                throw new InvalidOperationException("新液体资源路径的 B 类会话缺少从台订单范围");
+            var masterFinalBalances = _masterLiquidScope.Balance;
+            foreach (var item in masterFinalBalances)
+                if (_masterLiquidScope.GetAmount(item.Key) != item.Value)
+                    throw new InvalidOperationException("主台订单液体快照读取不一致");
+            if (!LiquidBalancesEqual(masterFinalBalances, _manifest.MasterFinalLiquidBalances))
+                return "主台订单液体余额与资源清单预测不一致，拒绝执行跨台泵送";
+            var requiredTransfer = _manifest.TransferLiquids
+                .Where(item => item.Value > 0)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+            if (!_slaveLiquidScope.Staging.CanReceiveTransferBatch(DemandId, requiredTransfer))
+                return "从台订单暂存区不能接收从台路径所需液体（禁令或总容量不足）";
         }
 
         // 从这里开始从台资源由本会话独占。若后续提交阶段出现不变量异常，
@@ -448,21 +704,38 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 ResourceKinds.Jar, jar.Shape, 1, from: _master.Name, to: slave.Name);
         }
 
-        foreach (var item in _manifest.TransferLiquids)
+        if (_masterLiquidScope == null)
         {
-            if (item.Value == 0) continue;
-            if (!slave.AddLiquid(item.Key, item.Value))
-                throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
-
-            if (!_master.RemoveLiquid(item.Key, item.Value))
+            foreach (var item in _manifest.TransferLiquids)
             {
-                // 主台扣账意外失败时撤销刚刚加入从台的这一笔；此前已提交的资源由会话收尾处理。
-                if (!slave.RemoveLiquid(item.Key, item.Value))
-                    throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
-                throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
+                if (item.Value == 0) continue;
+                if (!slave.AddLiquid(item.Key, item.Value))
+                    throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
+
+                if (!_master.RemoveLiquid(item.Key, item.Value))
+                {
+                    if (!slave.RemoveLiquid(item.Key, item.Value))
+                        throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
+                    throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
+                }
+                _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
+                    ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
             }
-            _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
-                ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
+        }
+        else
+        {
+            var requiredTransfer = _manifest.TransferLiquids
+                .Where(item => item.Value > 0)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+            if (!OrderLiquidTransfer.TryExecute(
+                DemandId, _masterLiquidScope.Staging, _slaveLiquidScope!.Staging,
+                requiredTransfer, out var transferReason))
+                throw new InvalidOperationException(
+                    transferReason ?? "主从订单液体交接在提交阶段违反预检结果");
+            foreach (var item in requiredTransfer)
+                _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
+                    ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
+            _masterLiquidScope.Staging.ReleaseOrderCapacity(DemandId);
         }
 
         return null;
@@ -472,7 +745,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     {
         var deliveryWorkshop = _manifest.IsPartitioned ? _slave! : _master;
 
-        // 账本 tick 来源是外部回调。必须在任何交付罐标记/归属发生变化前取得，
+        // 账本 tick 来源可能由 Runtime 管理，也可能由旧宿主显式提供。必须在任何交付罐标记/归属发生变化前取得，
         // 避免交付已移除后，结算才调用外部 tick provider 并抛出异常。
         int? settlementTick = null;
         if (_resourceLedger != null && _manifest.IsPartitioned &&
@@ -535,7 +808,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
     private void CleanupTemporaryResources(int? ledgerTickOverride = null)
     {
-        // 只有本会话已经越过全量转移预检并取得从台资源所有权，才允许回流从台。
+        // 只有本会话已经通过从台所需液体批次预检并取得从台资源所有权，才允许处理从台回滚。
         // 若转移前发现从台被外部占用，失败路径必须原样保留那些外部资源与标记。
         if (_manifest.IsPartitioned && _slave != null && _slaveTransferCommitted)
         {
@@ -590,9 +863,38 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private void ReleaseReservation()
     {
         if (_reservationReleased) return;
+        var scopes = _admission.GetLiquidScopes(DemandId);
+        if (scopes.HasValue)
+        {
+            var hasBalance = scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
+                (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false);
+            var settlementTick = _resourceLedger != null && hasBalance
+                ? _resourceLedgerTick!()
+                : 0;
+            var settlement = _admission.SettleLiquidResources(DemandId);
+            if (settlement != null)
+            {
+                foreach (var item in settlement.Accepted)
+                    _resourceLedger?.Record(settlementTick, ResourceCauses.Return,
+                        ResourceKinds.Liquid, item.Key, item.Value,
+                        from: "订单暂存", to: "自机液库");
+                foreach (var item in settlement.Discarded)
+                    _resourceLedger?.Record(settlementTick, ResourceCauses.Discard,
+                        ResourceKinds.Liquid, item.Key, item.Value,
+                        from: "订单暂存", to: null, reason: "自机液库总容量不足");
+            }
+        }
         if (!_admission.Release(DemandId))
             throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
         _reservationReleased = true;
+    }
+
+    private static bool LiquidBalancesEqual(
+        IReadOnlyDictionary<string, int> actual,
+        IReadOnlyDictionary<string, int> expected)
+    {
+        var keys = actual.Keys.Concat(expected.Keys).Distinct(StringComparer.Ordinal);
+        return keys.All(key => actual.GetValueOrDefault(key) == expected.GetValueOrDefault(key));
     }
 
     private static bool IsMatch(WorldPlanStep step) =>
@@ -643,4 +945,44 @@ public sealed record WorldOrderExecutionStartResult(
 
     internal static WorldOrderExecutionStartResult Started(WorldOrderExecutionSession session) =>
         new(true, null, session);
+}
+
+
+/// <summary>订单会话执行游标快照；不包含罐子状态，不能单独作为完整世界存档。</summary>
+public sealed class WorldOrderExecutionSessionProgressSnapshot
+{
+    internal WorldOrderExecutionSessionProgressSnapshot(
+        int demandId,
+        WorldOrderExecutionStage stage,
+        int completedMasterSteps,
+        int completedSlaveSteps,
+        long unitElapsedLogicalMilli,
+        long unitDurationLogicalMilli,
+        bool slaveTransferCommitted,
+        string? reason,
+        WorldOrderResourceManifest manifest,
+        WorldOrderSolvePlan plan)
+    {
+        DemandId = demandId;
+        Stage = stage;
+        CompletedMasterSteps = completedMasterSteps;
+        CompletedSlaveSteps = completedSlaveSteps;
+        UnitElapsedLogicalMilli = unitElapsedLogicalMilli;
+        UnitDurationLogicalMilli = unitDurationLogicalMilli;
+        SlaveTransferCommitted = slaveTransferCommitted;
+        Reason = reason;
+        Manifest = manifest;
+        Plan = plan;
+    }
+
+    public int DemandId { get; }
+    public WorldOrderExecutionStage Stage { get; }
+    public int CompletedMasterSteps { get; }
+    public int CompletedSlaveSteps { get; }
+    public long UnitElapsedLogicalMilli { get; }
+    public long UnitDurationLogicalMilli { get; }
+    public bool SlaveTransferCommitted { get; }
+    public string? Reason { get; }
+    public WorldOrderResourceManifest Manifest { get; }
+    public WorldOrderSolvePlan Plan { get; }
 }

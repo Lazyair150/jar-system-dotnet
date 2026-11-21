@@ -162,4 +162,38 @@ public class SolverLiquidSoundnessTests
         Assert.Equal(2, usable.Count);   // 键还在：清零不等于抹掉"这格子里有东西"
         Assert.True(cap.IsBanned("酒"));
     }
+
+    [Fact]
+    public void AggregateStagingCapacityRejectsAPathNeedingTwoInitialLiquidUnits()
+    {
+        var info = Info(new Workshop("总容量一", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 10));
+        info.MaxLiquidCapacity = 1;
+        var result = new StateSpaceSolver().Solve(
+            new List<Requirement>
+            {
+                new() { Shape = "圆罐", Liquid = "酒" },
+                new() { Shape = "圆罐", Liquid = "蜜" }
+            },
+            info,
+            Jars((string?)null, (string?)null),
+            new Dictionary<string, int> { ["酒"] = 5, ["蜜"] = 5 });
+
+        Assert.False(result.Feasible);
+    }
+
+    [Fact]
+    public void AggregateStagingCapacityIgnoresUnusedSourceLiquidSurplus()
+    {
+        var info = Info(new Workshop("总容量一", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 10));
+        info.MaxLiquidCapacity = 1;
+        var result = new StateSpaceSolver().Solve(
+            new List<Requirement> { new() { Shape = "圆罐", Liquid = "酒" } },
+            info,
+            Jars((string?)null),
+            new Dictionary<string, int> { ["酒"] = 5, ["蜜"] = 5 });
+
+        Assert.True(result.Feasible, result.Blockage);
+    }
 }

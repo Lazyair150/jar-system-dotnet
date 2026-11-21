@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
+using JarSystem.Core.World.Execution;
 using JarSystem.Core.World.Solving;
 
 namespace JarSystem.Core.World;
@@ -25,6 +27,8 @@ public sealed class WorldV2Context : IDisposable
     public bool IsDisposed => _disposed;
 
     public ResourceArea Resources { get; }
+    public ShipLiquidInventory? ShipLiquidInventory { get; }
+    public ResourceLedger ResourceLedger { get; }
     public WorkshopRoster Roster { get; }
     public OrderDemandBoard DemandBoard { get; }
     public WorldOrderSolveBook SolveBook { get; }
@@ -35,6 +39,8 @@ public sealed class WorldV2Context : IDisposable
 
     private WorldV2Context(
         ResourceArea resources,
+        ShipLiquidInventory? shipLiquidInventory,
+        ResourceLedger resourceLedger,
         WorkshopRoster roster,
         OrderDemandBoard demandBoard,
         WorldOrderSolveBook solveBook,
@@ -44,6 +50,8 @@ public sealed class WorldV2Context : IDisposable
         WorldOrderScheduler scheduler)
     {
         Resources = resources;
+        ShipLiquidInventory = shipLiquidInventory;
+        ResourceLedger = resourceLedger;
         Roster = roster;
         DemandBoard = demandBoard;
         SolveBook = solveBook;
@@ -67,7 +75,8 @@ public sealed class WorldV2Context : IDisposable
         long logicalTimePerUnit,
         DemandAreaFulfillmentPolicy passiveFulfillmentPolicy,
         DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
-        WorldClock? clock = null)
+        WorldClock? clock = null,
+        ShipLiquidInventory? shipLiquidInventory = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -75,20 +84,142 @@ public sealed class WorldV2Context : IDisposable
         if (solverRegistry == null) throw new ArgumentNullException(nameof(solverRegistry));
         if (logicalTimePerUnit <= 0)
             throw new ArgumentOutOfRangeException(nameof(logicalTimePerUnit));
+        if (shipLiquidInventory != null && resources.ShipLiquidInventory != null &&
+            !ReferenceEquals(shipLiquidInventory, resources.ShipLiquidInventory))
+            throw new ArgumentException("Context 与 ResourceArea 必须引用同一个自机液库", nameof(shipLiquidInventory));
+        shipLiquidInventory ??= resources.ShipLiquidInventory;
 
         // 先完成所有可能失败的基础对象校验与组装，再向调用方返回 Context。
         var roster = new WorkshopRoster(workshops, master, slave);
         var board = new OrderDemandBoard(passiveFulfillmentPolicy, activeFulfillmentPolicy);
         var solveBook = new WorldOrderSolveBook(board);
         var reservations = new WorldResourceReservationBook();
-        var admission = new WorldOrderExecutionAdmission(board, solveBook, roster, reservations);
+        var resourceLedger = new ResourceLedger();
+        if (shipLiquidInventory != null)
+        {
+            foreach (var item in shipLiquidInventory.Balances.OrderBy(item => item.Key, StringComparer.Ordinal))
+                resourceLedger.Record(0, ResourceCauses.Stock, ResourceKinds.Liquid,
+                    item.Key, item.Value, from: "关卡初始库存", to: "自机液库");
+        }
+        var admission = shipLiquidInventory == null
+            ? new WorldOrderExecutionAdmission(board, solveBook, roster, reservations)
+            : new WorldOrderExecutionAdmission(board, solveBook, roster, reservations, shipLiquidInventory);
         var runtime = new ResourceWorldRuntime(
-            resources, clock: clock, roster: roster, demandBoard: board);
+            resources, clock: clock, roster: roster, demandBoard: board,
+            resourceLedger: resourceLedger);
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
         return new WorldV2Context(
-            resources, roster, board, solveBook, reservations, admission, runtime, scheduler);
+            resources, shipLiquidInventory, resourceLedger, roster, board, solveBook, reservations, admission, runtime, scheduler);
+    }
+
+    /// <summary>
+    /// 捕获活动执行所需的工作台动态库存、液体资源、资源预留、账本、时钟与会话进度。
+    /// 必须在 Host 独占操作内调用；需求板、生产器和规则修饰器配置仍由其他快照边界负责。
+    /// </summary>
+    public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null)
+            throw new InvalidOperationException(
+                "世界故障或工作台替换状态尚未纳入执行资源检查点，拒绝生成不完整检查点。");
+        if (ShipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容世界没有自机液库，不能捕获新液体资源检查点。");
+        return new WorldV2ExecutionResourceCheckpoint(
+            Resources.CaptureRuntimeState(),
+            ShipLiquidInventory.Capture(),
+            Roster.Master?.CaptureRuntimeState()
+                ?? throw new InvalidOperationException("检查点捕获时没有主工作台。"),
+            Roster.Slave?.CaptureRuntimeState(),
+            Admission.Capture(),
+            Reservations.Capture(),
+            ResourceLedger.Capture(),
+            Runtime.Clock.Capture(),
+            Runtime.LedgerTick,
+            Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()));
+    }
+
+    /// <summary>
+    /// 将活动执行检查点恢复到一个已按相同世界配置装配、且需求板已恢复订单的空 Context。
+    /// 此方法不会重新准入订单，不会重复扣液、泵送、MATCH 或执行任何计划步骤。
+    /// </summary>
+    public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
+        if (ShipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容世界不能恢复新液体资源检查点。");
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null ||
+            Runtime.ActiveExecutionSessions.Count != 0 || Reservations.Count != 0 ||
+            Admission.Capture().ActiveOrders.Count != 0)
+            throw new InvalidOperationException("只能向没有活动会话、预留或工作台替换的 Context 恢复检查点。");
+
+        Resources.ValidateRuntimeStateSnapshot(checkpoint.ResourceArea);
+        if (checkpoint.ShipLiquidInventory.Capacity != ShipLiquidInventory.Capacity)
+            throw new InvalidOperationException("检查点自机液库容量与当前世界配置不一致。");
+        if ((Roster.Slave == null) != (checkpoint.SlaveWorkshop == null))
+            throw new InvalidOperationException("检查点主从工作台岗位结构与当前世界不一致。");
+        Roster.Master!.ValidateRuntimeStateSnapshot(checkpoint.MasterWorkshop);
+        if (Roster.Slave != null)
+            Roster.Slave.ValidateRuntimeStateSnapshot(checkpoint.SlaveWorkshop!);
+
+        var allCheckpointJarIds = checkpoint.ResourceArea.Warehouse.Jars
+            .Concat(checkpoint.MasterWorkshop.Jars)
+            .Concat(checkpoint.SlaveWorkshop?.Jars ?? Array.Empty<Jar>())
+            .Where(jar => jar.Id.HasValue)
+            .Select(jar => jar.Id!.Value)
+            .ToArray();
+        if (allCheckpointJarIds.Distinct().Count() != allCheckpointJarIds.Length)
+            throw new InvalidOperationException("检查点在中央仓库与工作台之间重复拥有同一罐子 ID。");
+
+        if (checkpoint.ResourceLedger.Capacity != ResourceLedger.Capacity)
+            throw new InvalidOperationException("检查点资源账本容量与当前世界不一致。");
+
+        // 先在临时对象图中完整验证资源账户、所有权索引、时钟与会话游标。
+        // 任一快照无效时，当前 Context 不发生任何状态修改。
+        var stagedShip = new ShipLiquidInventory(
+            checkpoint.ShipLiquidInventory.Capacity,
+            checkpoint.ShipLiquidInventory.Balances);
+        var stagedReservations = WorldResourceReservationBook.Restore(checkpoint.Reservations);
+        var stagedAdmission = new WorldOrderExecutionAdmission(
+            DemandBoard, SolveBook, Roster, stagedReservations, stagedShip);
+        stagedAdmission.Restore(checkpoint.Admission);
+        var stagedLedger = ResourceLedger.Restore(checkpoint.ResourceLedger);
+        _ = WorldClock.Restore(checkpoint.Clock);
+        var activeScopeIds = checkpoint.Admission.ActiveOrders.Select(item => item.DemandId).ToHashSet();
+        var sessionIds = checkpoint.Sessions.Select(item => item.DemandId).ToHashSet();
+        if (sessionIds.Count != checkpoint.Sessions.Count)
+            throw new InvalidOperationException("检查点包含重复执行会话 ID。");
+        if (checkpoint.Sessions.Any(item => item.DemandId <= 0))
+            throw new InvalidOperationException("检查点包含无效执行会话 ID。");
+        if (checkpoint.ResourceLedger.Entries.Any(item => item.Tick > checkpoint.RuntimeLedgerTick))
+            throw new InvalidOperationException("检查点资源账本事件 tick 超过 Runtime 当前 tick。");
+        if (!activeScopeIds.SetEquals(sessionIds))
+            throw new InvalidOperationException("检查点活动订单范围与执行会话集合不一致。");
+        if (checkpoint.RuntimeLedgerTick < 0)
+            throw new InvalidOperationException("检查点 Runtime 账本 tick 无效。");
+        foreach (var session in checkpoint.Sessions)
+        {
+            WorldOrderExecutionSession.ValidateProgressAgainstWorkshopSnapshots(
+                session, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop);
+            WorldOrderExecutionSession.RestoreProgress(
+                session, DemandBoard, SolveBook, stagedAdmission, Roster,
+                stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick);
+        }
+
+        // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
+        Resources.RestoreRuntimeState(checkpoint.ResourceArea);
+        Roster.Master.RestoreRuntimeState(checkpoint.MasterWorkshop);
+        if (Roster.Slave != null)
+            Roster.Slave.RestoreRuntimeState(checkpoint.SlaveWorkshop!);
+        ShipLiquidInventory.RestoreFrom(checkpoint.ShipLiquidInventory);
+        Reservations.RestoreFrom(checkpoint.Reservations);
+        Admission.Restore(checkpoint.Admission);
+        ResourceLedger.RestoreFrom(checkpoint.ResourceLedger);
+        Runtime.Clock.RestoreFrom(checkpoint.Clock);
+        Runtime.RestoreExecutionSessions(
+            checkpoint.Sessions, SolveBook, Admission, Reservations, checkpoint.RuntimeLedgerTick);
     }
 
     /// <summary>释放求解簿对需求板的事件订阅；不会尝试关闭或回滚世界资源。</summary>
@@ -98,4 +229,48 @@ public sealed class WorldV2Context : IDisposable
         SolveBook.Dispose();
         _disposed = true;
     }
+}
+
+
+/// <summary>
+/// 活动执行检查点：保留自机液库、主从工作台动态库存、订单暂存、容量/罐子预留、
+/// 资源账本、世界时钟和执行游标。
+/// 这不是完整世界存档；恢复执行仍需配套需求板、资源生产器/时钟策略与规则修饰器状态。
+/// </summary>
+public sealed class WorldV2ExecutionResourceCheckpoint
+{
+    internal WorldV2ExecutionResourceCheckpoint(
+        ResourceAreaRuntimeStateSnapshot resourceArea,
+        ShipLiquidInventorySnapshot shipLiquidInventory,
+        WorkshopRuntimeStateSnapshot masterWorkshop,
+        WorkshopRuntimeStateSnapshot? slaveWorkshop,
+        WorldOrderExecutionAdmissionSnapshot admission,
+        WorldResourceReservationBookSnapshot reservations,
+        ResourceLedgerSnapshot resourceLedger,
+        WorldClockSnapshot clock,
+        int runtimeLedgerTick,
+        IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
+    {
+        ResourceArea = resourceArea;
+        ShipLiquidInventory = shipLiquidInventory;
+        MasterWorkshop = masterWorkshop;
+        SlaveWorkshop = slaveWorkshop;
+        Admission = admission;
+        Reservations = reservations;
+        ResourceLedger = resourceLedger;
+        Clock = clock;
+        RuntimeLedgerTick = runtimeLedgerTick;
+        Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
+    }
+
+    public ResourceAreaRuntimeStateSnapshot ResourceArea { get; }
+    public ShipLiquidInventorySnapshot ShipLiquidInventory { get; }
+    public WorkshopRuntimeStateSnapshot MasterWorkshop { get; }
+    public WorkshopRuntimeStateSnapshot? SlaveWorkshop { get; }
+    public WorldOrderExecutionAdmissionSnapshot Admission { get; }
+    public WorldResourceReservationBookSnapshot Reservations { get; }
+    public ResourceLedgerSnapshot ResourceLedger { get; }
+    public WorldClockSnapshot Clock { get; }
+    public int RuntimeLedgerTick { get; }
+    public IReadOnlyList<WorldOrderExecutionSessionProgressSnapshot> Sessions { get; }
 }

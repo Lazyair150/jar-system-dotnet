@@ -18,6 +18,62 @@ public sealed class WorldResourceReservationBook
 
     public int Count { get { lock (_gate) return _byDemand.Count; } }
 
+    /// <summary>捕获所有活动订单的罐子、液体及从台岗位占用声明。</summary>
+    public WorldResourceReservationBookSnapshot Capture()
+    {
+        lock (_gate)
+        {
+            var copy = _byDemand.Values.OrderBy(item => item.DemandId)
+                .Select(item => new WorldResourceReservation(
+                    item.DemandId, item.WorldVersion, item.LockedJarIds,
+                    item.MasterInitialLiquidAmounts, item.UsesSlave))
+                .ToArray();
+            return new WorldResourceReservationBookSnapshot(copy);
+        }
+    }
+
+    /// <summary>
+    /// 从快照重建预留簿。重建时重新生成罐子所有权索引与唯一从台所有权，
+    /// 不直接信任快照中可能被篡改或重复的索引。
+    /// </summary>
+    public static WorldResourceReservationBook Restore(WorldResourceReservationBookSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var restored = new WorldResourceReservationBook();
+        lock (restored._gate)
+        {
+            foreach (var reservation in snapshot.Reservations.OrderBy(item => item.DemandId))
+            {
+                if (reservation.DemandId <= 0 ||
+                    string.IsNullOrWhiteSpace(reservation.WorldVersion) ||
+                    restored._byDemand.ContainsKey(reservation.DemandId))
+                    throw new InvalidOperationException("资源预留快照包含无效或重复订单。");
+                if (reservation.LockedJarIds.Any(id => id <= 0) ||
+                    reservation.LockedJarIds.Distinct().Count() != reservation.LockedJarIds.Count)
+                    throw new InvalidOperationException("资源预留快照包含无效或重复罐子 ID。");
+                foreach (var amount in reservation.MasterInitialLiquidAmounts)
+                    if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
+                        throw new InvalidOperationException("资源预留快照包含无效液体数量。");
+                foreach (var jarId in reservation.LockedJarIds)
+                {
+                    if (restored._jarOwners.ContainsKey(jarId))
+                        throw new InvalidOperationException("资源预留快照中的罐子被多个订单同时占用：" + jarId);
+                    restored._jarOwners.Add(jarId, reservation.DemandId);
+                }
+                if (reservation.UsesSlave)
+                {
+                    if (restored._slaveOwnerDemandId.HasValue)
+                        throw new InvalidOperationException("资源预留快照中存在多个从台占用者。");
+                    restored._slaveOwnerDemandId = reservation.DemandId;
+                }
+                restored._byDemand.Add(reservation.DemandId, new WorldResourceReservation(
+                    reservation.DemandId, reservation.WorldVersion, reservation.LockedJarIds,
+                    reservation.MasterInitialLiquidAmounts, reservation.UsesSlave));
+            }
+        }
+        return restored;
+    }
+
     public WorldResourceReservation? Find(int demandId)
     {
         lock (_gate) return _byDemand.TryGetValue(demandId, out var value) ? value : null;
@@ -116,6 +172,22 @@ public sealed class WorldResourceReservationBook
         }
     }
 
+    /// <summary>将快照恢复到空预留簿；派生索引由 Restore 重新构建。</summary>
+    public void RestoreFrom(WorldResourceReservationBookSnapshot snapshot)
+    {
+        var restored = Restore(snapshot);
+        lock (_gate)
+        {
+            if (_byDemand.Count != 0 || _jarOwners.Count != 0 || _slaveOwnerDemandId.HasValue)
+                throw new InvalidOperationException("只能向空资源预留簿恢复快照。");
+            foreach (var pair in restored._byDemand)
+                _byDemand.Add(pair.Key, pair.Value);
+            foreach (var pair in restored._jarOwners)
+                _jarOwners.Add(pair.Key, pair.Value);
+            _slaveOwnerDemandId = restored._slaveOwnerDemandId;
+        }
+    }
+
     /// <summary>订单结束、取消或中断时释放占用声明；不回滚真实资源变化。</summary>
     public bool Release(int demandId)
     {
@@ -155,4 +227,18 @@ public sealed class WorldResourceReservation
         MasterInitialLiquidAmounts = new ReadOnlyDictionary<string, int>(
             liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
     }
+}
+
+
+/// <summary>预留簿的纯值快照；索引在恢复时重新构建，避免保存重复派生状态。</summary>
+public sealed class WorldResourceReservationBookSnapshot
+{
+    public WorldResourceReservationBookSnapshot(IEnumerable<WorldResourceReservation> reservations)
+    {
+        Reservations = Array.AsReadOnly(reservations.Select(item =>
+            new WorldResourceReservation(item.DemandId, item.WorldVersion, item.LockedJarIds,
+                item.MasterInitialLiquidAmounts, item.UsesSlave)).ToArray());
+    }
+
+    public IReadOnlyList<WorldResourceReservation> Reservations { get; }
 }

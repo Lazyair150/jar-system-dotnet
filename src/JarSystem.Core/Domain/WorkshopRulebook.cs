@@ -214,6 +214,94 @@ public static class WorkshopRulebook
         return list;
     }
 
+    /// <summary>
+    /// 订单暂存版本的规则判定。容量使用工作台所有订单子账的合计剩余空间，
+    /// 库存消耗只读取当前订单子账。
+    /// </summary>
+    public static bool IsAllowed(RuleContext rules, OrderLiquidScope scope, in JarFacts jar,
+        in WorkshopOperation op)
+    {
+        if (scope == null) throw new System.ArgumentNullException(nameof(scope));
+        var liquids = scope.Balance;
+        var liquidRules = new LiquidRules(rules.Capability, 0);
+        var reshapeRules = new ReshapeRules(rules.Capability, liquidRules);
+
+        if (jar.IsMarked) return false;
+
+        switch (op.Kind)
+        {
+            case WorkshopOperationKind.PourIn:
+            {
+                var liquid = op.TargetLiquid;
+                if (liquid == null || jar.Liquid != null || !rules.IsBaseMarked(jar.Shape)) return false;
+                if (rules.SuppressionReason("POUR_IN", jar.Shape, liquid) != null) return false;
+                return liquidRules.CanPay(liquid, 1, Count(liquids, liquid)).Granted &&
+                    scope.CanConsume(liquid, 1).Granted;
+            }
+            case WorkshopOperationKind.PourOut:
+            {
+                var liquid = jar.Liquid;
+                if (liquid == null) return false;
+                if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) != null) return false;
+                if (!liquidRules.Check(liquid).Granted) return false;
+                return scope.CanReceiveOperation(liquid, 1).Granted;
+            }
+            case WorkshopOperationKind.ReshapeEmpty:
+            {
+                var target = op.TargetShape;
+                var cost = op.CostLiquid;
+                if (target == null || cost == null || jar.Liquid != null) return false;
+                if (!reshapeRules.CanTransform(jar.Shape, target)) return false;
+                if (rules.SuppressionReason("RESHAPE", jar.Shape, cost) != null) return false;
+                return reshapeRules.PayCost(cost, liquids).Granted &&
+                    scope.CanConsume(cost, 1).Granted;
+            }
+            case WorkshopOperationKind.ReshapeFull:
+            {
+                var target = op.TargetShape;
+                var liquid = jar.Liquid;
+                if (target == null || liquid == null) return false;
+                if (!reshapeRules.CanTransform(jar.Shape, target)) return false;
+                if (rules.SuppressionReason("RESHAPE", jar.Shape, liquid) != null) return false;
+                return reshapeRules.SelfConsume(liquid).Granted;
+            }
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>列出订单暂存上下文下全部合法操作，顺序与旧 Available 保持一致。</summary>
+    public static List<WorkshopOperation> Available(RuleContext rules, OrderLiquidScope scope,
+        in JarFacts jar)
+    {
+        var list = new List<WorkshopOperation>(8);
+        if (jar.IsMarked) return list;
+
+        if (IsAllowed(rules, scope, jar, WorkshopOperation.PourOut()))
+            list.Add(WorkshopOperation.PourOut());
+
+        foreach (var liquid in Config.Constants.LIQUIDS)
+        {
+            var op = WorkshopOperation.PourIn(liquid);
+            if (IsAllowed(rules, scope, jar, op)) list.Add(op);
+        }
+
+        var targets = rules.GetPossibleTransforms(jar.Shape);
+        foreach (var target in targets)
+        {
+            foreach (var cost in Config.Constants.LIQUIDS)
+            {
+                var op = WorkshopOperation.ReshapeEmpty(target, cost);
+                if (IsAllowed(rules, scope, jar, op)) list.Add(op);
+            }
+
+            var full = WorkshopOperation.ReshapeFull(target);
+            if (IsAllowed(rules, scope, jar, full)) list.Add(full);
+        }
+
+        return list;
+    }
+
     private static int Count(IReadOnlyDictionary<string, int> liquids, string liquid) =>
         liquids.TryGetValue(liquid, out var n) ? n : 0;
 }

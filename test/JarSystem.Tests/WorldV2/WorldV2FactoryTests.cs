@@ -27,6 +27,7 @@ public sealed class WorldV2FactoryTests
             ["蜜"] = 0
         },
         InitialLiquidStock = new Dictionary<string, int> { ["酒"] = 3 },
+        ShipLiquidCapacity = 4,
         JarFlowRatePerLogicalTime = 1,
         LiquidFlowRatePerLogicalTime = 1,
         Workshops = new List<WorldV2WorkshopOptions>
@@ -36,14 +37,16 @@ public sealed class WorldV2FactoryTests
                 Name = "主台",
                 BaseMarks = new List<string> { "圆罐", "方罐" },
                 MaxJars = 10,
-                MaxLiquids = 10
+                MaxLiquids = 10,
+                LiquidStagingCapacity = 7
             },
             new()
             {
                 Name = "备用台",
                 BaseMarks = new List<string> { "圆罐" },
                 MaxJars = 8,
-                MaxLiquids = 8
+                MaxLiquids = 8,
+                LiquidStagingCapacity = 5
             }
         },
         MasterWorkshopName = "主台",
@@ -62,10 +65,15 @@ public sealed class WorldV2FactoryTests
 
         Assert.Equal(new[] { "圆罐", "方罐" }, world.Resources.Producers.Generators.Keys);
         Assert.Single(world.Resources.Producers.Producers);
-        Assert.Equal(3, world.Resources.Inventory.LiquidCount("酒"));
-        Assert.Equal(0, world.Resources.Inventory.LiquidCount("蜜"));
+        Assert.Equal(3, world.ShipLiquidInventory!.GetAmount("酒"));
+        Assert.Equal(0, world.ShipLiquidInventory.GetAmount("蜜"));
+        Assert.Equal(0, world.Resources.Inventory.LiquidCount("酒"));
         Assert.Equal(1, world.Resources.JarFlowRate);
         Assert.Equal(1, world.Resources.LiquidFlowRate);
+        Assert.Equal(4, world.ShipLiquidInventory!.Capacity);
+        Assert.Same(world.ShipLiquidInventory, world.Resources.ShipLiquidInventory);
+        Assert.Equal(7, world.Roster.Master!.LiquidStagingCapacity);
+        Assert.Equal(5, world.Roster.Slave!.LiquidStagingCapacity);
         Assert.Equal("主台", world.Roster.Master!.Name);
         Assert.Equal("备用台", world.Roster.Slave!.Name);
         Assert.Equal(DemandAreaFulfillmentPolicy.Continuous, world.DemandBoard.Passive.FulfillmentPolicy);
@@ -86,10 +94,11 @@ public sealed class WorldV2FactoryTests
         Assert.Equal(2, result.ProducedJarCount);
         Assert.Equal(1, result.ProducedLiquids.Single().Amount);
         Assert.Equal(2, result.FlowedJarCount);
-        Assert.Equal(2, result.FlowedLiquids["酒"]);
+        Assert.Empty(result.FlowedLiquids);
         Assert.Equal(0, world.Resources.Inventory.JarCount);
         Assert.Equal(2, world.Roster.Master!.Jars.Count);
-        Assert.Equal(2, world.Roster.Master.LiquidStorage["酒"]);
+        Assert.Equal(0, world.Roster.Master.LiquidStorage["酒"]);
+        Assert.Equal(4, world.ShipLiquidInventory!.GetAmount("酒"));
     }
 
     [Fact]
@@ -107,7 +116,7 @@ public sealed class WorldV2FactoryTests
         Assert.DoesNotContain("被篡改", world.Resources.Producers.Generators.Keys);
         Assert.Equal(1, world.Resources.Producers.Producers["陶工"].Rates["圆罐"]);
         Assert.Contains("圆罐", world.Roster.Master!.BaseMarks);
-        Assert.Equal(3, world.Resources.Inventory.LiquidCount("酒"));
+        Assert.Equal(3, world.ShipLiquidInventory!.GetAmount("酒"));
     }
 
     [Fact]
@@ -125,6 +134,18 @@ public sealed class WorldV2FactoryTests
         Assert.Contains(result.Errors, error => error.Contains("不存在的液体"));
         Assert.Contains(result.Errors, error => error.Contains("不存在的形状"));
         Assert.Throws<System.ArgumentException>(() => WorldV2Factory.Create(options));
+    }
+
+    [Fact]
+    public void ValidationRejectsInitialShipInventoryAboveAggregateCapacity()
+    {
+        var options = ValidOptions();
+        options.ShipLiquidCapacity = 2;
+
+        var result = options.Validate();
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("initialLiquidStock 总量超过 shipLiquidCapacity"));
     }
 
     [Fact]

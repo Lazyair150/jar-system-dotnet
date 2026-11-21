@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Solver;
 
 namespace JarSystem.Core.World.Solving;
 
@@ -19,11 +21,17 @@ public sealed class WorldOrderResourceManifest
     public IReadOnlyList<int> LockedJarIds { get; }
     public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
     public IReadOnlyDictionary<string, int> TransferLiquids { get; }
+    /// <summary>主台路径完成后的实际全部剩余游离液体；仅用于核对主台终态，不代表泵送批次。</summary>
+    public IReadOnlyDictionary<string, int> MasterFinalLiquidBalances { get; }
+    public int MasterStagingPeakCapacity { get; }
+    public int SlaveStagingPeakCapacity { get; }
 
     private WorldOrderResourceManifest(
         int demandId, string worldVersion, bool isPartitioned,
         IEnumerable<int> masterJarIds, IEnumerable<int> transferJarIds,
-        IDictionary<string, int> masterLiquids, IDictionary<string, int> transferLiquids)
+        IDictionary<string, int> masterLiquids, IDictionary<string, int> transferLiquids,
+        IDictionary<string, int> masterFinalLiquidBalances,
+        int masterStagingPeakCapacity, int slaveStagingPeakCapacity)
     {
         DemandId = demandId;
         WorldVersion = worldVersion;
@@ -33,6 +41,9 @@ public sealed class WorldOrderResourceManifest
         LockedJarIds = Array.AsReadOnly(MasterJarIds.Concat(TransferJarIds).Distinct().OrderBy(x => x).ToArray());
         MasterInitialLiquidAmounts = Freeze(masterLiquids);
         TransferLiquids = Freeze(transferLiquids);
+        MasterFinalLiquidBalances = Freeze(masterFinalLiquidBalances);
+        MasterStagingPeakCapacity = masterStagingPeakCapacity;
+        SlaveStagingPeakCapacity = slaveStagingPeakCapacity;
     }
 
     public static WorldOrderResourceManifest Create(WorldOrderSolveResult result, WorldSnapshot snapshot)
@@ -58,6 +69,9 @@ public sealed class WorldOrderResourceManifest
 
         Dictionary<string, int> transferLiquids;
         Dictionary<string, int> masterInitial;
+        Dictionary<string, int> masterFinal;
+        int masterPeak;
+        int slavePeak;
         if (!plan.IsPartitioned)
         {
             if (snapshot.Slave != null && plan.SlaveSteps.Count != 0)
@@ -66,6 +80,10 @@ public sealed class WorldOrderResourceManifest
                 throw new InvalidOperationException("单阶段计划不能包含资源转移");
             transferLiquids = new Dictionary<string, int>(StringComparer.Ordinal);
             masterInitial = RequiredInitialLiquids(plan.MasterSteps, null);
+            var masterSimulation = SimulatePath(plan.MasterSteps, masterInitial);
+            masterFinal = masterSimulation.FinalBalances;
+            masterPeak = masterSimulation.PeakCapacity;
+            slavePeak = 0;
         }
         else
         {
@@ -85,11 +103,24 @@ public sealed class WorldOrderResourceManifest
                 throw new InvalidOperationException("TransferLiquids 与从台路径重新计算的最低需求不一致");
 
             masterInitial = RequiredInitialLiquids(plan.MasterSteps, transferLiquids);
+            var masterSimulation = SimulatePath(plan.MasterSteps, masterInitial);
+            masterFinal = masterSimulation.FinalBalances;
+            if (!DictionaryAtLeast(masterFinal, transferLiquids))
+                throw new InvalidOperationException("主台路径结束时的液体余额不足以满足从台路径");
+            masterPeak = masterSimulation.PeakCapacity;
+            // 从台只接收其执行路径所需的最低初始供给；主台额外剩余液体不进入从台容量计算。
+            var slaveSimulation = SimulatePath(plan.SlaveSteps, transferLiquids);
+            slavePeak = slaveSimulation.PeakCapacity;
         }
+
+        if (snapshot.ShipLiquidInventory != null &&
+            !DictionaryAtLeast(snapshot.ShipLiquidInventory.Balances, masterInitial))
+            throw new InvalidOperationException("自机液库库存不足以提供订单初始液体供给");
 
         return new WorldOrderResourceManifest(
             result.DemandId, result.WorldVersion, plan.IsPartitioned,
-            masterPathIds, transferIds, masterInitial, transferLiquids);
+            masterPathIds, transferIds, masterInitial, transferLiquids,
+            masterFinal, masterPeak, slavePeak);
     }
 
     private static HashSet<int> ReadPathJarIds(
@@ -178,6 +209,36 @@ public sealed class WorldOrderResourceManifest
         if (!DictionaryEqual(expected, op.Consumed))
             throw new InvalidOperationException(pathName + "的 Consumed 与操作真实液体语义不一致");
     }
+
+    private static (Dictionary<string, int> FinalBalances, int PeakCapacity) SimulatePath(
+        IReadOnlyList<WorldPlanStep> steps, IReadOnlyDictionary<string, int> initial)
+    {
+        var balances = initial.Where(x => x.Value > 0)
+            .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+        var peak = ShipLiquidInventory.TotalAmount(balances);
+        foreach (var step in steps)
+        {
+            ValidateStep(step, "液体路径");
+            var op = step.Operation!;
+            if (op.Type == "POUR_IN")
+                Add(balances, op.TargetLiquid!, -1);
+            else if (op.Type == "RESHAPE" && !op.FullReshape)
+                Add(balances, op.CostLiquid!, -1);
+            else if (op.Type == "POUR_OUT")
+                Add(balances, step.Before[op.JarIndex!.Value].Liquid!, 1);
+
+            if (balances.Values.Any(x => x < 0))
+                throw new InvalidOperationException("路径模拟出现负液体余额");
+            foreach (var key in balances.Where(x => x.Value == 0).Select(x => x.Key).ToArray())
+                balances.Remove(key);
+            peak = Math.Max(peak, ShipLiquidInventory.TotalAmount(balances));
+        }
+        return (balances, peak);
+    }
+
+    private static bool DictionaryAtLeast(
+        IReadOnlyDictionary<string, int> actual, IReadOnlyDictionary<string, int> required) =>
+        required.All(x => actual.GetValueOrDefault(x.Key) >= x.Value);
 
     // 计算路径任意前缀的最大净消耗；追加 transfer 量可确保主台执行完后仍能供给从台。
     private static Dictionary<string, int> RequiredInitialLiquids(

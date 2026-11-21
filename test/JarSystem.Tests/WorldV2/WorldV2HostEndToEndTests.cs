@@ -4,6 +4,7 @@ using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Production;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 using Xunit;
@@ -61,6 +62,7 @@ public sealed class WorldV2HostEndToEndTests
         var producedJars = 0;
         var flowedJars = 0;
         var flowedWine = 0;
+        var shipWineAfterProduction = -1;
         var startedDemand = false;
         var activeSessionsBeforeCompletion = -1;
         var activeSessionsAfterCompletion = -1;
@@ -68,6 +70,7 @@ public sealed class WorldV2HostEndToEndTests
         var remainingReservations = -1;
         var runtimeFaulted = true;
         var logicalTime = -1L;
+        ResourceEvent[] resourceEvents = System.Array.Empty<ResourceEvent>();
 
         host.ExecuteExclusive(context =>
         {
@@ -75,7 +78,8 @@ public sealed class WorldV2HostEndToEndTests
             var productionStep = context.Scheduler.AdvanceWorldAndSchedule(1_000);
             producedJars = productionStep.WorldStep.Resources.ProducedJarCount;
             flowedJars = productionStep.WorldStep.Resources.FlowedJarCount;
-            flowedWine = productionStep.WorldStep.Resources.FlowedLiquids["酒"];
+            flowedWine = productionStep.WorldStep.Resources.FlowedLiquids.GetValueOrDefault("酒");
+            shipWineAfterProduction = context.ShipLiquidInventory!.GetAmount("酒");
 
             // 2. 外部输入只表达订单规格与区域，不直接调用 Solver 或执行器。
             var vocabulary = new Vocabulary(
@@ -102,11 +106,13 @@ public sealed class WorldV2HostEndToEndTests
             remainingReservations = context.Reservations.Count;
             runtimeFaulted = context.Runtime.IsFaulted;
             logicalTime = context.Runtime.Clock.LogicalTimeMilli;
+            resourceEvents = context.ResourceLedger.Entries.ToArray();
         });
 
         Assert.Equal(1, producedJars);
         Assert.Equal(1, flowedJars);
-        Assert.Equal(1, flowedWine);
+        Assert.Equal(0, flowedWine);
+        Assert.Equal(1, shipWineAfterProduction);
         Assert.True(startedDemand);
         Assert.Equal(1, activeSessionsBeforeCompletion);
         Assert.Equal(0, activeSessionsAfterCompletion);
@@ -114,6 +120,15 @@ public sealed class WorldV2HostEndToEndTests
         Assert.Equal(0, remainingReservations);
         Assert.False(runtimeFaulted);
         Assert.Equal(2_000, logicalTime);
+        Assert.Contains(resourceEvents, item =>
+            item.Cause == ResourceCauses.Stock && item.Kind == ResourceKinds.Liquid &&
+            item.Name == "酒" && item.From == "关卡初始库存" && item.To == "自机液库" &&
+            item.Amount == 1);
+        Assert.Contains(resourceEvents, item =>
+            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Liquid &&
+            item.Name == "酒" && item.From == "自机液库" && item.To == "主台" &&
+            item.Amount == 1);
+        Assert.DoesNotContain(resourceEvents, item => item.Cause == ResourceCauses.Transfer);
 
         // Host 操作结束后，仍可通过下一次独占操作读取同一世界的脱离式状态。
         var worldStillAvailable = false;

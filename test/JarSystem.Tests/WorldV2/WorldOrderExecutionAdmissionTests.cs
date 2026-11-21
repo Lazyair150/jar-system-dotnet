@@ -51,6 +51,19 @@ public sealed class WorldOrderExecutionAdmissionTests
         return (board, book, roster, reservations, admission);
     }
 
+    private static void ReevaluateWithShip(
+        WorldOrderSolveBook book, WorkshopRoster roster, ShipLiquidInventory ship,
+        params int[] demandIds)
+    {
+        var snapshot = WorldSnapshotFactory.Capture(roster, ship);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        foreach (var demandId in demandIds)
+            book.Evaluate(demandId, snapshot, registry);
+    }
+
     [Fact]
     public void AdmissionReservesJarAndInitialLiquidThenReleaseMakesThemAvailable()
     {
@@ -205,6 +218,154 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
+    public void BAdmissionSnapshotRestoresBothOrderScopesAndReservationsWithoutWithdrawingShipAgain()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 6);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 5);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        var ship = new ShipLiquidInventory(8, new Dictionary<string, int> { ["酒"] = 1 });
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        var solveSnapshot = WorldSnapshotFactory.Capture(roster, ship);
+        var solved = book.Evaluate(demand.Id, solveSnapshot, registry);
+        Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+        Assert.True(solved.Result.Plan!.IsPartitioned);
+
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
+        var admitted = admission.TryAdmit(demand.Id);
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(0, ship.GetAmount("酒"));
+        var beforeRestore = admission.GetLiquidScopes(demand.Id);
+        Assert.True(beforeRestore.HasValue);
+        Assert.Equal(1, beforeRestore.Value.Master.GetAmount("酒"));
+        Assert.NotNull(beforeRestore.Value.Slave);
+
+        var admissionSnapshot = admission.Capture();
+        var reservationSnapshot = reservations.Capture();
+        Assert.Single(admissionSnapshot.ActiveOrders);
+        Assert.True(admissionSnapshot.ActiveOrders[0].UsesSlave);
+        Assert.Equal(admitted.Manifest!.MasterStagingPeakCapacity,
+            admissionSnapshot.MasterStaging!.ReservedCapacityByOrder[demand.Id]);
+        Assert.Equal(admitted.Manifest.SlaveStagingPeakCapacity,
+            admissionSnapshot.SlaveStaging!.ReservedCapacityByOrder[demand.Id]);
+
+        var restoredReservations = WorldResourceReservationBook.Restore(reservationSnapshot);
+        var restoredAdmission = new WorldOrderExecutionAdmission(
+            board, book, roster, restoredReservations, ship);
+        restoredAdmission.Restore(admissionSnapshot);
+
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(1, restoredReservations.Count);
+        Assert.Equal(demand.Id, restoredReservations.Find(demand.Id)!.DemandId);
+        var restoredScopes = restoredAdmission.GetLiquidScopes(demand.Id);
+        Assert.True(restoredScopes.HasValue);
+        Assert.Equal(1, restoredScopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(0, restoredScopes.Value.Slave!.GetAmount("酒"));
+
+        Assert.True(OrderLiquidTransfer.TryExecute(demand.Id,
+            restoredScopes.Value.Master.Staging,
+            restoredScopes.Value.Slave.Staging,
+            new Dictionary<string, int> { ["酒"] = 1 }, out var transferReason), transferReason);
+        Assert.Equal(0, restoredScopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(1, restoredScopes.Value.Slave.GetAmount("酒"));
+    }
+
+    [Fact]
+    public void NewAdmissionRefreshesEmptyStagingWhenWorkshopBanRulesChange()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 4);
+        master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
+        var ids = new SequentialIdGenerator();
+        var firstDemand = Demand("圆罐", "酒", ids);
+        var setup = Prepare(master, firstDemand);
+        var ship = new ShipLiquidInventory(4);
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, firstDemand.Id);
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var first = admission.TryAdmit(firstDemand.Id);
+        Assert.True(first.Success, first.Reason);
+        Assert.True(admission.Release(firstDemand.Id));
+
+        master.ReplaceCapability(new WorkshopCapability(
+            master.BaseMarks, master.AdditionalMarks, new[] { "酒" }));
+        var secondDemand = Demand("圆罐", "酒", ids);
+        setup.Board.AddDemand(secondDemand, DemandAreaKind.Active);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        setup.Book.Evaluate(secondDemand.Id,
+            WorldSnapshotFactory.Capture(setup.Roster, ship), registry);
+
+        var second = admission.TryAdmit(secondDemand.Id);
+
+        Assert.True(second.Success, second.Reason);
+        var scopes = admission.GetLiquidScopes(secondDemand.Id);
+        Assert.True(scopes.HasValue);
+        Assert.Contains("酒", scopes.Value.Master.Staging.BannedLiquids);
+        Assert.True(admission.Release(secondDemand.Id));
+    }
+
+    [Fact]
+    public void AdmissionRestoreRejectsMismatchBetweenActiveScopesAndReservationOwnership()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 4);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 4);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        book.Evaluate(demand.Id, WorldSnapshotFactory.Capture(roster, ship), registry);
+        var sourceReservations = new WorldResourceReservationBook();
+        var sourceAdmission = new WorldOrderExecutionAdmission(
+            board, book, roster, sourceReservations, ship);
+        Assert.True(sourceAdmission.TryAdmit(demand.Id).Success);
+        var captured = sourceAdmission.Capture();
+
+        var forged = new WorldOrderExecutionAdmissionSnapshot(
+            captured.MasterStaging, captured.SlaveStaging,
+            new[] { new WorldOrderExecutionScopeSnapshot(demand.Id, UsesSlave: false) });
+        var restored = new WorldOrderExecutionAdmission(
+            board, book, roster,
+            WorldResourceReservationBook.Restore(sourceReservations.Capture()), ship);
+
+        Assert.Throws<InvalidOperationException>(() => restored.Restore(forged));
+    }
+
+    [Fact]
     public void AdmissionRejectsSolveResultAfterWorldVersionChanges()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
@@ -240,4 +401,138 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Contains("不在需求板", result.Reason);
         Assert.Equal(0, setup.Reservations.Count);
     }
+
+    [Fact]
+    public void ShipInventoryAdmissionCreatesReservedOrderScopeAndReturnsUnusedLiquidOnRelease()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        // 旧池只作为当前求解快照的兼容投影；新准入实际扣除自机液库。
+        master.AddLiquid("酒", 1);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 2 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        var scopes = admission.GetLiquidScopes(demand.Id);
+        Assert.True(scopes.HasValue);
+        Assert.Equal(1, scopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(1, scopes.Value.Master.Staging.ReservedCapacity);
+        Assert.True(admission.Release(demand.Id));
+        Assert.Equal(2, ship.GetAmount("酒"));
+        Assert.Equal(0, scopes.Value.Master.Staging.UsedCapacity);
+        Assert.Equal(0, scopes.Value.Master.Staging.ReservedCapacity);
+    }
+
+    [Fact]
+    public void AdmissionCannotStartWhenSolverRejectsAnOrderPeakAboveSharedWorkshopCapacity()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxLiquids: 1, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        master.AddLiquid("酒", 1);
+        master.AddLiquid("蜜", 1);
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐", Liquid = "酒" },
+                    new Requirement { Shape = "方罐", Liquid = "蜜" }
+                }, Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.False(admitted.Success);
+        Assert.False(setup.Book.Find(demand.Id)!.Result!.IsFeasible,
+            "求解器应先按工作台合计暂存容量排除该执行路径");
+        Assert.Equal(1, ship.GetAmount("酒"));
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
+
+    [Fact]
+    public void ConcurrentShipLiquidAdmissionsReserveAggregateStagingWithoutDoubleSubtractingInventory()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxLiquids: 4, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        master.AddLiquid("酒", 2);
+        var ids = new SequentialIdGenerator();
+        var first = Demand("圆罐", "酒", ids);
+        var second = Demand("方罐", "酒", ids);
+        var setup = Prepare(master, first, second);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 2 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, first.Id, second.Id);
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var firstAdmitted = admission.TryAdmit(first.Id);
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, second.Id);
+        var secondAdmitted = admission.TryAdmit(second.Id);
+
+        Assert.True(firstAdmitted.Success, firstAdmitted.Reason);
+        Assert.True(secondAdmitted.Success, secondAdmitted.Reason);
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(2, admission.GetLiquidScopes(first.Id)!.Value.Master.Staging.UsedCapacity);
+        Assert.Equal(2, admission.GetLiquidScopes(first.Id)!.Value.Master.Staging.ReservedCapacity);
+
+        Assert.True(admission.Release(first.Id));
+        Assert.True(admission.Release(second.Id));
+        Assert.Equal(2, ship.GetAmount("酒"));
+    }
+
+
+    [Fact]
+    public void NewOrderStagingUsesIndependentAggregateCapacityNotLegacyPerLiquidLimit()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxJars: 4, maxLiquids: 1, vocabulary: Words, liquidStagingCapacity: 2);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐", Liquid = "酒" },
+                    new Requirement { Shape = "方罐", Liquid = "蜜" }
+                }, Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        var scope = admission.GetLiquidScopes(demand.Id)!.Value.Master;
+        Assert.Equal(1, master.MaxLiquids);
+        Assert.Equal(2, master.LiquidStagingCapacity);
+        Assert.Equal(2, scope.Staging.Capacity);
+        Assert.Equal(2, scope.Staging.UsedCapacity);
+        Assert.Equal(1, scope.GetAmount("酒"));
+        Assert.Equal(1, scope.GetAmount("蜜"));
+    }
+
 }

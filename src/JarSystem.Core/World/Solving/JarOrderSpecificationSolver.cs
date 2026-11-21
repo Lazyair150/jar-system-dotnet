@@ -53,7 +53,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
                 requirements,
                 masterInfo,
                 snapshot.Master.CreateSolverJars(),
-                snapshot.Master.CreateSolverLiquids());
+                CreateMasterSupplyLiquids(snapshot));
 
             if (snapshotSolver.BudgetExceeded)
                 return Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
@@ -90,7 +90,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
             MasterInfo = masterInfo,
             SlaveInfo = slaveInfo,
             MasterJars = snapshot.Master.CreateSolverJars(),
-            MasterLiquids = snapshot.Master.CreateSolverLiquids()
+            MasterLiquids = CreateMasterSupplyLiquids(snapshot)
         }, out var blockage, out var inconclusiveReason);
 
         if (snapshotSolver.BudgetExceeded || inconclusiveReason != null)
@@ -106,6 +106,12 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
             operationCount: outcome.OperationCount,
             plan: WorldOrderSolvePlan.Partitioned(outcome));
     }
+
+    private static Dictionary<string, int> CreateMasterSupplyLiquids(WorldSnapshot snapshot) =>
+        snapshot.ShipLiquidInventory == null
+            ? snapshot.Master!.CreateSolverLiquids()
+            : snapshot.ShipLiquidInventory.Balances.ToDictionary(
+                item => item.Key, item => item.Value, StringComparer.Ordinal);
 
     private static WorldOrderSolveResult Result(
         OrderDemand demand,
@@ -244,7 +250,8 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
                     additionalMarks,
                     bannedLiquids),
                 MaxJars = workshopInfo.MaxJars,
-                MaxLiquids = workshopInfo.MaxLiquids
+                MaxLiquids = workshopInfo.MaxLiquids,
+                MaxLiquidCapacity = workshopInfo.MaxLiquidCapacity
             };
 
             var projectedJars = removedShapes.Count == 0

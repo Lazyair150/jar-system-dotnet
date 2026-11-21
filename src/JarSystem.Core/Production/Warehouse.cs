@@ -23,6 +23,7 @@ public sealed class Warehouse
 {
     private readonly List<Jar> _jars = new();
     private readonly JarPool? _pool;
+    private readonly Vocabulary _vocabulary;
     private readonly Dictionary<string, int> _liquidWarehouse = new();
     private readonly Dictionary<string, int> _discardedLiquids = new();
 
@@ -49,6 +50,7 @@ public sealed class Warehouse
     /// <param name="vocabulary">词表（S2）：液体账目按它的名字与**顺序**建键 —— 契约快照里 `liquids` 的键序依赖它。</param>
     public Warehouse(Vocabulary? vocabulary = null, JarPool? pool = null)
     {
+        _vocabulary = vocabulary ?? Vocabulary.Default;
         _pool = pool;
         // 只读包装最先建立（活视图）——构造期间若有代码读公开视图也不会拿到 null
         _jarsView = _jars.AsReadOnly();
@@ -56,11 +58,58 @@ public sealed class Warehouse
         _discardedLiquidsView = new ReadOnlyDictionary<string, int>(_discardedLiquids);
 
         // 逐项赋值而不是集合初始化器：保证键的插入顺序 = 词表顺序
-        foreach (var liquid in (vocabulary ?? Vocabulary.Default).Liquids)
+        foreach (var liquid in _vocabulary.Liquids)
         {
             _liquidWarehouse[liquid] = 0;
             _discardedLiquids[liquid] = 0;
         }
+    }
+
+    /// <summary>捕获中央仓库中的罐子、液体和丢弃计数。</summary>
+    public WarehouseRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(_jars, _liquidWarehouse, _discardedLiquids, DiscardedJars);
+
+    /// <summary>验证仓库快照的词表、容量和罐子身份；不修改当前仓库。</summary>
+    public void ValidateRuntimeStateSnapshot(WarehouseRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Jars.Count > Constants.WAREHOUSE_MAX_JARS ||
+            snapshot.DiscardedJars < 0 ||
+            !_liquidWarehouse.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.LiquidWarehouse.Keys) ||
+            !_discardedLiquids.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.DiscardedLiquids.Keys))
+            throw new InvalidOperationException("中央仓库快照的容量或液体词表与当前配置不一致。");
+
+        foreach (var item in snapshot.LiquidWarehouse)
+            if (item.Value < 0 || item.Value > Constants.WAREHOUSE_MAX_LIQUIDS)
+                throw new DomainValidationException("中央仓库快照包含越界液体库存：" + item.Key);
+        foreach (var item in snapshot.DiscardedLiquids)
+            if (item.Value < 0)
+                throw new DomainValidationException("中央仓库快照包含负数液体丢弃计数：" + item.Key);
+
+        var ids = new HashSet<int>();
+        foreach (var jar in snapshot.Jars)
+        {
+            if (jar == null || jar.IsRecycled || !jar.IsValidShapeIn(jar.Shape) ||
+                !_vocabulary.Shapes.Contains(jar.Shape, StringComparer.Ordinal) ||
+                (jar.Liquid != null && !_vocabulary.Liquids.Contains(jar.Liquid, StringComparer.Ordinal)))
+                throw new DomainValidationException("中央仓库快照包含无效罐子。");
+            if (jar.Id is > 0 && !ids.Add(jar.Id.Value))
+                throw new DomainValidationException("中央仓库快照包含重复罐子 ID。");
+        }
+    }
+
+    /// <summary>恢复中央仓库运行状态；罐子使用深拷贝，不复用快照中的可变实体。</summary>
+    public void RestoreRuntimeState(WarehouseRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        var jars = snapshot.Jars.Select(jar => jar.DeepClone()).ToArray();
+        _jars.Clear();
+        _jars.AddRange(jars);
+        foreach (var key in _liquidWarehouse.Keys.ToArray())
+            _liquidWarehouse[key] = snapshot.LiquidWarehouse[key];
+        foreach (var key in _discardedLiquids.Keys.ToArray())
+            _discardedLiquids[key] = snapshot.DiscardedLiquids[key];
+        DiscardedJars = snapshot.DiscardedJars;
     }
 
     /// <summary>收货：超过仓库上限的部分丢弃并计数（避免长跑无限膨胀）。</summary>
@@ -148,4 +197,32 @@ public sealed class Warehouse
 
         return (transferredJars, transferredLiquids);
     }
+}
+
+
+/// <summary>中央仓库运行时快照；罐子与账目均为脱离式副本。</summary>
+public sealed class WarehouseRuntimeStateSnapshot
+{
+    private readonly Jar[] _jars;
+
+    public WarehouseRuntimeStateSnapshot(
+        IEnumerable<Jar> jars,
+        IReadOnlyDictionary<string, int> liquidWarehouse,
+        IReadOnlyDictionary<string, int> discardedLiquids,
+        int discardedJars)
+    {
+        _jars = jars.Select(jar => jar.DeepClone()).ToArray();
+        LiquidWarehouse = new ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(liquidWarehouse, StringComparer.Ordinal));
+        DiscardedLiquids = new ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(discardedLiquids, StringComparer.Ordinal));
+        DiscardedJars = discardedJars;
+    }
+
+    /// <summary>每次返回独立罐子副本，防止调用方通过可变 Jar 修改检查点内部状态。</summary>
+    public IReadOnlyList<Jar> Jars =>
+        Array.AsReadOnly(_jars.Select(jar => jar.DeepClone()).ToArray());
+    public IReadOnlyDictionary<string, int> LiquidWarehouse { get; }
+    public IReadOnlyDictionary<string, int> DiscardedLiquids { get; }
+    public int DiscardedJars { get; }
 }

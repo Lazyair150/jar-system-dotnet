@@ -55,8 +55,11 @@ public class Workshop
     /// <summary>罐位上限（变更只能经 <see cref="ResizeJarCapacity"/>）。</summary>
     public int MaxJars { get; private set; }
 
-    /// <summary>液体上限（变更只能经 <see cref="ResizeLiquidCapacity"/>）。</summary>
+    /// <summary>旧版游离液体池的单液种上限。</summary>
     public int MaxLiquids { get; private set; }
+
+    /// <summary>新订单暂存区的全液种合计容量，与旧版单液种上限分离。</summary>
+    public int LiquidStagingCapacity { get; }
 
     /// <summary>罐子只读视图（真只读包装）。增删只能经 AddJar / RemoveJar / TransferOut / TransferIn / ResizeJarCapacity。</summary>
     public IReadOnlyList<Jar> Jars => _jarsView;
@@ -67,6 +70,55 @@ public class Workshop
     /// <summary>是否持有任何罐子或非零游离液体。主台与从台的位置职责据此区分。</summary>
     public bool HasResources => _jars.Count > 0 || _liquidStorage.Values.Any(amount => amount > 0);
 
+    /// <summary>捕获工作台动态库存；配置/规则修饰器由世界配置快照单独负责。</summary>
+    public WorkshopRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(Name, MaxJars, MaxLiquids, LiquidStagingCapacity,
+            BaseMarks, AdditionalMarks, Ban, _jars, _liquidStorage);
+
+    /// <summary>
+    /// 恢复工作台罐子实体与旧版游离液体池。先完整验证身份、词表、容量和配置，
+    /// 验证通过后才替换集合；不改变工作台能力或规则修饰器。
+    /// </summary>
+    public void ValidateRuntimeStateSnapshot(WorkshopRuntimeStateSnapshot snapshot)
+    {
+        if (!string.Equals(snapshot.Name, Name, StringComparison.Ordinal) ||
+            snapshot.MaxJars != MaxJars || snapshot.MaxLiquids != MaxLiquids ||
+            snapshot.LiquidStagingCapacity != LiquidStagingCapacity ||
+            !snapshot.BaseMarks.SequenceEqual(BaseMarks, StringComparer.Ordinal) ||
+            !snapshot.AdditionalMarks.SequenceEqual(AdditionalMarks, StringComparer.Ordinal) ||
+            !snapshot.BannedLiquids.SequenceEqual(Ban, StringComparer.Ordinal))
+            throw new InvalidOperationException("工作台运行时快照与当前工作台配置不一致。");
+        if (snapshot.Jars.Count > MaxJars)
+            throw new DomainValidationException("工作台快照中的罐子数量超过罐位容量。");
+
+        var ids = new HashSet<int>();
+        foreach (var jar in snapshot.Jars)
+        {
+            if (jar.IsRecycled || jar.Id is not > 0 || !ids.Add(jar.Id.Value))
+                throw new DomainValidationException("工作台快照包含已回收、无效或重复身份的罐子。");
+            if (!jar.IsValidShapeIn(jar.Shape))
+                throw new DomainValidationException("工作台快照包含无效罐子形状。");
+            if (jar.Liquid != null && !_liquidStorage.ContainsKey(jar.Liquid))
+                throw new DomainValidationException("工作台快照包含未知罐内液体：" + jar.Liquid);
+        }
+
+        if (snapshot.LiquidStorage.Count != _liquidStorage.Count ||
+            snapshot.LiquidStorage.Keys.Any(key => !_liquidStorage.ContainsKey(key)) ||
+            snapshot.LiquidStorage.Any(item => item.Value < 0 || item.Value > MaxLiquids))
+            throw new DomainValidationException("工作台快照的游离液体键或数量不符合当前容量配置。");
+
+    }
+
+    public void RestoreRuntimeState(WorkshopRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        var restoredJars = snapshot.Jars.Select(jar => jar.DeepClone()).ToArray();
+        _jars.Clear();
+        _jars.AddRange(restoredJars);
+        foreach (var key in _liquidStorage.Keys.ToArray())
+            _liquidStorage[key] = snapshot.LiquidStorage[key];
+    }
+
     /// <param name="vocabulary">词表（S2）：只用于初始化液体账目的键与顺序；null 表示内置默认词表。</param>
     /// <param name="modifiers">
     /// 世界的修饰器栈（P3b）：传同一个实例即可让"一处入栈，处处生效"；
@@ -74,13 +126,17 @@ public class Workshop
     /// </param>
     public Workshop(string name, List<string>? baseMarks = null, List<string>? additionalMarks = null,
         List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null,
-        Vocabulary? vocabulary = null, ModifierStack? modifiers = null)
+        Vocabulary? vocabulary = null, ModifierStack? modifiers = null,
+        int? liquidStagingCapacity = null)
     {
         Name = name;
         _capability = new WorkshopCapability(baseMarks, additionalMarks, ban);
         _rules = new RuleContext(_capability, modifiers ?? new ModifierStack());
         MaxJars = maxJars ?? Constants.DEFAULT_MAX_JARS;
         MaxLiquids = maxLiquids ?? Constants.DEFAULT_MAX_LIQUIDS;
+        LiquidStagingCapacity = liquidStagingCapacity ?? MaxLiquids;
+        if (LiquidStagingCapacity < 0)
+            throw new ArgumentOutOfRangeException(nameof(liquidStagingCapacity), "工作台订单液体总暂存容量不能为负数");
         _ids = ids ?? DefaultIdGenerators.Jars;
         // 液体账目按**词表**建键（顺序 = 词表顺序 ⇒ 契约快照里 liquids 的键序）
         foreach (var l in (vocabulary ?? Vocabulary.Default).Liquids) _liquidStorage[l] = 0;
@@ -326,6 +382,21 @@ public class Workshop
     // 资源操作（原子步骤；规则校验 + 记账 + 打标记都在这里）
     // ============================================================
 
+    public (bool Success, string? Reason) PourIn(Jar j, string l, OrderLiquidScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (j.IsMarked) return (false, "罐子已被操作");
+        if (!j.IsEmpty()) return (false, "罐子不为空");
+        if (!_capability.IsBaseMarked(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
+        var touchIn = CheckLiquid(l);
+        if (!touchIn.Granted) return (false, touchIn.Reason);
+        if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
+        if (!scope.TryConsume(l, 1)) return (false, "液体" + l + "不足或不可用");
+        j.PourIn(l);
+        j.Mark();
+        return (true, null);
+    }
+
     public (bool Success, string? Reason) PourIn(Jar j, string l)
     {
         if (j.IsMarked) return (false, "罐子已被操作");
@@ -336,6 +407,24 @@ public class Workshop
         if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
         if (!RemoveLiquid(l)) return (false, "液体" + l + "不足");
         j.PourIn(l); j.Mark(); return (true, null);
+    }
+
+    public (bool Success, string? Reason, string? Liquid) PourOut(Jar j, OrderLiquidScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (j.IsMarked) return (false, "罐子已被操作", null);
+        if (j.IsEmpty()) return (false, "罐子为空", null);
+        var liquid = j.Liquid!;
+        var touchOut = CheckLiquid(liquid);
+        if (!touchOut.Granted) return (false, touchOut.Reason, null);
+        if (_rules.SuppressionReason("POUR_OUT", j.Shape, liquid) is { } suppressed)
+            return (false, suppressed, null);
+        if (!scope.TryReceiveOperation(liquid, 1, out var receive))
+            return (false, receive.Reason, null);
+
+        j.ClearLiquid();
+        j.Mark();
+        return (true, null, liquid);
     }
 
     public (bool Success, string? Reason, string? Liquid) PourOut(Jar j)
@@ -395,6 +484,28 @@ public class Workshop
     /// 候选来自 <see cref="WorkshopCapability.GetPossibleTransforms"/> —— 方向的唯一来源，
     /// 所以"能改形成什么"不会与规则表说的那两个方向打架。
     /// </summary>
+    /// <summary>订单范围内的只读改形判定；成本库存来自指定订单子账。</summary>
+    public ReshapeGrant CanReshapeTo(Jar jar, string to, OrderLiquidScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (jar.IsMarked) return ReshapeGrant.No("marked", "罐子已被操作");
+        if (!CanTransform(jar.Shape, to))
+            return ReshapeGrant.No("direction", "无法从" + jar.Shape + "转化为" + to);
+
+        var reshape = new ReshapeRules(_capability, Liquid);
+        if (jar.IsEmpty())
+        {
+            foreach (var pair in scope.Balance)
+                if (!IsBanned(pair.Key) && scope.CanConsume(pair.Key, 1).Granted)
+                    return ReshapeGrant.Yes();
+            return ReshapeGrant.No("no-cost-liquid", "没有可支付的改形成本液体");
+        }
+
+        if (_rules.SuppressionReason("RESHAPE", jar.Shape, jar.Liquid) is { } suppressed)
+            return ReshapeGrant.No("suppressed", suppressed);
+        return reshape.SelfConsume(jar.Liquid);
+    }
+
     public IReadOnlyList<string> ReshapeTargets(Jar jar)
     {
         var result = new List<string>();
@@ -437,6 +548,49 @@ public class Workshop
         var cost = costLiquid ?? FirstUsableCostLiquid();
         if (cost == null) return (false, "没有可支付的改形成本液体");
         return ReshapeEmptyCore(j, to, cost);
+    }
+
+    /// <summary>订单范围内执行改形；空罐成本只从当前订单子账扣除。</summary>
+    public (bool Success, string? Reason) TryReshape(
+        Jar j, string to, OrderLiquidScope scope,
+        ReshapeMode mode = ReshapeMode.Auto, string? costLiquid = null)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (mode == ReshapeMode.Auto) mode = j.IsEmpty() ? ReshapeMode.Empty : ReshapeMode.Full;
+
+        if (mode == ReshapeMode.Full)
+        {
+            if (j.IsMarked) return (false, "罐子已被操作");
+            if (j.IsEmpty()) return (false, "必须为满罐");
+            if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
+            if (_rules.SuppressionReason("RESHAPE", j.Shape, j.Liquid) is { } suppressed)
+                return (false, suppressed);
+            var liquid = j.Liquid!;
+            var touch = CheckLiquid(liquid);
+            if (!touch.Granted) return (false, touch.Reason);
+            j.ClearLiquid();
+            j.Reshape(to);
+            j.Mark();
+            return (true, null);
+        }
+
+        if (j.IsMarked) return (false, "罐子已被操作");
+        if (!j.IsEmpty()) return (false, "必须为空罐");
+        if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
+
+        var cost = costLiquid ?? scope.Balance
+            .Where(pair => scope.CanConsume(pair.Key, 1).Granted && !IsBanned(pair.Key))
+            .Select(pair => pair.Key)
+            .FirstOrDefault();
+        if (cost == null) return (false, "没有可支付的改形成本液体");
+        if (_rules.SuppressionReason("RESHAPE", j.Shape, cost) is { } costSuppressed)
+            return (false, costSuppressed);
+        var costPermission = CheckLiquid(cost);
+        if (!costPermission.Granted) return (false, costPermission.Reason);
+        if (!scope.TryConsume(cost, 1)) return (false, "无法支付液体" + cost);
+        j.Reshape(to);
+        j.Mark();
+        return (true, null);
     }
 
     /// <summary>按液池键序找第一份"取得到"的液体（空罐改形的成本）。</summary>
@@ -591,4 +745,46 @@ public class WorkshopSnapshot
     /// <summary>液体账目（对外只读；同上）。</summary>
     public IReadOnlyDictionary<string, int> Liquids { get; init; } =
         new ReadOnlyDictionary<string, int>(new Dictionary<string, int>());
+}
+
+
+/// <summary>工作台动态库存的脱离式快照；不包含规则修饰器或岗位身份。</summary>
+public sealed class WorkshopRuntimeStateSnapshot
+{
+    private readonly Jar[] _jars;
+
+    internal WorkshopRuntimeStateSnapshot(
+        string name,
+        int maxJars,
+        int maxLiquids,
+        int liquidStagingCapacity,
+        IEnumerable<string> baseMarks,
+        IEnumerable<string> additionalMarks,
+        IEnumerable<string> bannedLiquids,
+        IEnumerable<Jar> jars,
+        IReadOnlyDictionary<string, int> liquidStorage)
+    {
+        Name = name;
+        MaxJars = maxJars;
+        MaxLiquids = maxLiquids;
+        LiquidStagingCapacity = liquidStagingCapacity;
+        BaseMarks = Array.AsReadOnly(baseMarks.ToArray());
+        AdditionalMarks = Array.AsReadOnly(additionalMarks.ToArray());
+        BannedLiquids = Array.AsReadOnly(bannedLiquids.ToArray());
+        _jars = jars.Select(jar => jar.DeepClone()).ToArray();
+        LiquidStorage = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(liquidStorage, StringComparer.Ordinal));
+    }
+
+    public string Name { get; }
+    public int MaxJars { get; }
+    public int MaxLiquids { get; }
+    public int LiquidStagingCapacity { get; }
+    public IReadOnlyList<string> BaseMarks { get; }
+    public IReadOnlyList<string> AdditionalMarks { get; }
+    public IReadOnlyList<string> BannedLiquids { get; }
+    /// <summary>每次返回独立罐子副本，防止调用方通过可变 Jar 修改检查点内部状态。</summary>
+    public IReadOnlyList<Jar> Jars =>
+        Array.AsReadOnly(_jars.Select(jar => jar.DeepClone()).ToArray());
+    public IReadOnlyDictionary<string, int> LiquidStorage { get; }
 }

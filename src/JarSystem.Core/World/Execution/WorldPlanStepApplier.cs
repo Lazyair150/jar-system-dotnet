@@ -13,7 +13,19 @@ namespace JarSystem.Core.World.Execution;
 /// </summary>
 public sealed class WorldPlanStepApplier
 {
-    public WorldPlanStepApplyResult Apply(Workshop workshop, WorldPlanStep step)
+    public WorldPlanStepApplyResult Apply(Workshop workshop, WorldPlanStep step) =>
+        ApplyCore(workshop, step, null);
+
+    /// <summary>订单暂存版本：执行操作并只校验当前订单子账的液体变化。</summary>
+    public WorldPlanStepApplyResult Apply(
+        Workshop workshop, WorldPlanStep step, OrderLiquidScope scope)
+    {
+        if (scope == null) throw new ArgumentNullException(nameof(scope));
+        return ApplyCore(workshop, step, scope);
+    }
+
+    private WorldPlanStepApplyResult ApplyCore(
+        Workshop workshop, WorldPlanStep step, OrderLiquidScope? scope)
     {
         if (workshop == null) throw new ArgumentNullException(nameof(workshop));
         if (step == null) throw new ArgumentNullException(nameof(step));
@@ -68,8 +80,9 @@ public sealed class WorldPlanStepApplier
              !workshop.CanTransform(jar.Shape, operation.TargetShape)))
             return Reject("工作台或罐子词表不允许计划中的目标形状");
 
-        var liquidBefore = workshop.LiquidStorage.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-        var result = ApplyOperation(workshop, jar, operation, expectedBefore);
+        var liquidBefore = (scope?.Balance ?? workshop.LiquidStorage)
+            .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+        var result = ApplyOperation(workshop, jar, operation, expectedBefore, scope);
         if (result != null) return Reject(result);
 
         if (jar.Shape != expectedAfter.Shape ||
@@ -79,10 +92,11 @@ public sealed class WorldPlanStepApplier
                 $"计划步骤执行后状态违约：罐子 #{expectedBefore.Id} 的真实状态与 After 不一致");
 
         var expectedDelta = ExpectedFreeLiquidDelta(operation, expectedBefore);
-        foreach (var liquid in liquidBefore.Keys.Concat(workshop.LiquidStorage.Keys).Distinct(StringComparer.Ordinal))
+        var liquidAfter = scope?.Balance ?? workshop.LiquidStorage;
+        foreach (var liquid in liquidBefore.Keys.Concat(liquidAfter.Keys).Distinct(StringComparer.Ordinal))
         {
             var before = liquidBefore.GetValueOrDefault(liquid);
-            var after = workshop.LiquidStorage.GetValueOrDefault(liquid);
+            var after = liquidAfter.GetValueOrDefault(liquid);
             var delta = after - before;
             if (delta != expectedDelta.GetValueOrDefault(liquid))
                 throw new InvalidOperationException(
@@ -120,7 +134,8 @@ public sealed class WorldPlanStepApplier
     }
 
     private static string? ApplyOperation(
-        Workshop workshop, Jar jar, WorldPlanOperation operation, WorldPlanJarState before)
+        Workshop workshop, Jar jar, WorldPlanOperation operation, WorldPlanJarState before,
+        OrderLiquidScope? scope)
     {
         switch (operation.Type)
         {
@@ -138,13 +153,17 @@ public sealed class WorldPlanStepApplier
             {
                 if (string.IsNullOrWhiteSpace(operation.TargetLiquid))
                     return "POUR_IN 缺少 TargetLiquid";
-                var pourIn = workshop.PourIn(jar, operation.TargetLiquid);
+                var pourIn = scope == null
+                    ? workshop.PourIn(jar, operation.TargetLiquid)
+                    : workshop.PourIn(jar, operation.TargetLiquid, scope);
                 return ReadDomainResult(pourIn.Success, pourIn.Reason, "POUR_IN");
             }
 
             case "POUR_OUT":
             {
-                var pourOut = workshop.PourOut(jar);
+                var pourOut = scope == null
+                    ? workshop.PourOut(jar)
+                    : workshop.PourOut(jar, scope);
                 var pourOutError = ReadDomainResult(pourOut.Success, pourOut.Reason, "POUR_OUT");
                 if (pourOutError != null) return pourOutError;
                 if (!string.Equals(pourOut.Liquid, before.Liquid, StringComparison.Ordinal))
@@ -156,11 +175,18 @@ public sealed class WorldPlanStepApplier
             {
                 if (string.IsNullOrWhiteSpace(operation.TargetShape))
                     return "RESHAPE 缺少 TargetShape";
-                var reshape = workshop.TryReshape(
-                    jar,
-                    operation.TargetShape,
-                    operation.FullReshape ? ReshapeMode.Full : ReshapeMode.Empty,
-                    operation.FullReshape ? null : operation.CostLiquid);
+                var reshape = scope == null
+                    ? workshop.TryReshape(
+                        jar,
+                        operation.TargetShape,
+                        operation.FullReshape ? ReshapeMode.Full : ReshapeMode.Empty,
+                        operation.FullReshape ? null : operation.CostLiquid)
+                    : workshop.TryReshape(
+                        jar,
+                        operation.TargetShape,
+                        scope,
+                        operation.FullReshape ? ReshapeMode.Full : ReshapeMode.Empty,
+                        operation.FullReshape ? null : operation.CostLiquid);
                 return ReadDomainResult(reshape.Success, reshape.Reason, "RESHAPE");
             }
 

@@ -130,6 +130,47 @@ public sealed class LiquidProduction
         return produced;
     }
 
+    /// <summary>捕获液体产能的运行时速率与定点余数。</summary>
+    public LiquidProductionRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(_rateView, _accMilli);
+
+    /// <summary>校验产能快照与当前词表兼容；不修改当前产能。</summary>
+    public void ValidateRuntimeStateSnapshot(LiquidProductionRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!_rateMilli.Keys.ToHashSet(StringComparer.Ordinal)
+            .SetEquals(snapshot.Rates.Keys) ||
+            !_accMilli.Keys.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(snapshot.AccumulatedMicro.Keys))
+            throw new InvalidOperationException("液体产能快照的液种集合与当前词表不一致。");
+
+        foreach (var item in snapshot.Rates)
+        {
+            if (double.IsNaN(item.Value) || double.IsInfinity(item.Value) ||
+                item.Value < 0 || item.Value > Constants.MAX_PRODUCER_RATE)
+                throw new DomainValidationException("液体产能快照包含无效速率：" + item.Key);
+        }
+        foreach (var item in snapshot.AccumulatedMicro)
+        {
+            if (item.Value < 0 || item.Value >= MicroUnit)
+                throw new DomainValidationException("液体产能快照包含越界定点余数：" + item.Key);
+        }
+    }
+
+    /// <summary>恢复液体产能运行状态；词表和强度修饰器仍由当前世界配置提供。</summary>
+    public void RestoreRuntimeState(LiquidProductionRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        foreach (var liquid in _vocabulary.Liquids)
+        {
+            var rate = snapshot.Rates[liquid];
+            _rateMilli[liquid] = Milli(rate);
+            _rateView[liquid] = rate;
+            _accMilli[liquid] = snapshot.AccumulatedMicro[liquid];
+            _accView[liquid] = _accMilli[liquid] / (double)MicroUnit;
+        }
+    }
+
     /// <summary>回到装配时的速率（<see cref="JarSystem.Reset"/> 用）：速率与累加器一起清。</summary>
     public void Reset(IReadOnlyDictionary<string, double> defaults)
     {
@@ -145,4 +186,22 @@ public sealed class LiquidProduction
 
     /// <summary>速率 → 定点整数（千分之一）。只在设速率的边界上取整一次。</summary>
     private static int Milli(double rate) => (int)Math.Round(rate * MilliUnit, MidpointRounding.AwayFromZero);
+}
+
+
+/// <summary>液体产能运行时快照；保留可见速率与百万分之一份的未产出余数。</summary>
+public sealed class LiquidProductionRuntimeStateSnapshot
+{
+    public LiquidProductionRuntimeStateSnapshot(
+        IReadOnlyDictionary<string, double> rates,
+        IReadOnlyDictionary<string, long> accumulatedMicro)
+    {
+        Rates = new ReadOnlyDictionary<string, double>(
+            new Dictionary<string, double>(rates, StringComparer.Ordinal));
+        AccumulatedMicro = new ReadOnlyDictionary<string, long>(
+            new Dictionary<string, long>(accumulatedMicro, StringComparer.Ordinal));
+    }
+
+    public IReadOnlyDictionary<string, double> Rates { get; }
+    public IReadOnlyDictionary<string, long> AccumulatedMicro { get; }
 }

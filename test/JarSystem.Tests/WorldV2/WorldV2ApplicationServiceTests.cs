@@ -149,7 +149,8 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(1_000, advance.LogicalTimeDeltaMilli);
         Assert.Equal(1, advance.ProducedJarCount);
         Assert.Equal(1, advance.FlowedJarCount);
-        Assert.Equal(1, advance.FlowedLiquids["酒"]);
+        Assert.Empty(advance.FlowedLiquids);
+        Assert.Equal(1, app.GetWorldSnapshot().ShipLiquidInventory!.Balances["酒"]);
         Assert.False(advance.RuntimeFaulted);
 
         var requirements = new List<WorldV2RequirementInput>
@@ -172,6 +173,20 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.True(start.Success);
         Assert.Null(start.Reason);
 
+        var checkpoint = app.CaptureExecutionResourceCheckpoint();
+        Assert.Equal(0, checkpoint.ShipLiquidInventory.UsedCapacity);
+        Assert.Equal(1, checkpoint.Admission.MasterStaging!.Accounts[demandId]["酒"]);
+        Assert.Single(checkpoint.Admission.ActiveOrders);
+        Assert.Single(checkpoint.Reservations.Reservations);
+        Assert.Single(checkpoint.Sessions);
+        Assert.Equal(1_000, checkpoint.Clock.WorldTimeMilli);
+
+        var funding = Assert.Single(app.GetResourceLedger().Events,
+            item => item.Cause == "flow" && item.Name == "酒");
+        Assert.Equal("自机液库", funding.From);
+        Assert.Equal("主台", funding.To);
+        Assert.Equal(1, funding.Amount);
+
         var executing = app.GetWorldSnapshot();
         Assert.Single(executing.ActiveSessions);
         Assert.Equal(demandId, executing.ActiveSessions[0].DemandId);
@@ -184,7 +199,67 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Empty(completed.Demands);
         Assert.Equal(0, completed.ReservationCount);
         Assert.Equal(2_000, completed.LogicalTimeMilli);
+        Assert.Equal(1, checkpoint.Admission.MasterStaging!.Accounts[demandId]["酒"]);
+        Assert.Single(checkpoint.Sessions);
         Assert.False(completed.RuntimeFaulted);
+    }
+
+    [Fact]
+    public void LiquidProductionReceiptsAndLedgerAccountForAcceptanceOverflowAndCrossLiquidCompetition()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        var options = Options();
+        options.ShipLiquidCapacity = 2;
+        options.LiquidProductionRates = new Dictionary<string, double>
+        {
+            ["酒"] = 2,
+            ["蜜"] = 1
+        };
+        app.CreateOrReplaceWorld(options);
+
+        var first = app.AdvanceWorld(1_000);
+        Assert.Empty(first.FlowedLiquids);
+        Assert.Collection(first.LiquidProductionReceipts,
+            honey =>
+            {
+                Assert.Equal("蜜", honey.Liquid);
+                Assert.Equal(1, honey.ProducedAmount);
+                Assert.Equal(1, honey.AcceptedAmount);
+                Assert.Equal(0, honey.DiscardedAmount);
+            },
+            alcohol =>
+            {
+                Assert.Equal("酒", alcohol.Liquid);
+                Assert.Equal(2, alcohol.ProducedAmount);
+                Assert.Equal(0, alcohol.AcceptedAmount);
+                Assert.Equal(2, alcohol.DiscardedAmount);
+            });
+
+        var snapshot = app.GetWorldSnapshot();
+        Assert.Equal(2, snapshot.ShipLiquidInventory!.UsedCapacity);
+        Assert.Equal(1, snapshot.ShipLiquidInventory.Balances["酒"]);
+        Assert.Equal(1, snapshot.ShipLiquidInventory.Balances["蜜"]);
+        Assert.All(snapshot.Master!.Liquids.Values, amount => Assert.Equal(0, amount));
+        Assert.All(snapshot.Slave!.Liquids.Values, amount => Assert.Equal(0, amount));
+
+        var ledgerBeforeSecondTick = app.GetResourceLedger();
+        var second = app.AdvanceWorld(1_000);
+        Assert.Equal(3, second.LiquidProductionReceipts.Sum(item => item.ProducedAmount));
+        Assert.Equal(0, second.LiquidProductionReceipts.Sum(item => item.AcceptedAmount));
+        Assert.Equal(3, second.LiquidProductionReceipts.Sum(item => item.DiscardedAmount));
+
+        var ledger = app.GetResourceLedger();
+        Assert.Equal(7, ledger.Events.Sum(item => item.Amount));
+        Assert.Equal(1, ledger.Events.Count(item => item.Cause == "stock"));
+        Assert.Equal(1, ledger.Events.Count(item => item.Cause == "production"));
+        Assert.Equal(3, ledger.Events.Count(item => item.Cause == "discard"));
+        Assert.Equal(ledger.LastSeq, ledger.Events.Last().Seq);
+
+        var incremental = app.GetResourceLedger(ledgerBeforeSecondTick.LastSeq);
+        Assert.Equal(2, incremental.Events.Count);
+        Assert.All(incremental.Events, item => Assert.Equal("discard", item.Cause));
+        Assert.Equal(ledger.LastSeq, incremental.LastSeq);
     }
 
     [Fact]
@@ -246,7 +321,8 @@ public sealed class WorldV2ApplicationServiceTests
         app.AdvanceWorld(1_000);
         var before = app.GetWorldSnapshot();
         Assert.Single(before.Master!.Jars);
-        Assert.Equal(1, before.Master.Liquids["酒"]);
+        Assert.Equal(1, before.ShipLiquidInventory!.Balances["酒"]);
+        Assert.Equal(0, before.Master.Liquids["酒"]);
 
         var demandId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
             new[] { new WorldV2RequirementInput("圆罐", "酒") },
@@ -267,8 +343,9 @@ public sealed class WorldV2ApplicationServiceTests
         app.AdvanceWorld(1_000);
         var reshaped = app.GetWorldSnapshot();
         Assert.Equal("主台", reshaped.Master!.Name);
-        Assert.Equal("酒", Assert.Single(reshaped.Master.Jars).Liquid);
+        Assert.Null(Assert.Single(reshaped.Master.Jars).Liquid);
         Assert.Equal(0, reshaped.Master.Liquids["酒"]);
+        Assert.Equal(1, reshaped.ShipLiquidInventory!.Balances["酒"]);
         Assert.False(reshaped.Replacement!.IsFinished);
         Assert.Equal(1, reshaped.Replacement.CompletedPhases);
 
@@ -285,7 +362,12 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal("主台", after.Master!.Name);
         Assert.Single(after.Master.Jars);
         Assert.Null(after.Master.Jars[0].Liquid);
-        Assert.Equal(1, after.Master.Liquids["酒"]);
+        Assert.Equal(1, after.ShipLiquidInventory!.Balances["酒"]);
+        Assert.Equal(0, after.Master.Liquids["酒"]);
+        var returned = Assert.Single(app.GetResourceLedger().Events,
+            item => item.Cause == "return" && item.Kind == "liquid" && item.Name == "酒");
+        Assert.Equal("订单暂存", returned.From);
+        Assert.Equal("自机液库", returned.To);
         Assert.False(after.RuntimeFaulted);
         Assert.Empty(after.ActiveSessions);
         Assert.Equal(0, after.ReservationCount);

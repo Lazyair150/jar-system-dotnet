@@ -32,8 +32,13 @@ public sealed class WorldV2Options
     [JsonPropertyName("initialLiquidStock")]
     public Dictionary<string, int> InitialLiquidStock { get; set; } = new();
 
+    /// <summary>自机液库跨液种共享的总容量。</summary>
+    [JsonPropertyName("shipLiquidCapacity")]
+    public int ShipLiquidCapacity { get; set; } = 200;
+
     [JsonPropertyName("jarFlowRatePerLogicalTime")]
     public double JarFlowRatePerLogicalTime { get; set; }
+    /// <summary>旧仓库液体流入参数；注入 ShipLiquidInventory 的 World v2 路径不会使用它。</summary>
     [JsonPropertyName("liquidFlowRatePerLogicalTime")]
     public double LiquidFlowRatePerLogicalTime { get; set; }
 
@@ -110,6 +115,23 @@ public sealed class WorldV2Options
 
         ValidateRateMap(LiquidProductionRates, liquidSet, "liquidProductionRates", result);
         ValidateStock(InitialLiquidStock, liquidSet, result);
+        if (ShipLiquidCapacity < 0)
+            result.Errors.Add("shipLiquidCapacity 不能为负数");
+        if (InitialLiquidStock != null && InitialLiquidStock.Values.All(amount => amount >= 0))
+        {
+            try
+            {
+                var initialLiquidTotal = 0;
+                foreach (var amount in InitialLiquidStock.Values)
+                    initialLiquidTotal = checked(initialLiquidTotal + amount);
+                if (initialLiquidTotal > ShipLiquidCapacity)
+                    result.Errors.Add("initialLiquidStock 总量超过 shipLiquidCapacity");
+            }
+            catch (OverflowException)
+            {
+                result.Errors.Add("initialLiquidStock 总量超出可表示范围");
+            }
+        }
         ValidateRate(JarFlowRatePerLogicalTime, "jarFlowRatePerLogicalTime", result);
         ValidateRate(LiquidFlowRatePerLogicalTime, "liquidFlowRatePerLogicalTime", result);
 
@@ -167,6 +189,8 @@ public sealed class WorldV2Options
                     result.Errors.Add("工作台 " + workshop.Name + " 的 maxJars 必须为正数");
                 if (workshop.MaxLiquids <= 0)
                     result.Errors.Add("工作台 " + workshop.Name + " 的 maxLiquids 必须为正数");
+                if (workshop.LiquidStagingCapacity is < 0)
+                    result.Errors.Add("工作台 " + workshop.Name + " 的 liquidStagingCapacity 不能为负数");
             }
 
             if (string.IsNullOrWhiteSpace(MasterWorkshopName) ||
@@ -290,6 +314,8 @@ public sealed class WorldV2WorkshopOptions
     public List<string> Ban { get; set; } = new();
     public int MaxJars { get; set; } = Constants.DEFAULT_MAX_JARS;
     public int MaxLiquids { get; set; } = Constants.DEFAULT_MAX_LIQUIDS;
+    /// <summary>新订单暂存区跨液种共享的总容量；与旧 MaxLiquids 单液种上限独立。</summary>
+    public int? LiquidStagingCapacity { get; set; }
 }
 
 public sealed class WorldV2ValidationResult
@@ -329,14 +355,15 @@ public static class WorldV2Factory
             StringComparer.Ordinal);
         var liquidProduction = new LiquidProduction(vocabulary, defaults: liquidRates);
 
-        foreach (var pair in options.InitialLiquidStock)
-            producers.Warehouse.ProduceLiquid(pair.Key, pair.Value);
+        var shipLiquidInventory = new ShipLiquidInventory(
+            options.ShipLiquidCapacity, options.InitialLiquidStock);
 
         var resources = new ResourceArea(
             producers,
             liquidProduction,
             options.JarFlowRatePerLogicalTime,
-            options.LiquidFlowRatePerLogicalTime);
+            options.LiquidFlowRatePerLogicalTime,
+            shipLiquidInventory);
 
         var workshops = options.Workshops.Select(workshop => new Workshop(
             workshop.Name,
@@ -345,7 +372,8 @@ public static class WorldV2Factory
             new List<string>(workshop.Ban),
             workshop.MaxJars,
             workshop.MaxLiquids,
-            vocabulary: vocabulary)).ToList();
+            vocabulary: vocabulary,
+            liquidStagingCapacity: workshop.LiquidStagingCapacity ?? workshop.MaxLiquids)).ToList();
 
         var master = workshops.Single(workshop =>
             string.Equals(workshop.Name, options.MasterWorkshopName, StringComparison.Ordinal));
@@ -369,6 +397,7 @@ public static class WorldV2Factory
             options.ExecutionLogicalTimePerUnit,
             options.PassiveFulfillmentPolicy,
             options.ActiveFulfillmentPolicy,
-            clock);
+            clock,
+            shipLiquidInventory);
     }
 }

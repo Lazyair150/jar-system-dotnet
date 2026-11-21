@@ -12,7 +12,7 @@ namespace JarSystem.Core.Production;
 /// <list type="bullet">
 /// <item><c>production</c> 世界自己产（形状产线出罐、液体产能出液）</item>
 /// <item><c>stock</c> 开局库存（关卡文件里写死的初始量）</item>
-/// <item><c>flow</c> 中央仓库 → 主台的单向流入</item>
+/// <item><c>flow</c> 资源进入执行端：旧路径为中央仓库 → 主台，新路径为自机液库 → 主台订单账户</item>
 /// <item><c>transfer</c> 主台 → 从台的转移（B 类订单的"挑罐过去"）</item>
 /// <item><c>return</c> 从台 → 主台的归还（交付后剩下的工具罐/游离液体）</item>
 /// <item><c>discard</c> 容量溢出被丢弃</item>
@@ -106,6 +106,69 @@ public sealed class ResourceLedger
     /// <summary>保留的事件（按发生顺序，最旧在前）。只读视图。</summary>
     public IReadOnlyList<ResourceEvent> Entries => _entries;
 
+    /// <summary>捕获完整账本游标、裁剪计数和当前保留事件。</summary>
+    public ResourceLedgerSnapshot Capture() => new(
+        Capacity, _seq, Dropped, _entries);
+
+    /// <summary>
+    /// 从快照恢复账本。保留原始 Seq/Dropped，不重新编号历史事件，
+    /// 因而增量消费者可在恢复后继续使用旧游标。
+    /// </summary>
+    public static ResourceLedger Restore(ResourceLedgerSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Capacity < 1 || snapshot.LastSeq < 0 || snapshot.Dropped < 0 ||
+            snapshot.Entries.Count > snapshot.Capacity)
+            throw new DomainValidationException("资源账本快照的容量或游标无效。");
+
+        long previousSeq = 0;
+        foreach (var item in snapshot.Entries)
+        {
+            if (item.Seq <= previousSeq || item.Seq > snapshot.LastSeq ||
+                item.Tick < 0 || item.Amount <= 0 ||
+                !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
+                (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
+                string.IsNullOrWhiteSpace(item.Name))
+                throw new DomainValidationException("资源账本快照包含无效或乱序事件。");
+            previousSeq = item.Seq;
+        }
+        if (snapshot.Entries.Count > 0 && snapshot.Entries[^1].Seq != snapshot.LastSeq)
+            throw new DomainValidationException("资源账本快照的最后事件序号与 LastSeq 不一致。");
+
+        var ledger = new ResourceLedger(snapshot.Capacity)
+        {
+            _seq = snapshot.LastSeq,
+            Dropped = snapshot.Dropped
+        };
+        ledger._entries.AddRange(snapshot.Entries.Select(Clone));
+        return ledger;
+    }
+
+    /// <summary>将已验证账本快照装入同容量账本，保留原始序号与裁剪游标。</summary>
+    public void RestoreFrom(ResourceLedgerSnapshot snapshot)
+    {
+        var restored = Restore(snapshot);
+        if (restored.Capacity != Capacity)
+            throw new DomainValidationException("资源账本快照容量与当前账本不一致。");
+        _entries.Clear();
+        _entries.AddRange(restored._entries.Select(Clone));
+        _seq = restored._seq;
+        Dropped = restored.Dropped;
+    }
+
+    private static ResourceEvent Clone(ResourceEvent item) => new()
+    {
+        Seq = item.Seq,
+        Tick = item.Tick,
+        Cause = item.Cause,
+        Kind = item.Kind,
+        Name = item.Name,
+        Amount = item.Amount,
+        From = item.From,
+        To = item.To,
+        Reason = item.Reason
+    };
+
     /// <summary>
     /// 记一条事实。<paramref name="amount"/> ≤ 0 时**不记**（"没变化"不是事实），返回 null。
     /// 不校验 cause 是否在 <see cref="ResourceCauses.All"/> 里（调用方是内核自己），
@@ -151,4 +214,35 @@ public sealed class ResourceLedger
         _entries.RemoveRange(0, drop);
         Dropped += drop;
     }
+}
+
+
+/// <summary>资源账本纯值快照，包含增量读取所需的连续性元数据。</summary>
+public sealed class ResourceLedgerSnapshot
+{
+    public ResourceLedgerSnapshot(
+        int capacity, long lastSeq, int dropped, IEnumerable<ResourceEvent> entries)
+    {
+        Capacity = capacity;
+        LastSeq = lastSeq;
+        Dropped = dropped;
+        Entries = Array.AsReadOnly(entries.Select(item => new ResourceEvent
+        {
+            Seq = item.Seq,
+            Tick = item.Tick,
+            Cause = item.Cause,
+            Kind = item.Kind,
+            Name = item.Name,
+            Amount = item.Amount,
+            From = item.From,
+            To = item.To,
+            Reason = item.Reason
+        }).ToArray());
+    }
+
+    public int Capacity { get; }
+    public long LastSeq { get; }
+    public int Dropped { get; }
+    public IReadOnlyList<ResourceEvent> Entries { get; }
+    public int Retained => Entries.Count;
 }

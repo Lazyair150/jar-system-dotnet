@@ -102,4 +102,87 @@ public sealed class WorldOrderResourceManifestTests
         Assert.Throws<System.InvalidOperationException>(
             () => WorldOrderResourceManifest.Create(result, currentSnapshot));
     }
+
+    [Fact]
+    public void BManifestCountsOnlySlaveRequiredLiquidAgainstSlaveCapacity()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxLiquids: 1, vocabulary: Words);
+        var sourceJar = new Jar("圆罐", "蜜", vocabulary: Words);
+        var toolJar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(sourceJar);
+        master.AddJar(toolJar);
+        master.AddLiquid("酒", 1);
+
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+
+        var masterBefore = new List<JarState>
+        {
+            new() { Id = sourceJar.Id, Shape = "圆罐", Liquid = "蜜" },
+            new() { Id = toolJar.Id, Shape = "圆罐" }
+        };
+        var masterAfter = new List<JarState>
+        {
+            new() { Id = sourceJar.Id, Shape = "圆罐", IsMarked = true },
+            new() { Id = toolJar.Id, Shape = "圆罐" }
+        };
+        var masterStep = new SolverStep
+        {
+            Step = 0,
+            Requirement = new Requirement { Shape = "圆罐" },
+            Operation = new SolverOperation
+            {
+                Type = "POUR_OUT", JarIndex = 0, TargetLiquid = "蜜",
+                Consumed = new Dictionary<string, int>()
+            },
+            Before = masterBefore,
+            After = masterAfter,
+            AfterLiquids = new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 }
+        };
+
+        var slaveBefore = new List<JarState>
+        {
+            new() { Id = toolJar.Id, Shape = "圆罐", MasterOrigin = true }
+        };
+        var slaveAfter = new List<JarState>
+        {
+            new() { Id = toolJar.Id, Shape = "圆罐", Liquid = "酒", IsMarked = true, MasterOrigin = true }
+        };
+        var slaveStep = new SolverStep
+        {
+            Step = 0,
+            Requirement = new Requirement { Shape = "圆罐", Liquid = "酒" },
+            Operation = new SolverOperation
+            {
+                Type = "POUR_IN", JarIndex = 0, TargetLiquid = "酒",
+                Consumed = new Dictionary<string, int> { ["酒"] = 1 }
+            },
+            Before = slaveBefore,
+            After = slaveAfter,
+            AfterLiquids = new Dictionary<string, int>()
+        };
+
+        var outcome = new PartitionSearchOutcome
+        {
+            MasterPath = new List<SolverStep> { masterStep },
+            SlavePath = new List<SolverStep> { slaveStep },
+            TransferJarIds = new List<int> { sourceJar.Id!.Value, toolJar.Id!.Value },
+            TransferLiquids = new Dictionary<string, int> { ["酒"] = 1 }
+        };
+        var plan = WorldOrderSolvePlan.Partitioned(outcome);
+        var result = new WorldOrderSolveResult(
+            1, snapshot.Version, WorldOrderSolveStatus.Feasible, plan: plan);
+
+        var manifest = WorldOrderResourceManifest.Create(result, snapshot);
+
+        Assert.Equal(1, manifest.MasterInitialLiquidAmounts["酒"]);
+        Assert.Equal(1, manifest.TransferLiquids["酒"]);
+        Assert.Equal(1, manifest.MasterFinalLiquidBalances["酒"]);
+        Assert.Equal(1, manifest.MasterFinalLiquidBalances["蜜"]);
+        Assert.Equal(2, manifest.MasterStagingPeakCapacity);
+        Assert.Equal(1, manifest.SlaveStagingPeakCapacity);
+    }
 }
