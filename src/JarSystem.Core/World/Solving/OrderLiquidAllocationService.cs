@@ -26,17 +26,20 @@ internal sealed class OrderLiquidAllocationService
     }
 
     public IReadOnlyDictionary<string, int> BuildReservationLiquidityView(
-        WorldOrderResourceManifest manifest)
+        WorldOrderResourceManifest manifest, Workshop master)
     {
         ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(master);
+        var prefill = _getStaging(master).PrefillBalances;
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var liquid in _ship.Balances.Keys
+            .Concat(prefill.Keys)
             .Concat(manifest.MasterInitialLiquidAmounts.Keys)
             .Distinct(StringComparer.Ordinal))
         {
             // 真实扣款已发生的活动订单必须加回逻辑输入，再由 ReservationBook 统一扣除预留，
             // 避免把同一份资源按"库存扣款 + 逻辑预留"重复扣减。
-            result[liquid] = checked(_ship.GetAmount(liquid) +
+            result[liquid] = checked(_ship.GetAmount(liquid) + prefill.GetValueOrDefault(liquid) +
                 _reservations.ReservedLiquidAmount(liquid));
         }
         return result;
