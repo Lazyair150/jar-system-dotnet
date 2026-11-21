@@ -528,7 +528,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     {
         var deliveryWorkshop = _manifest.IsPartitioned ? _slave! : _master;
 
-        // 账本 tick 来源是外部回调。必须在任何交付罐标记/归属发生变化前取得，
+        // 账本 tick 来源可能由 Runtime 管理，也可能由旧宿主显式提供。必须在任何交付罐标记/归属发生变化前取得，
         // 避免交付已移除后，结算才调用外部 tick provider 并抛出异常。
         int? settlementTick = null;
         if (_resourceLedger != null && _manifest.IsPartitioned &&
