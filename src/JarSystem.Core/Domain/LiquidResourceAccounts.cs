@@ -614,6 +614,8 @@ public sealed class WorkshopLiquidStaging
             throw new InvalidOperationException("主台前置补液事务尚未提交，不能并发修改订单暂存账户。");
     }
 
+    internal void EnsureCanTransferOrderLiquids() => EnsureNoPendingPrefillTransaction();
+
     /// <summary>
     /// 从纯值快照重建暂存区。恢复前完整验证 ban、订单账户、容量预留及总占用，
     /// 任一不变量不成立都拒绝恢复，不进行部分装载。
@@ -808,6 +810,8 @@ public static class OrderLiquidTransfer
 
         if (ReferenceEquals(master, slave))
             throw new DomainValidationException("主工作台和从工作台不能是同一个暂存区。");
+        master.EnsureCanTransferOrderLiquids();
+        slave.EnsureCanTransferOrderLiquids();
 
         if (orderId <= 0)
             throw new DomainValidationException("订单 ID 必须是正整数。");
