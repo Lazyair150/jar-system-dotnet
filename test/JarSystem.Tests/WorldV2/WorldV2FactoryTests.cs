@@ -71,6 +71,7 @@ public sealed class WorldV2FactoryTests
         Assert.Equal(1, world.Resources.JarFlowRate);
         Assert.Equal(1, world.Resources.LiquidFlowRate);
         Assert.Equal(4, world.ShipLiquidInventory!.Capacity);
+        Assert.Same(world.ShipLiquidInventory, world.Resources.ShipLiquidInventory);
         Assert.Equal(7, world.Roster.Master!.LiquidStagingCapacity);
         Assert.Equal(5, world.Roster.Slave!.LiquidStagingCapacity);
         Assert.Equal("主台", world.Roster.Master!.Name);
