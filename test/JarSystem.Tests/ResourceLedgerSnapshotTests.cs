@@ -44,6 +44,31 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void RecordBatchOnceDeduplicatesWholeSettlementAndPersistsOperationIdAfterTrimming()
+    {
+        var ledger = new ResourceLedger(capacity: 1);
+        var batch = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Return, ResourceKinds.Liquid,
+                "酒", 2, From: "订单暂存", To: "自机液库"),
+            new ResourceLedgerMutation(ResourceCauses.Discard, ResourceKinds.Liquid,
+                "蜜", 1, From: "订单暂存", Reason: "自机液库总容量不足")
+        };
+
+        Assert.True(ledger.RecordBatchOnce("world:order:7:settlement", 12, batch));
+        Assert.False(ledger.RecordBatchOnce("world:order:7:settlement", 12, batch));
+        Assert.True(ledger.HasRecordedOperation("world:order:7:settlement"));
+        Assert.Equal(2, ledger.LastSeq);
+
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.True(restored.HasRecordedOperation("world:order:7:settlement"));
+        Assert.False(restored.RecordBatchOnce("world:order:7:settlement", 13,
+            new[] { new ResourceLedgerMutation(
+                ResourceCauses.Return, ResourceKinds.Liquid, "酒", 99) }));
+        Assert.Equal(2, restored.LastSeq);
+    }
+
+    [Fact]
     public void RestoreRejectsLastSequenceThatDoesNotMatchRetainedTail()
     {
         var invalid = new ResourceLedgerSnapshot(
