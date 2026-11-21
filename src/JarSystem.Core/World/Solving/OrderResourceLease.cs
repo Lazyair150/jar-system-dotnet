@@ -79,6 +79,47 @@ public sealed class OrderResourceLease
         SettlementStage = OrderResourceSettlementStage.LedgerRecorded;
     }
 
+    internal void RestoreSettlement(
+        OrderResourceSettlementStage stage,
+        LiquidBatchReceipt? receipt)
+    {
+        if (SettlementStage != OrderResourceSettlementStage.NotStarted || SettlementReceipt != null)
+            throw new InvalidOperationException("只能向尚未结算的资源租约恢复结算状态。");
+        if (!Enum.IsDefined(stage))
+            throw new InvalidOperationException("检查点中的订单结算阶段无效。");
+        if (stage == OrderResourceSettlementStage.NotStarted)
+        {
+            if (receipt != null)
+                throw new InvalidOperationException("未开始结算的订单不能包含结算收据。");
+            return;
+        }
+        if (receipt == null)
+            throw new InvalidOperationException("已开始结算的订单必须包含结算收据。");
+        ValidateReceipt(receipt);
+        SettlementReceipt = receipt;
+        SettlementStage = stage;
+    }
+
+    private static void ValidateReceipt(LiquidBatchReceipt receipt)
+    {
+        ShipLiquidInventory.ValidateAmounts(receipt.Requested);
+        ShipLiquidInventory.ValidateAmounts(receipt.Accepted);
+        ShipLiquidInventory.ValidateAmounts(receipt.Discarded);
+        var keys = receipt.Requested.Keys
+            .Concat(receipt.Accepted.Keys)
+            .Concat(receipt.Discarded.Keys)
+            .Distinct(StringComparer.Ordinal);
+        foreach (var key in keys)
+        {
+            var requested = receipt.Requested.GetValueOrDefault(key);
+            var accepted = receipt.Accepted.GetValueOrDefault(key);
+            var discarded = receipt.Discarded.GetValueOrDefault(key);
+            if (requested != checked(accepted + discarded) ||
+                (requested == 0 && (accepted != 0 || discarded != 0)))
+                throw new InvalidOperationException("订单结算收据的请求、接收与丢弃数量不一致。");
+        }
+    }
+
     /// <summary>兼容既有 ReservationBook/Restore API 的不可变只读视图。</summary>
     public WorldResourceReservation Reservation => _reservationProjection ??= CaptureReservation();
 
