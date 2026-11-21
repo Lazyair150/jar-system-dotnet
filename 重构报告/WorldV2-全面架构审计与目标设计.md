@@ -500,4 +500,5 @@ Envelope 建议：
 - 生产区仍可继续向自机液库生产。液库的 `ReservedReturnCapacity` 保证预置补液回滚所需容量不会被生产占用；生产只使用扣除预留后的可用容量，超出部分按自机液库既有规则丢弃。
 - Commit/rollback 都必须同时结束 staging Pending 锁与 Ship 回库容量预留；无库存可补的空事务可以安全地作为 no-op 提交或回滚。
 - 如果账本前置事件写入失败且资源回滚也失败，Runtime 现在显式标记 `PrefillRollbackOutcomeUncertain` 并进入 sticky fault；不会把已中断订单、半笔预置库存和继续运行的世界混在一起。
+- 岗位指向与迁徙副作用提交后，前置补液 Commit 若异常，不再调用迁徙 Rollback；它被标记为 `PrefillCommitOutcomeUncertain` 并抛给 Runtime，使 Runtime 进入 sticky fault。这样不会在已经切换岗位后反向迁回旧台。
 - 这仍是进程内事务隔离，不是持久化两阶段提交。账本批量写入尚未提供事务性/OperationId 去重；跨进程崩溃恢复仍需后续 wire transaction log。
