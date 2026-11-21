@@ -86,7 +86,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
         {
             DemandId = 17,
             Stage = "SlaveSteps",
-            CompletedMasterSteps = 2,
+            CompletedMasterSteps = 1,
             CompletedSlaveSteps = 1,
             UnitElapsedLogicalMilli = 25,
             UnitDurationLogicalMilli = 100,
@@ -163,7 +163,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
         var restored = decoded.Payload.ToSnapshot();
         Assert.Equal(17, restored.DemandId);
         Assert.Equal(JarSystem.Core.World.Execution.WorldOrderExecutionStage.SlaveSteps, restored.Stage);
-        Assert.Equal(2, restored.CompletedMasterSteps);
+        Assert.Equal(1, restored.CompletedMasterSteps);
         Assert.Equal(1, restored.CompletedSlaveSteps);
         Assert.True(restored.SlaveTransferCommitted);
         Assert.Equal(new[] { 1, 2 }, restored.Manifest.LockedJarIds);
