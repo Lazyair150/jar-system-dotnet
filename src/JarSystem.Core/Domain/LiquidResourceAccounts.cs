@@ -426,9 +426,18 @@ public sealed class WorkshopLiquidStaging
             return new WorkshopPrefillTransaction(this, reservation,
                 new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>()));
         }
-        catch
+        catch (Exception prefillError)
         {
-            reservation!.Rollback();
+            try
+            {
+                reservation!.Rollback();
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "主台预置账户写入失败，且自机液库扣款回滚也失败。",
+                    prefillError, rollbackError);
+            }
             throw;
         }
     }
