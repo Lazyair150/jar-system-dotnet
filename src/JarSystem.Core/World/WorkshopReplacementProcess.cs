@@ -144,7 +144,7 @@ public sealed class WorkshopReplacementProcess
             var failure = ex;
             if (ex is WorkshopPrefillRollbackException)
                 PrefillRollbackOutcomeUncertain = true;
-            try { RollbackPrefillIfPending();
+            try { RollbackPrefillIfPending(); }
             catch (Exception rollbackError)
             {
                 PrefillRollbackOutcomeUncertain = true;
