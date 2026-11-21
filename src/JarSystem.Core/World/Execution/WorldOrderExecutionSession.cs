@@ -446,6 +446,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             foreach (var item in outgoing)
                 if (_masterLiquidScope.GetAmount(item.Key) != item.Value)
                     throw new InvalidOperationException("主台订单液体快照读取不一致");
+            if (!LiquidBalancesEqual(outgoing, _manifest.MasterTransferLiquidAmounts))
+                return "主台订单液体余额与资源清单预测不一致，拒绝执行跨台泵送";
             if (!_slaveLiquidScope.Staging.CanReceiveTransferBatch(DemandId, outgoing))
                 return "从台订单暂存区不能接收主台当前全部游离液体（禁令或总容量不足）";
         }
@@ -654,6 +656,14 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (!_admission.Release(DemandId))
             throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
         _reservationReleased = true;
+    }
+
+    private static bool LiquidBalancesEqual(
+        IReadOnlyDictionary<string, int> actual,
+        IReadOnlyDictionary<string, int> expected)
+    {
+        var keys = actual.Keys.Concat(expected.Keys).Distinct(StringComparer.Ordinal);
+        return keys.All(key => actual.GetValueOrDefault(key) == expected.GetValueOrDefault(key));
     }
 
     private static bool IsMatch(WorldPlanStep step) =>
