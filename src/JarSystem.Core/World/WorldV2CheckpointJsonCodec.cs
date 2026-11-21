@@ -34,18 +34,10 @@ public static class WorldV2CheckpointJsonCodec
         bool indented = false)
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
-        try
-        {
-            return Encode(
-                WorldV2ExecutionCheckpointWireDto.FromCheckpoint(checkpoint),
-                checkpoint.ConfigurationFingerprint,
-                indented);
-        }
-        catch (Exception exception)
-        {
-            Console.Error.WriteLine("WORLD-V2-ROOT-WIRE-DIAGNOSTIC: " + exception);
-            throw;
-        }
+        return Encode(
+            WorldV2ExecutionCheckpointWireDto.FromCheckpoint(checkpoint),
+            checkpoint.ConfigurationFingerprint,
+            indented);
     }
 
     /// <summary>解码根级 World V2 检查点，并恢复为经过 wire 校验的领域快照对象图。</summary>
