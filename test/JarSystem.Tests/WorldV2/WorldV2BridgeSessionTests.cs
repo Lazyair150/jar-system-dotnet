@@ -166,4 +166,30 @@ public sealed class WorldV2BridgeSessionTests
         Assert.False(snapshot.RuntimeFaulted);
     }
 
+
+    [Fact]
+    public void GodotBridgeRestoresExecutionCheckpointAfterWorldRecreation()
+    {
+        using var session = new WorldV2BridgeSession();
+        session.CreateOrReplaceWorld(Options());
+        session.AdvanceWorld(1_000);
+
+        var demandId = session.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Active, 0));
+        Assert.True(session.StartActiveDemand(demandId).Success);
+
+        var checkpoint = session.CaptureExecutionCheckpoint();
+        session.CreateOrReplaceWorld(Options());
+        session.RestoreExecutionCheckpoint(checkpoint);
+
+        var restored = session.GetWorldSnapshot();
+        Assert.Single(restored.ActiveSessions);
+        Assert.Equal(demandId, restored.ActiveSessions[0].DemandId);
+        Assert.Equal(1_000, restored.WorldTimeMilli);
+
+        session.AdvanceWorld(1_000);
+        Assert.Empty(session.GetWorldSnapshot().ActiveSessions);
+        Assert.Empty(session.GetWorldSnapshot().Demands);
+    }
 }
