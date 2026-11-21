@@ -68,6 +68,45 @@ public sealed class ResourceArea
         _liquidFlowRateMilli = liquids;
     }
 
+    /// <summary>捕获资源区生产、仓库和流入吞吐的全部运行时余数。</summary>
+    public ResourceAreaRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(
+            _jarFlowRateMilli,
+            _liquidFlowRateMilli,
+            _jarFlowAccumulator,
+            _liquidFlowAccumulator,
+            _producers.CaptureRuntimeState(),
+            _liquidProduction.CaptureRuntimeState(),
+            Inventory.CaptureRuntimeState());
+
+    /// <summary>预检资源区快照；不会修改生产器、仓库或吞吐余数。</summary>
+    public void ValidateRuntimeStateSnapshot(ResourceAreaRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.JarFlowRateMilli < 0 || snapshot.JarFlowRateMilli > int.MaxValue ||
+            snapshot.LiquidFlowRateMilli < 0 || snapshot.LiquidFlowRateMilli > int.MaxValue ||
+            snapshot.JarFlowAccumulator < 0 || snapshot.JarFlowAccumulator >= AmountUnit ||
+            snapshot.LiquidFlowAccumulator < 0 || snapshot.LiquidFlowAccumulator >= AmountUnit)
+            throw new DomainValidationException("资源区快照包含无效流入速率或吞吐余数。");
+
+        _producers.ValidateRuntimeStateSnapshot(snapshot.Producers);
+        _liquidProduction.ValidateRuntimeStateSnapshot(snapshot.LiquidProduction);
+        Inventory.ValidateRuntimeStateSnapshot(snapshot.Warehouse);
+    }
+
+    /// <summary>恢复资源区运行状态；生产拓扑与强度修饰器仍由当前世界装配提供。</summary>
+    public void RestoreRuntimeState(ResourceAreaRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        _producers.RestoreRuntimeState(snapshot.Producers);
+        _liquidProduction.RestoreRuntimeState(snapshot.LiquidProduction);
+        Inventory.RestoreRuntimeState(snapshot.Warehouse);
+        _jarFlowRateMilli = snapshot.JarFlowRateMilli;
+        _liquidFlowRateMilli = snapshot.LiquidFlowRateMilli;
+        _jarFlowAccumulator = snapshot.JarFlowAccumulator;
+        _liquidFlowAccumulator = snapshot.LiquidFlowAccumulator;
+    }
+
     /// <summary>
     /// 推进资源区一个逻辑时间片。
     /// 罐子经仓库流入主台；液体进入自机液库（新路径）或旧仓库（兼容路径）。
@@ -183,4 +222,38 @@ public sealed class ResourceAreaAdvanceResult
         FlowedJarCount = flowedJarCount;
         FlowedLiquids = flowedLiquids;
     }
+}
+
+
+/// <summary>
+/// 资源区运行时快照：生产器累加器、液体产能、中央仓库和仓库→主台吞吐余数。
+/// 不包含对象池/强度修饰器实例；它们必须由相同世界配置重新装配。
+/// </summary>
+public sealed class ResourceAreaRuntimeStateSnapshot
+{
+    public ResourceAreaRuntimeStateSnapshot(
+        long jarFlowRateMilli,
+        long liquidFlowRateMilli,
+        long jarFlowAccumulator,
+        long liquidFlowAccumulator,
+        ProducerModuleRuntimeStateSnapshot producers,
+        LiquidProductionRuntimeStateSnapshot liquidProduction,
+        WarehouseRuntimeStateSnapshot warehouse)
+    {
+        JarFlowRateMilli = jarFlowRateMilli;
+        LiquidFlowRateMilli = liquidFlowRateMilli;
+        JarFlowAccumulator = jarFlowAccumulator;
+        LiquidFlowAccumulator = liquidFlowAccumulator;
+        Producers = producers;
+        LiquidProduction = liquidProduction;
+        Warehouse = warehouse;
+    }
+
+    public long JarFlowRateMilli { get; }
+    public long LiquidFlowRateMilli { get; }
+    public long JarFlowAccumulator { get; }
+    public long LiquidFlowAccumulator { get; }
+    public ProducerModuleRuntimeStateSnapshot Producers { get; }
+    public LiquidProductionRuntimeStateSnapshot LiquidProduction { get; }
+    public WarehouseRuntimeStateSnapshot Warehouse { get; }
 }
