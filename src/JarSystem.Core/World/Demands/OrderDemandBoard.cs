@@ -191,6 +191,50 @@ public sealed class OrderDemandBoard
         return board;
     }
 
+    /// <summary>
+    /// 将检查点装载到现有需求板实例，保留 SolveBook/Scheduler 对该板的对象引用。
+    /// 仅允许区域策略相同；通过 Changed 事件让现有求解状态簿清除旧归属并登记新订单。
+    /// </summary>
+    public void RestoreRuntimeStateFrom(
+        OrderDemandBoardSnapshot snapshot,
+        Vocabulary vocabulary,
+        SequentialIdGenerator demandIds)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(vocabulary);
+        ArgumentNullException.ThrowIfNull(demandIds);
+        if (snapshot.PassiveFulfillmentPolicy != Passive.FulfillmentPolicy ||
+            snapshot.ActiveFulfillmentPolicy != Active.FulfillmentPolicy)
+            throw new InvalidOperationException("检查点需求区域成功策略与当前世界配置不一致");
+
+        var staged = RestoreRuntimeState(snapshot, vocabulary, new SequentialIdGenerator());
+        var old = Passive.Clear().Concat(Active.Clear()).ToArray();
+        foreach (var demand in old)
+            Changed?.Invoke(new OrderDemandBoardChange(
+                OrderDemandBoardChangeKind.Removed, demand.Id,
+                old.Contains(demand) && snapshot.PassiveDemands.Any(item => item.Id == demand.Id)
+                    ? DemandAreaKind.Passive
+                    : DemandAreaKind.Active,
+                null));
+
+        foreach (var demand in staged.Passive.Demands)
+        {
+            Passive.Add(demand);
+            Changed?.Invoke(new OrderDemandBoardChange(
+                OrderDemandBoardChangeKind.Added, demand.Id,
+                null, DemandAreaKind.Passive));
+        }
+        foreach (var demand in staged.Active.Demands)
+        {
+            Active.Add(demand);
+            Changed?.Invoke(new OrderDemandBoardChange(
+                OrderDemandBoardChangeKind.Added, demand.Id,
+                null, DemandAreaKind.Active));
+        }
+
+        demandIds.RestoreAtLeast(snapshot.DemandIdSequence);
+    }
+
     private static IReadOnlyList<OrderDemandSnapshot> CaptureArea(OrderDemandArea area) =>
         Array.AsReadOnly(area.Demands.Select(demand =>
         {
