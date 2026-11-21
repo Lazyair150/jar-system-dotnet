@@ -328,6 +328,11 @@ public sealed class WorldV2ContextTests
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, firstSession.Stage);
         Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
             firstWorld.Reservations.FindLease(firstDemand.Id)!.Stage);
+        var bLeaseScopes = firstWorld.Reservations.FindLease(firstDemand.Id)!.LiquidScopes
+            ?? throw new InvalidOperationException("B 类租约缺少主从液体范围。");
+        Assert.NotNull(bLeaseScopes.Slave);
+        Assert.Same(bLeaseScopes.Master, firstWorld.Admission.GetLiquidScopes(firstDemand.Id)!.Value.Master);
+        Assert.Same(bLeaseScopes.Slave, firstWorld.Admission.GetLiquidScopes(firstDemand.Id)!.Value.Slave);
         var capturedLease = Assert.Single(firstWorld.Reservations.Capture().Reservations);
         Assert.Equal(OrderResourceLeaseStage.MasterExecuting, capturedLease.Stage);
         Assert.Empty(capturedLease.TransferLiquidAmounts);
