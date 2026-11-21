@@ -375,21 +375,31 @@ public sealed class WorldOrderExecutionAdmission
     {
         var masterStaging = GetOrCreateStaging(master);
         WorkshopLiquidStaging? slaveStaging = null;
-        var masterReserved = false;
-        var slaveReserved = false;
+
+        // 先把可用的主台预置液体暂时取出，再预留订单完整路径峰值；
+        // 这样预置液体转入订单子账时不会被当成额外占用重复计算。
+        var prefillGrant = masterStaging.WithdrawPrefillUpTo(manifest.MasterInitialLiquidAmounts);
+        var remainingFromShip = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in manifest.MasterInitialLiquidAmounts)
+        {
+            var remaining = item.Value - prefillGrant.GetValueOrDefault(item.Key);
+            if (remaining > 0) remainingFromShip.Add(item.Key, remaining);
+        }
 
         if (!masterStaging.TryReserveOrderCapacity(manifest.DemandId, manifest.MasterStagingPeakCapacity))
         {
+            masterStaging.RestorePrefill(prefillGrant);
             reason = "主工作台订单液体峰值容量无法预留";
             return false;
         }
-        masterReserved = true;
 
+        var slaveReserved = false;
         if (manifest.IsPartitioned)
         {
             if (slave == null)
             {
                 masterStaging.ReleaseOrderCapacity(manifest.DemandId);
+                masterStaging.RestorePrefill(prefillGrant);
                 reason = "B 类订单缺少从工作台";
                 return false;
             }
@@ -397,16 +407,18 @@ public sealed class WorldOrderExecutionAdmission
             if (!slaveStaging.TryReserveOrderCapacity(manifest.DemandId, manifest.SlaveStagingPeakCapacity))
             {
                 masterStaging.ReleaseOrderCapacity(manifest.DemandId);
+                masterStaging.RestorePrefill(prefillGrant);
                 reason = "从工作台订单液体峰值容量无法预留";
                 return false;
             }
             slaveReserved = true;
         }
 
-        if (!_shipLiquidInventory!.TryWithdraw(manifest.MasterInitialLiquidAmounts, out _))
+        if (!_shipLiquidInventory!.TryWithdraw(remainingFromShip, out _))
         {
             if (slaveReserved) slaveStaging!.ReleaseOrderCapacity(manifest.DemandId);
-            if (masterReserved) masterStaging.ReleaseOrderCapacity(manifest.DemandId);
+            masterStaging.ReleaseOrderCapacity(manifest.DemandId);
+            masterStaging.RestorePrefill(prefillGrant);
             reason = "自机液库初始供给不足";
             return false;
         }
@@ -416,10 +428,11 @@ public sealed class WorldOrderExecutionAdmission
             if (item.Value == 0) continue;
             if (!masterStaging.TryReceiveExact(manifest.DemandId, item.Key, item.Value, out var grant))
             {
-                var drained = masterStaging.DrainOrder(manifest.DemandId);
-                _shipLiquidInventory.Return(drained);
+                masterStaging.DrainOrder(manifest.DemandId);
+                _shipLiquidInventory.Return(remainingFromShip);
+                masterStaging.RestorePrefill(prefillGrant);
                 if (slaveReserved) slaveStaging!.ReleaseOrderCapacity(manifest.DemandId);
-                if (masterReserved) masterStaging.ReleaseOrderCapacity(manifest.DemandId);
+                masterStaging.ReleaseOrderCapacity(manifest.DemandId);
                 reason = grant.Reason ?? "主工作台暂存区无法接收订单初始供给";
                 return false;
             }
