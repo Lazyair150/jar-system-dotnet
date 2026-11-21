@@ -79,6 +79,10 @@ public sealed class WorldV2Context : IDisposable
         if (solverRegistry == null) throw new ArgumentNullException(nameof(solverRegistry));
         if (logicalTimePerUnit <= 0)
             throw new ArgumentOutOfRangeException(nameof(logicalTimePerUnit));
+        if (shipLiquidInventory != null && resources.ShipLiquidInventory != null &&
+            !ReferenceEquals(shipLiquidInventory, resources.ShipLiquidInventory))
+            throw new ArgumentException("Context 与 ResourceArea 必须引用同一个自机液库", nameof(shipLiquidInventory));
+        shipLiquidInventory ??= resources.ShipLiquidInventory;
 
         // 先完成所有可能失败的基础对象校验与组装，再向调用方返回 Context。
         var roster = new WorkshopRoster(workshops, master, slave);
