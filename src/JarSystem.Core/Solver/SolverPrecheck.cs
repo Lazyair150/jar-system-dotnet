@@ -147,11 +147,75 @@ public static class SolverPrecheck
             }
         }
 
+        // ---- 条件 4：逐液种的反向需求下界（不要求世界里只有一种液体）----
+        //
+        // 从终态需求往回看：每条「形状 S + 液体 L」需求，只有两种不消耗游离 L 的可能：
+        // ① 初始就存在一只同形状、同液体的满罐，直接 MATCH；
+        // ② 否则最终必须有一次 POUR_IN(L)，至少消耗一份 L。
+        //
+        // 用最大二分匹配计算①最多能覆盖多少条需求，得到 L 的最低消耗量。
+        // 可供给量故意放宽为「游离 L + 所有未标记满罐中的 L」；后者即使形状不匹配，
+        // 也可能先 POUR_OUT 回收，因此这是乐观上界，不会错杀可行解。
+        // 如果 L 被禁，任何未直接匹配的需求都无法通过 POUR_IN 得到满足。
+        foreach (var liquid in requirements
+            .Where(item => item.Liquid != null)
+            .Select(item => item.Liquid!)
+            .Distinct(StringComparer.Ordinal))
+        {
+            var liquidRequirements = requirements
+                .Where(item => string.Equals(item.Liquid, liquid, StringComparison.Ordinal))
+                .ToList();
+
+            var directMatchJar = new int[usable.Count];
+            Array.Fill(directMatchJar, -1);
+
+            bool MatchDirect(int requirementIndex, bool[] seen)
+            {
+                for (var jarIndex = 0; jarIndex < usable.Count; jarIndex++)
+                {
+                    var jar = usable[jarIndex];
+                    if (seen[jarIndex] ||
+                        !string.Equals(jar.Shape, liquidRequirements[requirementIndex].Shape, StringComparison.Ordinal) ||
+                        !string.Equals(jar.Liquid, liquid, StringComparison.Ordinal))
+                        continue;
+
+                    seen[jarIndex] = true;
+                    if (directMatchJar[jarIndex] == -1 ||
+                        MatchDirect(directMatchJar[jarIndex], seen))
+                    {
+                        directMatchJar[jarIndex] = requirementIndex;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            var directMatches = 0;
+            for (var requirementIndex = 0; requirementIndex < liquidRequirements.Count; requirementIndex++)
+                if (MatchDirect(requirementIndex, new bool[usable.Count]))
+                    directMatches++;
+
+            var minimumPourIn = liquidRequirements.Count - directMatches;
+            if (minimumPourIn == 0) continue;
+
+            if (cap.IsBanned(liquid))
+                return "液体「" + liquid + "」被禁：终态需求至少有 " + minimumPourIn
+                    + " 条无法由现有同形满罐直接满足";
+
+            var freeSupply = liquids.TryGetValue(liquid, out var available) ? available : 0;
+            var recoverableJarSupply = usable.Count(j =>
+                string.Equals(j.Liquid, liquid, StringComparison.Ordinal));
+            var optimisticSupply = checked(freeSupply + recoverableJarSupply);
+            if (minimumPourIn > optimisticSupply)
+                return "液体「" + liquid + "」不足：从终态需求反推至少需要 "
+                    + minimumPourIn + " 份，乐观可得上限为 " + optimisticSupply;
+        }
+
         return null;
     }
 
     /// <summary>
-    /// 单只罐子能否以**零液体代价**承担该需求。用于条件 3 的匹配下界。
+    /// 单只罐子能否以**零液体代价**承担该需求.用于条件 3 的匹配下界。
     /// 零成本角色只有四个：MATCH（空且形状对）、POUR_OUT（满且形状对）、满罐改形（自耗）、满罐直接匹配。
     /// </summary>
     private static bool CanServeFree(Requirement req, JarState jar, WorkshopInfo info)
