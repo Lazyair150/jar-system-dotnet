@@ -8,6 +8,7 @@ using JarSystem.Core.Config;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
 using JarSystem.Core.World.Execution;
+using JarSystem.Core.World.Solving;
 using Xunit;
 
 namespace JarSystem.Tests.WorldV2;
