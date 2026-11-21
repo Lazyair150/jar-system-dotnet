@@ -63,6 +63,19 @@ public sealed class WorldOrderExecutionSessionTests
             throw new InvalidOperationException("模拟中断结果不确定");
     }
 
+    private static void ReevaluateWithShip(
+        WorldOrderSolveBook book, WorkshopRoster roster, ShipLiquidInventory ship,
+        params int[] demandIds)
+    {
+        var snapshot = WorldSnapshotFactory.Capture(roster, ship);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        foreach (var demandId in demandIds)
+            book.Evaluate(demandId, snapshot, registry);
+    }
+
     private sealed class FixedPlanSolver : IWorldOrderSpecificationSolver
     {
         private readonly WorldOrderSolvePlan _plan;
@@ -782,6 +795,7 @@ public sealed class WorldOrderExecutionSessionTests
         var setup = Prepare(master, slave, demand);
         var ship = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 2 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
         var runtime = CreateRuntime(setup.Board, setup.Roster);
@@ -828,6 +842,7 @@ public sealed class WorldOrderExecutionSessionTests
         var setup = Prepare(master, null, demand);
         var ship = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 2 });
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
         var runtime = CreateRuntime(setup.Board, setup.Roster);
@@ -876,7 +891,8 @@ public sealed class WorldOrderExecutionSessionTests
             DemandAreaFulfillmentPolicy.OneShot);
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
-        var snapshot = WorldSnapshotFactory.Capture(roster);
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var snapshot = WorldSnapshotFactory.Capture(roster, ship);
 
         var masterStep = new SolverStep
         {
@@ -935,7 +951,6 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
 
         var reservations = new WorldResourceReservationBook();
-        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
         var admission = new WorldOrderExecutionAdmission(
             board, book, roster, reservations, ship);
         var runtime = CreateRuntime(board, roster);
