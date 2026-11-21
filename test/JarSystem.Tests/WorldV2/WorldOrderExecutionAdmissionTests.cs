@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JarSystem.Core.World;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
@@ -568,6 +569,40 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Null(setup.Reservations.FindLease(demand.Id));
     }
 
+
+    [Fact]
+    public void LeaseWireRoundTripPreservesSettlementReceiptAndRebuildsReservationIndexes()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var admitted = setup.Admission.TryAdmit(demand.Id);
+        Assert.True(admitted.Success, admitted.Reason);
+
+        var lease = setup.Reservations.FindLease(demand.Id)!;
+        lease.RecordSettlement(new LiquidBatchReceipt(
+            new Dictionary<string, int> { ["酒"] = 2 },
+            new Dictionary<string, int> { ["酒"] = 1 },
+            new Dictionary<string, int> { ["酒"] = 1 }));
+
+        var json = WorldV2CheckpointJsonCodec.Encode(
+            setup.Reservations.CaptureWire(), configurationFingerprint: null);
+        var wire = WorldV2CheckpointJsonCodec.Decode<WorldResourceReservationBookWireDto>(json);
+        var restored = WorldResourceReservationBook.RestoreWire(wire.Payload);
+        var restoredLease = Assert.IsType<OrderResourceLease>(
+            restored.FindLease(demand.Id));
+
+        Assert.Equal(lease.SettlementOperationId, restoredLease.SettlementOperationId);
+        Assert.Equal(OrderResourceSettlementStage.ResourcesReturned, restoredLease.SettlementStage);
+        Assert.Equal(2, restoredLease.SettlementReceipt!.Requested["酒"]);
+        Assert.Equal(1, restoredLease.SettlementReceipt.Accepted["酒"]);
+        Assert.Equal(1, restoredLease.SettlementReceipt.Discarded["酒"]);
+        Assert.Equal(demand.Id, restored.JarReservationOwner(jar.Id!.Value));
+    }
 
     [Fact]
     public void MasterPrefillIsIncludedInSolveManifestAndFundsOrderBeforeShipInventory()
