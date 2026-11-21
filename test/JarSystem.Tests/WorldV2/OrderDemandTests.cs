@@ -367,11 +367,17 @@ public sealed class OrderDemandTests
             DemandAreaFulfillmentPolicy.Continuous,
             DemandAreaFulfillmentPolicy.OneShot);
         var passiveFirst = CreateDemand(ids, cooldown: 1_500, type: Constants.OrderType.B,
-            new Requirement { Shape = "圆罐" },
-            new Requirement { Shape = "方罐", Liquid = "酒" });
+            requirements: new[]
+            {
+                new Requirement { Shape = "圆罐" },
+                new Requirement { Shape = "方罐", Liquid = "酒" }
+            });
         var passiveSecond = CreateDemand(ids);
-        var active = CreateDemand(ids, type: Constants.OrderType.B,
-            new Requirement { Shape = "方罐", Liquid = "蜜" });
+        var active = CreateDemand(ids, cooldown: 0, type: Constants.OrderType.B,
+            requirements: new[]
+            {
+                new Requirement { Shape = "方罐", Liquid = "蜜" }
+            });
 
         board.AddDemand(passiveFirst, DemandAreaKind.Passive);
         board.AddDemand(passiveSecond, DemandAreaKind.Passive);
