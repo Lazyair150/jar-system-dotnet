@@ -131,7 +131,8 @@ public sealed class WorldOptions
             AdditionalMarks = new List<string>(w.AdditionalMarks),
             Ban = new List<string>(w.Ban),
             MaxJars = w.MaxJars,
-            MaxLiquids = w.MaxLiquids
+            MaxLiquids = w.MaxLiquids,
+            LiquidStagingCapacity = w.LiquidStagingCapacity
         }).ToList(),
         OrderTemplates = OrderTemplates.Select(t => new OrderTemplateOptions
         {
@@ -258,6 +259,8 @@ public sealed class WorldOptions
             foreach (var l in w.Ban) if (!NormalizedBan(l, Liquids)) r.Errors.Add("工作台 " + w.Name + " 的禁令含未知液体: " + l);
             if (w.MaxJars is <= 0) r.Errors.Add("工作台 " + w.Name + " 的 maxJars 必须为正数");
             if (w.MaxLiquids is <= 0) r.Errors.Add("工作台 " + w.Name + " 的 maxLiquids 必须为正数");
+            if (w.LiquidStagingCapacity is < 0)
+                r.Errors.Add("工作台 " + w.Name + " 的 liquidStagingCapacity 不能为负数");
         }
 
         // ---- 名字池 ----
@@ -411,6 +414,8 @@ public sealed class WorkshopOptions
     [JsonPropertyName("additionalMarks")] public List<string> AdditionalMarks { get; set; } = new();
     [JsonPropertyName("ban")] public List<string> Ban { get; set; } = new();
     [JsonPropertyName("maxJars")] public int? MaxJars { get; set; }
+    /// <summary>新订单暂存区全液种合计容量；省略时回退到 maxLiquids/defaultMaxLiquids。</summary>
+    [JsonPropertyName("liquidStagingCapacity")] public int? LiquidStagingCapacity { get; set; }
     [JsonPropertyName("maxLiquids")] public int? MaxLiquids { get; set; }
 }
 
