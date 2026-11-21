@@ -33,7 +33,8 @@ public sealed class ResourceWorldRuntime
     private bool ReplacementBlocksWorld =>
         ActiveReplacement is { IsFinished: false } or
             { InterruptionOutcomeUncertain: true } or
-            { PrefillRollbackOutcomeUncertain: true };
+            { PrefillRollbackOutcomeUncertain: true } or
+            { PrefillCommitOutcomeUncertain: true };
 
     private readonly List<WorldOrderExecutionSession> _executionSessions = new();
     private readonly IReadOnlyList<WorldOrderExecutionSession> _executionSessionsView;
