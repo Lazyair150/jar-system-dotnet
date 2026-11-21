@@ -769,7 +769,7 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
-    public void BOrderUsesOrderScopesPumpsAllMasterBalanceAndSettlesBackToShipInventory()
+    public void BOrderUsesOrderScopesPumpsRequiredLiquidAndSettlesBackToShipInventory()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
