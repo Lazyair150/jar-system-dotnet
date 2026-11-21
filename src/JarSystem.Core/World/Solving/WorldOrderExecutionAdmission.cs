@@ -17,6 +17,7 @@ public sealed class WorldOrderExecutionAdmission
     private readonly WorldResourceReservationBook _reservations;
     private readonly ShipLiquidInventory? _shipLiquidInventory;
     internal ShipLiquidInventory? ShipLiquidInventory => _shipLiquidInventory;
+    internal WorldResourceReservationBook Reservations => _reservations;
     private readonly Dictionary<Workshop, WorkshopLiquidStaging> _stagingByWorkshop =
         new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<int, (OrderLiquidScope Master, OrderLiquidScope? Slave)> _scopesByDemand = new();
