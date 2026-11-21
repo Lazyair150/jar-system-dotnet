@@ -154,6 +154,29 @@ public sealed class WorldV2HostServiceTests
         var started = application.StartActiveDemand(demandId);
         Assert.True(started.Success, started.Reason);
 
+        // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
+        var beforePump = application.CaptureExecutionResourceCheckpoint();
+        Assert.Empty(beforePump.ResourceLedger.Entries.Where(item =>
+            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
+        Assert.Single(beforePump.ResourceLedger.Entries, item =>
+            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Liquid);
+
+        WorldV2Context? previous = null;
+        host.ExecuteExclusive(context => previous = context);
+        application.RestoreExecutionResourceCheckpoint(options, beforePump);
+        Assert.True(previous!.IsDisposed);
+        host.ExecuteExclusive(context =>
+        {
+            var session = Assert.Single(context.Runtime.ActiveExecutionSessions);
+            Assert.Equal(WorldOrderExecutionStage.MasterSteps, session.Stage);
+            var scopes = context.Admission.GetLiquidScopes(demandId)!.Value;
+            Assert.Equal(1, scopes.Master.GetAmount("酒"));
+            Assert.Equal(0, scopes.Slave!.GetAmount("酒"));
+            Assert.Empty(context.ResourceLedger.For(ResourceCauses.Transfer));
+            Assert.Single(context.ResourceLedger.For(ResourceCauses.Flow),
+                item => item.Kind == ResourceKinds.Liquid);
+        });
+
         WorldOrderExecutionStage stage = WorldOrderExecutionStage.MasterSteps;
         for (var i = 0; i < 12 && stage != WorldOrderExecutionStage.SlaveSteps; i++)
         {
@@ -163,16 +186,15 @@ public sealed class WorldV2HostServiceTests
         }
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, stage);
 
-        var checkpoint = application.CaptureExecutionResourceCheckpoint();
-        var beforeRestore = checkpoint.ResourceLedger.Entries;
-        Assert.Single(beforeRestore, item =>
+        // Checkpoint B：交接已提交、从台拥有订单液体。恢复不得再次泵送。
+        var afterPump = application.CaptureExecutionResourceCheckpoint();
+        Assert.Single(afterPump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
-        Assert.Single(beforeRestore, item => item.Cause == ResourceCauses.Flow &&
-            item.Kind == ResourceKinds.Liquid);
+        Assert.Single(afterPump.ResourceLedger.Entries, item =>
+            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Liquid);
 
-        WorldV2Context? previous = null;
         host.ExecuteExclusive(context => previous = context);
-        application.RestoreExecutionResourceCheckpoint(options, checkpoint);
+        application.RestoreExecutionResourceCheckpoint(options, afterPump);
         Assert.True(previous!.IsDisposed);
 
         host.ExecuteExclusive(context =>
@@ -180,11 +202,12 @@ public sealed class WorldV2HostServiceTests
             var session = Assert.Single(context.Runtime.ActiveExecutionSessions);
             Assert.Equal(WorldOrderExecutionStage.SlaveSteps, session.Stage);
             Assert.True(session.CaptureProgress().SlaveTransferCommitted);
+            Assert.Equal(0, context.Admission.GetLiquidScopes(demandId)!.Value.Master.GetAmount("酒"));
             Assert.Equal(1, context.Admission.GetLiquidScopes(demandId)!.Value.Slave!.GetAmount("酒"));
-            Assert.Equal(1, context.ResourceLedger.For(ResourceCauses.Transfer)
-                .Count(item => item.Kind == ResourceKinds.Liquid));
-            Assert.Equal(1, context.ResourceLedger.For(ResourceCauses.Flow)
-                .Count(item => item.Kind == ResourceKinds.Liquid));
+            Assert.Single(context.ResourceLedger.For(ResourceCauses.Transfer),
+                item => item.Kind == ResourceKinds.Liquid);
+            Assert.Single(context.ResourceLedger.For(ResourceCauses.Flow),
+                item => item.Kind == ResourceKinds.Liquid);
         });
 
         for (var i = 0; i < 12; i++)
