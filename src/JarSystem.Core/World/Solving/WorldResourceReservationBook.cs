@@ -11,7 +11,7 @@ namespace JarSystem.Core.World.Solving;
 public sealed class WorldResourceReservationBook
 {
     private readonly object _gate = new();
-    private readonly Dictionary<int, WorldResourceReservation> _byDemand = new();
+    private readonly Dictionary<int, OrderResourceLease> _byDemand = new();
     private readonly Dictionary<int, int> _jarOwners = new();
     // 当前世界只有一个从台岗位；B 类执行会独占它直到会话终结。
     private int? _slaveOwnerDemandId;
@@ -24,9 +24,7 @@ public sealed class WorldResourceReservationBook
         lock (_gate)
         {
             var copy = _byDemand.Values.OrderBy(item => item.DemandId)
-                .Select(item => new WorldResourceReservation(
-                    item.DemandId, item.WorldVersion, item.LockedJarIds,
-                    item.MasterInitialLiquidAmounts, item.UsesSlave))
+                .Select(item => item.Reservation)
                 .ToArray();
             return new WorldResourceReservationBookSnapshot(copy);
         }
@@ -54,7 +52,7 @@ public sealed class WorldResourceReservationBook
                 foreach (var amount in reservation.MasterInitialLiquidAmounts)
                     if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
                         throw new InvalidOperationException("资源预留快照包含无效液体数量。");
-                foreach (var jarId in reservation.LockedJarIds)
+                foreach (var jarId in lease.LockedJarIds)
                 {
                     if (restored._jarOwners.ContainsKey(jarId))
                         throw new InvalidOperationException("资源预留快照中的罐子被多个订单同时占用：" + jarId);
@@ -66,9 +64,7 @@ public sealed class WorldResourceReservationBook
                         throw new InvalidOperationException("资源预留快照中存在多个从台占用者。");
                     restored._slaveOwnerDemandId = reservation.DemandId;
                 }
-                restored._byDemand.Add(reservation.DemandId, new WorldResourceReservation(
-                    reservation.DemandId, reservation.WorldVersion, reservation.LockedJarIds,
-                    reservation.MasterInitialLiquidAmounts, reservation.UsesSlave));
+                restored._byDemand.Add(reservation.DemandId, new OrderResourceLease(reservation));
             }
         }
         return restored;
@@ -76,7 +72,13 @@ public sealed class WorldResourceReservationBook
 
     public WorldResourceReservation? Find(int demandId)
     {
-        lock (_gate) return _byDemand.TryGetValue(demandId, out var value) ? value : null;
+        lock (_gate) return _byDemand.TryGetValue(demandId, out var value) ? value.Reservation : null;
+    }
+
+    /// <summary>读取订单资源所有权聚合；新领域代码应优先使用此入口。</summary>
+    public OrderResourceLease? FindLease(int demandId)
+    {
+        lock (_gate) return _byDemand.TryGetValue(demandId, out var lease) ? lease : null;
     }
 
     public bool IsJarReserved(int jarId)
@@ -94,7 +96,7 @@ public sealed class WorldResourceReservationBook
         if (string.IsNullOrWhiteSpace(liquid))
             throw new ArgumentException("液体名称不能为空", nameof(liquid));
         lock (_gate)
-            return _byDemand.Values.Sum(x => x.MasterInitialLiquidAmounts.GetValueOrDefault(liquid));
+            return _byDemand.Values.Sum(x => x.InitialLiquidSupply.GetValueOrDefault(liquid));
     }
 
     /// <summary>
@@ -149,7 +151,7 @@ public sealed class WorldResourceReservationBook
 
                 var actual = availableLiquids.GetValueOrDefault(item.Key);
                 var alreadyReserved = _byDemand.Values.Sum(
-                    x => x.MasterInitialLiquidAmounts.GetValueOrDefault(item.Key));
+                    x => x.InitialLiquidSupply.GetValueOrDefault(item.Key));
                 if (item.Value > actual - alreadyReserved)
                 {
                     reason = $"液体「{item.Key}」可预留量不足：需要 {item.Value}，当前库存 {actual}，已有预留 {alreadyReserved}";
@@ -158,13 +160,11 @@ public sealed class WorldResourceReservationBook
             }
 
             // 所有检查通过后才写入，失败路径不会留下部分预留。
-            var reservation = new WorldResourceReservation(
-                manifest.DemandId, manifest.WorldVersion,
-                manifest.LockedJarIds, manifest.MasterInitialLiquidAmounts, manifest.IsPartitioned);
-            _byDemand.Add(manifest.DemandId, reservation);
-            foreach (var jarId in reservation.LockedJarIds)
+            var lease = new OrderResourceLease(manifest);
+            _byDemand.Add(manifest.DemandId, lease);
+            foreach (var jarId in lease.LockedJarIds)
                 _jarOwners.Add(jarId, manifest.DemandId);
-            if (reservation.UsesSlave)
+            if (lease.UsesSlave)
                 _slaveOwnerDemandId = manifest.DemandId;
 
             reason = null;
@@ -193,7 +193,7 @@ public sealed class WorldResourceReservationBook
     {
         lock (_gate)
         {
-            if (!_byDemand.Remove(demandId, out var reservation))
+            if (!_byDemand.Remove(demandId, out var lease))
                 return false;
             foreach (var jarId in reservation.LockedJarIds)
             {
