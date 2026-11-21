@@ -437,7 +437,13 @@ public class Workshop
             return ReshapeGrant.No("direction", "无法从" + jar.Shape + "转化为" + to);
 
         var reshape = new ReshapeRules(_capability, Liquid);
-        if (jar.IsEmpty()) return reshape.PayCost(null, scope.Balance);
+        if (jar.IsEmpty())
+        {
+            foreach (var pair in scope.Balance)
+                if (scope.CanConsume(pair.Key, 1).Granted)
+                    return ReshapeGrant.Yes();
+            return ReshapeGrant.No("no-cost-liquid", "没有可支付的改形成本液体");
+        }
 
         if (_rules.SuppressionReason("RESHAPE", jar.Shape, jar.Liquid) is { } suppressed)
             return ReshapeGrant.No("suppressed", suppressed);
@@ -517,7 +523,7 @@ public class Workshop
         if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
 
         var cost = costLiquid ?? scope.Balance
-            .Where(pair => pair.Value > 0 && !IsBanned(pair.Key))
+            .Where(pair => scope.CanConsume(pair.Key, 1).Granted && !IsBanned(pair.Key))
             .Select(pair => pair.Key)
             .FirstOrDefault();
         if (cost == null) return (false, "没有可支付的改形成本液体");
