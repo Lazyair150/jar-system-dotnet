@@ -373,20 +373,33 @@ public sealed class WorldOrderExecutionAdmission
         return lease!.RecordSettlement(receipt);
     }
 
-    /// <summary>执行结束、取消或中断后释放预留；新路径先结算，再释放容量配额。</summary>
-    public bool Release(int demandId)
+    /// <summary>
+    /// 释放资源租约及其容量配额，不执行液体结算。
+    /// 新执行路径必须由 OrderResourceSettlementService 先完成结算，再调用此方法。
+    /// </summary>
+    internal bool ReleaseReservationOnly(int demandId)
     {
         var lease = _reservations.FindLease(demandId);
         var scopes = lease?.LiquidScopes;
         if (scopes.HasValue)
         {
-            SettleLiquidResources(demandId);
             scopes.Value.Master.Staging.ReleaseOrderCapacity(demandId);
             scopes.Value.Slave?.Staging.ReleaseOrderCapacity(demandId);
         }
-        var released = _reservations.Release(demandId);
-        return released;
+        return _reservations.Release(demandId);
     }
+
+    /// <summary>
+    /// 兼容旧调用方：结算液体后释放资源。新执行会话不应调用此入口。
+    /// </summary>
+    public bool Release(int demandId)
+    {
+        SettleLiquidResources(demandId);
+        return ReleaseReservationOnly(demandId);
+    }
+
+    internal OrderResourceLease? FindLease(int demandId) =>
+        _reservations.FindLease(demandId);
 
     private IReadOnlyDictionary<string, int> BuildReservationLiquidityView(
         ShipLiquidInventory inventory, WorldOrderResourceManifest manifest)
