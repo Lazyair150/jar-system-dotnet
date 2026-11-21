@@ -75,7 +75,7 @@ public sealed class ResourceWorldRuntime
 
     // 世界级资源服务由装配层提供，避免 Runtime 创建缺少账本/对象池依赖的迁徙事件。
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
-    private readonly Func<Workshop, LiquidBatchReceipt>? _masterPrefill;
+    private readonly Func<Workshop, WorkshopPrefillTransaction>? _masterPrefill;
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
     private int _ledgerTick;
@@ -88,7 +88,7 @@ public sealed class ResourceWorldRuntime
         OrderDemandBoard? demandBoard = null,
         ResourceLedger? resourceLedger = null,
         Func<int>? resourceLedgerTick = null,
-        Func<Workshop, LiquidBatchReceipt>? masterPrefill = null)
+        Func<Workshop, WorkshopPrefillTransaction>? masterPrefill = null)
     {
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         Clock = clock ?? new WorldClock();
@@ -208,26 +208,49 @@ public sealed class ResourceWorldRuntime
         // 已登记会话也是当前世界中的活动订单。先让外部适配器完成其负责的订单中断，
         // 再逐个中断本 Runtime 持有的会话；任何后续失败都按“不确定”处理，不自动重试。
         var combinedInterruption = new RuntimeOrderInterruptionPort(_executionSessions, interruptionPort);
-        Action<Workshop>? prefillBeforeMigration = null;
+        Func<Workshop, WorkshopPrefillTransaction>? prefillBeforeMigration = null;
+        Action<WorkshopPrefillTransaction>? rollbackPrefill = null;
         if (role == WorkshopRole.Master && _masterPrefill != null)
         {
             prefillBeforeMigration = targetWorkshop =>
             {
                 // 先取得 tick，再移动库存；tick provider 异常不能发生在资源扣款之后。
                 var tick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
-                var receipt = _masterPrefill(targetWorkshop);
+                var transaction = _masterPrefill(targetWorkshop);
+                try
+                {
+                    if (_resourceLedger != null)
+                    {
+                        foreach (var item in transaction.Receipt.Accepted)
+                            _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
+                                item.Key, item.Value, from: "自机液库", to: "主台预置",
+                                reason: "主工作台切换前置补液");
+                    }
+                    return transaction;
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
+                }
+            };
+            rollbackPrefill = transaction =>
+            {
+                // 回滚 tick 也必须在资源回滚前取得；容量预留保证生产不会占用返还空间。
+                var tick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
+                transaction.Rollback();
                 if (_resourceLedger != null)
                 {
-                    foreach (var item in receipt.Accepted)
-                        _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
-                            item.Key, item.Value, from: "自机液库", to: "主台预置",
-                            reason: "主工作台切换前置补液");
+                    foreach (var item in transaction.Receipt.Accepted)
+                        _resourceLedger.Record(tick, ResourceCauses.Return, ResourceKinds.Liquid,
+                            item.Key, item.Value, from: "主台预置", to: "自机液库",
+                            reason: "主工作台切换回滚");
                 }
             };
         }
         var process = new WorkshopReplacementProcess(
             Roster, role, target, combinedInterruption, phaseDurationMilli,
-            _masterSwitchFactory, prefillBeforeMigration);
+            _masterSwitchFactory, prefillBeforeMigration, rollbackPrefill);
         var result = process.Begin();
         // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查。
         if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
