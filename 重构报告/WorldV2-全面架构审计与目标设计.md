@@ -571,3 +571,22 @@ Envelope 建议：
 边界说明：这让 Lease/Reservation 子图具备明确的 JSON wire DTO 和检查点往返入口，但还不代表整个 World V2 根检查点已可独立 JSON 序列化；Admission 的 staging 快照、Workshop/ResourceArea、DemandBoard、Ledger、Clock、Session 等组件仍需各自的 wire mapping。账本现在能在其快照生命周期内按 SettlementOperationId 去重；这解决了同一已恢复账本上的重复写入，但并不等于外部持久化存储的跨系统 exactly-once。
 
 下一步直接扩展根检查点 DTO，并把 Prepare/Commit 恢复边界显式化；避免再在多个对象上分别维护同一份 Lease 结算事实。
+
+
+## 20. Host 级 Prepared Restore 与 Atomic Context Swap（2026-11-22）
+
+新增 Host/ApplicationService 的检查点恢复替换入口：
+
+- `WorldV2HostService.RestoreExecutionResourceCheckpoint(options, checkpoint)` 在 Host 的统一操作锁内执行。
+- Prepare 阶段先通过 `WorldV2Factory` 装配一个完全独立的新 Context，再将检查点恢复到该 Context。
+- 配置指纹、工作台岗位结构、资源快照、租约/Scope、账本、时钟及活动 Session 恢复任一失败，都会释放尚未发布的新 Context；`_current` 不发生变化，旧世界继续可用。
+- Commit 阶段只有一个发布点：将 `_current` 指向已完成恢复的新 Context。操作锁保证没有并发 Host 操作持有旧 Context；发布后才释放旧 Context。
+- `WorldV2ApplicationService` 增加同名配置化入口。原有“恢复到当前空 Context”的 API 保留，供兼容路径使用。
+- 增加 Host 级回归：成功恢复会替换并释放旧 Context；使用不匹配配置恢复失败时，当前 Context 引用和生命周期保持不变。
+
+该路径把“恢复成功”定义为“新 Context 已完整恢复且可发布”，而不是在当前 Context 内逐个覆盖对象后才发现失败。它实现的是 Host 当前内存世界的原子替换，不是磁盘文件的原子写入，也不代表跨进程崩溃一致性。
+
+仍需继续：
+1. 将当前 Context 内的重复预检/重建进一步收敛成显式 PreparedRestore 对象，避免会话与 Scope 在预检和最终装载中重复构造。
+2. 为 Host 原子替换补充活动 B 类 Session 的端到端恢复回归，验证主从租约、单向泵送游标、从台阶段和后续执行无重复。
+3. 把完整 World 根级 DTO、Solver Registry/Profile 指纹纳入持久化协议。
