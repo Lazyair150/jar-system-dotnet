@@ -585,6 +585,58 @@ public sealed class WorkshopReplacementTests
 
 
     [Fact]
+    public void WorldV2ProductionCannotConsumeMasterPrefillRollbackCapacity()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 3 });
+        var resources = new ResourceArea(
+            new ProducerModule(vocabulary),
+            new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+            {
+                ["酒"] = 0.001,
+                ["蜜"] = 0.001
+            }),
+            0, 0, ship);
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var target = new Workshop("目标主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        oldMaster.AddJar(new Jar("圆罐", vocabulary: vocabulary));
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { oldMaster, target }, oldMaster, null, solverRegistry,
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var begin = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 2_000);
+        Assert.True(begin.Success, begin.Error);
+        Assert.Equal(3, ship.ReservedReturnCapacity);
+        Assert.Equal(0, ship.UsedCapacity);
+
+        world.Runtime.AdvanceWorldTime(1_000);
+
+        Assert.Equal(3, ship.ReservedReturnCapacity);
+        Assert.Equal(1, ship.UsedCapacity);
+        Assert.Equal(0, ship.AvailableCapacity);
+
+        var cancelled = world.Runtime.CancelActiveReplacement("验证生产与补液回滚隔离");
+        Assert.True(cancelled.Success);
+        Assert.Equal(0, ship.ReservedReturnCapacity);
+        Assert.Equal(3, ship.GetAmount("酒"));
+        Assert.Equal(4, ship.UsedCapacity);
+        Assert.Empty(world.Admission.GetPrefillBalances(target));
+        Assert.Contains(world.ResourceLedger.For(ResourceCauses.Return), item =>
+            item.From == "主台预置" && item.To == "自机液库" &&
+            item.Reason == "主工作台切换回滚");
+    }
+
+    [Fact]
     public void WorldV2SlaveReplacementDoesNotPrefillOrWithdrawShipLiquids()
     {
         var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
