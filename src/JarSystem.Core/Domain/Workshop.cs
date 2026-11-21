@@ -70,6 +70,52 @@ public class Workshop
     /// <summary>是否持有任何罐子或非零游离液体。主台与从台的位置职责据此区分。</summary>
     public bool HasResources => _jars.Count > 0 || _liquidStorage.Values.Any(amount => amount > 0);
 
+    /// <summary>捕获工作台动态库存；配置/规则修饰器由世界配置快照单独负责。</summary>
+    public WorkshopRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(Name, MaxJars, MaxLiquids, LiquidStagingCapacity,
+            BaseMarks, AdditionalMarks, Ban, _jars, _liquidStorage);
+
+    /// <summary>
+    /// 恢复工作台罐子实体与旧版游离液体池。先完整验证身份、词表、容量和配置，
+    /// 验证通过后才替换集合；不改变工作台能力或规则修饰器。
+    /// </summary>
+    public void RestoreRuntimeState(WorkshopRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!string.Equals(snapshot.Name, Name, StringComparison.Ordinal) ||
+            snapshot.MaxJars != MaxJars || snapshot.MaxLiquids != MaxLiquids ||
+            snapshot.LiquidStagingCapacity != LiquidStagingCapacity ||
+            !snapshot.BaseMarks.SequenceEqual(BaseMarks, StringComparer.Ordinal) ||
+            !snapshot.AdditionalMarks.SequenceEqual(AdditionalMarks, StringComparer.Ordinal) ||
+            !snapshot.BannedLiquids.SequenceEqual(Ban, StringComparer.Ordinal))
+            throw new InvalidOperationException("工作台运行时快照与当前工作台配置不一致。");
+        if (snapshot.Jars.Count > MaxJars)
+            throw new DomainValidationException("工作台快照中的罐子数量超过罐位容量。");
+
+        var ids = new HashSet<int>();
+        foreach (var jar in snapshot.Jars)
+        {
+            if (jar.IsRecycled || jar.Id is not > 0 || !ids.Add(jar.Id.Value))
+                throw new DomainValidationException("工作台快照包含已回收、无效或重复身份的罐子。");
+            if (!jar.IsValidShapeIn(jar.Shape))
+                throw new DomainValidationException("工作台快照包含无效罐子形状。");
+            if (jar.Liquid != null && !_liquidStorage.ContainsKey(jar.Liquid))
+                throw new DomainValidationException("工作台快照包含未知罐内液体：" + jar.Liquid);
+        }
+
+        if (snapshot.LiquidStorage.Count != _liquidStorage.Count ||
+            snapshot.LiquidStorage.Keys.Any(key => !_liquidStorage.ContainsKey(key)) ||
+            snapshot.LiquidStorage.Any(item => item.Value < 0 || item.Value > MaxLiquids))
+            throw new DomainValidationException("工作台快照的游离液体键或数量不符合当前容量配置。");
+
+        // 先在局部构造全部罐子副本，避免验证/克隆失败时留下半恢复状态。
+        var restoredJars = snapshot.Jars.Select(jar => jar.DeepClone()).ToArray();
+        _jars.Clear();
+        _jars.AddRange(restoredJars);
+        foreach (var key in _liquidStorage.Keys.ToArray())
+            _liquidStorage[key] = snapshot.LiquidStorage[key];
+    }
+
     /// <param name="vocabulary">词表（S2）：只用于初始化液体账目的键与顺序；null 表示内置默认词表。</param>
     /// <param name="modifiers">
     /// 世界的修饰器栈（P3b）：传同一个实例即可让"一处入栈，处处生效"；
@@ -696,4 +742,42 @@ public class WorkshopSnapshot
     /// <summary>液体账目（对外只读；同上）。</summary>
     public IReadOnlyDictionary<string, int> Liquids { get; init; } =
         new ReadOnlyDictionary<string, int>(new Dictionary<string, int>());
+}
+
+
+/// <summary>工作台动态库存的脱离式快照；不包含规则修饰器或岗位身份。</summary>
+public sealed class WorkshopRuntimeStateSnapshot
+{
+    internal WorkshopRuntimeStateSnapshot(
+        string name,
+        int maxJars,
+        int maxLiquids,
+        int liquidStagingCapacity,
+        IEnumerable<string> baseMarks,
+        IEnumerable<string> additionalMarks,
+        IEnumerable<string> bannedLiquids,
+        IEnumerable<Jar> jars,
+        IReadOnlyDictionary<string, int> liquidStorage)
+    {
+        Name = name;
+        MaxJars = maxJars;
+        MaxLiquids = maxLiquids;
+        LiquidStagingCapacity = liquidStagingCapacity;
+        BaseMarks = Array.AsReadOnly(baseMarks.ToArray());
+        AdditionalMarks = Array.AsReadOnly(additionalMarks.ToArray());
+        BannedLiquids = Array.AsReadOnly(bannedLiquids.ToArray());
+        Jars = Array.AsReadOnly(jars.Select(jar => jar.DeepClone()).ToArray());
+        LiquidStorage = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(liquidStorage, StringComparer.Ordinal));
+    }
+
+    public string Name { get; }
+    public int MaxJars { get; }
+    public int MaxLiquids { get; }
+    public int LiquidStagingCapacity { get; }
+    public IReadOnlyList<string> BaseMarks { get; }
+    public IReadOnlyList<string> AdditionalMarks { get; }
+    public IReadOnlyList<string> BannedLiquids { get; }
+    public IReadOnlyList<Jar> Jars { get; }
+    public IReadOnlyDictionary<string, int> LiquidStorage { get; }
 }
