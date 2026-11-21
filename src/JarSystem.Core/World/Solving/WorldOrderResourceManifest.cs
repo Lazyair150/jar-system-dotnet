@@ -146,9 +146,15 @@ public sealed class WorldOrderResourceManifest
             slavePeak = slaveSimulation.PeakCapacity;
         }
 
-        if (snapshot.ShipLiquidInventory != null &&
-            !DictionaryAtLeast(snapshot.ShipLiquidInventory.Balances, masterInitial))
-            throw new InvalidOperationException("自机液库库存不足以提供订单初始液体供给");
+        if (snapshot.ShipLiquidInventory != null)
+        {
+            var available = snapshot.ShipLiquidInventory.Balances.ToDictionary(
+                item => item.Key, item => item.Value, StringComparer.Ordinal);
+            foreach (var item in snapshot.MasterPrefillLiquidBalances)
+                available[item.Key] = checked(available.GetValueOrDefault(item.Key) + item.Value);
+            if (!DictionaryAtLeast(available, masterInitial))
+                throw new InvalidOperationException("自机液库与主台预置库存不足以提供订单初始液体供给");
+        }
 
         return new WorldOrderResourceManifest(
             result.DemandId, result.WorldVersion, plan.IsPartitioned,
