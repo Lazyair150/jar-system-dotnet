@@ -491,3 +491,12 @@ Envelope 建议：
 - 已实现的是进程内可回滚事务，不是崩溃后可恢复事务。活动替换仍不进入执行资源检查点；若进程在补液与替换提交之间崩溃，尚无持久化事务日志可恢复。
 - Lease 的 SettlementReceipt 仍未进入独立 Wire DTO；ResourceLedger 也还没有稳定 OperationId 去重。因此不能宣称跨崩溃 exactly-once。
 - 下一步应建立 Lease Wire DTO，把 Scope 的纯值 staging 状态、SettlementState/Receipt、稳定 operation ID 与 checkpoint 统一；随后建立 PreparedRestore 与 Host 原子 Context Swap。
+
+
+## 16. 主台预置事务隔离与不确定回滚故障边界（2026-11-21）
+
+- 前置补液事务处于 Pending 时，目标主台 staging 禁止订单容量预留、预置液提取、订单接收/消耗/Drain、主从泵送和 staging 快照；避免绕过 Runtime 调度门禁的直接调用在事务窗口内消费或改写预置余额。
+- 生产区仍可继续向自机液库生产。液库的 `ReservedReturnCapacity` 保证预置补液回滚所需容量不会被生产占用；生产只使用扣除预留后的可用容量，超出部分按自机液库既有规则丢弃。
+- Commit/rollback 都必须同时结束 staging Pending 锁与 Ship 回库容量预留；无库存可补的空事务可以安全地作为 no-op 提交或回滚。
+- 如果账本前置事件写入失败且资源回滚也失败，Runtime 现在显式标记 `PrefillRollbackOutcomeUncertain` 并进入 sticky fault；不会把已中断订单、半笔预置库存和继续运行的世界混在一起。
+- 这仍是进程内事务隔离，不是持久化两阶段提交。账本批量写入尚未提供事务性/OperationId 去重；跨进程崩溃恢复仍需后续 wire transaction log。
