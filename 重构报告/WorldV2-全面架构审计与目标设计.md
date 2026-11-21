@@ -413,3 +413,18 @@ Envelope 建议：
 3. 为 Lease 建立独立 Wire DTO，并纳入根级 Checkpoint DTO；不要继续扩张兼容 Reservation DTO。
 4. 建立 PreparedRestore 与新 Context 装配流程，最后再做 Host 原子交换。
 5. Legacy 路径迁移到 Adapter 后再删除，不改变用户已确认的 A/B 订单规则。
+
+
+## 13. 结算入口拆分（2026-11-21）
+
+### 已落地
+- 新增 `OrderResourceSettlementService`，统一承接工作台暂存液体 Drain/返还自机液库、ResourceLedger Return/Discard 记录以及 Admission.Release。
+- `WorldOrderExecutionSession.ReleaseReservation()` 保留执行会话级幂等保护与结算 tick 预取，但不再自行展开液体返还/丢弃账本循环；它将结算交给服务。
+- SettlementService 在执行 Drain 前检查：若账本启用且订单暂存账户仍有余额，必须已经提供 settlement tick。缺少 tick 时在资源变更前拒绝。
+- 从台罐子回滚、参与罐子标记清理仍由 Session 在调用结算服务之前完成；本次拆分没有把这部分执行阶段副作用伪装成已经集中化。
+
+### 尚未完成的结算边界
+- 当前服务仍以 Admission 的 `SettleLiquidResources` / `Release` 为底层实现；Admission 仍维护 `_scopesByDemand` 与短暂的 `_settlementsByDemand`。
+- `OrderResourceLease.Stage=Settled` 目前在 ReservationBook.Release 移除租约前设置，释放后不会保留历史结算状态；没有持久化结算收据/操作 ID。
+- 因此该服务是结算入口集中化的第一步，不等于已经完成跨崩溃幂等、可重放的 Settlement Transaction。
+- 下一步应让 Lease 持有明确 SettlementState/SettlementReceipt，并把 Admission 的 scope 变为 Lease 持有的订单资源句柄；所有结算副作用必须有稳定 operation ID，避免“液体已 Drain、账本部分写入、进程中断”后重复记账。
