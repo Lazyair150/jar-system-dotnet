@@ -191,4 +191,27 @@ public class ConfigAndCapabilityTests
         }
         return candidates.FirstOrDefault(File.Exists);
     }
+
+    [Fact]
+    public void IndependentWorkshopStagingCapacityRoundTripsAndBootstraps()
+    {
+        var world = CloneDefault();
+        world.Workshops[0].LiquidStagingCapacity = 7;
+
+        var roundTrip = WorldOptionsJson.FromJson(WorldOptionsJson.ToJson(world));
+        Assert.Equal(7, roundTrip.Workshops[0].LiquidStagingCapacity);
+        Assert.Contains(world.Validate().Errors, e => !e.Contains("liquidStagingCapacity"));
+
+        var system = new JarSystem.Core.JarSystem(
+            randomSeed: 1, world: roundTrip,
+            jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
+
+        Assert.Equal(7, system.Workshops[0].LiquidStagingCapacity);
+        Assert.Equal(roundTrip.DefaultMaxLiquids, system.Workshops[0].MaxLiquids);
+
+        roundTrip.Workshops[0].LiquidStagingCapacity = -1;
+        Assert.Contains(roundTrip.Validate().Errors,
+            error => error.Contains("liquidStagingCapacity"));
+    }
+
 }
