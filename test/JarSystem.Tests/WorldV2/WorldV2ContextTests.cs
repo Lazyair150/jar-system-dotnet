@@ -232,6 +232,20 @@ public sealed class WorldV2ContextTests
         Assert.Equal(firstDemand.Id, restoredDemand.Id);
         secondWorld.DemandBoard.AddDemand(restoredDemand, DemandAreaKind.Active);
 
+        var invalidClockCheckpoint = new WorldV2ExecutionResourceCheckpoint(
+            checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
+            checkpoint.Admission, checkpoint.Reservations, checkpoint.ResourceLedger,
+            new WorldClockSnapshot(-1, checkpoint.Clock.LogicalTimeMilli,
+                checkpoint.Clock.SpeedRatioMilli, checkpoint.Clock.IsPaused,
+                checkpoint.Clock.ConversionRemainder),
+            checkpoint.RuntimeLedgerTick, checkpoint.Sessions);
+        Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+            secondWorld.RestoreExecutionResourceCheckpoint(invalidClockCheckpoint));
+        Assert.Equal(0, secondShip.GetAmount("酒"));
+        Assert.Single(secondMaster.Jars);
+        Assert.Equal(0, secondWorld.Reservations.Count);
+        Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
+
         secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
 
         Assert.Equal(1, secondShip.GetAmount("酒"));
