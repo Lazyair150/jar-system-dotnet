@@ -751,6 +751,8 @@ public class WorkshopSnapshot
 /// <summary>工作台动态库存的脱离式快照；不包含规则修饰器或岗位身份。</summary>
 public sealed class WorkshopRuntimeStateSnapshot
 {
+    private readonly Jar[] _jars;
+
     internal WorkshopRuntimeStateSnapshot(
         string name,
         int maxJars,
@@ -769,7 +771,7 @@ public sealed class WorkshopRuntimeStateSnapshot
         BaseMarks = Array.AsReadOnly(baseMarks.ToArray());
         AdditionalMarks = Array.AsReadOnly(additionalMarks.ToArray());
         BannedLiquids = Array.AsReadOnly(bannedLiquids.ToArray());
-        Jars = Array.AsReadOnly(jars.Select(jar => jar.DeepClone()).ToArray());
+        _jars = jars.Select(jar => jar.DeepClone()).ToArray();
         LiquidStorage = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
             new Dictionary<string, int>(liquidStorage, StringComparer.Ordinal));
     }
@@ -781,6 +783,8 @@ public sealed class WorkshopRuntimeStateSnapshot
     public IReadOnlyList<string> BaseMarks { get; }
     public IReadOnlyList<string> AdditionalMarks { get; }
     public IReadOnlyList<string> BannedLiquids { get; }
-    public IReadOnlyList<Jar> Jars { get; }
+    /// <summary>每次返回独立罐子副本，防止调用方通过可变 Jar 修改检查点内部状态。</summary>
+    public IReadOnlyList<Jar> Jars =>
+        Array.AsReadOnly(_jars.Select(jar => jar.DeepClone()).ToArray());
     public IReadOnlyDictionary<string, int> LiquidStorage { get; }
 }
