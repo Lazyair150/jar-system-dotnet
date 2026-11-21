@@ -175,4 +175,27 @@ public sealed class WorldSnapshotTests
         allowed = false;
         Assert.True(snapshot.Master.HasOpaqueSolverRules);
     }
+
+    [Fact]
+    public void ShipInventoryIsDetachedAndPartOfTheWorldVersion()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var roster = new WorkshopRoster(new[] { master }, master);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 1 });
+
+        var before = WorldSnapshotFactory.Capture(roster, ship);
+        Assert.NotNull(before.ShipLiquidInventory);
+        Assert.Equal(4, before.ShipLiquidInventory!.Capacity);
+        Assert.Equal(1, before.ShipLiquidInventory.Balances["酒"]);
+
+        ship.Produce("蜜", 1);
+        var after = WorldSnapshotFactory.Capture(roster, ship);
+
+        Assert.NotEqual(before.Version, after.Version);
+        Assert.False(before.ShipLiquidInventory.Balances.ContainsKey("蜜"));
+        Assert.Equal(2, after.ShipLiquidInventory!.UsedCapacity);
+        Assert.Equal(1, after.ShipLiquidInventory.Balances["蜜"]);
+    }
+
 }
