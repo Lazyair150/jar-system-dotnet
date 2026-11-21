@@ -82,21 +82,35 @@ public sealed class WorldResourceReservationBook
         lock (_gate) return _byDemand.TryGetValue(demandId, out var lease) ? lease : null;
     }
 
-    public void MarkMasterExecuting(int demandId) => GetRequiredLease(demandId).MarkMasterExecuting();
-    public void MarkTransferPending(int demandId) => GetRequiredLease(demandId).MarkTransferPending();
-    public void MarkTransferCommitted(int demandId) => GetRequiredLease(demandId).MarkTransferCommitted();
-    public void MarkSlaveExecuting(int demandId) => GetRequiredLease(demandId).MarkSlaveExecuting();
-
-    public void RestoreExecutionStage(int demandId, OrderResourceLeaseStage stage) =>
-        GetRequiredLease(demandId).RestoreExecutionStage(stage);
-
-    private OrderResourceLease GetRequiredLease(int demandId)
+    public void MarkMasterExecuting(int demandId)
     {
-        lock (_gate)
-            return _byDemand.TryGetValue(demandId, out var lease)
-                ? lease
-                : throw new InvalidOperationException("订单缺少资源租约：" + demandId);
+        lock (_gate) GetRequiredLease(demandId).MarkMasterExecuting();
     }
+
+    public void MarkTransferPending(int demandId)
+    {
+        lock (_gate) GetRequiredLease(demandId).MarkTransferPending();
+    }
+
+    public void MarkTransferCommitted(int demandId)
+    {
+        lock (_gate) GetRequiredLease(demandId).MarkTransferCommitted();
+    }
+
+    public void MarkSlaveExecuting(int demandId)
+    {
+        lock (_gate) GetRequiredLease(demandId).MarkSlaveExecuting();
+    }
+
+    public void RestoreExecutionStage(int demandId, OrderResourceLeaseStage stage)
+    {
+        lock (_gate) GetRequiredLease(demandId).RestoreExecutionStage(stage);
+    }
+
+    private OrderResourceLease GetRequiredLease(int demandId) =>
+        _byDemand.TryGetValue(demandId, out var lease)
+            ? lease
+            : throw new InvalidOperationException("订单缺少资源租约：" + demandId);
 
     public bool IsJarReserved(int jarId)
     {
