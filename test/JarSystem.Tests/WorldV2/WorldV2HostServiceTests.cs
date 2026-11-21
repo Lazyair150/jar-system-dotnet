@@ -164,7 +164,9 @@ public sealed class WorldV2HostServiceTests
         _ = beforePump.ResourceLedger.Entries.Select(ResourceEventWireDto.FromEvent).ToList();
         _ = beforePump.ResourceLedger.OperationIds.ToList();
         _ = ResourceLedgerWireDto.FromSnapshot(beforePump.ResourceLedger);
-        _ = WorldClockWireDto.FromSnapshot(beforePump.Clock);
+        Assert.NotNull(beforePump.Clock);
+        var clockWireDiagnostic = WorldClockWireDto.FromSnapshot(beforePump.Clock);
+        Assert.Equal(beforePump.Clock.WorldTimeMilli, clockWireDiagnostic.WorldTimeMilli);
         _ = beforePump.Sessions.Select(WorldOrderExecutionSessionWireDto.FromSnapshot).ToList();
         var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
