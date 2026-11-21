@@ -28,6 +28,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly IReadOnlyList<int> _deliveryJarIds;
     private readonly WorldPlanStepApplier _applier;
     private readonly OrderTransferService _transferService = new();
+    private readonly OrderResourceSettlementService _settlementService = new();
     private readonly OrderLiquidScope? _masterLiquidScope;
     private readonly OrderLiquidScope? _slaveLiquidScope;
     private readonly long _unitDurationLogicalMilli;
@@ -785,28 +786,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     {
         if (_reservationReleased) return;
         var scopes = _admission.GetLiquidScopes(DemandId);
-        if (scopes.HasValue)
-        {
-            var hasBalance = scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
-                (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false);
-            var settlementTick = _resourceLedger != null && hasBalance
-                ? settlementTickOverride ?? _resourceLedgerTick!()
-                : 0;
-            var settlement = _admission.SettleLiquidResources(DemandId);
-            if (settlement != null)
-            {
-                foreach (var item in settlement.Accepted)
-                    _resourceLedger?.Record(settlementTick, ResourceCauses.Return,
-                        ResourceKinds.Liquid, item.Key, item.Value,
-                        from: "订单暂存", to: "自机液库");
-                foreach (var item in settlement.Discarded)
-                    _resourceLedger?.Record(settlementTick, ResourceCauses.Discard,
-                        ResourceKinds.Liquid, item.Key, item.Value,
-                        from: "订单暂存", to: null, reason: "自机液库总容量不足");
-            }
-        }
-        if (!_admission.Release(DemandId))
-            throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
+        var hasBalance = scopes.HasValue &&
+            (scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
+             (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false));
+        var settlementTick = _resourceLedger != null && hasBalance
+            ? settlementTickOverride ?? _resourceLedgerTick!()
+            : (int?)null;
+
+        _settlementService.SettleAndRelease(
+            DemandId, _admission, _resourceLedger, settlementTick);
         _reservationReleased = true;
     }
 
