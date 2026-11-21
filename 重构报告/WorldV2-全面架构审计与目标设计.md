@@ -590,3 +590,57 @@ Envelope 建议：
 1. 将当前 Context 内的重复预检/重建进一步收敛成显式 PreparedRestore 对象，避免会话与 Scope 在预检和最终装载中重复构造。
 2. 为 Host 原子替换补充活动 B 类 Session 的端到端恢复回归，验证主从租约、单向泵送游标、从台阶段和后续执行无重复。
 3. 把完整 World 根级 DTO、Solver Registry/Profile 指纹纳入持久化协议。
+
+
+## 21. 根级执行检查点 Wire、Prepared Restore 与 B 类 Host 恢复闭环（2026-11-22）
+
+本轮将此前分散的 Wire DTO 收敛到根级执行检查点，并完成 Host 层真实 B 类订单 JSON 恢复链路。
+
+### 根级 Wire DTO
+
+新增 `WorldV2ExecutionCheckpointWireDto`，显式映射以下组件：
+
+- 资源区：生产器速率/余数、液体产能/余数、中央仓库罐子与库存、资源流入余数。
+- 需求板：ID 高水位、主动/被动策略、订单顺序、需求项与冷却时间。
+- 自机液库：容量与各液种余额。
+- 主/从工作台：岗位配置、罐子身份/形状/罐内液体/标记、旧游离液体池。
+- 准入暂存：主/从台订单账户、容量预留、主台预置余额、活动订单范围。
+- Lease：完整订单资源租约、阶段、交接资源、结算收据与稳定 OperationId。
+- 账本：事件、序号、裁剪计数、操作去重 ID。
+- 时钟与执行 Session：逻辑时间余数、Manifest、Plan 和执行游标。
+
+根 DTO 不序列化 Context、Workshop、JarPool、OrderLiquidScope 或服务对象引用。罐子以显式值 DTO 重建，并使用本检查点词表重新构造；Reservation 派生索引由 Lease 重建，不作为第二份事实来源。
+
+`WorldV2CheckpointJsonCodec` 新增完整执行检查点的 `EncodeExecutionResourceCheckpoint / DecodeExecutionResourceCheckpoint`。Envelope 的 schemaVersion/kind/fingerprint 仍负责版本与配置边界；根 DTO 自身负责组件级结构、数量、身份集合和活动订单一致性检查。
+
+### Prepared Restore 所有权对象
+
+新增 `PreparedWorldV2Restore`：
+
+- Prepare 阶段创建独立 Context 并完成全部检查点恢复。
+- 准备对象持有尚未发布的 Context；任何异常/提前退出都会释放它。
+- 只有 `TakeContext` 能将 Context 所有权转交给 Host。
+- Host 的唯一发布点仍在操作锁内，发布成功后才释放旧 Context。
+
+这明确了“准备对象拥有资源”和“Host 发布对象拥有资源”之间的一次性所有权转移。
+
+### B 类订单 JSON → Host 替换 → 继续执行
+
+新增 Host 端到端回归，覆盖两个不同边界：
+
+1. B 类订单准入后、主台→从台液体泵送前：JSON 编码/解码，替换 Host Context，验证主台仍有订单液体、从台账户仍为空、没有提前写入 Transfer 事实。
+2. B 类订单交接提交后、从台阶段执行前：再次 JSON 编码/解码，替换 Host Context，验证 Lease 处于 SlaveExecuting、`SlaveTransferCommitted=true`、主台余额为零、从台保留已接收液体，Transfer/Flow 账本事件数量不增加。
+3. 恢复后继续执行直到完成：确认订单终结、Lease 释放、从台交付罐被正确消费，且资金扣除与主从液体泵送没有重复。
+
+此回归固定用户定义的 B 类单向关系：只有 B 类订单使用从台；从台液体只来自主台交接；主台只泵送从台阶段所需液体。A 类无从台 Scope 的既有恢复约束保持不变。
+
+### 本阶段完成边界
+
+本阶段现已覆盖：
+- Lease/Settlement/Transfer 运行态进入检查点。
+- 结算账本批次 OperationId 去重随快照恢复。
+- 根级执行检查点 JSON 双向映射。
+- Prepared Restore 所有权与 Host Atomic Context Swap。
+- B 类订单在泵送前、泵送后两个边界的 JSON 保存、Host 替换、恢复继续执行。
+
+仍不应宣称这是完整可移植的世界存档：当前检查点以相同配置指纹和已装配的 Solver Registry 为前提；完整 Solver Registry/Profile 指纹、外部插件/动态 ModifierStack 生命周期、磁盘文件原子写入与跨进程崩溃一致性，仍属于下一阶段。根 DTO 也只覆盖当前 World V2 Context 实际拥有的状态，不会虚构不存在的 ModifierStack 实例。
