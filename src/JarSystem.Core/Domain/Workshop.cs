@@ -529,6 +529,8 @@ public class Workshop
         if (cost == null) return (false, "没有可支付的改形成本液体");
         if (_rules.SuppressionReason("RESHAPE", j.Shape, cost) is { } costSuppressed)
             return (false, costSuppressed);
+        var costPermission = CheckLiquid(cost);
+        if (!costPermission.Granted) return (false, costPermission.Reason);
         if (!scope.TryConsume(cost, 1)) return (false, "无法支付液体" + cost);
         j.Reshape(to);
         j.Mark();
