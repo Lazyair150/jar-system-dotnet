@@ -155,9 +155,7 @@ public sealed class WorldV2HostServiceTests
         var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
             beforePumpWire, beforePump.ConfigurationFingerprint);
-        beforePump = WorldV2ExecutionCheckpointWireDto
-            .FromCheckpoint(WorldV2CheckpointJsonCodec.Decode<WorldV2ExecutionCheckpointWireDto>(beforePumpJson).Payload
-                .ToCheckpoint(beforePump.ConfigurationFingerprint));
+        beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
         Assert.DoesNotContain(beforePump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
         Assert.Equal(2, beforePump.ShipLiquidInventory.Balances["酒"]);
