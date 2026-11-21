@@ -442,11 +442,15 @@ Envelope 建议：
 - 自机液库存在多个液种时，先按自机液库的生产液种供给优先级分配，再处理其他可用液种；优先级必须由确定性规则给出并进入测试，不能依赖 Dictionary 枚举顺序。
 - A/B 订单准入仍按订单自己的 Master/Slave 初始供给与执行峰值独立验证。主台切换补液不能给活动订单追加外来资源；切换开始前仍必须完成订单中断与结算。
 
-### 与当前实现的差距
-- 当前 WorkshopLiquidStaging 只包含按 DemandId 隔离的订单账户与容量预留，没有“主台岗位空闲库存/预置库存”账户。
-- WorldOrderExecutionAdmission 在订单准入时直接从 ShipLiquidInventory 扣除订单初始供给；尚无切换前置补液的持久化账户与消费路径。
-- WorkshopSwitchEvent 当前只处理旧主台与目标主台之间的重组和迁徙；ResourceTransferrer 目前会转移旧主台的旧式 Workshop.LiquidStorage，但这不是新模型下的主台暂存账户。
-- 因此不能把旧版 LiquidStorage 的迁移误报为新规则已实现。该规则需要先扩展 WorkshopLiquidStaging 的空闲预置余额、快照/恢复与账本事件，再将切换补液作为独立事务阶段接入 WorkshopReplacementProcess，并让后续订单准入从预置余额与自机液库按明确策略组合取用。
+### 实施状态（本轮更新）
+- `WorkshopLiquidStaging` 已增加独立的 `PrefillBalances` 空闲预置账户；它与 DemandId 订单子账隔离，但与订单账户/峰值预留共同占用工作台总暂存容量。
+- `ResourceArea.LiquidProductionPriority` 提供确定性优先级：正产能液种优先、产能高者优先，同速率按液体名称排序；零产能液种排在最后。
+- `WorldSnapshot` 将主台预置余额单独纳入求解输入与 SHA-256 版本指纹；Solver 和 Manifest 将自机液库与主台预置余额合并计算可供给量，不把预置余额伪装成自机库存。
+- 订单准入先从主台预置账户取满足初始需求的部分，再从自机液库扣除差额；剩余预置余额仍留在空闲账户。订单容量预留仍按真实路径峰值计算，预置余额占用的容量不会被重复计算。
+- `WorkshopReplacementProcess` 在订单中断与从台清理后、迁徙重组/资源转移前调用前置补液事务；只有主台替换调用此入口，从台替换不会补液。
+- 前置补液是可回滚事务：自机液库同时预留等量回库容量，替换期间的生产不能占用这部分容量；迁徙成功后提交预留，迁徙失败/取消时恢复目标主台预置余额与自机库存，并记一条反向 Return 账本事件。
+- Admission 快照包含预置余额；主台切换成功后可随活动执行检查点保存/恢复。活动替换本身仍不属于当前执行资源检查点范围，替换过程中拒绝捕获检查点。
+- 旧版 `Workshop.LiquidStorage` 迁徙仍保留兼容语义，不再被误认为新模型的主台预置账户。
 
 ### 必须新增的验证
 - 切换目标主台前置补液先于旧主台资源转移事件；事件日志和账本顺序一致。
@@ -456,3 +460,34 @@ Envelope 建议：
 - 切换失败/取消时，目标主台暂存余额、自机液库、账本与两台工作台快照全部回滚；提交后不得重复补液。
 - 主台切换补液不得给从台补液；A 类不得产生从台范围；B 类从台仍只接受主台交接液体。
 - Checkpoint 捕获/恢复必须保留主台预置余额与补液事务阶段，恢复后不得重复扣自机液库或重复记账。
+
+
+## 15. Lease 资源所有权与主台预置事务落地（2026-11-21）
+
+### 15.1 OrderLiquidScope 归属收敛
+- `OrderResourceLease` 现在持有运行时 `MasterScope` 与可选 `SlaveScope`；A 类 Lease 只能绑定 MasterScope，B 类 Lease 必须绑定 MasterScope + SlaveScope。
+- `WorldOrderExecutionAdmission` 已删除 `_scopesByDemand` 和 `_settlementsByDemand` 两份并行状态。准入器通过 `WorldResourceReservationBook.FindLease` 获取订单范围、结算收据和生命周期所有者。
+- Admission Capture 从 ReservationBook 的活动 Lease 集合生成活动订单声明；Restore 从主/从 staging snapshot 重建 Scope，再 Attach 到对应 Lease。Scope 对象引用不进入 Wire DTO。
+- `GetLiquidScopes` 是兼容查询投影，返回 Lease 所持的同一对象引用；A/B 测试分别固定从台 Scope 缺失/存在，以及 checkpoint 恢复后仍由同一 Lease 拥有。
+- Reservation 兼容投影按 Lease 当前 Stage 缓存；阶段变化时失效，避免同一阶段反复读取生成不同对象，同时保证 Stage 不会陈旧。
+- Lease 已在内存中持有 `SettlementReceipt`，防止同一活动 Lease 在结算入口内重复 Drain。该收据目前尚未进入独立 Lease Wire DTO，Lease 释放后也没有持久历史。
+
+### 15.2 主台预置余额与订单供给
+- 主台空闲预置余额和订单专属子账是两类不同所有权；预置余额不属于任何 DemandId，也不能被从台或其他工作台读取。
+- Solver snapshot 独立携带 `MasterPrefillLiquidBalances`，版本指纹包含该余额；Manifest 的最低初始供给验证使用“自机液库 + 主台预置余额”。
+- Admission 分配时优先消费主台预置余额，缺口才从自机液库扣除；成功后全部初始供给进入该订单的 MasterScope，避免订单执行时同时读取空闲账户与订单账户。
+- 预置余额与订单账户共享主台总暂存容量。订单路径峰值仍然完整预留；如果未被当前订单取用的预置余额占据空间，导致路径峰值无法预留，准入应拒绝，而不是超容量或暗中丢弃预置液体。
+- B 类仍然只有主台订单 Scope 可以向从台订单 Scope 泵送 `TransferLiquidAmounts`；主台空闲预置余额不会成为从台的补液来源。
+
+### 15.3 可回滚前置补液
+- `WorkshopLiquidStaging.BeginPrefillFromShip` 按给定优先级、工作台剩余总容量和自机实际余额计算补液批次；库存不足时部分补入，不制造资源。
+- `ShipLiquidInventory.TryWithdrawForTransfer` 在扣款同时预留等量回库容量。替换期间 ResourceArea 仍可生产，但生产只使用未预留的剩余容量，保证取消/失败时能完整回滚。
+- `WorkshopReplacementProcess.Begin` 的顺序是：中断订单 → 检查从台已清空 → 目标主台预置补液 → 建立迁徙快照 → 进入重组/转移阶段。
+- 成功提交岗位后，补液事务 Commit 并释放自机回库容量预留；初始化失败、迁徙失败或取消时，先回滚工作台迁徙，再回滚预置账户与自机库存。
+- 账本记录：补液提交前置阶段写 `flow`（自机液库 → 主台预置）；回滚写 `return`（主台预置 → 自机液库）。tick 在对应库存变化前预取。
+- 活动替换期间暂停调度快照与订单启动，避免在 ShipLiquidInventory 存在未提交回滚容量预留时创建不完整求解输入或检查点。
+
+### 15.4 当前边界与下一步
+- 已实现的是进程内可回滚事务，不是崩溃后可恢复事务。活动替换仍不进入执行资源检查点；若进程在补液与替换提交之间崩溃，尚无持久化事务日志可恢复。
+- Lease 的 SettlementReceipt 仍未进入独立 Wire DTO；ResourceLedger 也还没有稳定 OperationId 去重。因此不能宣称跨崩溃 exactly-once。
+- 下一步应建立 Lease Wire DTO，把 Scope 的纯值 staging 状态、SettlementState/Receipt、稳定 operation ID 与 checkpoint 统一；随后建立 PreparedRestore 与 Host 原子 Context Swap。
