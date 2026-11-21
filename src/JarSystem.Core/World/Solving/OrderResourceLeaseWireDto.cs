@@ -49,6 +49,25 @@ public sealed class OrderResourceLeaseWireDto
         };
     }
 
+    /// <summary>深拷贝租约的纯 Wire 值，避免根级检查点重复维护租约字段映射。</summary>
+    public OrderResourceLeaseWireDto DeepCopy() => new()
+    {
+        DemandId = DemandId,
+        WorldVersion = WorldVersion,
+        LockedJarIds = LockedJarIds.ToList(),
+        InitialLiquidSupply = Copy(InitialLiquidSupply),
+        TransferLiquidAmounts = Copy(TransferLiquidAmounts),
+        MasterStagingPeakCapacity = MasterStagingPeakCapacity,
+        SlaveStagingPeakCapacity = SlaveStagingPeakCapacity,
+        UsesSlave = UsesSlave,
+        Stage = Stage,
+        SettlementStage = SettlementStage,
+        SettlementOperationId = SettlementOperationId,
+        SettlementRequested = SettlementRequested == null ? null : Copy(SettlementRequested),
+        SettlementAccepted = SettlementAccepted == null ? null : Copy(SettlementAccepted),
+        SettlementDiscarded = SettlementDiscarded == null ? null : Copy(SettlementDiscarded)
+    };
+
     internal WorldResourceReservation ToReservation()
     {
         ValidateIdentityAndShape();
@@ -141,6 +160,15 @@ public sealed class WorldResourceReservationBookWireDto
         Leases = leases?.OrderBy(item => item.DemandId).ToList()
             ?? throw new ArgumentNullException(nameof(leases));
         Validate();
+    }
+
+    /// <summary>深拷贝全部租约值，并在构造边界重新校验身份与资源约束。</summary>
+    public WorldResourceReservationBookWireDto DeepCopy()
+    {
+        if (Leases == null)
+            throw new InvalidOperationException("Wire 预留簿缺少租约集合。");
+        return new WorldResourceReservationBookWireDto(Leases.Select(item =>
+            item?.DeepCopy() ?? throw new InvalidOperationException("Wire 预留簿包含空租约。")));
     }
 
     public void Validate()
