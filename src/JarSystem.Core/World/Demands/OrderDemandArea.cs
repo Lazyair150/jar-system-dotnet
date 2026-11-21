@@ -33,6 +33,12 @@ public sealed class OrderDemandArea
 
     internal void Add(OrderDemand demand) => _demands.Add(demand);
     internal bool Remove(OrderDemand demand) => _demands.Remove(demand);
+    internal OrderDemand[] Clear()
+    {
+        var removed = _demands.ToArray();
+        _demands.Clear();
+        return removed;
+    }
 
     /// <summary>成功完成后，按区域策略决定是否卸载该订单。</summary>
     internal bool RemoveAfterSuccessfulFulfillment =>
