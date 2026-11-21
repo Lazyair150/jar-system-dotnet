@@ -169,9 +169,16 @@ public sealed class WorldOrderExecutionAdmission
             throw new InvalidOperationException("旧版兼容准入不支持活动液体资源快照。");
         var master = _roster.Master ?? throw new InvalidOperationException("快照时没有主工作台。");
         var slave = _roster.Slave;
-        foreach (var workshop in _stagingByWorkshop.Keys)
-            if (!ReferenceEquals(workshop, master) && !ReferenceEquals(workshop, slave))
-                throw new InvalidOperationException("暂存区映射包含不属于当前岗位的工作台。");
+        foreach (var workshop in _stagingByWorkshop.Keys.ToArray())
+        {
+            if (ReferenceEquals(workshop, master) || ReferenceEquals(workshop, slave))
+                continue;
+            var retired = _stagingByWorkshop[workshop].Capture();
+            if (retired.Accounts.Count != 0 || retired.ReservedCapacityByOrder.Count != 0)
+                throw new InvalidOperationException("已退役工作台仍持有订单暂存资源，不能静默丢弃。");
+            // 工作台替换后留下的空暂存对象不再属于当前岗位图，不进入新快照。
+            _stagingByWorkshop.Remove(workshop);
+        }
 
         var masterStaging = _stagingByWorkshop.TryGetValue(master, out var masterValue)
             ? masterValue.Capture()
@@ -395,7 +402,20 @@ public sealed class WorldOrderExecutionAdmission
 
     private WorkshopLiquidStaging GetOrCreateStaging(Workshop workshop)
     {
-        if (_stagingByWorkshop.TryGetValue(workshop, out var existing)) return existing;
+        if (_stagingByWorkshop.TryGetValue(workshop, out var existing))
+        {
+            var expectedBans = workshop.Ban.OrderBy(item => item, StringComparer.Ordinal);
+            if (existing.BannedLiquids.OrderBy(item => item, StringComparer.Ordinal)
+                .SequenceEqual(expectedBans, StringComparer.Ordinal))
+                return existing;
+
+            if (existing.UsedCapacity != 0 || existing.ReservedCapacity != 0)
+                throw new InvalidOperationException("工作台禁液规则已变化，但旧暂存区仍持有活动订单资源。");
+            // 工作台能力替换后，空暂存区必须同步新的 ban 规则，不能继续使用旧配置。
+            existing = new WorkshopLiquidStaging(workshop.LiquidStagingCapacity, workshop.Ban);
+            _stagingByWorkshop[workshop] = existing;
+            return existing;
+        }
         // 新订单暂存区使用独立的全液种合计容量；旧 Workshop.LiquidStorage 仍保留 MaxLiquids 单液种语义。
         var staging = new WorkshopLiquidStaging(workshop.LiquidStagingCapacity, workshop.Ban);
         _stagingByWorkshop.Add(workshop, staging);
