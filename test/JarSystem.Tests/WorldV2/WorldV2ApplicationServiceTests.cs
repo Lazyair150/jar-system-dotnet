@@ -173,6 +173,12 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.True(start.Success);
         Assert.Null(start.Reason);
 
+        var funding = Assert.Single(app.GetResourceLedger().Events,
+            item => item.Cause == "flow" && item.Name == "酒");
+        Assert.Equal("自机液库", funding.From);
+        Assert.Equal("主台", funding.To);
+        Assert.Equal(1, funding.Amount);
+
         var executing = app.GetWorldSnapshot();
         Assert.Single(executing.ActiveSessions);
         Assert.Equal(demandId, executing.ActiveSessions[0].DemandId);
@@ -341,6 +347,10 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Null(after.Master.Jars[0].Liquid);
         Assert.Equal(1, after.ShipLiquidInventory!.Balances["酒"]);
         Assert.Empty(after.Master.Liquids);
+        var returned = Assert.Single(app.GetResourceLedger().Events,
+            item => item.Cause == "return" && item.Kind == "liquid" && item.Name == "酒");
+        Assert.Equal("订单暂存", returned.From);
+        Assert.Equal("自机液库", returned.To);
         Assert.False(after.RuntimeFaulted);
         Assert.Empty(after.ActiveSessions);
         Assert.Equal(0, after.ReservationCount);
