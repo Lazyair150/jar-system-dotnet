@@ -163,6 +163,16 @@ public sealed class WorldV2Context : IDisposable
         Roster.Master!.ValidateRuntimeStateSnapshot(checkpoint.MasterWorkshop);
         if (Roster.Slave != null)
             Roster.Slave.ValidateRuntimeStateSnapshot(checkpoint.SlaveWorkshop!);
+
+        var allCheckpointJarIds = checkpoint.ResourceArea.Warehouse.Jars
+            .Concat(checkpoint.MasterWorkshop.Jars)
+            .Concat(checkpoint.SlaveWorkshop?.Jars ?? Array.Empty<Jar>())
+            .Where(jar => jar.Id.HasValue)
+            .Select(jar => jar.Id!.Value)
+            .ToArray();
+        if (allCheckpointJarIds.Distinct().Count() != allCheckpointJarIds.Length)
+            throw new InvalidOperationException("检查点在中央仓库与工作台之间重复拥有同一罐子 ID。");
+
         if (checkpoint.ResourceLedger.Capacity != ResourceLedger.Capacity)
             throw new InvalidOperationException("检查点资源账本容量与当前世界不一致。");
 
