@@ -203,13 +203,15 @@ public sealed class Warehouse
 /// <summary>中央仓库运行时快照；罐子与账目均为脱离式副本。</summary>
 public sealed class WarehouseRuntimeStateSnapshot
 {
+    private readonly Jar[] _jars;
+
     public WarehouseRuntimeStateSnapshot(
         IEnumerable<Jar> jars,
         IReadOnlyDictionary<string, int> liquidWarehouse,
         IReadOnlyDictionary<string, int> discardedLiquids,
         int discardedJars)
     {
-        Jars = Array.AsReadOnly(jars.Select(jar => jar.DeepClone()).ToArray());
+        _jars = jars.Select(jar => jar.DeepClone()).ToArray();
         LiquidWarehouse = new ReadOnlyDictionary<string, int>(
             new Dictionary<string, int>(liquidWarehouse, StringComparer.Ordinal));
         DiscardedLiquids = new ReadOnlyDictionary<string, int>(
@@ -217,7 +219,9 @@ public sealed class WarehouseRuntimeStateSnapshot
         DiscardedJars = discardedJars;
     }
 
-    public IReadOnlyList<Jar> Jars { get; }
+    /// <summary>每次返回独立罐子副本，防止调用方通过可变 Jar 修改检查点内部状态。</summary>
+    public IReadOnlyList<Jar> Jars =>
+        Array.AsReadOnly(_jars.Select(jar => jar.DeepClone()).ToArray());
     public IReadOnlyDictionary<string, int> LiquidWarehouse { get; }
     public IReadOnlyDictionary<string, int> DiscardedLiquids { get; }
     public int DiscardedJars { get; }
