@@ -83,7 +83,7 @@ public sealed class WorldOrderExecutionAdmission
             .BeginPrefillFromShip(_shipLiquidInventory, productionPriority);
     }
 
-    public LiquidBatchReceipt PrefillMasterWorkshop(
+    internal LiquidBatchReceipt PrefillMasterWorkshop(
         Workshop targetWorkshop, IEnumerable<string> productionPriority)
     {
         var transaction = BeginMasterWorkshopPrefill(targetWorkshop, productionPriority);
