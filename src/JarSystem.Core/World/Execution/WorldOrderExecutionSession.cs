@@ -442,11 +442,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         {
             if (_slaveLiquidScope == null)
                 throw new InvalidOperationException("新液体资源路径的 B 类会话缺少从台订单范围");
-            var outgoing = _masterLiquidScope.Balance;
-            foreach (var item in outgoing)
+            var masterFinalBalances = _masterLiquidScope.Balance;
+            foreach (var item in masterFinalBalances)
                 if (_masterLiquidScope.GetAmount(item.Key) != item.Value)
                     throw new InvalidOperationException("主台订单液体快照读取不一致");
-            if (!LiquidBalancesEqual(outgoing, _manifest.MasterTransferLiquidAmounts))
+            if (!LiquidBalancesEqual(masterFinalBalances, _manifest.MasterFinalLiquidBalances))
                 return "主台订单液体余额与资源清单预测不一致，拒绝执行跨台泵送";
             var requiredTransfer = _manifest.TransferLiquids
                 .Where(item => item.Value > 0)
