@@ -220,7 +220,17 @@ public sealed class ResourceWorldRuntime
             {
                 // 先取得 tick，再移动库存；tick provider 异常不能发生在资源扣款之后。
                 var tick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
-                var transaction = _masterPrefill(targetWorkshop);
+                WorkshopPrefillTransaction transaction;
+                try
+                {
+                    transaction = _masterPrefill(targetWorkshop);
+                }
+                catch (AggregateException creationRollbackError)
+                {
+                    throw new WorkshopPrefillRollbackException(
+                        "主台预置账户创建失败，且内部扣款回滚结果不确定。",
+                        creationRollbackError);
+                }
                 try
                 {
                     if (_resourceLedger != null)
