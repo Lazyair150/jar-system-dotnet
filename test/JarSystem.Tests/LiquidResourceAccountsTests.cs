@@ -148,6 +148,59 @@ public sealed class LiquidResourceAccountsTests
     }
 
     [Fact]
+    public void StagingSnapshotRestoresAccountsReservationsBansAndZeroQuota()
+    {
+        var staging = new WorkshopLiquidStaging(8, new[] { "蜜" });
+        Assert.True(staging.TryReserveOrderCapacity(101, 5));
+        Assert.True(staging.TryReserveOrderCapacity(202, 3));
+        Assert.True(staging.TryReserveOrderCapacity(303, 0));
+        Assert.Equal(2, staging.Receive(101, "酒", 2).AcceptedAmount);
+
+        var snapshot = staging.Capture();
+        var restored = WorkshopLiquidStaging.Restore(snapshot);
+
+        Assert.Equal(8, restored.Capacity);
+        Assert.Equal(2, restored.UsedCapacity);
+        Assert.Equal(8, restored.ReservedCapacity);
+        Assert.Equal(8, restored.OccupiedCapacity);
+        Assert.Equal(0, restored.AvailableCapacity);
+        Assert.Equal(2, restored.GetAmount(101, "酒"));
+        Assert.Equal(new[] { "蜜" }, restored.BannedLiquids);
+        Assert.True(restored.ReleaseOrderCapacity(303));
+        Assert.True(restored.ReleaseOrderCapacity(202));
+        Assert.Equal(5, restored.OccupiedCapacity);
+        Assert.Equal(new LiquidInventoryReceipt(1, 0, 1, "工作台禁蜜"),
+            restored.Receive(101, "蜜", 1));
+    }
+
+    [Fact]
+    public void StagingRestoreRejectsAccountsThatExceedTheirReservedPeak()
+    {
+        var snapshot = new WorkshopLiquidStagingSnapshot(
+            5,
+            Array.Empty<string>(),
+            new Dictionary<int, Dictionary<string, int>>
+            {
+                [101] = new() { ["酒"] = 3 }
+            },
+            new Dictionary<int, int> { [101] = 2 });
+
+        Assert.Throws<DomainValidationException>(() => WorkshopLiquidStaging.Restore(snapshot));
+    }
+
+    [Fact]
+    public void StagingRestoreRejectsAggregateOccupiedCapacityOverflow()
+    {
+        var snapshot = new WorkshopLiquidStagingSnapshot(
+            5,
+            Array.Empty<string>(),
+            new Dictionary<int, Dictionary<string, int>>(),
+            new Dictionary<int, int> { [101] = 3, [202] = 3 });
+
+        Assert.Throws<DomainValidationException>(() => WorkshopLiquidStaging.Restore(snapshot));
+    }
+
+    [Fact]
     public void DrainOrderReturnsOnlyThatOrdersActualBalance()
     {
         var staging = new WorkshopLiquidStaging(8);
