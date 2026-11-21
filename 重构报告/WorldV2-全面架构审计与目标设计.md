@@ -502,3 +502,17 @@ Envelope 建议：
 - 如果账本前置事件写入失败且资源回滚也失败，Runtime 现在显式标记 `PrefillRollbackOutcomeUncertain` 并进入 sticky fault；不会把已中断订单、半笔预置库存和继续运行的世界混在一起。
 - 岗位指向与迁徙副作用提交后，前置补液 Commit 若异常，不再调用迁徙 Rollback；它被标记为 `PrefillCommitOutcomeUncertain` 并抛给 Runtime，使 Runtime 进入 sticky fault。这样不会在已经切换岗位后反向迁回旧台。
 - 这仍是进程内事务隔离，不是持久化两阶段提交。账本批量写入尚未提供事务性/OperationId 去重；跨进程崩溃恢复仍需后续 wire transaction log。
+
+
+## 17. 准入与液体资源分配职责拆分（2026-11-22）
+
+本轮将订单液体分配从 `WorldOrderExecutionAdmission` 中抽离到内部领域服务 `OrderLiquidAllocationService`：
+
+- Admission 负责校验需求、求解结果、工作台岗位、罐子身份与资源租约；成功后委托分配服务。
+- AllocationService 独立负责主台预置液优先抵扣、主台/从台峰值容量预留、自机液库差额扣款、订单暂存入账，以及失败补偿。
+- 分配服务的可用液体视图同时计入自机液库余额、当前主台预置液、活动订单的逻辑预留；避免预置液在准入阶段被漏算，也避免真实扣款与逻辑预留重复扣减。
+- Lease 仍是订单液体范围的唯一所有者；分配完成后把 MasterScope / 可选 SlaveScope 附着到 Lease，Admission 不再维护按 DemandId 索引的 Scope 字典。
+- 结算路径进一步明确：`OrderResourceSettlementService` 负责 Drain 订单范围、返还自机液库、写结算账本；Admission 的新内部 `ReleaseReservationOnly` 只释放容量配额与资源租约。旧 `Admission.Release` 保留兼容语义，避免一次重构破坏外部旧调用方。
+- 这一步是职责分离，不宣称持久化事务或崩溃恢复 exactly-once。Lease 的结算收据目前仍是运行时状态；下一阶段再把 SettlementState/Receipt 纳入正式 checkpoint wire contract，并为账本副作用建立可恢复的稳定操作标识。
+
+工程方向：减少 Admission 的多阶段事务代码，不再用增加更多验证用例替代领域职责收敛。测试主要沿用既有准入、预置液、A/B 资源分配、恢复与结算用例作为回归基线。
