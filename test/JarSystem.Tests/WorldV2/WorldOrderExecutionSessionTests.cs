@@ -63,6 +63,15 @@ public sealed class WorldOrderExecutionSessionTests
             throw new InvalidOperationException("模拟中断结果不确定");
     }
 
+    private sealed class FixedPlanSolver : IWorldOrderSpecificationSolver
+    {
+        private readonly WorldOrderSolvePlan _plan;
+        public FixedPlanSolver(WorldOrderSolvePlan plan) => _plan = plan;
+        public Type SpecificationType => typeof(JarOrderSpecification);
+        public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot) =>
+            new(demand.Id, snapshot.Version, WorldOrderSolveStatus.Feasible, plan: _plan);
+    }
+
     private sealed class NoopInterruptionPort : IOrderInterruptionPort
     {
         public (bool Success, string? Error) InterruptForWorkshopReplacement() => (true, null);
@@ -840,6 +849,121 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(1, master.LiquidStorage["酒"]);
         Assert.Equal(0, scopes.Value.Master.Staging.UsedCapacity);
         Assert.Equal(0, scopes.Value.Master.Staging.ReservedCapacity);
+    }
+
+
+    [Fact]
+    public void BOrderPumpsOnlySlaveRequiredLiquidAndLeavesMasterSurplusForSettlement()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 1, vocabulary: Words);
+        var sourceJar = new Jar("圆罐", "蜜", vocabulary: Words);
+        var toolJar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(sourceJar);
+        master.AddJar(toolJar);
+        master.AddLiquid("酒", 1); // 供从台 POUR_IN 的初始资源
+
+        var demand = new OrderDemand(new JarOrderSpecification(
+            new[]
+            {
+                new Requirement { Shape = "圆罐" },
+                new Requirement { Shape = "圆罐", Liquid = "酒" }
+            }, Constants.OrderType.B, Words), 0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot,
+            DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+
+        var masterStep = new SolverStep
+        {
+            Step = 0,
+            Requirement = new Requirement { Shape = "圆罐" },
+            Operation = new SolverOperation
+            {
+                Type = "POUR_OUT", JarIndex = 0, TargetLiquid = "蜜",
+                Consumed = new Dictionary<string, int>()
+            },
+            Before = new List<JarState>
+            {
+                new() { Id = sourceJar.Id, Shape = "圆罐", Liquid = "蜜" },
+                new() { Id = toolJar.Id, Shape = "圆罐" }
+            },
+            After = new List<JarState>
+            {
+                new() { Id = sourceJar.Id, Shape = "圆罐", IsMarked = true },
+                new() { Id = toolJar.Id, Shape = "圆罐" }
+            },
+            AfterLiquids = new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 }
+        };
+        var slaveStep = new SolverStep
+        {
+            Step = 0,
+            Requirement = new Requirement { Shape = "圆罐", Liquid = "酒" },
+            Operation = new SolverOperation
+            {
+                Type = "POUR_IN", JarIndex = 0, TargetLiquid = "酒",
+                Consumed = new Dictionary<string, int> { ["酒"] = 1 }
+            },
+            Before = new List<JarState>
+            {
+                new() { Id = toolJar.Id, Shape = "圆罐", MasterOrigin = true }
+            },
+            After = new List<JarState>
+            {
+                new() { Id = toolJar.Id, Shape = "圆罐", Liquid = "酒", IsMarked = true, MasterOrigin = true }
+            },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+        var plan = WorldOrderSolvePlan.Partitioned(new PartitionSearchOutcome
+        {
+            MasterPath = new List<SolverStep> { masterStep },
+            SlavePath = new List<SolverStep> { slaveStep },
+            TransferJarIds = new List<int> { sourceJar.Id!.Value, toolJar.Id!.Value },
+            TransferLiquids = new Dictionary<string, int> { ["酒"] = 1 }
+        });
+
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new FixedPlanSolver(plan)
+        });
+        var solved = book.Evaluate(demand.Id, snapshot, registry);
+        Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+
+        var reservations = new WorldResourceReservationBook();
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var admission = new WorldOrderExecutionAdmission(
+            board, book, roster, reservations, ship);
+        var runtime = CreateRuntime(board, roster);
+        var started = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
+
+        Assert.True(started.Success, started.Reason);
+        var scopes = admission.GetLiquidScopes(demand.Id);
+        Assert.True(scopes.HasValue);
+
+        runtime.AdvanceWorldTime(1_000); // 主台倒出 1 蜜，主台余额为 酒1 + 蜜1
+        Assert.Equal(1, scopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(1, scopes.Value.Master.GetAmount("蜜"));
+
+        runtime.AdvanceWorldTime(1_000); // 只泵送从台需要的 1 酒
+        Assert.Equal(0, scopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(1, scopes.Value.Master.GetAmount("蜜"));
+        Assert.Equal(1, scopes.Value.Slave!.GetAmount("酒"));
+        Assert.Equal(1, scopes.Value.Slave.Staging.Capacity);
+
+        runtime.AdvanceWorldTime(1_000); // 从台消耗酒并完成交付
+
+        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        Assert.Equal(1, ship.GetAmount("蜜"));
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(0, scopes.Value.Master.Staging.UsedCapacity);
+        Assert.Equal(0, scopes.Value.Slave.Staging.UsedCapacity);
+        Assert.Empty(master.Jars);
+        Assert.Empty(slave.Jars);
     }
 
 }
