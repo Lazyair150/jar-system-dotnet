@@ -70,5 +70,4 @@ public sealed class OrderResourceSettlementService
         foreach (var item in source)
             target[item.Key] = checked(target.GetValueOrDefault(item.Key) + item.Value);
     }
-    }
 }
