@@ -24,14 +24,24 @@ public sealed class OrderResourceSettlementService
     {
         ArgumentNullException.ThrowIfNull(admission);
 
-        var scopes = admission.GetLiquidScopes(demandId);
+        var lease = admission.FindLease(demandId);
+        var scopes = lease?.LiquidScopes;
         var hasBalance = scopes.HasValue &&
             (scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
              (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false));
         if (ledger != null && hasBalance && !settlementTick.HasValue)
             throw new InvalidOperationException("结算前必须取得资源账本逻辑 tick。");
 
-        var receipt = admission.SettleLiquidResources(demandId);
+        LiquidBatchReceipt? receipt = lease?.SettlementReceipt;
+        if (receipt == null && scopes.HasValue && admission.ShipLiquidInventory != null)
+        {
+            var requested = new System.Collections.Generic.Dictionary<string, int>(StringComparer.Ordinal);
+            Merge(requested, scopes.Value.Master.Staging.DrainOrder(demandId));
+            if (scopes.Value.Slave != null)
+                Merge(requested, scopes.Value.Slave.Staging.DrainOrder(demandId));
+            receipt = lease!.RecordSettlement(admission.ShipLiquidInventory.Return(requested));
+        }
+
         if (receipt != null)
         {
             var tick = settlementTick ?? 0;
@@ -45,9 +55,18 @@ public sealed class OrderResourceSettlementService
                     from: "订单暂存", to: null, reason: "自机液库总容量不足");
         }
 
-        if (!admission.Release(demandId))
+        if (!admission.ReleaseReservationOnly(demandId))
             throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
 
         return receipt;
+    }
+
+    private static void Merge(
+        System.Collections.Generic.Dictionary<string, int> target,
+        System.Collections.Generic.IReadOnlyDictionary<string, int> source)
+    {
+        foreach (var item in source)
+            target[item.Key] = checked(target.GetValueOrDefault(item.Key) + item.Value);
+    }
     }
 }
