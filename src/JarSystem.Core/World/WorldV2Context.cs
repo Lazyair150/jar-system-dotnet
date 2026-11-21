@@ -118,7 +118,7 @@ public sealed class WorldV2Context : IDisposable
             resourceLedger: resourceLedger,
             masterPrefill: shipLiquidInventory == null
                 ? null
-                : targetWorkshop => admission.PrefillMasterWorkshop(
+                : targetWorkshop => admission.BeginMasterWorkshopPrefill(
                     targetWorkshop, resources.LiquidProductionPriority));
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
