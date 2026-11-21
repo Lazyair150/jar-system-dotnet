@@ -290,17 +290,28 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 snapshot.Manifest.MasterInitialLiquidAmounts))
             throw new InvalidOperationException("执行会话快照与资源预留的版本、罐子或液体占用不一致。");
         var scopes = admission.GetLiquidScopes(snapshot.DemandId);
-        if (!scopes.HasValue || scopes.Value.Master.OrderId != snapshot.DemandId ||
-            !scopes.Value.Master.Staging.Capture().ReservedCapacityByOrder.TryGetValue(
-                snapshot.DemandId, out var masterQuota) ||
-            masterQuota != snapshot.Manifest.MasterStagingPeakCapacity ||
-            (snapshot.Manifest.IsPartitioned
-                ? scopes.Value.Slave == null || scopes.Value.Slave.OrderId != snapshot.DemandId ||
-                  !scopes.Value.Slave.Staging.Capture().ReservedCapacityByOrder.TryGetValue(
-                      snapshot.DemandId, out var slaveQuota) ||
-                  slaveQuota != snapshot.Manifest.SlaveStagingPeakCapacity
-                : scopes.Value.Slave != null))
-            throw new InvalidOperationException("执行会话快照与订单液体范围或容量预留不一致。");
+        if (!scopes.HasValue || scopes.Value.Master.OrderId != snapshot.DemandId)
+            throw new InvalidOperationException("执行会话快照缺少订单主台液体范围。");
+
+        var masterReservations = scopes.Value.Master.Staging.Capture().ReservedCapacityByOrder;
+        var hasMasterReservation = masterReservations.TryGetValue(snapshot.DemandId, out var masterQuota);
+        var expectsMasterReservation = snapshot.Stage != WorldOrderExecutionStage.SlaveSteps;
+        if (hasMasterReservation != expectsMasterReservation ||
+            (hasMasterReservation && masterQuota != snapshot.Manifest.MasterStagingPeakCapacity))
+            throw new InvalidOperationException("执行会话阶段与主台容量预留状态不一致。");
+
+        if (snapshot.Manifest.IsPartitioned)
+        {
+            if (scopes.Value.Slave == null || scopes.Value.Slave.OrderId != snapshot.DemandId ||
+                !scopes.Value.Slave.Staging.Capture().ReservedCapacityByOrder.TryGetValue(
+                    snapshot.DemandId, out var slaveQuota) ||
+                slaveQuota != snapshot.Manifest.SlaveStagingPeakCapacity)
+                throw new InvalidOperationException("B 类执行会话与从台容量预留不一致。");
+        }
+        else if (scopes.Value.Slave != null)
+        {
+            throw new InvalidOperationException("A 类执行会话不能恢复从台液体范围。");
+        }
 
         var masterIndex = snapshot.CompletedMasterSteps;
         var slaveIndex = snapshot.CompletedSlaveSteps;
