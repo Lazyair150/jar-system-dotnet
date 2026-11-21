@@ -274,6 +274,7 @@ public sealed class WorkshopPrefillTransaction
     {
         if (_completed) return;
         _shipReservation?.Commit();
+        if (_shipReservation != null) _staging.CompletePrefillTransaction();
         _completed = true;
         _committed = true;
     }
@@ -287,6 +288,7 @@ public sealed class WorkshopPrefillTransaction
         }
         _staging.RemovePrefillForRollback(Receipt.Accepted);
         _shipReservation?.Rollback();
+        if (_shipReservation != null) _staging.CompletePrefillTransaction();
         _completed = true;
     }
 }
@@ -331,6 +333,7 @@ public sealed class WorkshopLiquidStaging
     private readonly Dictionary<string, int> _prefillBalances = new(StringComparer.Ordinal);
     // 订单预留的是整条路径可能达到的总库存峰值，而不是额外可用量。
     private readonly Dictionary<int, int> _reservedCapacityByOrder = new();
+    private bool _prefillTransactionPending;
     private readonly HashSet<string> _banned;
     private readonly IReadOnlyCollection<string> _bannedView;
 
@@ -374,6 +377,7 @@ public sealed class WorkshopLiquidStaging
     /// </summary>
     public bool TryReserveOrderCapacity(int orderId, int peakCapacity)
     {
+        if (_prefillTransactionPending) return false;
         ValidateOrderId(orderId);
         if (peakCapacity < 0) throw new DomainValidationException("订单液体容量预留不能为负数。");
         if (_reservedCapacityByOrder.ContainsKey(orderId)) return false;
@@ -392,6 +396,7 @@ public sealed class WorkshopLiquidStaging
     {
         ArgumentNullException.ThrowIfNull(inventory);
         ArgumentNullException.ThrowIfNull(preferredLiquids);
+        EnsureNoPendingPrefillTransaction();
         var preferred = preferredLiquids.Select(ShipLiquidInventory.ValidateLiquid).Distinct(StringComparer.Ordinal).ToArray();
         var ordered = preferred.Concat(inventory.Balances.Keys.OrderBy(item => item, StringComparer.Ordinal)).Distinct(StringComparer.Ordinal);
         var remaining = AvailableCapacity;
@@ -414,6 +419,7 @@ public sealed class WorkshopLiquidStaging
         try
         {
             RestorePrefill(transfer);
+            _prefillTransactionPending = true;
             return new WorkshopPrefillTransaction(this, reservation,
                 new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>()));
         }
@@ -434,6 +440,7 @@ public sealed class WorkshopLiquidStaging
     /// <summary>从空闲预置余额中为新订单取液；不足部分由订单准入再从自机液库扣除。</summary>
     internal IReadOnlyDictionary<string, int> WithdrawPrefillUpTo(IReadOnlyDictionary<string, int> requested)
     {
+        EnsureNoPendingPrefillTransaction();
         ShipLiquidInventory.ValidateAmounts(requested);
         var withdrawn = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var item in requested.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -460,6 +467,7 @@ public sealed class WorkshopLiquidStaging
     }
     public bool ReleaseOrderCapacity(int orderId)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         return _reservedCapacityByOrder.Remove(orderId);
     }
@@ -486,6 +494,7 @@ public sealed class WorkshopLiquidStaging
     /// <summary>普通资源产出入口：ban 拒收；容量不足时部分接收，其余丢弃。</summary>
     public LiquidInventoryReceipt Receive(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -510,6 +519,7 @@ public sealed class WorkshopLiquidStaging
 
     public bool TryConsume(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -548,6 +558,7 @@ public sealed class WorkshopLiquidStaging
     /// <summary>操作执行专用的全量接收；失败时不修改库存。</summary>
     public bool TryReceiveExact(int orderId, string liquid, int amount, out LiquidGrant result)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         result = CanAcceptOperation(orderId, liquid, amount);
         if (!result.Granted) return false;
@@ -558,6 +569,7 @@ public sealed class WorkshopLiquidStaging
     /// <summary>只允许清除指定订单子账；返回被清除的真实余额。</summary>
     public IReadOnlyDictionary<string, int> DrainOrder(int orderId)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         if (!_accounts.Remove(orderId, out var account))
             return new ReadOnlyDictionary<string, int>(new Dictionary<string, int>());
@@ -566,8 +578,38 @@ public sealed class WorkshopLiquidStaging
     }
 
     /// <summary>捕获订单子账与容量预留；快照不暴露内部可变字典。</summary>
-    public WorkshopLiquidStagingSnapshot Capture() =>
-        new(Capacity, _banned, _accounts, _reservedCapacityByOrder, _prefillBalances);
+    public WorkshopLiquidStagingSnapshot Capture()
+    {
+        EnsureNoPendingPrefillTransaction();
+        return new WorkshopLiquidStagingSnapshot(
+            Capacity, _banned, _accounts, _reservedCapacityByOrder, _prefillBalances);
+    }
+
+    internal void CompletePrefillTransaction()
+    {
+        if (!_prefillTransactionPending)
+            throw new InvalidOperationException("主台预置事务状态不匹配。");
+        _prefillTransactionPending = false;
+    }
+
+    internal void RemovePrefillForRollback(IReadOnlyDictionary<string, int> amounts)
+    {
+        if (!_prefillTransactionPending)
+            throw new InvalidOperationException("没有待回滚的主台预置事务。");
+        ShipLiquidInventory.ValidateAmounts(amounts);
+        foreach (var item in amounts)
+        {
+            if (_prefillBalances.GetValueOrDefault(item.Key) < item.Value)
+                throw new InvalidOperationException("主台预置账户在回滚前已发生变化：" + item.Key);
+            AddPrefillUnchecked(item.Key, -item.Value);
+        }
+    }
+
+    private void EnsureNoPendingPrefillTransaction()
+    {
+        if (_prefillTransactionPending)
+            throw new InvalidOperationException("主台前置补液事务尚未提交，不能并发修改订单暂存账户。");
+    }
 
     /// <summary>
     /// 从纯值快照重建暂存区。恢复前完整验证 ban、订单账户、容量预留及总占用，
