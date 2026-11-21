@@ -144,6 +144,18 @@ public sealed class ResourceLedger
         return ledger;
     }
 
+    /// <summary>将已验证账本快照装入同容量账本，保留原始序号与裁剪游标。</summary>
+    public void RestoreFrom(ResourceLedgerSnapshot snapshot)
+    {
+        var restored = Restore(snapshot);
+        if (restored.Capacity != Capacity)
+            throw new DomainValidationException("资源账本快照容量与当前账本不一致。");
+        _entries.Clear();
+        _entries.AddRange(restored._entries.Select(Clone));
+        _seq = restored._seq;
+        Dropped = restored.Dropped;
+    }
+
     private static ResourceEvent Clone(ResourceEvent item) => new()
     {
         Seq = item.Seq,
