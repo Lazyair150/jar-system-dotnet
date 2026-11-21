@@ -171,7 +171,8 @@ public sealed class PartitionSearch
             int budget = request.SlaveInfo.MaxJars - deliverableIds.Count;
             if (budget < 0) continue;
 
-            // 液体池：只来自主台终态（按从台每种液体容量截断，与执行部分填充一致）
+            // 液体池只表示主台终态可供选择的来源；实际泵送量由从台路径最低需求计算，
+            // 合计容量则在路径确定后分别按主台“路径 + 终态转出预留”和从台路径峰值校验。
             var tLiquids = new Dictionary<string, int>();
             foreach (var l in Constants.LIQUIDS)
                 tLiquids[l] = Math.Min(
@@ -187,6 +188,20 @@ public sealed class PartitionSearch
             }
             if (sr.Feasible && sr.Path != null)
             {
+                var transferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path);
+                var masterPeak = LiquidRequirementCalculator.ComputePeakCapacity(mr.Path, transferLiquids);
+                var slavePeak = LiquidRequirementCalculator.ComputePeakCapacity(sr.Path);
+                if (masterPeak > request.MasterInfo.MaxLiquidCapacity)
+                {
+                    blockage = "主台订单液体路径及从台交接预留超过总暂存容量";
+                    continue;
+                }
+                if (slavePeak > request.SlaveInfo.MaxLiquidCapacity)
+                {
+                    blockage = "从台订单液体路径峰值超过总暂存容量";
+                    continue;
+                }
+
                 // 转移罐子清单：交付罐 + 从台路径实际使用的主台来源罐子
                 var transferIds = new HashSet<int>(deliverableIds);
                 foreach (var step in sr.Path)
@@ -205,7 +220,7 @@ public sealed class PartitionSearch
                     MasterPath = mr.Path,
                     SlavePath = sr.Path,
                     TransferJarIds = transferIds.OrderBy(x => x).ToList(),
-                    TransferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path),
+                    TransferLiquids = transferLiquids,
                     DirectCount = mr.Path.Count(s => s.Operation?.Type == "MATCH")
                                 + sr.Path.Count(s => s.Operation?.Type == "MATCH"),
                     OperationCount = mr.Path.Count(s => s.Operation?.Type != "MATCH")
