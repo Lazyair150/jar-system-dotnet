@@ -152,6 +152,15 @@ public sealed class WorldV2HostServiceTests
 
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
+        _ = ResourceAreaWireDto.FromSnapshot(beforePump.ResourceArea);
+        _ = DemandBoardWireDto.FromSnapshot(beforePump.DemandBoard);
+        _ = ShipLiquidInventoryWireDto.FromSnapshot(beforePump.ShipLiquidInventory);
+        _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.MasterWorkshop);
+        _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.SlaveWorkshop!);
+        _ = AdmissionWireDto.FromSnapshot(beforePump.Admission);
+        _ = ResourceLedgerWireDto.FromSnapshot(beforePump.ResourceLedger);
+        _ = WorldClockWireDto.FromSnapshot(beforePump.Clock);
+        _ = beforePump.Sessions.Select(WorldOrderExecutionSessionWireDto.FromSnapshot).ToList();
         var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
             beforePumpWire, beforePump.ConfigurationFingerprint);
