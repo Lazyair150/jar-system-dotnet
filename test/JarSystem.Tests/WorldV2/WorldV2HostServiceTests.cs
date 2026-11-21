@@ -159,7 +159,15 @@ public sealed class WorldV2HostServiceTests
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
         var beforePumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(beforePump);
-        beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
+        try
+        {
+            beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine("ROOT-CHECKPOINT-RESTORE-DETAIL: " + exception);
+            throw;
+        }
         Assert.Equal(transferEventsBeforeOrder, beforePump.ResourceLedger.Entries.Count(item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
         Assert.Equal(2, beforePump.ShipLiquidInventory.Balances["酒"]);
