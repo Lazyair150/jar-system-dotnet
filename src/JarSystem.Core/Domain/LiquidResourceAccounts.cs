@@ -70,23 +70,27 @@ public sealed class ShipLiquidInventory
     }
 
     /// <summary>订单结算返还：允许部分接收，超出自机总容量的部分丢弃。</summary>
-    public LiquidInventoryReceipt Return(IReadOnlyDictionary<string, int> amounts)
+    public LiquidBatchReceipt Return(IReadOnlyDictionary<string, int> amounts)
     {
         ValidateAmounts(amounts);
-        var requested = TotalAmount(amounts);
+        var requested = new Dictionary<string, int>(StringComparer.Ordinal);
+        var acceptedAmounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var discardedAmounts = new Dictionary<string, int>(StringComparer.Ordinal);
         var remaining = AvailableCapacity;
-        var acceptedTotal = 0;
 
-        // 按液体名序排序，避免输入字典的插入顺序改变不同液体的返还结果。
+        // 按液体名序分配有限的返还空间，结果可复现且逐种液体可审计。
         foreach (var pair in amounts.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             var accepted = Math.Min(pair.Value, remaining);
+            var discarded = pair.Value - accepted;
+            if (pair.Value > 0) requested[pair.Key] = pair.Value;
+            if (accepted > 0) acceptedAmounts[pair.Key] = accepted;
+            if (discarded > 0) discardedAmounts[pair.Key] = discarded;
             AddUnchecked(pair.Key, accepted);
-            acceptedTotal += accepted;
             remaining -= accepted;
         }
 
-        return new LiquidInventoryReceipt(requested, acceptedTotal, requested - acceptedTotal);
+        return new LiquidBatchReceipt(requested, acceptedAmounts, discardedAmounts);
     }
 
     public ShipLiquidInventorySnapshot Capture() =>
@@ -137,6 +141,30 @@ public sealed record LiquidInventoryReceipt(
     int AcceptedAmount,
     int DiscardedAmount,
     string? RejectionReason = null);
+
+/// <summary>批量返还的逐液体结果，避免只记录总量而丢失哪种液体被接收/丢弃。</summary>
+public sealed class LiquidBatchReceipt
+{
+    public LiquidBatchReceipt(
+        IReadOnlyDictionary<string, int> requested,
+        IReadOnlyDictionary<string, int> accepted,
+        IReadOnlyDictionary<string, int> discarded)
+    {
+        Requested = Freeze(requested);
+        Accepted = Freeze(accepted);
+        Discarded = Freeze(discarded);
+    }
+
+    public IReadOnlyDictionary<string, int> Requested { get; }
+    public IReadOnlyDictionary<string, int> Accepted { get; }
+    public IReadOnlyDictionary<string, int> Discarded { get; }
+    public int RequestedTotal => ShipLiquidInventory.TotalAmount(Requested);
+    public int AcceptedTotal => ShipLiquidInventory.TotalAmount(Accepted);
+    public int DiscardedTotal => ShipLiquidInventory.TotalAmount(Discarded);
+
+    private static IReadOnlyDictionary<string, int> Freeze(IReadOnlyDictionary<string, int> source) =>
+        new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(source, StringComparer.Ordinal));
+}
 
 public sealed class ShipLiquidInventorySnapshot
 {
