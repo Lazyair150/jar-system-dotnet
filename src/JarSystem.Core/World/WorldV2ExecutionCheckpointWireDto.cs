@@ -155,7 +155,7 @@ public sealed class JarRuntimeStateWireDto
 
     public Jar ToJar(Vocabulary vocabulary)
     {
-        if (Id is not > 0 || string.IsNullOrWhiteSpace(Shape))
+        if (Id is <= 0 || string.IsNullOrWhiteSpace(Shape))
             throw new InvalidOperationException("罐子 Wire DTO 身份或形状无效。");
         var jar = new Jar(Shape, Liquid, Id, vocabulary);
         if (IsMarked) jar.Mark();
