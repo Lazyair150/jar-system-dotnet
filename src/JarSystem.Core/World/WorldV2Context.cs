@@ -33,6 +33,7 @@ public sealed class WorldV2Context : IDisposable
     public WorkshopRoster Roster { get; }
     public OrderDemandBoard DemandBoard { get; }
     public SequentialIdGenerator DemandIdGenerator { get; }
+    public string? ConfigurationFingerprint { get; }
     public WorldOrderSolveBook SolveBook { get; }
     public WorldResourceReservationBook Reservations { get; }
     public WorldOrderExecutionAdmission Admission { get; }
@@ -50,7 +51,8 @@ public sealed class WorldV2Context : IDisposable
         WorldResourceReservationBook reservations,
         WorldOrderExecutionAdmission admission,
         ResourceWorldRuntime runtime,
-        WorldOrderScheduler scheduler)
+        WorldOrderScheduler scheduler,
+        string? configurationFingerprint)
     {
         Resources = resources;
         ShipLiquidInventory = shipLiquidInventory;
@@ -63,6 +65,7 @@ public sealed class WorldV2Context : IDisposable
         Admission = admission;
         Runtime = runtime;
         Scheduler = scheduler;
+        ConfigurationFingerprint = configurationFingerprint;
     }
 
     /// <summary>
@@ -80,7 +83,8 @@ public sealed class WorldV2Context : IDisposable
         DemandAreaFulfillmentPolicy passiveFulfillmentPolicy,
         DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
         WorldClock? clock = null,
-        ShipLiquidInventory? shipLiquidInventory = null)
+        ShipLiquidInventory? shipLiquidInventory = null,
+        string? configurationFingerprint = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -116,7 +120,7 @@ public sealed class WorldV2Context : IDisposable
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
         return new WorldV2Context(
-            resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator, solveBook, reservations, admission, runtime, scheduler);
+            resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator, solveBook, reservations, admission, runtime, scheduler, configurationFingerprint);
     }
 
     /// <summary>
@@ -134,6 +138,7 @@ public sealed class WorldV2Context : IDisposable
         return new WorldV2ExecutionResourceCheckpoint(
             Resources.CaptureRuntimeState(),
             DemandBoard.CaptureRuntimeState(DemandIdGenerator),
+            ConfigurationFingerprint,
             ShipLiquidInventory.Capture(),
             Roster.Master?.CaptureRuntimeState()
                 ?? throw new InvalidOperationException("检查点捕获时没有主工作台。"),
@@ -162,6 +167,8 @@ public sealed class WorldV2Context : IDisposable
             throw new InvalidOperationException("只能向没有活动会话、预留或工作台替换的 Context 恢复检查点。");
 
         Resources.ValidateRuntimeStateSnapshot(checkpoint.ResourceArea);
+        if (!string.Equals(ConfigurationFingerprint, checkpoint.ConfigurationFingerprint, StringComparison.Ordinal))
+            throw new InvalidOperationException("检查点配置指纹与当前世界不一致，拒绝恢复。");
         if (checkpoint.ShipLiquidInventory.Capacity != ShipLiquidInventory.Capacity)
             throw new InvalidOperationException("检查点自机液库容量与当前世界配置不一致。");
         if ((Roster.Slave == null) != (checkpoint.SlaveWorkshop == null))
@@ -257,6 +264,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     internal WorldV2ExecutionResourceCheckpoint(
         ResourceAreaRuntimeStateSnapshot resourceArea,
         OrderDemandBoardSnapshot demandBoard,
+        string? configurationFingerprint,
         ShipLiquidInventorySnapshot shipLiquidInventory,
         WorkshopRuntimeStateSnapshot masterWorkshop,
         WorkshopRuntimeStateSnapshot? slaveWorkshop,
@@ -269,6 +277,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     {
         ResourceArea = resourceArea;
         DemandBoard = demandBoard;
+        ConfigurationFingerprint = configurationFingerprint;
         ShipLiquidInventory = shipLiquidInventory;
         MasterWorkshop = masterWorkshop;
         SlaveWorkshop = slaveWorkshop;
@@ -282,6 +291,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
 
     public ResourceAreaRuntimeStateSnapshot ResourceArea { get; }
     public OrderDemandBoardSnapshot DemandBoard { get; }
+    public string? ConfigurationFingerprint { get; }
     public ShipLiquidInventorySnapshot ShipLiquidInventory { get; }
     public WorkshopRuntimeStateSnapshot MasterWorkshop { get; }
     public WorkshopRuntimeStateSnapshot? SlaveWorkshop { get; }
