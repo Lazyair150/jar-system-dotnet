@@ -25,6 +25,9 @@ public sealed class OrderResourceLease
     public string WorldVersion { get; }
     public IReadOnlyList<int> LockedJarIds { get; }
     public IReadOnlyDictionary<string, int> InitialLiquidSupply { get; }
+    public IReadOnlyDictionary<string, int> TransferLiquidAmounts { get; }
+    public int MasterStagingPeakCapacity { get; }
+    public int SlaveStagingPeakCapacity { get; }
     public bool UsesSlave { get; }
     public OrderResourceLeaseStage Stage { get; private set; } = OrderResourceLeaseStage.Admitted;
 
@@ -39,6 +42,10 @@ public sealed class OrderResourceLease
         LockedJarIds = Array.AsReadOnly(manifest.LockedJarIds.ToArray());
         InitialLiquidSupply = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
             manifest.MasterInitialLiquidAmounts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+        TransferLiquidAmounts = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            manifest.TransferLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+        MasterStagingPeakCapacity = manifest.MasterStagingPeakCapacity;
+        SlaveStagingPeakCapacity = manifest.SlaveStagingPeakCapacity;
         UsesSlave = manifest.IsPartitioned;
     }
 
@@ -106,7 +113,8 @@ public sealed class OrderResourceLease
     }
 
     internal WorldResourceReservation CaptureReservation() => new(
-        DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave, Stage);
+        DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave, Stage,
+        TransferLiquidAmounts, MasterStagingPeakCapacity, SlaveStagingPeakCapacity);
 
     internal OrderResourceLease(WorldResourceReservation reservation)
     {
@@ -116,6 +124,10 @@ public sealed class OrderResourceLease
         LockedJarIds = Array.AsReadOnly(reservation.LockedJarIds.ToArray());
         InitialLiquidSupply = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
             reservation.MasterInitialLiquidAmounts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+        TransferLiquidAmounts = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            reservation.TransferLiquidAmounts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+        MasterStagingPeakCapacity = reservation.MasterStagingPeakCapacity;
+        SlaveStagingPeakCapacity = reservation.SlaveStagingPeakCapacity;
         UsesSlave = reservation.UsesSlave;
         RestoreExecutionStage(reservation.Stage);
     }
