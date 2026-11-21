@@ -67,7 +67,7 @@ public sealed class WorkshopSolveSnapshot
         Name = workshop.Name;
         MaxJars = workshop.MaxJars;
         MaxLiquids = workshop.MaxLiquids;
-        LiquidStagingCapacity = workshop.MaxLiquids;
+        LiquidStagingCapacity = workshop.LiquidStagingCapacity;
         Capability = workshop.Capability;
 
         _jars = Array.AsReadOnly(workshop.Jars
