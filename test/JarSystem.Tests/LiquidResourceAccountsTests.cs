@@ -305,6 +305,8 @@ public sealed class LiquidResourceAccountsTests
         var transaction = staging.BeginPrefillFromShip(ship, new[] { "酒" });
 
         Assert.Throws<InvalidOperationException>(() => staging.Receive(7, "蜜", 1));
+        Assert.Throws<InvalidOperationException>(() => staging.CanConsume(7, "酒", 1));
+        Assert.Throws<InvalidOperationException>(() => staging.CanAcceptOperation(7, "蜜", 1));
         Assert.Throws<InvalidOperationException>(() => staging.TryConsume(7, "酒", 1));
         Assert.Throws<InvalidOperationException>(() => staging.Capture());
         Assert.Throws<InvalidOperationException>(() => OrderLiquidTransfer.TryExecute(
