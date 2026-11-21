@@ -565,8 +565,9 @@ Envelope 建议：
 - Wire 校验拒绝重复订单、重复罐子、多个从台占用者、A 类从台字段、非法阶段、错误 OperationId，以及不守恒的结算收据。
 - `WorldResourceReservationBook.CaptureWire / RestoreWire` 提供完整捕获与重建入口。
 - `WorldV2ExecutionResourceCheckpoint` 新增 `ReservationLeases`；Context 捕获时保存完整 Lease wire，恢复预检和提交都改用该 wire 数据，因此 SettlementReceipt/SettlementStage 不再在 Checkpoint → ReservationBook 之间丢失。
+- `ResourceLedger.RecordBatchOnce` 以稳定 OperationId 原子提交一组资源事实，去重标识随 `ResourceLedgerSnapshot` 捕获/恢复；订单结算将返还与丢弃事件作为同一批提交。即使事件因有界账本容量被裁剪，操作去重标识仍保留。
 - 旧 `Reservations` 快照暂时保留为兼容投影，不再作为完整恢复的事实来源。
 
-边界说明：这让 Lease/Reservation 子图具备明确的 JSON wire DTO 和检查点往返入口，但还不代表整个 World V2 根检查点已可独立 JSON 序列化；Admission 的 staging 快照、Workshop/ResourceArea、DemandBoard、Ledger、Clock、Session 等组件仍需各自的 wire mapping。账本也尚未按 SettlementOperationId 去重，因此不能宣称跨崩溃 exactly-once。
+边界说明：这让 Lease/Reservation 子图具备明确的 JSON wire DTO 和检查点往返入口，但还不代表整个 World V2 根检查点已可独立 JSON 序列化；Admission 的 staging 快照、Workshop/ResourceArea、DemandBoard、Ledger、Clock、Session 等组件仍需各自的 wire mapping。账本现在能在其快照生命周期内按 SettlementOperationId 去重；这解决了同一已恢复账本上的重复写入，但并不等于外部持久化存储的跨系统 exactly-once。
 
 下一步直接扩展根检查点 DTO，并把 Prepare/Commit 恢复边界显式化；避免再在多个对象上分别维护同一份 Lease 结算事实。
