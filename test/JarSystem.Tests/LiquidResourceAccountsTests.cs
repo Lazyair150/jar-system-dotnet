@@ -307,6 +307,9 @@ public sealed class LiquidResourceAccountsTests
         Assert.Throws<InvalidOperationException>(() => staging.Receive(7, "蜜", 1));
         Assert.Throws<InvalidOperationException>(() => staging.TryConsume(7, "酒", 1));
         Assert.Throws<InvalidOperationException>(() => staging.Capture());
+        Assert.Throws<InvalidOperationException>(() => OrderLiquidTransfer.TryExecute(
+            7, staging, new WorkshopLiquidStaging(4),
+            new Dictionary<string, int>(), out _));
         Assert.False(staging.TryReserveOrderCapacity(7, 1));
         Assert.Equal(3, ship.ReservedReturnCapacity);
 
