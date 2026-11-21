@@ -120,6 +120,7 @@ public sealed class WorldV2Context : IDisposable
                 ? null
                 : targetWorkshop => admission.BeginMasterWorkshopPrefill(
                     targetWorkshop, resources.LiquidProductionPriority));
+        admission.BindOrderAdmissionGate(() => !runtime.BlocksOrderAdmission);
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
