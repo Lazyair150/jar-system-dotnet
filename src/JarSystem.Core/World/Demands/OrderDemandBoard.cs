@@ -161,8 +161,9 @@ public sealed class OrderDemandBoard
     public OrderDemandBoardSnapshot CaptureRuntimeState(SequentialIdGenerator demandIds)
     {
         ArgumentNullException.ThrowIfNull(demandIds);
+        var maximumAssignedId = AllDemands.Select(item => item.Id).DefaultIfEmpty(0).Max();
         return new OrderDemandBoardSnapshot(
-            demandIds.CurrentValue,
+            Math.Max(demandIds.CurrentValue, maximumAssignedId),
             Passive.FulfillmentPolicy,
             Active.FulfillmentPolicy,
             CaptureArea(Passive),
