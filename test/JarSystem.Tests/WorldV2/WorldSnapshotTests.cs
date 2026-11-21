@@ -198,4 +198,21 @@ public sealed class WorldSnapshotTests
         Assert.Equal(1, after.ShipLiquidInventory.Balances["蜜"]);
     }
 
+
+    [Fact]
+    public void WorkshopAggregateStagingCapacityIsIndependentFromLegacyPerLiquidLimit()
+    {
+        var firstMaster = new Workshop("主台", maxLiquids: 10, liquidStagingCapacity: 2);
+        var secondMaster = new Workshop("主台", maxLiquids: 10, liquidStagingCapacity: 3);
+        var first = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { firstMaster }, firstMaster));
+        var second = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { secondMaster }, secondMaster));
+
+        var info = first.Master!.CreateWorkshopInfo();
+        Assert.Equal(10, info.MaxLiquids);
+        Assert.Equal(2, info.MaxLiquidCapacity);
+        Assert.NotEqual(first.Version, second.Version);
+    }
+
 }
