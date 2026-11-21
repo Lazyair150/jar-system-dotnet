@@ -718,6 +718,7 @@ public sealed class WorkshopReplacementTests
             WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 1_000);
 
         Assert.True(begin.Success, begin.Error);
+        Assert.False(world.Admission.TryAdmit(999).Success);
         Assert.Same(jar, Assert.Single(oldMaster.Jars));
         Assert.Equal(3, world.Admission.GetPrefillBalances(target)["酒"]);
         Assert.Equal(1, world.Admission.GetPrefillBalances(target)["蜜"]);
