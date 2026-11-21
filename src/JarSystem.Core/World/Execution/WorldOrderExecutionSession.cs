@@ -26,6 +26,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly IReadOnlyList<WorldPlanStep> _slaveSteps;
     private readonly IReadOnlyList<int> _deliveryJarIds;
     private readonly WorldPlanStepApplier _applier;
+    private readonly OrderLiquidScope? _masterLiquidScope;
+    private readonly OrderLiquidScope? _slaveLiquidScope;
     private readonly long _unitDurationLogicalMilli;
     private readonly SlaveRollback _slaveRollback = new();
     private readonly ResourceLedger? _resourceLedger;
@@ -81,6 +83,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         _resourceLedger = resourceLedger;
         _resourceLedgerTick = resourceLedgerTick;
         _applier = new WorldPlanStepApplier();
+        var liquidScopes = admission.GetLiquidScopes(demandId);
+        _masterLiquidScope = liquidScopes?.Master;
+        _slaveLiquidScope = liquidScopes?.Slave;
 
         if (manifest.DemandId != demandId || manifest.IsPartitioned != plan.IsPartitioned)
             throw new InvalidOperationException("资源清单与求解计划不属于同一订单或执行类型");
@@ -115,7 +120,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         // 先处理主台路径开头连续的零耗时 MATCH；后续 MATCH 会在前一个耗时步骤完成后处理。
         if (Stage == WorldOrderExecutionStage.MasterSteps)
-            PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master");
+            PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master", _masterLiquidScope);
 
         if (!IsTerminal && Stage == WorldOrderExecutionStage.MasterSteps &&
             _masterIndex == _masterSteps.Count)
@@ -324,7 +329,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 }
 
                 Stage = WorldOrderExecutionStage.SlaveSteps;
-                PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave");
+                PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave", _slaveLiquidScope);
                 if (!IsTerminal && _slaveIndex == _slaveSteps.Count)
                     CompleteSuccess();
                 break;
@@ -350,7 +355,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (index >= steps.Count)
             throw new InvalidOperationException(phase + " 执行索引越界");
 
-        var result = _applier.Apply(workshop, steps[index]);
+        var scope = phase == "master" ? _masterLiquidScope : _slaveLiquidScope;
+        var result = scope == null
+            ? _applier.Apply(workshop, steps[index])
+            : _applier.Apply(workshop, steps[index], scope);
         if (!result.Success)
         {
             TerminateFailure(phase + " 步骤 " + steps[index].Step + " 执行失败: " +
@@ -367,11 +375,14 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         Workshop workshop,
         IReadOnlyList<WorldPlanStep> steps,
         ref int index,
-        string phase)
+        string phase,
+        OrderLiquidScope? scope)
     {
         while (index < steps.Count && IsMatch(steps[index]))
         {
-            var result = _applier.Apply(workshop, steps[index]);
+            var result = scope == null
+                ? _applier.Apply(workshop, steps[index])
+                : _applier.Apply(workshop, steps[index], scope);
             if (!result.Success)
             {
                 TerminateFailure(phase + " MATCH 步骤 " + steps[index].Step + " 执行失败: " +
@@ -391,7 +402,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         var slave = _slave ?? throw new InvalidOperationException("B 类执行缺少从台");
         var ledgerTick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
         if (slave.HasResources)
-            return "B 类资源转移前，从工作台必须仍为空";
+            return "B 类资源转移前，从工作台的旧版资源池必须为空";
 
         var jars = new Dictionary<int, Jar>();
 
@@ -410,19 +421,36 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (_manifest.TransferJarIds.Count > slave.MaxJars - slave.Jars.Count)
             return "从台罐位不足，无法完整接收转移罐子清单";
 
-        foreach (var item in _manifest.TransferLiquids)
+        if (_masterLiquidScope == null)
         {
-            if (item.Value < 0)
-                return $"转移液体「{item.Key}」数量无效";
-            if (item.Value == 0) continue;
-            var available = _master.LiquidStorage.GetValueOrDefault(item.Key);
-            if (available < item.Value)
-                return $"主台液体「{item.Key}」不足：需要 {item.Value}，当前 {available}";
-            if (slave.IsBanned(item.Key))
-                return $"从台禁用液体「{item.Key}」，不能转移执行所需液体";
-            var storage = slave.CanStoreLiquid(item.Key, item.Value);
-            if (!storage.Granted)
-                return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
+            foreach (var item in _manifest.TransferLiquids)
+            {
+                if (item.Value < 0)
+                    return $"转移液体「{item.Key}」数量无效";
+                if (item.Value == 0) continue;
+                var available = _master.LiquidStorage.GetValueOrDefault(item.Key);
+                if (available < item.Value)
+                    return $"主台液体「{item.Key}」不足：需要 {item.Value}，当前 {available}";
+                if (slave.IsBanned(item.Key))
+                    return $"从台禁用液体「{item.Key}」，不能转移执行所需液体";
+                var storage = slave.CanStoreLiquid(item.Key, item.Value);
+                if (!storage.Granted)
+                    return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
+            }
+        }
+        else
+        {
+            if (_slaveLiquidScope == null)
+                throw new InvalidOperationException("新液体资源路径的 B 类会话缺少从台订单范围");
+            var outgoing = _masterLiquidScope.Balance;
+            foreach (var item in outgoing)
+            {
+                if (_masterLiquidScope.GetAmount(item.Key) != item.Value)
+                    throw new InvalidOperationException("主台订单液体快照读取不一致");
+                if (!_slaveLiquidScope.Staging.CanReceiveForTransfer(
+                    DemandId, item.Key, item.Value))
+                    return $"从台订单暂存区不能接收液体「{item.Key}」×{item.Value}";
+            }
         }
 
         // 从这里开始从台资源由本会话独占。若后续提交阶段出现不变量异常，
@@ -448,21 +476,36 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 ResourceKinds.Jar, jar.Shape, 1, from: _master.Name, to: slave.Name);
         }
 
-        foreach (var item in _manifest.TransferLiquids)
+        if (_masterLiquidScope == null)
         {
-            if (item.Value == 0) continue;
-            if (!slave.AddLiquid(item.Key, item.Value))
-                throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
-
-            if (!_master.RemoveLiquid(item.Key, item.Value))
+            foreach (var item in _manifest.TransferLiquids)
             {
-                // 主台扣账意外失败时撤销刚刚加入从台的这一笔；此前已提交的资源由会话收尾处理。
-                if (!slave.RemoveLiquid(item.Key, item.Value))
-                    throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
-                throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
+                if (item.Value == 0) continue;
+                if (!slave.AddLiquid(item.Key, item.Value))
+                    throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
+
+                if (!_master.RemoveLiquid(item.Key, item.Value))
+                {
+                    if (!slave.RemoveLiquid(item.Key, item.Value))
+                        throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
+                    throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
+                }
+                _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
+                    ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
             }
-            _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
-                ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
+        }
+        else
+        {
+            var outgoing = _masterLiquidScope.Balance;
+            if (!OrderLiquidTransfer.TryExecute(
+                DemandId, _masterLiquidScope.Staging, _slaveLiquidScope!.Staging,
+                outgoing, out var transferReason))
+                throw new InvalidOperationException(
+                    transferReason ?? "主从订单液体交接在提交阶段违反预检结果");
+            foreach (var item in outgoing)
+                _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
+                    ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
+            _masterLiquidScope.Staging.ReleaseOrderCapacity(DemandId);
         }
 
         return null;
@@ -590,6 +633,27 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private void ReleaseReservation()
     {
         if (_reservationReleased) return;
+        var scopes = _admission.GetLiquidScopes(DemandId);
+        if (scopes.HasValue)
+        {
+            var hasBalance = scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
+                (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false);
+            var settlementTick = _resourceLedger != null && hasBalance
+                ? _resourceLedgerTick!()
+                : 0;
+            var settlement = _admission.SettleLiquidResources(DemandId);
+            if (settlement != null)
+            {
+                foreach (var item in settlement.Accepted)
+                    _resourceLedger?.Record(settlementTick, ResourceCauses.Return,
+                        ResourceKinds.Liquid, item.Key, item.Value,
+                        from: "订单暂存", to: "自机液库");
+                foreach (var item in settlement.Discarded)
+                    _resourceLedger?.Record(settlementTick, ResourceCauses.Discard,
+                        ResourceKinds.Liquid, item.Key, item.Value,
+                        from: "订单暂存", to: null, reason: "自机液库总容量不足");
+            }
+        }
         if (!_admission.Release(DemandId))
             throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
         _reservationReleased = true;
