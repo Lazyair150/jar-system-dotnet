@@ -53,7 +53,8 @@ public sealed class OrderResourceSettlementService
                 ledger?.Record(tick, ResourceCauses.Discard,
                     ResourceKinds.Liquid, item.Key, item.Value,
                     from: "订单暂存", to: null, reason: "自机液库总容量不足");
-            lease.MarkSettlementLedgerRecorded();
+            if (ledger != null)
+                lease.MarkSettlementLedgerRecorded();
         }
 
         if (!admission.ReleaseReservationOnly(demandId))
