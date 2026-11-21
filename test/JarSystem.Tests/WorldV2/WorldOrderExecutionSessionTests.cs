@@ -805,6 +805,11 @@ public sealed class WorldOrderExecutionSessionTests
             demand.Id, setup.Book, admission, 1_000);
 
         Assert.True(started.Success, started.Reason);
+        var initialProgress = started.Session!.CaptureProgress();
+        Assert.Equal(started.Session.Stage, initialProgress.Stage);
+        Assert.Equal(demand.Id, initialProgress.Manifest.DemandId);
+        Assert.True(initialProgress.Plan.IsPartitioned);
+        Assert.False(initialProgress.SlaveTransferCommitted);
         var scopes = admission.GetLiquidScopes(demand.Id);
         Assert.True(scopes.HasValue);
         Assert.Equal(1, scopes.Value.Master.GetAmount("酒"));
@@ -814,6 +819,9 @@ public sealed class WorldOrderExecutionSessionTests
             runtime.AdvanceWorldTime(1_000);
 
         Assert.True(slave.HasResources, "B 类应先完成主台到从台的资源泵送");
+        var transferredProgress = started.Session.CaptureProgress();
+        Assert.Equal(WorldOrderExecutionStage.SlaveSteps, transferredProgress.Stage);
+        Assert.True(transferredProgress.SlaveTransferCommitted);
         Assert.Equal(0, scopes.Value.Master.GetAmount("酒"));
         Assert.Equal(1, scopes.Value.Slave!.GetAmount("酒"));
         Assert.Equal(1, master.LiquidStorage["酒"]); // 兼容求解快照的旧池未参与新路径扣账
@@ -822,6 +830,8 @@ public sealed class WorldOrderExecutionSessionTests
         var interrupted = started.Session!.InterruptForWorkshopReplacement();
 
         Assert.True(interrupted.Success, interrupted.Error);
+        Assert.Equal(WorldOrderExecutionStage.Interrupted, started.Session.Stage);
+        Assert.Equal(WorldOrderExecutionStage.Interrupted, started.Session.CaptureProgress().Stage);
         Assert.Equal(2, ship.GetAmount("酒"));
         Assert.Equal(0, scopes.Value.Master.Staging.UsedCapacity);
         Assert.Equal(0, scopes.Value.Slave!.Staging.UsedCapacity);
