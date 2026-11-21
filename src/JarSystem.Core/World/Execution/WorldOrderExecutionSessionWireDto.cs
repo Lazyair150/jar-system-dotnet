@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using JarSystem.Core.World.Solving;
 
 namespace JarSystem.Core.World.Execution;
 
@@ -74,7 +73,12 @@ public sealed class WorldOrderExecutionSessionWireDto
             throw new InvalidOperationException("会话 Wire DTO 缺少 Manifest 或 Plan。");
         Manifest.Validate();
         Plan.Validate();
-        ExecutionProgressInvariants.ValidateManifestPlan(DemandId, Manifest.ToManifest(), Plan.ToPlan());
+        if (Manifest.DemandId != DemandId || Manifest.IsPartitioned != Plan.IsPartitioned ||
+            !Manifest.TransferJarIds.OrderBy(x => x).SequenceEqual(Plan.TransferJarIds.OrderBy(x => x)) ||
+            Manifest.TransferLiquids.Count != Plan.TransferLiquids.Count ||
+            Manifest.TransferLiquids.Any(item =>
+                !Plan.TransferLiquids.TryGetValue(item.Key, out var amount) || amount != item.Value))
+            throw new InvalidOperationException("会话 Wire DTO 的 Manifest 与 Plan 订单身份或交接资源不一致。");
         ExecutionProgressInvariants.Validate(
             stage,
             CompletedMasterSteps,
