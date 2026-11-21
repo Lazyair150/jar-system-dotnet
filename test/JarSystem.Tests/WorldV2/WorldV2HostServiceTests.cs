@@ -10,16 +10,11 @@ using JarSystem.Core.World.Demands;
 using JarSystem.Core.World.Execution;
 using JarSystem.Core.World.Solving;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace JarSystem.Tests.WorldV2;
 
 public sealed class WorldV2HostServiceTests
 {
-    private readonly ITestOutputHelper _output;
-
-    public WorldV2HostServiceTests(ITestOutputHelper output) => _output = output;
-
     private static WorldV2Options ValidOptions(string masterName = "主台") => new()
     {
         Shapes = new List<string> { "圆罐", "方罐" },
