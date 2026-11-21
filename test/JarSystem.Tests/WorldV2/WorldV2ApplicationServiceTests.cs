@@ -211,25 +211,25 @@ public sealed class WorldV2ApplicationServiceTests
         var first = app.AdvanceWorld(1_000);
         Assert.Empty(first.FlowedLiquids);
         Assert.Collection(first.LiquidProductionReceipts,
-            alcohol =>
-            {
-                Assert.Equal("酒", alcohol.Liquid);
-                Assert.Equal(2, alcohol.ProducedAmount);
-                Assert.Equal(1, alcohol.AcceptedAmount);
-                Assert.Equal(1, alcohol.DiscardedAmount);
-            },
             honey =>
             {
                 Assert.Equal("蜜", honey.Liquid);
                 Assert.Equal(1, honey.ProducedAmount);
-                Assert.Equal(0, honey.AcceptedAmount);
-                Assert.Equal(1, honey.DiscardedAmount);
+                Assert.Equal(1, honey.AcceptedAmount);
+                Assert.Equal(0, honey.DiscardedAmount);
+            },
+            alcohol =>
+            {
+                Assert.Equal("酒", alcohol.Liquid);
+                Assert.Equal(2, alcohol.ProducedAmount);
+                Assert.Equal(0, alcohol.AcceptedAmount);
+                Assert.Equal(2, alcohol.DiscardedAmount);
             });
 
         var snapshot = app.GetWorldSnapshot();
         Assert.Equal(2, snapshot.ShipLiquidInventory!.UsedCapacity);
-        Assert.Equal(2, snapshot.ShipLiquidInventory.Balances["酒"]);
-        Assert.False(snapshot.ShipLiquidInventory.Balances.ContainsKey("蜜"));
+        Assert.Equal(1, snapshot.ShipLiquidInventory.Balances["酒"]);
+        Assert.Equal(1, snapshot.ShipLiquidInventory.Balances["蜜"]);
         Assert.Empty(snapshot.Master!.Liquids);
         Assert.Empty(snapshot.Slave!.Liquids);
 
@@ -242,7 +242,7 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(7, ledger.Events.Sum(item => item.Amount));
         Assert.Equal(1, ledger.Events.Count(item => item.Cause == "stock"));
         Assert.Equal(1, ledger.Events.Count(item => item.Cause == "production"));
-        Assert.Equal(4, ledger.Events.Count(item => item.Cause == "discard"));
+        Assert.Equal(3, ledger.Events.Count(item => item.Cause == "discard"));
         Assert.Equal(ledger.LastSeq, ledger.Events.Last().Seq);
     }
 
