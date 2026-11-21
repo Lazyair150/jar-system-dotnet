@@ -180,6 +180,69 @@ public sealed class WorldV2ContextTests
     }
 
     [Fact]
+    public void ContextRestoresActiveOrderWithoutRepeatingFundingOrExecutionSteps()
+    {
+        var firstMaster = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        firstMaster.AddJar(new Jar("圆罐", id: 41, vocabulary: Words));
+        var firstShip = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 2 });
+        using var firstWorld = WorldV2Context.Create(
+            CreateResources(), new[] { firstMaster }, firstMaster, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: firstShip);
+        var firstDemand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        firstWorld.DemandBoard.AddDemand(firstDemand, DemandAreaKind.Active);
+        var started = firstWorld.Scheduler.TryStartActiveDemand(firstDemand.Id);
+        Assert.True(started.Success, started.Reason);
+        firstWorld.Runtime.AdvanceWorldTime(500);
+
+        var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
+        Assert.Equal(1, checkpoint.ShipLiquidInventory.Balances["酒"]);
+        Assert.Equal(500, Assert.Single(checkpoint.Sessions).UnitElapsedLogicalMilli);
+        Assert.Single(checkpoint.ResourceLedger.Entries.Where(item => item.Cause == ResourceCauses.Flow));
+
+        var secondMaster = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        secondMaster.AddJar(new Jar("圆罐", id: 41, vocabulary: Words));
+        var secondShip = new ShipLiquidInventory(4);
+        using var secondWorld = WorldV2Context.Create(
+            CreateResources(), new[] { secondMaster }, secondMaster, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: secondShip);
+        var restoredDemand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        Assert.Equal(firstDemand.Id, restoredDemand.Id);
+        secondWorld.DemandBoard.AddDemand(restoredDemand, DemandAreaKind.Active);
+
+        secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
+
+        Assert.Equal(1, secondShip.GetAmount("酒"));
+        Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Master.GetAmount("酒"));
+        var restoredSession = Assert.Single(secondWorld.Runtime.ActiveExecutionSessions);
+        Assert.Equal(500, restoredSession.UnitElapsedLogicalMilli);
+        Assert.Equal(checkpoint.ResourceLedger.LastSeq, secondWorld.ResourceLedger.LastSeq);
+
+        secondWorld.Runtime.AdvanceWorldTime(500);
+
+        Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
+        Assert.Empty(secondWorld.Roster.Master!.Jars);
+        Assert.Equal(1, secondShip.GetAmount("酒"));
+        Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Flow));
+    }
+
+    [Fact]
     public void WorldClockSnapshotPreservesFixedPointRemainderAcrossRestore()
     {
         var original = new WorldClock();
