@@ -206,7 +206,7 @@ public sealed class WorldV2ContextTests
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
         Assert.Equal(1, checkpoint.ShipLiquidInventory.Balances["酒"]);
         Assert.Equal(500, Assert.Single(checkpoint.Sessions).UnitElapsedLogicalMilli);
-        Assert.Single(checkpoint.ResourceLedger.Entries.Where(item => item.Cause == ResourceCauses.Flow));
+        Assert.Single(checkpoint.ResourceLedger.Entries, item => item.Cause == ResourceCauses.Flow);
 
         var secondMaster = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
