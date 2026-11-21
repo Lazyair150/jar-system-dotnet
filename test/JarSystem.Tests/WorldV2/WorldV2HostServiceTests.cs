@@ -176,6 +176,7 @@ public sealed class WorldV2HostServiceTests
         _ = beforePump.ShipLiquidInventory.Balances.Keys.ToList();
         beforePump.ReservationLeases.Validate();
         _ = new WorldResourceReservationBookWireDto(beforePump.ReservationLeases.Leases);
+        _ = beforePump.ReservationLeases.DeepCopy();
         var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
             beforePumpWire, beforePump.ConfigurationFingerprint);
