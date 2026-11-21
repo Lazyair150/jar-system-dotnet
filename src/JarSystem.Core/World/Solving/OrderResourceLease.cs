@@ -15,6 +15,14 @@ public enum OrderResourceLeaseStage
     Settled
 }
 
+/// <summary>订单液体结算的单调阶段；账本副作用完成前不能将结算视为完整。</summary>
+public enum OrderResourceSettlementStage
+{
+    NotStarted,
+    ResourcesReturned,
+    LedgerRecorded
+}
+
 /// <summary>
 /// 一张订单的资源所有权聚合根。
 /// Reservation 是旧 API 的只读投影；罐子锁、初始液体供给和从台独占声明由 Lease 统一持有。
@@ -34,6 +42,9 @@ public sealed class OrderResourceLease
     private WorldResourceReservation? _reservationProjection;
     private (OrderLiquidScope Master, OrderLiquidScope? Slave)? _liquidScopes;
     public LiquidBatchReceipt? SettlementReceipt { get; private set; }
+    public OrderResourceSettlementStage SettlementStage { get; private set; }
+    /// <summary>稳定的订单结算操作标识，供后续账本去重/恢复协议使用。</summary>
+    public string SettlementOperationId => WorldVersion + ":order:" + DemandId + ":settlement";
     internal bool HasLiquidScopes => _liquidScopes.HasValue;
     internal (OrderLiquidScope Master, OrderLiquidScope? Slave)? LiquidScopes => _liquidScopes;
 
@@ -53,8 +64,19 @@ public sealed class OrderResourceLease
     {
         ArgumentNullException.ThrowIfNull(receipt);
         if (SettlementReceipt != null) return SettlementReceipt;
+        if (SettlementStage != OrderResourceSettlementStage.NotStarted)
+            throw new InvalidOperationException("订单结算阶段与结算收据不一致。");
         SettlementReceipt = receipt;
+        SettlementStage = OrderResourceSettlementStage.ResourcesReturned;
         return receipt;
+    }
+
+    internal void MarkSettlementLedgerRecorded()
+    {
+        if (SettlementStage == OrderResourceSettlementStage.LedgerRecorded) return;
+        if (SettlementStage != OrderResourceSettlementStage.ResourcesReturned || SettlementReceipt == null)
+            throw new InvalidOperationException("必须先完成订单资源返还，才能提交结算账本阶段。");
+        SettlementStage = OrderResourceSettlementStage.LedgerRecorded;
     }
 
     /// <summary>兼容既有 ReservationBook/Restore API 的不可变只读视图。</summary>
