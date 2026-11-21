@@ -4,6 +4,12 @@ using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.World;
 
+public sealed class WorkshopPrefillRollbackException : InvalidOperationException
+{
+    public WorkshopPrefillRollbackException(string message, Exception innerException)
+        : base(message, innerException) { }
+}
+
 public enum WorkshopRole
 {
     Master,
@@ -38,6 +44,8 @@ public sealed class WorkshopReplacementProcess
     public bool InterruptionCommitted { get; private set; }
     /// <summary>订单中断接口抛出异常，外部是否已中断无法确认。</summary>
     public bool InterruptionOutcomeUncertain { get; private set; }
+    /// <summary>前置补液回滚失败，世界资源状态可能不完整。</summary>
+    public bool PrefillRollbackOutcomeUncertain { get; private set; }
     public string? FailureReason { get; private set; }
     /// <summary>迁徙已提交后，外部账本/统计/对象池副作用若失败，记录警告而不回滚已提交世界。</summary>
     public string? CommitWarning { get; private set; }
@@ -134,9 +142,12 @@ public sealed class WorkshopReplacementProcess
         {
             // 订单中断已经成功，是不可逆边界；补液本身可回滚，不能把初始化失败留成半笔资源转移。
             var failure = ex;
-            try { RollbackPrefillIfPending(); }
+            if (ex is WorkshopPrefillRollbackException)
+                PrefillRollbackOutcomeUncertain = true;
+            try { RollbackPrefillIfPending();
             catch (Exception rollbackError)
             {
+                PrefillRollbackOutcomeUncertain = true;
                 failure = new AggregateException("主台前置补液回滚失败。", ex, rollbackError);
             }
             FailureReason = "订单已中断，但替换初始化失败；订单中断不会自动撤销: " + failure.Message;
