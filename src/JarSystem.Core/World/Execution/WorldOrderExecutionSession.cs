@@ -158,8 +158,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         var plan = snapshot.Plan;
         var isPartitioned = snapshot.Manifest.IsPartitioned;
         var lockedIds = snapshot.Manifest.LockedJarIds.ToHashSet();
-        if (isPartitioned != (slave != null))
-            throw new InvalidOperationException("执行会话计划类型与工作台快照岗位不一致。");
+        if (isPartitioned && slave == null)
+            throw new InvalidOperationException("B 类执行会话缺少从台工作台快照。");
 
         switch (snapshot.Stage)
         {
