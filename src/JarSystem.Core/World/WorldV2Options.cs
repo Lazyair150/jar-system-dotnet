@@ -120,7 +120,10 @@ public sealed class WorldV2Options
         {
             try
             {
-                if (InitialLiquidStock.Values.Aggregate(0, checked((total, amount) => total + amount)) > ShipLiquidCapacity)
+                var initialLiquidTotal = 0;
+                foreach (var amount in InitialLiquidStock.Values)
+                    initialLiquidTotal = checked(initialLiquidTotal + amount);
+                if (initialLiquidTotal > ShipLiquidCapacity)
                     result.Errors.Add("initialLiquidStock 总量超过 shipLiquidCapacity");
             }
             catch (OverflowException)
