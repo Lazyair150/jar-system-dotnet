@@ -276,7 +276,7 @@ public sealed class WorldV2ContextTests
             MasterStagingPeakCapacity = originalLeaseWire.MasterStagingPeakCapacity,
             SlaveStagingPeakCapacity = originalLeaseWire.SlaveStagingPeakCapacity,
             UsesSlave = originalLeaseWire.UsesSlave,
-            Stage = OrderResourceLeaseStage.TransferPending,
+            Stage = originalLeaseWire.Stage,
             SettlementStage = originalLeaseWire.SettlementStage,
             SettlementOperationId = originalLeaseWire.SettlementOperationId,
             SettlementRequested = originalLeaseWire.SettlementRequested == null ? null :
