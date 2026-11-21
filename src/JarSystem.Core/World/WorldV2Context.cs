@@ -115,8 +115,8 @@ public sealed class WorldV2Context : IDisposable
     }
 
     /// <summary>
-    /// 捕获活动执行所需的液体资源、资源预留、账本、时钟与会话进度。
-    /// 必须在 Host 独占操作内调用。工作台罐子实体快照仍由独立的 Workshop 状态边界负责。
+    /// 捕获活动执行所需的工作台动态库存、液体资源、资源预留、账本、时钟与会话进度。
+    /// 必须在 Host 独占操作内调用；需求板、生产器和规则修饰器配置仍由其他快照边界负责。
     /// </summary>
     public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
     {
