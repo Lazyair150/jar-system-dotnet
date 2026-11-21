@@ -62,8 +62,9 @@ public sealed class WorldV2FactoryTests
 
         Assert.Equal(new[] { "圆罐", "方罐" }, world.Resources.Producers.Generators.Keys);
         Assert.Single(world.Resources.Producers.Producers);
-        Assert.Equal(3, world.Resources.Inventory.LiquidCount("酒"));
-        Assert.Equal(0, world.Resources.Inventory.LiquidCount("蜜"));
+        Assert.Equal(3, world.ShipLiquidInventory!.GetAmount("酒"));
+        Assert.Equal(0, world.ShipLiquidInventory.GetAmount("蜜"));
+        Assert.Equal(0, world.Resources.Inventory.LiquidCount("酒"));
         Assert.Equal(1, world.Resources.JarFlowRate);
         Assert.Equal(1, world.Resources.LiquidFlowRate);
         Assert.Equal("主台", world.Roster.Master!.Name);
@@ -86,10 +87,11 @@ public sealed class WorldV2FactoryTests
         Assert.Equal(2, result.ProducedJarCount);
         Assert.Equal(1, result.ProducedLiquids.Single().Amount);
         Assert.Equal(2, result.FlowedJarCount);
-        Assert.Equal(2, result.FlowedLiquids["酒"]);
+        Assert.Empty(result.FlowedLiquids);
         Assert.Equal(0, world.Resources.Inventory.JarCount);
         Assert.Equal(2, world.Roster.Master!.Jars.Count);
-        Assert.Equal(2, world.Roster.Master.LiquidStorage["酒"]);
+        Assert.Equal(0, world.Roster.Master.LiquidStorage["酒"]);
+        Assert.Equal(4, world.ShipLiquidInventory!.GetAmount("酒"));
     }
 
     [Fact]
@@ -107,7 +109,7 @@ public sealed class WorldV2FactoryTests
         Assert.DoesNotContain("被篡改", world.Resources.Producers.Generators.Keys);
         Assert.Equal(1, world.Resources.Producers.Producers["陶工"].Rates["圆罐"]);
         Assert.Contains("圆罐", world.Roster.Master!.BaseMarks);
-        Assert.Equal(3, world.Resources.Inventory.LiquidCount("酒"));
+        Assert.Equal(3, world.ShipLiquidInventory!.GetAmount("酒"));
     }
 
     [Fact]
