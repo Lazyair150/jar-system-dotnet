@@ -91,13 +91,27 @@ public sealed class WorldOrderExecutionSessionWireDto
         if (CompletedMasterSteps < 0 || CompletedMasterSteps > Plan.MasterSteps.Length ||
             CompletedSlaveSteps < 0 || CompletedSlaveSteps > Plan.SlaveSteps.Length)
             throw new InvalidOperationException("会话 Wire DTO 的步骤游标越界。");
-        if (!Plan.IsPartitioned && (CompletedSlaveSteps != 0 || Stage == nameof(WorldOrderExecutionStage.SlaveSteps)))
-            throw new InvalidOperationException("A 类会话 Wire DTO 不得包含从台阶段或游标。");
-        if (Plan.IsPartitioned && Stage == nameof(WorldOrderExecutionStage.SlaveSteps) &&
-            !SlaveTransferCommitted)
-            throw new InvalidOperationException("从台阶段必须已经提交主到从的交接。");
-        if (Stage != nameof(WorldOrderExecutionStage.SlaveSteps) && SlaveTransferCommitted)
-            throw new InvalidOperationException("只有进入从台阶段后才能标记交接已提交。");
+
+        // 与运行时 RestoreProgress 使用同一阶段/游标契约，避免 DTO 接受
+        // 一个 JSON 可读、但运行时永远无法恢复的会话状态。
+        var validProgress = stage switch
+        {
+            WorldOrderExecutionStage.MasterSteps =>
+                CompletedMasterSteps < Plan.MasterSteps.Length &&
+                CompletedSlaveSteps == 0 && !SlaveTransferCommitted,
+            WorldOrderExecutionStage.Transfer =>
+                Plan.IsPartitioned &&
+                CompletedMasterSteps == Plan.MasterSteps.Length &&
+                CompletedSlaveSteps == 0 && !SlaveTransferCommitted,
+            WorldOrderExecutionStage.SlaveSteps =>
+                Plan.IsPartitioned &&
+                CompletedMasterSteps == Plan.MasterSteps.Length &&
+                CompletedSlaveSteps < Plan.SlaveSteps.Length &&
+                SlaveTransferCommitted,
+            _ => false
+        };
+        if (!validProgress || Reason != null)
+            throw new InvalidOperationException("会话 Wire DTO 的阶段、步骤游标与交接标记组合无效。");
     }
 }
 
