@@ -151,6 +151,14 @@ public sealed class WorldV2CheckpointJsonCodecTests
         var json = WorldV2CheckpointJsonCodec.Encode(dto, Fingerprint);
         var decoded = WorldV2CheckpointJsonCodec.Decode<JarSystem.Core.World.Execution.WorldOrderExecutionSessionWireDto>(json);
 
+        var planTransferMarker = "\\"transferLiquids\\":{\\"water\\":1}";
+        var planTransferIndex = json.LastIndexOf(planTransferMarker, StringComparison.Ordinal);
+        Assert.True(planTransferIndex >= 0);
+        var mismatchedJson = json[..planTransferIndex] +
+            json[planTransferIndex..].Replace(planTransferMarker, "\\"transferLiquids\\":{\\"water\\":2}", StringComparison.Ordinal);
+        var mismatched = WorldV2CheckpointJsonCodec.Decode<JarSystem.Core.World.Execution.WorldOrderExecutionSessionWireDto>(mismatchedJson);
+        Assert.Throws<InvalidOperationException>(() => mismatched.Payload.Validate());
+
         decoded.Payload.Validate();
         Assert.Equal(17, decoded.Payload.DemandId);
         Assert.Equal("SlaveSteps", decoded.Payload.Stage);
