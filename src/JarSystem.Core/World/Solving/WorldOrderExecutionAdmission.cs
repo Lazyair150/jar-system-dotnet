@@ -70,13 +70,25 @@ public sealed class WorldOrderExecutionAdmission
         return WorldSnapshotFactory.Capture(_roster, _shipLiquidInventory, prefill);
     }
 
-    public LiquidBatchReceipt PrefillMasterWorkshop(Workshop targetWorkshop, IEnumerable<string> productionPriority)
+    internal WorkshopPrefillTransaction BeginMasterWorkshopPrefill(
+        Workshop targetWorkshop, IEnumerable<string> productionPriority)
     {
         ArgumentNullException.ThrowIfNull(targetWorkshop);
         ArgumentNullException.ThrowIfNull(productionPriority);
-        if (_shipLiquidInventory == null) throw new InvalidOperationException("旧版兼容准入不支持主台切换前置补液。");
-        if (!_roster.IsSpare(targetWorkshop)) throw new InvalidOperationException("主台前置补液目标必须是当前主从岗位之外的备用工作台。");
-        return GetOrCreateStaging(targetWorkshop).PrefillFromShip(_shipLiquidInventory, productionPriority);
+        if (_shipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容准入不支持主台切换前置补液。");
+        if (!_roster.IsSpare(targetWorkshop))
+            throw new InvalidOperationException("主台前置补液目标必须是当前主从岗位之外的备用工作台。");
+        return GetOrCreateStaging(targetWorkshop)
+            .BeginPrefillFromShip(_shipLiquidInventory, productionPriority);
+    }
+
+    public LiquidBatchReceipt PrefillMasterWorkshop(
+        Workshop targetWorkshop, IEnumerable<string> productionPriority)
+    {
+        var transaction = BeginMasterWorkshopPrefill(targetWorkshop, productionPriority);
+        transaction.Commit();
+        return transaction.Receipt;
     }
 
     public WorldOrderExecutionAdmissionResult TryAdmit(int demandId)
