@@ -41,6 +41,24 @@ public sealed class WorldOrderExecutionSessionWireDto
         };
     }
 
+    public WorldOrderExecutionSessionProgressSnapshot ToSnapshot()
+    {
+        Validate();
+        var manifest = Manifest.ToManifest();
+        var plan = Plan.ToPlan();
+        return new WorldOrderExecutionSessionProgressSnapshot(
+            DemandId,
+            Enum.Parse<WorldOrderExecutionStage>(Stage, false),
+            CompletedMasterSteps,
+            CompletedSlaveSteps,
+            UnitElapsedLogicalMilli,
+            UnitDurationLogicalMilli,
+            SlaveTransferCommitted,
+            Reason,
+            manifest,
+            plan);
+    }
+
     public void Validate()
     {
         if (DemandId <= 0) throw new InvalidOperationException("会话 Wire DTO 的 DemandId 无效。");
@@ -58,8 +76,8 @@ public sealed class WorldOrderExecutionSessionWireDto
         Plan.Validate();
         if (Manifest.DemandId != DemandId || Manifest.IsPartitioned != Plan.IsPartitioned)
             throw new InvalidOperationException("会话 Wire DTO 的订单身份或主从类型不一致。");
-        if (CompletedMasterSteps < 0 || CompletedMasterSteps > Plan.MasterSteps.Count ||
-            CompletedSlaveSteps < 0 || CompletedSlaveSteps > Plan.SlaveSteps.Count)
+        if (CompletedMasterSteps < 0 || CompletedMasterSteps > Plan.MasterSteps.Length ||
+            CompletedSlaveSteps < 0 || CompletedSlaveSteps > Plan.SlaveSteps.Length)
             throw new InvalidOperationException("会话 Wire DTO 的步骤游标越界。");
         if (!Plan.IsPartitioned && (CompletedSlaveSteps != 0 || Stage == nameof(WorldOrderExecutionStage.SlaveSteps)))
             throw new InvalidOperationException("A 类会话 Wire DTO 不得包含从台阶段或游标。");
@@ -121,6 +139,17 @@ public sealed class WorldOrderResourceManifestWireDto
             throw new InvalidOperationException("Manifest Wire DTO 的主从资源边界无效。");
     }
 
+    internal WorldOrderResourceManifest ToManifest()
+    {
+        Validate();
+        return WorldOrderResourceManifest.RestoreFromWire(
+            DemandId, WorldVersion, IsPartitioned,
+            MasterJarIds, TransferJarIds,
+            MasterInitialLiquidAmounts, TransferLiquids,
+            MasterFinalLiquidBalances,
+            MasterStagingPeakCapacity, SlaveStagingPeakCapacity);
+    }
+
     private static Dictionary<string, int> Copy(IReadOnlyDictionary<string, int> source) =>
         source.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
 
@@ -147,6 +176,15 @@ public sealed class WorldOrderSolvePlanWireDto
         MasterSteps = value.MasterSteps.Select(WorldPlanStepWireDto.FromStep).ToArray(),
         SlaveSteps = value.SlaveSteps.Select(WorldPlanStepWireDto.FromStep).ToArray()
     };
+
+    internal WorldOrderSolvePlan ToPlan()
+    {
+        Validate();
+        return WorldOrderSolvePlan.RestoreFromWire(
+            IsPartitioned, TransferJarIds, TransferLiquids,
+            MasterSteps.Select(x => x.ToStep()).ToArray(),
+            SlaveSteps.Select(x => x.ToStep()).ToArray());
+    }
 
     internal void Validate()
     {
@@ -181,6 +219,18 @@ public sealed class WorldPlanStepWireDto
         After = value.After.Select(WorldPlanJarStateWireDto.FromState).ToArray(),
         AfterLiquids = value.AfterLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal)
     };
+
+    internal WorldPlanStep ToStep()
+    {
+        Validate();
+        return new WorldPlanStep(
+            Step, RequirementShape, RequirementLiquid,
+            Operation!.ToOperation(),
+            Array.AsReadOnly(Before.Select(x => x.ToState()).ToArray()),
+            Array.AsReadOnly(After.Select(x => x.ToState()).ToArray()),
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+                new Dictionary<string, int>(AfterLiquids, StringComparer.Ordinal)));
+    }
 
     internal void Validate()
     {
@@ -219,6 +269,16 @@ public sealed class WorldPlanOperationWireDto
         FullReshape = value.FullReshape
     };
 
+    internal WorldPlanOperation ToOperation()
+    {
+        Validate();
+        return new WorldPlanOperation(
+            Type, Description, JarIndex, TargetShape, TargetLiquid, CostLiquid,
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+                new Dictionary<string, int>(Consumed, StringComparer.Ordinal)),
+            FullReshape);
+    }
+
     internal void Validate()
     {
         if (string.IsNullOrWhiteSpace(Type) || JarIndex is < 0 || Consumed == null ||
@@ -240,6 +300,12 @@ public sealed class WorldPlanJarStateWireDto
         Id = value.Id, Shape = value.Shape, Liquid = value.Liquid,
         IsMarked = value.IsMarked, MasterOrigin = value.MasterOrigin
     };
+
+    internal WorldPlanJarState ToState()
+    {
+        Validate();
+        return new WorldPlanJarState(Id, Shape, Liquid, IsMarked, MasterOrigin);
+    }
 
     internal void Validate()
     {
