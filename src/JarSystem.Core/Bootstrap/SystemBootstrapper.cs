@@ -43,6 +43,8 @@ public static class SystemBootstrapper
                 w.MaxLiquids ?? world.DefaultMaxLiquids,
                 jarIds,
                 vocabulary: vocabulary,
-                modifiers: modifiers));
+                modifiers: modifiers,
+                liquidStagingCapacity: w.LiquidStagingCapacity ??
+                    (w.MaxLiquids ?? world.DefaultMaxLiquids)));
     }
 }
