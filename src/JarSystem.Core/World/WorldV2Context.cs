@@ -127,6 +127,7 @@ public sealed class WorldV2Context : IDisposable
         if (ShipLiquidInventory == null)
             throw new InvalidOperationException("旧版兼容世界没有自机液库，不能捕获新液体资源检查点。");
         return new WorldV2ExecutionResourceCheckpoint(
+            Resources.CaptureRuntimeState(),
             ShipLiquidInventory.Capture(),
             Roster.Master?.CaptureRuntimeState()
                 ?? throw new InvalidOperationException("检查点捕获时没有主工作台。"),
@@ -154,6 +155,7 @@ public sealed class WorldV2Context : IDisposable
             Admission.Capture().ActiveOrders.Count != 0)
             throw new InvalidOperationException("只能向没有活动会话、预留或工作台替换的 Context 恢复检查点。");
 
+        Resources.ValidateRuntimeStateSnapshot(checkpoint.ResourceArea);
         if (checkpoint.ShipLiquidInventory.Capacity != ShipLiquidInventory.Capacity)
             throw new InvalidOperationException("检查点自机液库容量与当前世界配置不一致。");
         if ((Roster.Slave == null) != (checkpoint.SlaveWorkshop == null))
@@ -197,6 +199,7 @@ public sealed class WorldV2Context : IDisposable
         }
 
         // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
+        Resources.RestoreRuntimeState(checkpoint.ResourceArea);
         Roster.Master.RestoreRuntimeState(checkpoint.MasterWorkshop);
         if (Roster.Slave != null)
             Roster.Slave.RestoreRuntimeState(checkpoint.SlaveWorkshop!);
@@ -227,6 +230,7 @@ public sealed class WorldV2Context : IDisposable
 public sealed class WorldV2ExecutionResourceCheckpoint
 {
     internal WorldV2ExecutionResourceCheckpoint(
+        ResourceAreaRuntimeStateSnapshot resourceArea,
         ShipLiquidInventorySnapshot shipLiquidInventory,
         WorkshopRuntimeStateSnapshot masterWorkshop,
         WorkshopRuntimeStateSnapshot? slaveWorkshop,
@@ -237,6 +241,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         int runtimeLedgerTick,
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
     {
+        ResourceArea = resourceArea;
         ShipLiquidInventory = shipLiquidInventory;
         MasterWorkshop = masterWorkshop;
         SlaveWorkshop = slaveWorkshop;
@@ -248,6 +253,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
     }
 
+    public ResourceAreaRuntimeStateSnapshot ResourceArea { get; }
     public ShipLiquidInventorySnapshot ShipLiquidInventory { get; }
     public WorkshopRuntimeStateSnapshot MasterWorkshop { get; }
     public WorkshopRuntimeStateSnapshot? SlaveWorkshop { get; }
