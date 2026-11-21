@@ -41,9 +41,11 @@ public sealed class LiquidResourceAccountsTests
         var result = ship.Return(
             new Dictionary<string, int> { ["蜜"] = 2, ["盐"] = 1 });
 
-        Assert.Equal(3, result.RequestedAmount);
-        Assert.Equal(1, result.AcceptedAmount);
-        Assert.Equal(2, result.DiscardedAmount);
+        Assert.Equal(3, result.RequestedTotal);
+        Assert.Equal(1, result.AcceptedTotal);
+        Assert.Equal(2, result.DiscardedTotal);
+        Assert.Equal(1, result.Accepted["盐"]);
+        Assert.Equal(2, result.Discarded["蜜"]);
         Assert.Equal(3, ship.UsedCapacity);
     }
 
