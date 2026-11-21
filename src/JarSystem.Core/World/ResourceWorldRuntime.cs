@@ -36,6 +36,43 @@ public sealed class ResourceWorldRuntime
     /// <summary>当前仍在推进的订单执行会话（只读视图）。</summary>
     public IReadOnlyList<WorldOrderExecutionSession> ActiveExecutionSessions => _executionSessionsView;
 
+    /// <summary>当前账本逻辑 tick 游标；检查点恢复后继续递增。</summary>
+    internal int LedgerTick => _ledgerTick;
+
+    /// <summary>
+    /// 恢复活动执行会话。仅允许装入空 Runtime；会话游标由快照恢复，不调用 TryStart/准入。
+    /// 所有会话先在局部构造并验证，成功后才一次性挂入 Runtime。
+    /// </summary>
+    internal void RestoreExecutionSessions(
+        IEnumerable<WorldOrderExecutionSessionProgressSnapshot> snapshots,
+        WorldOrderSolveBook solveBook,
+        WorldOrderExecutionAdmission admission,
+        WorldResourceReservationBook reservations,
+        int ledgerTick)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        if (ledgerTick < 0) throw new ArgumentOutOfRangeException(nameof(ledgerTick));
+        ThrowIfFaulted();
+        if (_executionSessions.Count != 0 || ReplacementBlocksWorld || ActiveReplacement != null)
+            throw new InvalidOperationException("只能向没有活动会话或工作台替换的 Runtime 恢复执行。");
+        if (Roster == null || DemandBoard == null)
+            throw new InvalidOperationException("当前 Runtime 缺少需求板或工作台岗位，不能恢复会话。");
+
+        var restored = new List<WorldOrderExecutionSession>();
+        var demandIds = new HashSet<int>();
+        foreach (var snapshot in snapshots.OrderBy(item => item.DemandId))
+        {
+            if (!demandIds.Add(snapshot.DemandId))
+                throw new InvalidOperationException("执行检查点包含重复活动订单会话。");
+            restored.Add(WorldOrderExecutionSession.RestoreProgress(
+                snapshot, DemandBoard, solveBook, admission, Roster,
+                reservations, _resourceLedger, _resourceLedgerTick));
+        }
+
+        _ledgerTick = ledgerTick;
+        _executionSessions.AddRange(restored);
+    }
+
     // 世界级资源服务由装配层提供，避免 Runtime 创建缺少账本/对象池依赖的迁徙事件。
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
     private readonly ResourceLedger? _resourceLedger;
