@@ -56,7 +56,7 @@ public sealed class WorldOrderScheduler
     {
         if (_runtime.IsFaulted)
             throw new InvalidOperationException("世界运行时已故障，不能执行订单调度：" + _runtime.FaultReason);
-        if (_runtime.ActiveReplacement is { IsFinished: false })
+        if (_runtime.BlocksOrderAdmission)
             return new WorldOrderSchedulingPassResult(0, Array.Empty<int>(), Array.Empty<WorldOrderSchedulingDecision>());
         if (_running)
             throw new InvalidOperationException("订单调度过程不可重入");
@@ -178,8 +178,8 @@ public sealed class WorldOrderScheduler
     {
         if (_runtime.IsFaulted)
             return WorldOrderExecutionStartResult.Rejected("世界运行时已故障，不能启动订单：" + _runtime.FaultReason);
-        if (_runtime.ActiveReplacement is { IsFinished: false })
-            return WorldOrderExecutionStartResult.Rejected("工作台替换期间不能启动订单。");
+        if (_runtime.BlocksOrderAdmission)
+            return WorldOrderExecutionStartResult.Rejected("工作台替换正在进行或结果不确定，不能启动订单。");
         if (_running)
             return WorldOrderExecutionStartResult.Rejected("当前正在执行调度过程，不能重入启动主动订单");
 
