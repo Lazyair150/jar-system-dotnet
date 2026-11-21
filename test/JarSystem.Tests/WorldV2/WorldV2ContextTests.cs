@@ -251,8 +251,8 @@ public sealed class WorldV2ContextTests
         Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
 
         var capturedLease = Assert.Single(firstWorld.Reservations.Capture().Reservations);
-        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting, capturedLease.Stage);
-        Assert.Equal(1, capturedLease.TransferLiquidAmounts["酒"]);
+        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, capturedLease.Stage);
+        Assert.Empty(capturedLease.TransferLiquidAmounts);
         var capturedReservation = Assert.Single(checkpoint.Reservations.Reservations);
         var mismatchedReservation = new WorldResourceReservation(
             capturedReservation.DemandId,
