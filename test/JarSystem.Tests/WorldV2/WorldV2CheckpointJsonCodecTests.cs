@@ -159,6 +159,22 @@ public sealed class WorldV2CheckpointJsonCodecTests
         Assert.Equal(2, decoded.Payload.Manifest.MasterFinalLiquidBalances["water"]);
         Assert.Equal(1, decoded.Payload.Plan.SlaveSteps[0].Operation!.JarIndex);
         Assert.Equal("MATCH", decoded.Payload.Plan.SlaveSteps[0].Operation!.Type);
+
+        var restored = decoded.Payload.ToSnapshot();
+        Assert.Equal(17, restored.DemandId);
+        Assert.Equal(JarSystem.Core.World.Execution.WorldOrderExecutionStage.SlaveSteps, restored.Stage);
+        Assert.Equal(2, restored.CompletedMasterSteps);
+        Assert.Equal(1, restored.CompletedSlaveSteps);
+        Assert.True(restored.SlaveTransferCommitted);
+        Assert.Equal(new[] { 1, 2 }, restored.Manifest.LockedJarIds);
+        Assert.Equal(new[] { 2 }, restored.Manifest.TransferJarIds);
+        Assert.Equal(1, restored.Plan.TransferLiquids["water"]);
+        Assert.Equal("MATCH", restored.Plan.SlaveSteps[0].Operation!.Type);
+
+        var recaptured = JarSystem.Core.World.Execution.WorldOrderExecutionSessionWireDto.FromSnapshot(restored);
+        recaptured.Validate();
+        Assert.Equal(decoded.Payload.Plan.SlaveSteps[0].After[0].IsMarked,
+            recaptured.Plan.SlaveSteps[0].After[0].IsMarked);
     }
 
     [Fact]
