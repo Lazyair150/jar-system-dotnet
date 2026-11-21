@@ -152,6 +152,7 @@ public sealed class WorldV2Context : IDisposable
             Roster.Slave?.CaptureRuntimeState(),
             Admission.Capture(),
             Reservations.Capture(),
+            Reservations.CaptureWire(),
             ResourceLedger.Capture(),
             Runtime.Clock.Capture(),
             Runtime.LedgerTick,
@@ -209,7 +210,7 @@ public sealed class WorldV2Context : IDisposable
         var stagedBoard = OrderDemandBoard.RestoreRuntimeState(
             checkpoint.DemandBoard, vocabulary, stagedDemandIds);
         var stagedSolveBook = new WorldOrderSolveBook(stagedBoard);
-        var stagedReservations = WorldResourceReservationBook.Restore(checkpoint.Reservations);
+        var stagedReservations = WorldResourceReservationBook.RestoreWire(checkpoint.ReservationLeases);
         var stagedAdmission = new WorldOrderExecutionAdmission(
             stagedBoard, stagedSolveBook, Roster, stagedReservations, stagedShip);
         stagedAdmission.Restore(checkpoint.Admission);
@@ -244,7 +245,7 @@ public sealed class WorldV2Context : IDisposable
         if (Roster.Slave != null)
             Roster.Slave.RestoreRuntimeState(checkpoint.SlaveWorkshop!);
         ShipLiquidInventory.RestoreFrom(checkpoint.ShipLiquidInventory);
-        Reservations.RestoreFrom(checkpoint.Reservations);
+        Reservations.RestoreFromWire(checkpoint.ReservationLeases);
         Admission.Restore(checkpoint.Admission);
         ResourceLedger.RestoreFrom(checkpoint.ResourceLedger);
         Runtime.Clock.RestoreFrom(checkpoint.Clock);
@@ -278,6 +279,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         WorkshopRuntimeStateSnapshot? slaveWorkshop,
         WorldOrderExecutionAdmissionSnapshot admission,
         WorldResourceReservationBookSnapshot reservations,
+        WorldResourceReservationBookWireDto reservationLeases,
         ResourceLedgerSnapshot resourceLedger,
         WorldClockSnapshot clock,
         int runtimeLedgerTick,
@@ -291,6 +293,8 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         SlaveWorkshop = slaveWorkshop;
         Admission = admission;
         Reservations = reservations;
+        ReservationLeases = reservationLeases ?? throw new ArgumentNullException(nameof(reservationLeases));
+        ReservationLeases.Validate();
         ResourceLedger = resourceLedger;
         Clock = clock;
         RuntimeLedgerTick = runtimeLedgerTick;
@@ -304,7 +308,9 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     public WorkshopRuntimeStateSnapshot MasterWorkshop { get; }
     public WorkshopRuntimeStateSnapshot? SlaveWorkshop { get; }
     public WorldOrderExecutionAdmissionSnapshot Admission { get; }
+    /// <summary>兼容旧投影；完整恢复以包含 Lease 结算收据的 ReservationLeases 为准。</summary>
     public WorldResourceReservationBookSnapshot Reservations { get; }
+    public WorldResourceReservationBookWireDto ReservationLeases { get; }
     public ResourceLedgerSnapshot ResourceLedger { get; }
     public WorldClockSnapshot Clock { get; }
     public int RuntimeLedgerTick { get; }
