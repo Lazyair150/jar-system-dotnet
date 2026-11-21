@@ -104,9 +104,10 @@ public sealed class ResourceArea
         }
 
         var producedJars = _producers.AdvanceLogicalTime(deltaLogicalTimeMilli);
-        var producedLiquids = _liquidProduction.AdvanceLogicalTime(deltaLogicalTimeMilli);
+        var producedLiquids = _liquidProduction.AdvanceLogicalTime(deltaLogicalTimeMilli)
+            .OrderBy(item => item.Liquid, StringComparer.Ordinal).ToArray();
         var liquidProductionReceipts = new List<LiquidProductionReceipt>();
-        foreach (var (liquid, amount) in producedLiquids.OrderBy(item => item.Liquid, StringComparer.Ordinal))
+        foreach (var (liquid, amount) in producedLiquids)
         {
             if (_shipLiquidInventory == null)
             {
