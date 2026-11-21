@@ -238,7 +238,8 @@ public sealed class WorldV2ContextTests
         var invalidClockCheckpoint = new WorldV2ExecutionResourceCheckpoint(
             checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint, checkpoint.ShipLiquidInventory,
             checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
-            checkpoint.Admission, checkpoint.Reservations, checkpoint.ResourceLedger,
+            checkpoint.Admission, checkpoint.Reservations, checkpoint.ReservationLeases,
+            checkpoint.ResourceLedger,
             new WorldClockSnapshot(-1, checkpoint.Clock.LogicalTimeMilli,
                 checkpoint.Clock.SpeedRatioMilli, checkpoint.Clock.IsPaused,
                 checkpoint.Clock.ConversionRemainder),
@@ -264,11 +265,33 @@ public sealed class WorldV2ContextTests
             capturedReservation.TransferLiquidAmounts,
             capturedReservation.MasterStagingPeakCapacity,
             capturedReservation.SlaveStagingPeakCapacity);
+        var originalLeaseWire = Assert.Single(checkpoint.ReservationLeases.Leases);
+        var mismatchedLeaseWire = new OrderResourceLeaseWireDto
+        {
+            DemandId = originalLeaseWire.DemandId,
+            WorldVersion = originalLeaseWire.WorldVersion,
+            LockedJarIds = new List<int>(originalLeaseWire.LockedJarIds),
+            InitialLiquidSupply = new Dictionary<string, int>(originalLeaseWire.InitialLiquidSupply),
+            TransferLiquidAmounts = new Dictionary<string, int>(originalLeaseWire.TransferLiquidAmounts),
+            MasterStagingPeakCapacity = originalLeaseWire.MasterStagingPeakCapacity,
+            SlaveStagingPeakCapacity = originalLeaseWire.SlaveStagingPeakCapacity,
+            UsesSlave = originalLeaseWire.UsesSlave,
+            Stage = OrderResourceLeaseStage.TransferPending,
+            SettlementStage = originalLeaseWire.SettlementStage,
+            SettlementOperationId = originalLeaseWire.SettlementOperationId,
+            SettlementRequested = originalLeaseWire.SettlementRequested == null ? null :
+                new Dictionary<string, int>(originalLeaseWire.SettlementRequested),
+            SettlementAccepted = originalLeaseWire.SettlementAccepted == null ? null :
+                new Dictionary<string, int>(originalLeaseWire.SettlementAccepted),
+            SettlementDiscarded = originalLeaseWire.SettlementDiscarded == null ? null :
+                new Dictionary<string, int>(originalLeaseWire.SettlementDiscarded)
+        };
         var mismatchedCheckpoint = new WorldV2ExecutionResourceCheckpoint(
             checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint,
             checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
             checkpoint.Admission,
             new WorldResourceReservationBookSnapshot(new[] { mismatchedReservation }),
+            new WorldResourceReservationBookWireDto(new[] { mismatchedLeaseWire }),
             checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick, checkpoint.Sessions);
         Assert.Throws<InvalidOperationException>(
             () => secondWorld.RestoreExecutionResourceCheckpoint(mismatchedCheckpoint));
