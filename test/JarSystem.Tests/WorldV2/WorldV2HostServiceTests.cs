@@ -84,6 +84,39 @@ public sealed class WorldV2HostServiceTests
     }
 
     [Fact]
+    public void CheckpointRestorePublishesOnlyFullyRestoredContextAndDisposesPrevious()
+    {
+        using var host = new WorldV2HostService();
+        var options = ValidOptions();
+        host.Replace(options);
+        var application = new WorldV2ApplicationService(host);
+        var checkpoint = application.CaptureExecutionResourceCheckpoint();
+
+        WorldV2Context? previous = null;
+        host.ExecuteExclusive(context => previous = context);
+
+        application.RestoreExecutionResourceCheckpoint(ValidOptions(), checkpoint);
+
+        WorldV2Context? restored = null;
+        host.ExecuteExclusive(context => restored = context);
+        Assert.NotNull(restored);
+        Assert.NotSame(previous, restored);
+        Assert.True(previous!.IsDisposed);
+        Assert.False(restored!.IsDisposed);
+        Assert.Equal("主台", restored.Roster.Master!.Name);
+
+        var incompatible = ValidOptions();
+        incompatible.InitialLiquidStock = new Dictionary<string, int> { ["酒"] = 4 };
+        Assert.Throws<InvalidOperationException>(() =>
+            application.RestoreExecutionResourceCheckpoint(incompatible, checkpoint));
+
+        WorldV2Context? afterFailure = null;
+        host.ExecuteExclusive(context => afterFailure = context);
+        Assert.Same(restored, afterFailure);
+        Assert.False(restored.IsDisposed);
+    }
+
+    [Fact]
     public void FailedReplaceKeepsPreviousWorldCurrentAndAlive()
     {
         using var host = new WorldV2HostService();
