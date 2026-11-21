@@ -159,6 +159,110 @@ public sealed class WorldOrderExecutionAdmission
         return WorldOrderExecutionAdmissionResult.Admitted(manifest);
     }
 
+    /// <summary>
+    /// 捕获新液体资源路径的全部工作台暂存状态与活动订单范围。
+    /// 该快照必须在 Host 独占区内取得，避免看到准入/结算的中间状态。
+    /// </summary>
+    public WorldOrderExecutionAdmissionSnapshot Capture()
+    {
+        if (_shipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容准入不支持活动液体资源快照。");
+        var master = _roster.Master ?? throw new InvalidOperationException("快照时没有主工作台。");
+        var slave = _roster.Slave;
+        foreach (var workshop in _stagingByWorkshop.Keys)
+            if (!ReferenceEquals(workshop, master) && !ReferenceEquals(workshop, slave))
+                throw new InvalidOperationException("暂存区映射包含不属于当前岗位的工作台。");
+
+        var masterStaging = _stagingByWorkshop.TryGetValue(master, out var masterValue)
+            ? masterValue.Capture()
+            : null;
+        var slaveStaging = slave != null && _stagingByWorkshop.TryGetValue(slave, out var slaveValue)
+            ? slaveValue.Capture()
+            : null;
+        var activeOrders = _scopesByDemand.OrderBy(pair => pair.Key)
+            .Select(pair => new WorldOrderExecutionScopeSnapshot(pair.Key, pair.Value.Slave != null))
+            .ToArray();
+        return new WorldOrderExecutionAdmissionSnapshot(masterStaging, slaveStaging, activeOrders);
+    }
+
+    /// <summary>
+    /// 将活动订单暂存状态恢复到一个全新的准入器。
+    /// 不重新扣自机液库、不重新执行订单；恢复前核对资源预留与工作台配置。
+    /// </summary>
+    public void Restore(WorldOrderExecutionAdmissionSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (_shipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容准入不支持活动液体资源恢复。");
+        if (_stagingByWorkshop.Count != 0 || _scopesByDemand.Count != 0 || _settlementsByDemand.Count != 0)
+            throw new InvalidOperationException("只能向没有活动暂存状态的新准入器恢复。");
+
+        var master = _roster.Master ?? throw new InvalidOperationException("恢复时没有主工作台。");
+        var slave = _roster.Slave;
+        ValidateStagingForWorkshop(snapshot.MasterStaging, master, "主台", required: snapshot.ActiveOrders.Count > 0);
+        ValidateStagingForWorkshop(snapshot.SlaveStaging, slave, "从台",
+            required: snapshot.ActiveOrders.Any(item => item.UsesSlave));
+
+        var activeIds = new HashSet<int>();
+        foreach (var active in snapshot.ActiveOrders)
+        {
+            if (active.DemandId <= 0 || !activeIds.Add(active.DemandId))
+                throw new InvalidOperationException("活动订单暂存快照包含无效或重复订单 ID。");
+            var reservation = _reservations.Find(active.DemandId)
+                ?? throw new InvalidOperationException("活动订单缺少资源预留：" + active.DemandId);
+            if (reservation.UsesSlave != active.UsesSlave)
+                throw new InvalidOperationException("活动订单的从台占用状态与资源预留不一致：" + active.DemandId);
+            if (snapshot.MasterStaging == null ||
+                !snapshot.MasterStaging.ReservedCapacityByOrder.ContainsKey(active.DemandId))
+                throw new InvalidOperationException("活动订单缺少主台液体容量预留：" + active.DemandId);
+            if (active.UsesSlave &&
+                (snapshot.SlaveStaging == null ||
+                 !snapshot.SlaveStaging.ReservedCapacityByOrder.ContainsKey(active.DemandId)))
+                throw new InvalidOperationException("B 类活动订单缺少从台液体容量预留：" + active.DemandId);
+            if (!active.UsesSlave && reservation.UsesSlave)
+                throw new InvalidOperationException("A 类订单不能占用从台。");
+        }
+
+        var reservationIds = _reservations.Capture().Reservations.Select(item => item.DemandId).ToHashSet();
+        if (!reservationIds.SetEquals(activeIds))
+            throw new InvalidOperationException("资源预留集合与活动订单液体范围集合不一致。");
+
+        if (snapshot.MasterStaging != null)
+            _stagingByWorkshop.Add(master, WorkshopLiquidStaging.Restore(snapshot.MasterStaging));
+        if (snapshot.SlaveStaging != null)
+        {
+            if (slave == null) throw new InvalidOperationException("快照包含从台暂存区，但当前世界没有从台。");
+            _stagingByWorkshop.Add(slave, WorkshopLiquidStaging.Restore(snapshot.SlaveStaging));
+        }
+
+        foreach (var active in snapshot.ActiveOrders)
+        {
+            var masterScope = new OrderLiquidScope(active.DemandId, _stagingByWorkshop[master]);
+            var slaveScope = active.UsesSlave
+                ? new OrderLiquidScope(active.DemandId, _stagingByWorkshop[slave!])
+                : null;
+            _scopesByDemand.Add(active.DemandId, (masterScope, slaveScope));
+        }
+    }
+
+    private static void ValidateStagingForWorkshop(
+        WorkshopLiquidStagingSnapshot? snapshot, Workshop? workshop, string role, bool required)
+    {
+        if (snapshot == null)
+        {
+            if (required) throw new InvalidOperationException(role + "活动订单缺少暂存区快照。");
+            return;
+        }
+        if (workshop == null)
+            throw new InvalidOperationException("快照包含" + role + "暂存区，但当前世界没有对应工作台。");
+        if (snapshot.Capacity != workshop.LiquidStagingCapacity)
+            throw new InvalidOperationException(role + "暂存区容量与当前工作台配置不一致。");
+        var expectedBans = workshop.Ban.OrderBy(item => item, StringComparer.Ordinal);
+        if (!snapshot.BannedLiquids.OrderBy(item => item, StringComparer.Ordinal)
+            .SequenceEqual(expectedBans, StringComparer.Ordinal))
+            throw new InvalidOperationException(role + "暂存区禁液规则与当前工作台配置不一致。");
+    }
+
     internal (OrderLiquidScope Master, OrderLiquidScope? Slave)? GetLiquidScopes(int demandId) =>
         _scopesByDemand.TryGetValue(demandId, out var scopes) ? scopes : null;
 
@@ -298,4 +402,26 @@ public sealed record WorldOrderExecutionAdmissionResult(
 
     internal static WorldOrderExecutionAdmissionResult Admitted(WorldOrderResourceManifest manifest) =>
         new(true, null, manifest);
+}
+
+
+/// <summary>一张活动订单在主/从台暂存区中的资源范围声明。</summary>
+public sealed record WorldOrderExecutionScopeSnapshot(int DemandId, bool UsesSlave);
+
+/// <summary>准入器持有的活动暂存区与订单范围快照。</summary>
+public sealed class WorldOrderExecutionAdmissionSnapshot
+{
+    public WorldOrderExecutionAdmissionSnapshot(
+        WorkshopLiquidStagingSnapshot? masterStaging,
+        WorkshopLiquidStagingSnapshot? slaveStaging,
+        IEnumerable<WorldOrderExecutionScopeSnapshot> activeOrders)
+    {
+        MasterStaging = masterStaging;
+        SlaveStaging = slaveStaging;
+        ActiveOrders = Array.AsReadOnly(activeOrders.OrderBy(item => item.DemandId).ToArray());
+    }
+
+    public WorkshopLiquidStagingSnapshot? MasterStaging { get; }
+    public WorkshopLiquidStagingSnapshot? SlaveStaging { get; }
+    public IReadOnlyList<WorldOrderExecutionScopeSnapshot> ActiveOrders { get; }
 }
