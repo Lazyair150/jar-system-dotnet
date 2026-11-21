@@ -637,6 +637,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private string? TransferToSlave() =>
         _transferService.Transfer(
             DemandId,
+            _admission.Reservations.FindLease(DemandId)
+                ?? throw new InvalidOperationException("B 类交接缺少订单资源租约"),
             _manifest,
             _master,
             _slave ?? throw new InvalidOperationException("B 类执行缺少从台"),
