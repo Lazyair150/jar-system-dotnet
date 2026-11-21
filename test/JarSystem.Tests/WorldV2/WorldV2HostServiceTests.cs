@@ -173,15 +173,7 @@ public sealed class WorldV2HostServiceTests
         _ = decodedWire.ResourceLedger.ToSnapshot();
         _ = decodedWire.Clock.ToSnapshot();
         _ = decodedWire.Sessions.Select(item => item.ToSnapshot()).ToArray();
-        try
-        {
-            beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
-        }
-        catch (Exception exception)
-        {
-            _output.WriteLine("ROOT-CHECKPOINT-RESTORE-DETAIL: " + exception);
-            throw;
-        }
+        beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
         Assert.Equal(transferEventsBeforeOrder, beforePump.ResourceLedger.Entries.Count(item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
         Assert.Equal(2, beforePump.ShipLiquidInventory.Balances["酒"]);
