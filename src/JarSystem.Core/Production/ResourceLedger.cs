@@ -106,6 +106,57 @@ public sealed class ResourceLedger
     /// <summary>保留的事件（按发生顺序，最旧在前）。只读视图。</summary>
     public IReadOnlyList<ResourceEvent> Entries => _entries;
 
+    /// <summary>捕获完整账本游标、裁剪计数和当前保留事件。</summary>
+    public ResourceLedgerSnapshot Capture() => new(
+        Capacity, _seq, Dropped, _entries);
+
+    /// <summary>
+    /// 从快照恢复账本。保留原始 Seq/Dropped，不重新编号历史事件，
+    /// 因而增量消费者可在恢复后继续使用旧游标。
+    /// </summary>
+    public static ResourceLedger Restore(ResourceLedgerSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Capacity < 1 || snapshot.LastSeq < 0 || snapshot.Dropped < 0 ||
+            snapshot.Entries.Count > snapshot.Capacity)
+            throw new DomainValidationException("资源账本快照的容量或游标无效。");
+
+        long previousSeq = 0;
+        foreach (var item in snapshot.Entries)
+        {
+            if (item.Seq <= previousSeq || item.Seq > snapshot.LastSeq ||
+                item.Tick < 0 || item.Amount <= 0 ||
+                !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
+                (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
+                string.IsNullOrWhiteSpace(item.Name))
+                throw new DomainValidationException("资源账本快照包含无效或乱序事件。");
+            previousSeq = item.Seq;
+        }
+        if (snapshot.Entries.Count > 0 && snapshot.Entries[^1].Seq != snapshot.LastSeq)
+            throw new DomainValidationException("资源账本快照的最后事件序号与 LastSeq 不一致。");
+
+        var ledger = new ResourceLedger(snapshot.Capacity)
+        {
+            _seq = snapshot.LastSeq,
+            Dropped = snapshot.Dropped
+        };
+        ledger._entries.AddRange(snapshot.Entries.Select(Clone));
+        return ledger;
+    }
+
+    private static ResourceEvent Clone(ResourceEvent item) => new()
+    {
+        Seq = item.Seq,
+        Tick = item.Tick,
+        Cause = item.Cause,
+        Kind = item.Kind,
+        Name = item.Name,
+        Amount = item.Amount,
+        From = item.From,
+        To = item.To,
+        Reason = item.Reason
+    };
+
     /// <summary>
     /// 记一条事实。<paramref name="amount"/> ≤ 0 时**不记**（"没变化"不是事实），返回 null。
     /// 不校验 cause 是否在 <see cref="ResourceCauses.All"/> 里（调用方是内核自己），
@@ -151,4 +202,35 @@ public sealed class ResourceLedger
         _entries.RemoveRange(0, drop);
         Dropped += drop;
     }
+}
+
+
+/// <summary>资源账本纯值快照，包含增量读取所需的连续性元数据。</summary>
+public sealed class ResourceLedgerSnapshot
+{
+    public ResourceLedgerSnapshot(
+        int capacity, long lastSeq, int dropped, IEnumerable<ResourceEvent> entries)
+    {
+        Capacity = capacity;
+        LastSeq = lastSeq;
+        Dropped = dropped;
+        Entries = Array.AsReadOnly(entries.Select(item => new ResourceEvent
+        {
+            Seq = item.Seq,
+            Tick = item.Tick,
+            Cause = item.Cause,
+            Kind = item.Kind,
+            Name = item.Name,
+            Amount = item.Amount,
+            From = item.From,
+            To = item.To,
+            Reason = item.Reason
+        }).ToArray());
+    }
+
+    public int Capacity { get; }
+    public long LastSeq { get; }
+    public int Dropped { get; }
+    public IReadOnlyList<ResourceEvent> Entries { get; }
+    public int Retained => Entries.Count;
 }
