@@ -135,7 +135,7 @@ public sealed class WorldOrderExecutionAdmission
                         return WorldOrderExecutionAdmissionResult.Rejected($"从工作台禁用液体「{item.Key}」，不能接收执行所需液体");
                 }
             }
-            else if (manifest.SlaveStagingPeakCapacity > slave.MaxLiquids)
+            else if (manifest.SlaveStagingPeakCapacity > slave.LiquidStagingCapacity)
             {
                 return WorldOrderExecutionAdmissionResult.Rejected("从工作台订单液体路径峰值超过总暂存容量");
             }
@@ -275,9 +275,8 @@ public sealed class WorldOrderExecutionAdmission
     private WorkshopLiquidStaging GetOrCreateStaging(Workshop workshop)
     {
         if (_stagingByWorkshop.TryGetValue(workshop, out var existing)) return existing;
-        // 过渡期复用 Workshop.MaxLiquids 作为新模型的“全液种合计容量”配置值；
-        // 旧 Workshop.LiquidStorage 仍按原规则运行，最终由独立配置替代此映射。
-        var staging = new WorkshopLiquidStaging(workshop.MaxLiquids, workshop.Ban);
+        // 新订单暂存区使用独立的全液种合计容量；旧 Workshop.LiquidStorage 仍保留 MaxLiquids 单液种语义。
+        var staging = new WorkshopLiquidStaging(workshop.LiquidStagingCapacity, workshop.Ban);
         _stagingByWorkshop.Add(workshop, staging);
         return staging;
     }
