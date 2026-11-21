@@ -356,6 +356,14 @@ public sealed class WorkshopLiquidStaging
         return !_banned.Contains(liquid) && AvailableCapacityFor(orderId) >= amount;
     }
 
+    internal bool CanReceiveTransferBatch(int orderId, IReadOnlyDictionary<string, int> amounts)
+    {
+        ValidateOrderId(orderId);
+        ShipLiquidInventory.ValidateAmounts(amounts);
+        if (amounts.Keys.Any(_banned.Contains)) return false;
+        return ShipLiquidInventory.TotalAmount(amounts) <= AvailableCapacityFor(orderId);
+    }
+
     internal bool TryTransferOut(int orderId, string liquid, int amount)
     {
         if (GetAmount(orderId, liquid) < amount) return false;
@@ -444,10 +452,9 @@ public static class OrderLiquidTransfer
         if (orderId <= 0)
             throw new DomainValidationException("订单 ID 必须是正整数。");
 
-        var transferTotal = ShipLiquidInventory.TotalAmount(amounts);
-        if (transferTotal > slave.AvailableCapacity)
+        if (!slave.CanReceiveTransferBatch(orderId, amounts))
         {
-            rejectionReason = "从工作台液体暂存总容量不足。";
+            rejectionReason = "从工作台订单液体暂存总容量不足或包含禁用液体。";
             return false;
         }
 
