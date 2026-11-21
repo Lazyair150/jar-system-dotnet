@@ -279,7 +279,8 @@ public sealed class WorldV2ContextTests
         Assert.Equal(OrderResourceLeaseStage.MasterExecuting, restoredLease.Stage);
         Assert.Empty(restoredLease.TransferLiquidAmounts);
         Assert.Equal(0, restoredLease.SlaveStagingPeakCapacity);
-        var restoredLeaseScopes = secondWorld.Reservations.FindLease(restoredDemand.Id)!.LiquidScopes!.Value;
+        var restoredLeaseScopes = secondWorld.Reservations.FindLease(restoredDemand.Id)!.LiquidScopes
+            ?? throw new InvalidOperationException("恢复后的 A 类租约缺少主台液体范围。");
         Assert.Null(restoredLeaseScopes.Slave);
         Assert.Same(restoredLeaseScopes.Master, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Master);
         Assert.Equal(1, secondShip.GetAmount("酒"));
