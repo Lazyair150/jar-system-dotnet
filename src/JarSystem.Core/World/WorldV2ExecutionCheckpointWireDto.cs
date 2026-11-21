@@ -91,29 +91,11 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             throw new InvalidOperationException("根级检查点缺少必要组件。");
         if (RuntimeLedgerTick < 0)
             throw new InvalidOperationException("根级检查点 RuntimeLedgerTick 不能为负数。");
-        ReservationLeases.Validate();
-        ResourceArea.Validate();
-        DemandBoard.Validate();
-        ShipLiquidInventory.Validate();
-        MasterWorkshop.Validate();
-        SlaveWorkshop?.Validate();
-        Admission.Validate();
-        ResourceLedger.Validate();
-        Clock.Validate();
-        var ids = new HashSet<int>();
-        foreach (var session in Sessions)
-        {
-            if (session == null) throw new InvalidOperationException("根级检查点包含空 Session。");
-            session.Validate();
-            if (!ids.Add(session.DemandId))
-                throw new InvalidOperationException("根级检查点包含重复 Session。");
-        }
-        var activeIds = Admission.ActiveOrders.Select(item => item.DemandId).ToHashSet();
-        if (!activeIds.SetEquals(ids) ||
-            !activeIds.SetEquals(ReservationLeases.Leases.Select(item => item.DemandId)))
-            throw new InvalidOperationException("根级检查点的 Session、Admission 与 Lease 订单集合不一致。");
-        if (ResourceLedger.Events.Any(item => item.Tick > RuntimeLedgerTick))
-            throw new InvalidOperationException("根级检查点账本 tick 超过 RuntimeLedgerTick。");
+        // 子 DTO 在 ToSnapshot/RestoreWire 时执行字段校验；跨组件身份、阶段和 tick
+        // 关系由 WorldV2Context 的统一恢复预检负责，避免两套业务不变量逐渐漂移。
+        if (Sessions.Any(item => item == null) ||
+            Sessions.Select(item => item.DemandId).Distinct().Count() != Sessions.Count)
+            throw new InvalidOperationException("根级检查点包含空 Session 或重复 Session ID.");
     }
 
     private static WorldResourceReservationBookWireDto Clone(WorldResourceReservationBookWireDto source)
