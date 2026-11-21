@@ -22,6 +22,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly Workshop _master;
     private readonly Workshop? _slave;
     private readonly WorldOrderResourceManifest _manifest;
+    private readonly WorldOrderSolvePlan _plan;
     private readonly IReadOnlyList<WorldPlanStep> _masterSteps;
     private readonly IReadOnlyList<WorldPlanStep> _slaveSteps;
     private readonly IReadOnlyList<int> _deliveryJarIds;
@@ -57,6 +58,14 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     /// <summary>本会话从台结算产生的丢弃解释日志（只读视图）；回流/丢弃数量以 ResourceLedger 为准。</summary>
     public IReadOnlyList<ExecutionLogEntry> ResourceSettlementLog => _resourceSettlementLog.AsReadOnly();
 
+    /// <summary>
+    /// 捕获会话的执行游标。Manifest/Plan 都是不可变纯值对象；
+    /// 该快照描述执行进度，不单独包含工作台罐子状态，必须与世界状态快照配套使用。
+    /// </summary>
+    public WorldOrderExecutionSessionProgressSnapshot CaptureProgress() => new(
+        DemandId, Stage, _masterIndex, _slaveIndex, _unitElapsedLogicalMilli,
+        _unitDurationLogicalMilli, _slaveTransferCommitted, Reason, _manifest, _plan);
+
     private WorldOrderExecutionSession(
         int demandId,
         OrderDemandBoard board,
@@ -79,6 +88,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             ? roster.Slave ?? throw new InvalidOperationException("B 类执行开始时没有从工作台")
             : null;
         _manifest = manifest;
+        _plan = plan;
         _unitDurationLogicalMilli = unitDurationLogicalMilli;
         _resourceLedger = resourceLedger;
         _resourceLedgerTick = resourceLedgerTick;
@@ -728,4 +738,44 @@ public sealed record WorldOrderExecutionStartResult(
 
     internal static WorldOrderExecutionStartResult Started(WorldOrderExecutionSession session) =>
         new(true, null, session);
+}
+
+
+/// <summary>订单会话执行游标快照；不包含罐子状态，不能单独作为完整世界存档。</summary>
+public sealed class WorldOrderExecutionSessionProgressSnapshot
+{
+    internal WorldOrderExecutionSessionProgressSnapshot(
+        int demandId,
+        WorldOrderExecutionStage stage,
+        int completedMasterSteps,
+        int completedSlaveSteps,
+        long unitElapsedLogicalMilli,
+        long unitDurationLogicalMilli,
+        bool slaveTransferCommitted,
+        string? reason,
+        WorldOrderResourceManifest manifest,
+        WorldOrderSolvePlan plan)
+    {
+        DemandId = demandId;
+        Stage = stage;
+        CompletedMasterSteps = completedMasterSteps;
+        CompletedSlaveSteps = completedSlaveSteps;
+        UnitElapsedLogicalMilli = unitElapsedLogicalMilli;
+        UnitDurationLogicalMilli = unitDurationLogicalMilli;
+        SlaveTransferCommitted = slaveTransferCommitted;
+        Reason = reason;
+        Manifest = manifest;
+        Plan = plan;
+    }
+
+    public int DemandId { get; }
+    public WorldOrderExecutionStage Stage { get; }
+    public int CompletedMasterSteps { get; }
+    public int CompletedSlaveSteps { get; }
+    public long UnitElapsedLogicalMilli { get; }
+    public long UnitDurationLogicalMilli { get; }
+    public bool SlaveTransferCommitted { get; }
+    public string? Reason { get; }
+    public WorldOrderResourceManifest Manifest { get; }
+    public WorldOrderSolvePlan Plan { get; }
 }
