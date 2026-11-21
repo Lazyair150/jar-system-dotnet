@@ -26,6 +26,7 @@ public sealed class WorldV2Context : IDisposable
 
     public ResourceArea Resources { get; }
     public ShipLiquidInventory? ShipLiquidInventory { get; }
+    public ResourceLedger ResourceLedger { get; }
     public WorkshopRoster Roster { get; }
     public OrderDemandBoard DemandBoard { get; }
     public WorldOrderSolveBook SolveBook { get; }
@@ -37,6 +38,7 @@ public sealed class WorldV2Context : IDisposable
     private WorldV2Context(
         ResourceArea resources,
         ShipLiquidInventory? shipLiquidInventory,
+        ResourceLedger resourceLedger,
         WorkshopRoster roster,
         OrderDemandBoard demandBoard,
         WorldOrderSolveBook solveBook,
@@ -47,6 +49,7 @@ public sealed class WorldV2Context : IDisposable
     {
         Resources = resources;
         ShipLiquidInventory = shipLiquidInventory;
+        ResourceLedger = resourceLedger;
         Roster = roster;
         DemandBoard = demandBoard;
         SolveBook = solveBook;
@@ -89,16 +92,24 @@ public sealed class WorldV2Context : IDisposable
         var board = new OrderDemandBoard(passiveFulfillmentPolicy, activeFulfillmentPolicy);
         var solveBook = new WorldOrderSolveBook(board);
         var reservations = new WorldResourceReservationBook();
+        var resourceLedger = new ResourceLedger();
+        if (shipLiquidInventory != null)
+        {
+            foreach (var item in shipLiquidInventory.Balances.OrderBy(item => item.Key, StringComparer.Ordinal))
+                resourceLedger.Record(0, ResourceCauses.Stock, ResourceKinds.Liquid,
+                    item.Key, item.Value, from: "关卡初始库存", to: "自机液库");
+        }
         var admission = shipLiquidInventory == null
             ? new WorldOrderExecutionAdmission(board, solveBook, roster, reservations)
             : new WorldOrderExecutionAdmission(board, solveBook, roster, reservations, shipLiquidInventory);
         var runtime = new ResourceWorldRuntime(
-            resources, clock: clock, roster: roster, demandBoard: board);
+            resources, clock: clock, roster: roster, demandBoard: board,
+            resourceLedger: resourceLedger);
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
         return new WorldV2Context(
-            resources, shipLiquidInventory, roster, board, solveBook, reservations, admission, runtime, scheduler);
+            resources, shipLiquidInventory, resourceLedger, roster, board, solveBook, reservations, admission, runtime, scheduler);
     }
 
     /// <summary>释放求解簿对需求板的事件订阅；不会尝试关闭或回滚世界资源。</summary>
