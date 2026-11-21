@@ -192,7 +192,7 @@ public sealed class WorldOrderExecutionAdmission
 
         var availableLiquids = _shipLiquidInventory == null
             ? master.LiquidStorage
-            : _liquidAllocationService!.BuildReservationLiquidityView(manifest);
+            : _liquidAllocationService!.BuildReservationLiquidityView(manifest, master);
         if (!_reservations.TryReserve(manifest, availableLiquids, out var reserveError))
             return WorldOrderExecutionAdmissionResult.Rejected(reserveError ?? "资源预留失败");
 
