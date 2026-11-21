@@ -21,6 +21,7 @@ public sealed class ResourceArea
 
     private readonly ProducerModule _producers;
     private readonly LiquidProduction _liquidProduction;
+    private readonly ShipLiquidInventory? _shipLiquidInventory;
     private long _jarFlowRateMilli;
     private long _liquidFlowRateMilli;
     private long _jarFlowAccumulator;
@@ -34,16 +35,21 @@ public sealed class ResourceArea
     /// <summary>资源区按品种生产的游离液体产能。</summary>
     public LiquidProduction LiquidProduction => _liquidProduction;
 
+    /// <summary>World v2 的自机长期液库；为空时使用旧仓库液体路径（迁移兼容）。</summary>
+    public ShipLiquidInventory? ShipLiquidInventory => _shipLiquidInventory;
+
     /// <param name="jarFlowRate">每逻辑时间最多向主台输送的罐子数量。</param>
     /// <param name="liquidFlowRate">每逻辑时间、每种液体最多向主台输送的份数。</param>
     public ResourceArea(
         ProducerModule producers,
         LiquidProduction liquidProduction,
         double jarFlowRate,
-        double liquidFlowRate)
+        double liquidFlowRate,
+        ShipLiquidInventory? shipLiquidInventory = null)
     {
         _producers = producers ?? throw new ArgumentNullException(nameof(producers));
         _liquidProduction = liquidProduction ?? throw new ArgumentNullException(nameof(liquidProduction));
+        _shipLiquidInventory = shipLiquidInventory;
         _jarFlowRateMilli = ToRateMilli(jarFlowRate, nameof(jarFlowRate));
         _liquidFlowRateMilli = ToRateMilli(liquidFlowRate, nameof(liquidFlowRate));
     }
@@ -80,9 +86,12 @@ public sealed class ResourceArea
             // 先计算本时间片的吞吐额度。超出单次 API 可表达范围时拒绝整个推进，
             // 不静默截断额度，也不让生产先发生、随后才因额度溢出而失败。
             nextJarFlowAccumulator = checked(_jarFlowAccumulator + _jarFlowRateMilli * deltaLogicalTimeMilli);
-            nextLiquidFlowAccumulator = checked(_liquidFlowAccumulator + _liquidFlowRateMilli * deltaLogicalTimeMilli);
+            if (_shipLiquidInventory == null)
+                nextLiquidFlowAccumulator = checked(_liquidFlowAccumulator + _liquidFlowRateMilli * deltaLogicalTimeMilli);
             var jarQuotaLong = nextJarFlowAccumulator / AmountUnit;
-            var liquidQuotaLong = nextLiquidFlowAccumulator / AmountUnit;
+            var liquidQuotaLong = _shipLiquidInventory == null
+                ? nextLiquidFlowAccumulator / AmountUnit
+                : 0;
             if (jarQuotaLong > int.MaxValue || liquidQuotaLong > int.MaxValue)
                 throw new InvalidOperationException("单次资源流入额度超过可表示范围");
 
@@ -95,7 +104,12 @@ public sealed class ResourceArea
         var producedJars = _producers.AdvanceLogicalTime(deltaLogicalTimeMilli);
         var producedLiquids = _liquidProduction.AdvanceLogicalTime(deltaLogicalTimeMilli);
         foreach (var (liquid, amount) in producedLiquids)
-            Inventory.ProduceLiquid(liquid, amount);
+        {
+            if (_shipLiquidInventory == null)
+                Inventory.ProduceLiquid(liquid, amount);
+            else
+                _shipLiquidInventory.Produce(liquid, amount);
+        }
 
         if (master == null || deltaLogicalTimeMilli == 0)
             return new ResourceAreaAdvanceResult(producedJars.Count, producedLiquids, 0,
@@ -104,8 +118,11 @@ public sealed class ResourceArea
         // 吞吐额度是"本时间片可处理的上限"，不是资源欠条。
         // 整数额度无论库存/目的地是否足够都会在本时间片消耗；只有小数余量留到下一片。
         _jarFlowAccumulator = nextJarFlowAccumulator;
-        _liquidFlowAccumulator = nextLiquidFlowAccumulator;
-        var moved = Inventory.FlowToMaster(master, jarQuota, liquidQuota);
+        if (_shipLiquidInventory == null)
+            _liquidFlowAccumulator = nextLiquidFlowAccumulator;
+        // 新路径中液体不会由生产区自动流入任何工作台：订单启动从自机液库取用，
+        // 只有 B 类会话在主从交接阶段才允许主台向从台泵送液体。
+        var moved = Inventory.FlowToMaster(master, jarQuota, _shipLiquidInventory == null ? liquidQuota : 0);
 
         return new ResourceAreaAdvanceResult(
             producedJars.Count,
