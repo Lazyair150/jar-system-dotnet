@@ -326,6 +326,21 @@ public class Workshop
     // 资源操作（原子步骤；规则校验 + 记账 + 打标记都在这里）
     // ============================================================
 
+    public (bool Success, string? Reason) PourIn(Jar j, string l, OrderLiquidScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (j.IsMarked) return (false, "罐子已被操作");
+        if (!j.IsEmpty()) return (false, "罐子不为空");
+        if (!_capability.IsBaseMarked(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
+        var touchIn = CheckLiquid(l);
+        if (!touchIn.Granted) return (false, touchIn.Reason);
+        if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
+        if (!scope.TryConsume(l, 1)) return (false, "液体" + l + "不足或不可用");
+        j.PourIn(l);
+        j.Mark();
+        return (true, null);
+    }
+
     public (bool Success, string? Reason) PourIn(Jar j, string l)
     {
         if (j.IsMarked) return (false, "罐子已被操作");
@@ -336,6 +351,24 @@ public class Workshop
         if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
         if (!RemoveLiquid(l)) return (false, "液体" + l + "不足");
         j.PourIn(l); j.Mark(); return (true, null);
+    }
+
+    public (bool Success, string? Reason, string? Liquid) PourOut(Jar j, OrderLiquidScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (j.IsMarked) return (false, "罐子已被操作", null);
+        if (j.IsEmpty()) return (false, "罐子为空", null);
+        var liquid = j.Liquid!;
+        var touchOut = CheckLiquid(liquid);
+        if (!touchOut.Granted) return (false, touchOut.Reason, null);
+        if (_rules.SuppressionReason("POUR_OUT", j.Shape, liquid) is { } suppressed)
+            return (false, suppressed, null);
+        if (!scope.TryReceiveOperation(liquid, 1, out var receive))
+            return (false, receive.Reason, null);
+
+        j.ClearLiquid();
+        j.Mark();
+        return (true, null, liquid);
     }
 
     public (bool Success, string? Reason, string? Liquid) PourOut(Jar j)
@@ -395,6 +428,22 @@ public class Workshop
     /// 候选来自 <see cref="WorkshopCapability.GetPossibleTransforms"/> —— 方向的唯一来源，
     /// 所以"能改形成什么"不会与规则表说的那两个方向打架。
     /// </summary>
+    /// <summary>订单范围内的只读改形判定；成本库存来自指定订单子账。</summary>
+    public ReshapeGrant CanReshapeTo(Jar jar, string to, OrderLiquidScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (jar.IsMarked) return ReshapeGrant.No("marked", "罐子已被操作");
+        if (!CanTransform(jar.Shape, to))
+            return ReshapeGrant.No("direction", "无法从" + jar.Shape + "转化为" + to);
+
+        var reshape = new ReshapeRules(_capability, Liquid);
+        if (jar.IsEmpty()) return reshape.PayCost(null, scope.Balance);
+
+        if (_rules.SuppressionReason("RESHAPE", jar.Shape, jar.Liquid) is { } suppressed)
+            return ReshapeGrant.No("suppressed", suppressed);
+        return reshape.SelfConsume(jar.Liquid);
+    }
+
     public IReadOnlyList<string> ReshapeTargets(Jar jar)
     {
         var result = new List<string>();
@@ -437,6 +486,47 @@ public class Workshop
         var cost = costLiquid ?? FirstUsableCostLiquid();
         if (cost == null) return (false, "没有可支付的改形成本液体");
         return ReshapeEmptyCore(j, to, cost);
+    }
+
+    /// <summary>订单范围内执行改形；空罐成本只从当前订单子账扣除。</summary>
+    public (bool Success, string? Reason) TryReshape(
+        Jar j, string to, OrderLiquidScope scope,
+        ReshapeMode mode = ReshapeMode.Auto, string? costLiquid = null)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (mode == ReshapeMode.Auto) mode = j.IsEmpty() ? ReshapeMode.Empty : ReshapeMode.Full;
+
+        if (mode == ReshapeMode.Full)
+        {
+            if (j.IsMarked) return (false, "罐子已被操作");
+            if (j.IsEmpty()) return (false, "必须为满罐");
+            if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
+            if (_rules.SuppressionReason("RESHAPE", j.Shape, j.Liquid) is { } suppressed)
+                return (false, suppressed);
+            var liquid = j.Liquid!;
+            var touch = CheckLiquid(liquid);
+            if (!touch.Granted) return (false, touch.Reason);
+            j.ClearLiquid();
+            j.Reshape(to);
+            j.Mark();
+            return (true, null);
+        }
+
+        if (j.IsMarked) return (false, "罐子已被操作");
+        if (!j.IsEmpty()) return (false, "必须为空罐");
+        if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
+
+        var cost = costLiquid ?? scope.Balance
+            .Where(pair => pair.Value > 0 && !IsBanned(pair.Key))
+            .Select(pair => pair.Key)
+            .FirstOrDefault();
+        if (cost == null) return (false, "没有可支付的改形成本液体");
+        if (_rules.SuppressionReason("RESHAPE", j.Shape, cost) is { } costSuppressed)
+            return (false, costSuppressed);
+        if (!scope.TryConsume(cost, 1)) return (false, "无法支付液体" + cost);
+        j.Reshape(to);
+        j.Mark();
+        return (true, null);
     }
 
     /// <summary>按液池键序找第一份"取得到"的液体（空罐改形的成本）。</summary>
