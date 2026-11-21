@@ -52,7 +52,8 @@ public sealed class WorldResourceReservationBook
                 foreach (var amount in reservation.MasterInitialLiquidAmounts)
                     if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
                         throw new InvalidOperationException("资源预留快照包含无效液体数量。");
-                foreach (var jarId in lease.LockedJarIds)
+                lease.MarkSettled();
+            foreach (var jarId in lease.LockedJarIds)
                 {
                     if (restored._jarOwners.ContainsKey(jarId))
                         throw new InvalidOperationException("资源预留快照中的罐子被多个订单同时占用：" + jarId);
@@ -79,6 +80,22 @@ public sealed class WorldResourceReservationBook
     public OrderResourceLease? FindLease(int demandId)
     {
         lock (_gate) return _byDemand.TryGetValue(demandId, out var lease) ? lease : null;
+    }
+
+    public void MarkMasterExecuting(int demandId) => GetRequiredLease(demandId).MarkMasterExecuting();
+    public void MarkTransferPending(int demandId) => GetRequiredLease(demandId).MarkTransferPending();
+    public void MarkTransferCommitted(int demandId) => GetRequiredLease(demandId).MarkTransferCommitted();
+    public void MarkSlaveExecuting(int demandId) => GetRequiredLease(demandId).MarkSlaveExecuting();
+
+    public void RestoreExecutionStage(int demandId, OrderResourceLeaseStage stage) =>
+        GetRequiredLease(demandId).RestoreExecutionStage(stage);
+
+    private OrderResourceLease GetRequiredLease(int demandId)
+    {
+        lock (_gate)
+            return _byDemand.TryGetValue(demandId, out var lease)
+                ? lease
+                : throw new InvalidOperationException("订单缺少资源租约：" + demandId);
     }
 
     public bool IsJarReserved(int jarId)
