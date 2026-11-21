@@ -223,7 +223,6 @@ public sealed class WorldV2HostServiceTests
             Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
             Assert.Single(context.ResourceLedger.For(ResourceCauses.Transfer),
                 item => item.Kind == ResourceKinds.Liquid);
-            Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
         });
     }
 
