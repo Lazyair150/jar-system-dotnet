@@ -588,8 +588,8 @@ public sealed class WorkshopLiquidStagingSnapshot
             return occupied;
         }
     }
-    public int UsedCapacity => ShipLiquidInventory.TotalAmount(
-        Accounts.Values.SelectMany(account => account));
+    public int UsedCapacity => checked(ShipLiquidInventory.TotalAmount(PrefillBalances) +
+        ShipLiquidInventory.TotalAmount(Accounts.Values.SelectMany(account => account)));
 }
 
 /// <summary>主台到从台的订单液体单向交接。整批原子提交，不允许部分交接。</summary>
