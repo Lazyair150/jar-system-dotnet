@@ -378,8 +378,7 @@ public sealed class WorkshopLiquidStaging
             ValidateOrderId(pair.Key);
             if (pair.Value < 0)
                 throw new DomainValidationException("暂存快照包含负数订单容量预留。");
-            if (pair.Value > 0)
-                staging._reservedCapacityByOrder.Add(pair.Key, pair.Value);
+            staging._reservedCapacityByOrder.Add(pair.Key, pair.Value);
         }
 
         foreach (var pair in staging._accounts)
