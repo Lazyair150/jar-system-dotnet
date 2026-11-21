@@ -585,6 +585,51 @@ public sealed class WorkshopReplacementTests
 
 
     [Fact]
+    public void WorldV2SlaveReplacementDoesNotPrefillOrWithdrawShipLiquids()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var ship = new ShipLiquidInventory(6, new Dictionary<string, int>
+        {
+            ["酒"] = 3,
+            ["蜜"] = 2
+        });
+        var resources = new ResourceArea(
+            new ProducerModule(vocabulary),
+            new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+            {
+                ["酒"] = 0.001,
+                ["蜜"] = 0.0005
+            }),
+            0, 0, ship);
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var oldSlave = new Workshop("旧从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var target = new Workshop("备用台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { master, oldSlave, target }, master, oldSlave, solverRegistry,
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var begin = world.Runtime.BeginReplacement(
+            WorkshopRole.Slave, target, new NoOrderInterruption(), phaseDurationMilli: 1_000);
+
+        Assert.True(begin.Success, begin.Error);
+        Assert.Empty(world.Admission.GetPrefillBalances(target));
+        Assert.Equal(3, ship.GetAmount("酒"));
+        Assert.Equal(2, ship.GetAmount("蜜"));
+        Assert.Empty(world.ResourceLedger.For(ResourceCauses.Flow));
+        world.Runtime.CancelActiveReplacement("测试结束");
+    }
+
+    [Fact]
     public void WorldV2MasterReplacementPrefillsTargetBeforeMigrationAndRecordsLedger()
     {
         var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
