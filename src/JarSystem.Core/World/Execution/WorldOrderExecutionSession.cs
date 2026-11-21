@@ -269,8 +269,6 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (snapshot.Stage is WorldOrderExecutionStage.Completed or WorldOrderExecutionStage.Failed or
             WorldOrderExecutionStage.Interrupted or WorldOrderExecutionStage.Cancelled)
             throw new InvalidOperationException("执行会话快照的阶段无效。");
-        ExecutionProgressInvariants.ValidateManifestPlan(
-            snapshot.DemandId, snapshot.Manifest, snapshot.Plan);
         if (snapshot.UnitDurationLogicalMilli <= 0 ||
             snapshot.UnitElapsedLogicalMilli < 0 ||
             snapshot.UnitElapsedLogicalMilli >= snapshot.UnitDurationLogicalMilli)
