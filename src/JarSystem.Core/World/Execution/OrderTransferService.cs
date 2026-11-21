@@ -15,6 +15,7 @@ internal sealed class OrderTransferService
 {
     public string? Transfer(
         int demandId,
+        OrderResourceLease lease,
         WorldOrderResourceManifest manifest,
         Workshop master,
         Workshop slave,
@@ -24,12 +25,19 @@ internal sealed class OrderTransferService
         Func<int>? ledgerTickProvider,
         Action commitStarted)
     {
+        ArgumentNullException.ThrowIfNull(lease);
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(slave);
         ArgumentNullException.ThrowIfNull(commitStarted);
-        if (!manifest.IsPartitioned || manifest.DemandId != demandId)
-            throw new InvalidOperationException("TransferService 只接受与 B 类租约匹配的订单资源清单。");
+        if (!manifest.IsPartitioned || manifest.DemandId != demandId ||
+            lease.DemandId != demandId || !lease.UsesSlave ||
+            lease.Stage != OrderResourceLeaseStage.TransferPending ||
+            !lease.LockedJarIds.ToHashSet().SetEquals(manifest.LockedJarIds) ||
+            !LiquidBalancesEqual(lease.TransferLiquidAmounts, manifest.TransferLiquids) ||
+            lease.MasterStagingPeakCapacity != manifest.MasterStagingPeakCapacity ||
+            lease.SlaveStagingPeakCapacity != manifest.SlaveStagingPeakCapacity)
+            throw new InvalidOperationException("TransferService 只接受处于交接待提交阶段且资源承诺与 B 类 Manifest 一致的租约。");
 
         if (slave.HasResources)
             return "B 类资源转移前，从工作台的旧版资源池必须为空";
