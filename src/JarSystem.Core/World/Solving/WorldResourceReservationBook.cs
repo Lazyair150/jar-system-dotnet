@@ -52,6 +52,19 @@ public sealed class WorldResourceReservationBook
                 foreach (var amount in reservation.MasterInitialLiquidAmounts)
                     if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
                         throw new InvalidOperationException("资源预留快照包含无效液体数量。");
+                foreach (var amount in reservation.TransferLiquidAmounts)
+                    if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
+                        throw new InvalidOperationException("资源预留快照包含无效交接液体数量。");
+                if (!Enum.IsDefined(reservation.Stage) ||
+                    reservation.Stage == OrderResourceLeaseStage.Settled ||
+                    reservation.MasterStagingPeakCapacity < 0 ||
+                    reservation.SlaveStagingPeakCapacity < 0 ||
+                    (!reservation.UsesSlave &&
+                        (reservation.TransferLiquidAmounts.Count != 0 ||
+                         reservation.SlaveStagingPeakCapacity != 0 ||
+                         reservation.Stage is OrderResourceLeaseStage.TransferPending or
+                             OrderResourceLeaseStage.TransferCommitted or OrderResourceLeaseStage.SlaveExecuting)))
+                    throw new InvalidOperationException("资源预留快照包含无效租约阶段或主从资源边界。");
                 foreach (var jarId in reservation.LockedJarIds)
                 {
                     if (restored._jarOwners.ContainsKey(jarId))
