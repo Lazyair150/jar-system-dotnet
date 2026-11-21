@@ -12,9 +12,9 @@ namespace JarSystem.Core.Production;
 /// <list type="bullet">
 /// <item><c>production</c> 世界自己产（形状产线出罐、液体产能出液）</item>
 /// <item><c>stock</c> 开局库存（关卡文件里写死的初始量）</item>
-/// <item><c>flow</c> 资源进入执行端：旧路径为中央仓库 → 主台，新路径为自机液库 → 主台订单账户</item>
+/// <item><c>flow</c> 自机液库向主台资源空间流入：订单路径进入主台订单账户，岗位切换前置补液进入主台预置账户</item>
 /// <item><c>transfer</c> 主台 → 从台的转移（B 类订单的"挑罐过去"）</item>
-/// <item><c>return</c> 从台 → 主台的归还（交付后剩下的工具罐/游离液体）</item>
+/// <item><c>return</c> 资源归还：订单结算剩余液体返回自机液库，或主台预置事务回滚至自机液库</item>
 /// <item><c>discard</c> 容量溢出被丢弃</item>
 /// </list>
 /// </summary>
