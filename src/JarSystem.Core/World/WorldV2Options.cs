@@ -188,7 +188,7 @@ public sealed class WorldV2Options
                     result.Errors.Add("工作台 " + workshop.Name + " 的 maxJars 必须为正数");
                 if (workshop.MaxLiquids <= 0)
                     result.Errors.Add("工作台 " + workshop.Name + " 的 maxLiquids 必须为正数");
-                if (workshop.LiquidStagingCapacity < 0)
+                if (workshop.LiquidStagingCapacity is < 0)
                     result.Errors.Add("工作台 " + workshop.Name + " 的 liquidStagingCapacity 不能为负数");
             }
 
@@ -314,7 +314,7 @@ public sealed class WorldV2WorkshopOptions
     public int MaxJars { get; set; } = Constants.DEFAULT_MAX_JARS;
     public int MaxLiquids { get; set; } = Constants.DEFAULT_MAX_LIQUIDS;
     /// <summary>新订单暂存区跨液种共享的总容量；与旧 MaxLiquids 单液种上限独立。</summary>
-    public int LiquidStagingCapacity { get; set; } = Constants.DEFAULT_MAX_LIQUIDS;
+    public int? LiquidStagingCapacity { get; set; }
 }
 
 public sealed class WorldV2ValidationResult
@@ -372,7 +372,7 @@ public static class WorldV2Factory
             workshop.MaxJars,
             workshop.MaxLiquids,
             vocabulary: vocabulary,
-            liquidStagingCapacity: workshop.LiquidStagingCapacity)).ToList();
+            liquidStagingCapacity: workshop.LiquidStagingCapacity ?? workshop.MaxLiquids)).ToList();
 
         var master = workshops.Single(workshop =>
             string.Equals(workshop.Name, options.MasterWorkshopName, StringComparison.Ordinal));
