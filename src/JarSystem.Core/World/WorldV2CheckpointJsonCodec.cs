@@ -28,6 +28,25 @@ public static class WorldV2CheckpointJsonCodec
         MaxDepth = 128
     };
 
+    /// <summary>将完整 World V2 活动执行检查点编码为版本化 JSON。</summary>
+    public static string EncodeExecutionResourceCheckpoint(
+        WorldV2ExecutionResourceCheckpoint checkpoint,
+        bool indented = false)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        return Encode(
+            WorldV2ExecutionCheckpointWireDto.FromCheckpoint(checkpoint),
+            checkpoint.ConfigurationFingerprint,
+            indented);
+    }
+
+    /// <summary>解码根级 World V2 检查点，并恢复为经过 wire 校验的领域快照对象图。</summary>
+    public static WorldV2ExecutionResourceCheckpoint DecodeExecutionResourceCheckpoint(string json)
+    {
+        var envelope = Decode<WorldV2ExecutionCheckpointWireDto>(json);
+        return envelope.Payload.ToCheckpoint(envelope.ConfigurationFingerprint);
+    }
+
     /// <summary>Encode a wire payload into a versioned checkpoint envelope.</summary>
     public static string Encode<TPayload>(
         TPayload payload,
