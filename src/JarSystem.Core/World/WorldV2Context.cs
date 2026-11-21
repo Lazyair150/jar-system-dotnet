@@ -124,8 +124,9 @@ public sealed class WorldV2Context : IDisposable
     }
 
     /// <summary>
-    /// 捕获活动执行所需的工作台动态库存、液体资源、资源预留、账本、时钟与会话进度。
-    /// 必须在 Host 独占操作内调用；需求板、生产器和规则修饰器配置仍由其他快照边界负责。
+    /// 捕获活动执行所需的工作台动态库存、液体资源、需求板、资源预留、账本、时钟与会话进度，
+    /// 同时记录由 WorldV2Factory 装配时生成的配置指纹。必须在 Host 独占操作内调用。
+    /// 当前 World v2 Context 尚未持有动态 ModifierStack；不能把其他旧世界修饰器误认为已纳入本检查点。
     /// </summary>
     public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
     {
@@ -256,8 +257,8 @@ public sealed class WorldV2Context : IDisposable
 
 /// <summary>
 /// 活动执行检查点：保留自机液库、主从工作台动态库存、订单暂存、容量/罐子预留、
-/// 资源账本、世界时钟和执行游标。
-/// 这不是完整世界存档；恢复执行仍需配套需求板、资源生产器/时钟策略与规则修饰器状态。
+/// 资源账本、世界时钟、需求板、配置指纹和执行游标。
+/// 这仍是活动执行检查点而非完整世界存档；当前不保存动态 ModifierStack 实例，也不包含可独立重建求解器注册表的插件数据。
 /// </summary>
 public sealed class WorldV2ExecutionResourceCheckpoint
 {
