@@ -174,10 +174,11 @@ public sealed class PartitionSearch
             // 液体池只表示主台终态可供选择的来源；实际泵送量由从台路径最低需求计算，
             // 合计容量则在路径确定后分别按主台“路径 + 终态转出预留”和从台路径峰值校验。
             var tLiquids = new Dictionary<string, int>();
+            var sourceLimit = request.SlaveInfo.MaxLiquidCapacity == int.MaxValue
+                ? request.SlaveInfo.MaxLiquids // 旧直接调用保持单液种兼容
+                : request.SlaveInfo.MaxLiquidCapacity;
             foreach (var l in Constants.LIQUIDS)
-                tLiquids[l] = Math.Min(
-                    masterFinalLiq.GetValueOrDefault(l, 0),
-                    request.SlaveInfo.MaxLiquidCapacity);
+                tLiquids[l] = Math.Min(masterFinalLiq.GetValueOrDefault(l, 0), sourceLimit);
 
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
             if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
