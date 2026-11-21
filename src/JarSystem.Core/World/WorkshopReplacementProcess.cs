@@ -46,6 +46,8 @@ public sealed class WorkshopReplacementProcess
     public bool InterruptionOutcomeUncertain { get; private set; }
     /// <summary>前置补液回滚失败，世界资源状态可能不完整。</summary>
     public bool PrefillRollbackOutcomeUncertain { get; private set; }
+    /// <summary>岗位已提交，但前置补液 Commit 失败，世界资源提交状态不确定。</summary>
+    public bool PrefillCommitOutcomeUncertain { get; private set; }
     public string? FailureReason { get; private set; }
     /// <summary>迁徙已提交后，外部账本/统计/对象池副作用若失败，记录警告而不回滚已提交世界。</summary>
     public string? CommitWarning { get; private set; }
@@ -197,23 +199,38 @@ public sealed class WorkshopReplacementProcess
                     try
                     {
                         _roster.CommitMasterReplacement(_oldWorkshop, _targetWorkshop);
-                        try
-                        {
-                            // 岗位指向已提交；此后外部副作用失败不能再伪装成可回滚的迁徙失败。
-                            _masterSwitch!.CommitTransferEffects();
-                        }
-                        catch (Exception commitError)
-                        {
-                            CommitWarning = "迁徙已提交，但外部副作用提交失败: " + commitError.Message;
-                        }
-                        _prefillTransaction?.Commit();
-                        _prefillTransaction = null;
-                        Succeed();
                     }
                     catch (Exception ex)
                     {
                         Fail(ex.Message);
+                        return;
                     }
+
+                    try
+                    {
+                        // 岗位指向已提交；此后外部副作用失败不能再伪装成可回滚的迁徙失败。
+                        _masterSwitch!.CommitTransferEffects();
+                    }
+                    catch (Exception commitError)
+                    {
+                        CommitWarning = "迁徙已提交，但外部副作用提交失败: " + commitError.Message;
+                    }
+
+                    try
+                    {
+                        _prefillTransaction?.Commit();
+                        _prefillTransaction = null;
+                    }
+                    catch (Exception prefillCommitError)
+                    {
+                        // 岗位/迁徙已提交，不得再调用 Fail() 回滚已经提交的迁徙。
+                        PrefillCommitOutcomeUncertain = true;
+                        FailureReason = "岗位已提交，但主台前置补液事务提交失败: " + prefillCommitError.Message;
+                        _finished = true;
+                        throw;
+                    }
+
+                    Succeed();
                 }
             }
             else
