@@ -293,7 +293,8 @@ public sealed class WorldOrderExecutionAdmissionTests
         var master = new Workshop("主台", new List<string> { "圆罐" },
             vocabulary: Words, liquidStagingCapacity: 4);
         master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
-        var firstDemand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var ids = new SequentialIdGenerator();
+        var firstDemand = Demand("圆罐", "酒", ids);
         var setup = Prepare(master, firstDemand);
         var ship = new ShipLiquidInventory(4);
         ReevaluateWithShip(setup.Book, setup.Roster, ship, firstDemand.Id);
@@ -306,7 +307,7 @@ public sealed class WorldOrderExecutionAdmissionTests
 
         master.ReplaceCapability(new WorkshopCapability(
             master.BaseMarks, master.AdditionalMarks, new[] { "酒" }));
-        var secondDemand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var secondDemand = Demand("圆罐", "酒", ids);
         setup.Board.AddDemand(secondDemand, DemandAreaKind.Active);
         var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
         {
