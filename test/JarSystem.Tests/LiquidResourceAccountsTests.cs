@@ -298,6 +298,43 @@ public sealed class LiquidResourceAccountsTests
     }
 
     [Fact]
+    public void PendingPrefillLocksStagingMutationAndSnapshotUntilResolved()
+    {
+        var ship = new ShipLiquidInventory(5, new Dictionary<string, int> { ["酒"] = 3 });
+        var staging = new WorkshopLiquidStaging(4);
+        var transaction = staging.BeginPrefillFromShip(ship, new[] { "酒" });
+
+        Assert.Throws<InvalidOperationException>(() => staging.Receive(7, "蜜", 1));
+        Assert.Throws<InvalidOperationException>(() => staging.TryConsume(7, "酒", 1));
+        Assert.Throws<InvalidOperationException>(() => staging.Capture());
+        Assert.False(staging.TryReserveOrderCapacity(7, 1));
+        Assert.Equal(3, ship.ReservedReturnCapacity);
+
+        transaction.Commit();
+
+        Assert.Equal(0, ship.ReservedReturnCapacity);
+        Assert.Equal(1, staging.Receive(7, "蜜", 1).AcceptedAmount);
+        Assert.Equal(4, staging.UsedCapacity);
+        Assert.Equal(4, staging.Capture().PrefillBalances["酒"] +
+            staging.Capture().Accounts.Values.SelectMany(x => x).Sum(x => x.Value));
+    }
+
+    [Fact]
+    public void EmptyPrefillTransactionCanBeRolledBackAsNoOp()
+    {
+        var ship = new ShipLiquidInventory(2);
+        var staging = new WorkshopLiquidStaging(2);
+        var transaction = staging.BeginPrefillFromShip(ship, new[] { "酒" });
+
+        Assert.Equal(0, transaction.Receipt.AcceptedTotal);
+        transaction.Rollback();
+
+        Assert.True(transaction.IsCompleted);
+        Assert.Empty(staging.PrefillBalances);
+        Assert.Equal(0, ship.ReservedReturnCapacity);
+    }
+
+    [Fact]
     public void ReversiblePrefillReservesShipReturnCapacityUntilCommitOrRollback()
     {
         var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 3 });
