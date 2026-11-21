@@ -76,7 +76,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         WorldOrderSolvePlan plan,
         long unitDurationLogicalMilli,
         ResourceLedger? resourceLedger,
-        Func<int>? resourceLedgerTick)
+        Func<int>? resourceLedgerTick,
+        bool initializeExecution = true)
     {
         DemandId = demandId;
         _board = board;
@@ -128,18 +129,101 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 ? WorldOrderExecutionStage.Transfer
                 : WorldOrderExecutionStage.MasterSteps;
 
-        // 先处理主台路径开头连续的零耗时 MATCH；后续 MATCH 会在前一个耗时步骤完成后处理。
-        if (Stage == WorldOrderExecutionStage.MasterSteps)
-            PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master", _masterLiquidScope);
-
-        if (!IsTerminal && Stage == WorldOrderExecutionStage.MasterSteps &&
-            _masterIndex == _masterSteps.Count)
+        if (initializeExecution)
         {
-            if (manifest.IsPartitioned)
-                Stage = WorldOrderExecutionStage.Transfer;
-            else
-                CompleteSuccess();
+            // 先处理主台路径开头连续的零耗时 MATCH；后续 MATCH 会在前一个耗时步骤完成后处理。
+            if (Stage == WorldOrderExecutionStage.MasterSteps)
+                PumpInstantMatches(_master, _masterSteps, ref _masterIndex, "master", _masterLiquidScope);
+
+            if (!IsTerminal && Stage == WorldOrderExecutionStage.MasterSteps &&
+                _masterIndex == _masterSteps.Count)
+            {
+                if (manifest.IsPartitioned)
+                    Stage = WorldOrderExecutionStage.Transfer;
+                else
+                    CompleteSuccess();
+            }
         }
+    }
+
+    /// <summary>
+    /// 从已恢复的资源/工作台状态重建会话游标。此路径不重新准入、不扣液、不泵送、
+    /// 不执行 MATCH；它只恢复已发生的执行进度。
+    /// </summary>
+    internal static WorldOrderExecutionSession RestoreProgress(
+        WorldOrderExecutionSessionProgressSnapshot snapshot,
+        OrderDemandBoard board,
+        WorldOrderSolveBook solveBook,
+        WorldOrderExecutionAdmission admission,
+        WorkshopRoster roster,
+        WorldResourceReservationBook reservations,
+        ResourceLedger? resourceLedger,
+        Func<int>? resourceLedgerTick)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (board.Find(snapshot.DemandId) == null)
+            throw new InvalidOperationException("恢复会话对应的订单不在需求板中。");
+        if (snapshot.Manifest.DemandId != snapshot.DemandId ||
+            snapshot.Manifest.IsPartitioned != snapshot.Plan.IsPartitioned ||
+            snapshot.Stage is WorldOrderExecutionStage.Completed or WorldOrderExecutionStage.Failed or
+                WorldOrderExecutionStage.Interrupted or WorldOrderExecutionStage.Cancelled)
+            throw new InvalidOperationException("执行会话快照的订单身份、计划类型或阶段无效。");
+        if (snapshot.UnitDurationLogicalMilli <= 0 ||
+            snapshot.UnitElapsedLogicalMilli < 0 ||
+            snapshot.UnitElapsedLogicalMilli >= snapshot.UnitDurationLogicalMilli)
+            throw new InvalidOperationException("执行会话快照的逻辑时间进度无效。");
+        if (snapshot.CompletedMasterSteps < 0 ||
+            snapshot.CompletedMasterSteps > snapshot.Plan.MasterSteps.Count ||
+            snapshot.CompletedSlaveSteps < 0 ||
+            snapshot.CompletedSlaveSteps > snapshot.Plan.SlaveSteps.Count)
+            throw new InvalidOperationException("执行会话快照的步骤游标越界。");
+
+        var reservation = reservations.Find(snapshot.DemandId)
+            ?? throw new InvalidOperationException("恢复执行会话缺少资源预留。");
+        if (reservation.UsesSlave != snapshot.Manifest.IsPartitioned ||
+            !string.Equals(reservation.WorldVersion, snapshot.Manifest.WorldVersion, StringComparison.Ordinal))
+            throw new InvalidOperationException("执行会话快照与资源预留的版本或岗位占用不一致。");
+        var scopes = admission.GetLiquidScopes(snapshot.DemandId);
+        if (!scopes.HasValue || scopes.Value.Master.OrderId != snapshot.DemandId ||
+            (snapshot.Manifest.IsPartitioned
+                ? scopes.Value.Slave == null || scopes.Value.Slave.OrderId != snapshot.DemandId
+                : scopes.Value.Slave != null))
+            throw new InvalidOperationException("执行会话快照与订单液体范围不一致。");
+
+        var masterIndex = snapshot.CompletedMasterSteps;
+        var slaveIndex = snapshot.CompletedSlaveSteps;
+        var validStage = snapshot.Stage switch
+        {
+            WorldOrderExecutionStage.MasterSteps =>
+                masterIndex < snapshot.Plan.MasterSteps.Count &&
+                slaveIndex == 0 && !snapshot.SlaveTransferCommitted,
+            WorldOrderExecutionStage.Transfer =>
+                snapshot.Manifest.IsPartitioned &&
+                masterIndex == snapshot.Plan.MasterSteps.Count &&
+                slaveIndex == 0 && !snapshot.SlaveTransferCommitted,
+            WorldOrderExecutionStage.SlaveSteps =>
+                snapshot.Manifest.IsPartitioned &&
+                masterIndex == snapshot.Plan.MasterSteps.Count &&
+                slaveIndex < snapshot.Plan.SlaveSteps.Count &&
+                snapshot.SlaveTransferCommitted,
+            _ => false
+        };
+        if (!validStage || snapshot.Reason != null)
+            throw new InvalidOperationException("执行会话快照的阶段与步骤游标组合无效。");
+
+        var restored = new WorldOrderExecutionSession(
+            snapshot.DemandId, board, solveBook, admission, roster,
+            snapshot.Manifest, snapshot.Plan, snapshot.UnitDurationLogicalMilli,
+            resourceLedger, resourceLedgerTick, initializeExecution: false)
+        {
+            Stage = snapshot.Stage,
+            _masterIndex = snapshot.CompletedMasterSteps,
+            _slaveIndex = snapshot.CompletedSlaveSteps,
+            _unitElapsedLogicalMilli = snapshot.UnitElapsedLogicalMilli,
+            _slaveTransferCommitted = snapshot.SlaveTransferCommitted,
+            Reason = snapshot.Reason
+        };
+        return restored;
     }
 
     /// <summary>
