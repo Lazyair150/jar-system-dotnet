@@ -509,10 +509,10 @@ Envelope 建议：
 本轮将订单液体分配从 `WorldOrderExecutionAdmission` 中抽离到内部领域服务 `OrderLiquidAllocationService`：
 
 - Admission 负责校验需求、求解结果、工作台岗位、罐子身份与资源租约；成功后委托分配服务。
-- AllocationService 独立负责主台预置液优先抵扣、主台/从台峰值容量预留、自机液库差额扣款、订单暂存入账，以及失败补偿。
+- AllocationService 独立负责主台预置液优先抵扣、主台/从台峰值容量预留、自机液库差额扣款、订单暂存入账，以及失败补偿；可用库存视图也由该服务统一构造。
 - 分配服务的可用液体视图同时计入自机液库余额、当前主台预置液、活动订单的逻辑预留；避免预置液在准入阶段被漏算，也避免真实扣款与逻辑预留重复扣减。
 - Lease 仍是订单液体范围的唯一所有者；分配完成后把 MasterScope / 可选 SlaveScope 附着到 Lease，Admission 不再维护按 DemandId 索引的 Scope 字典。
-- 结算路径进一步明确：`OrderResourceSettlementService` 负责 Drain 订单范围、返还自机液库、写结算账本；Admission 的新内部 `ReleaseReservationOnly` 只释放容量配额与资源租约。旧 `Admission.Release` 保留兼容语义，避免一次重构破坏外部旧调用方。
+- 结算路径进一步明确：`OrderResourceSettlementService` 负责 Drain 订单范围、返还自机液库、写结算账本；Admission 的新内部 `ReleaseReservationOnly` 只释放容量配额与资源租约。Lease 新增单调结算阶段（NotStarted → ResourcesReturned → LedgerRecorded）及稳定 `SettlementOperationId`，同一活动租约重试时不会重复写入结算账本。旧 `Admission.Release` 保留兼容语义，避免一次重构破坏外部旧调用方。
 - 这一步是职责分离，不宣称持久化事务或崩溃恢复 exactly-once。Lease 的结算收据目前仍是运行时状态；下一阶段再把 SettlementState/Receipt 纳入正式 checkpoint wire contract，并为账本副作用建立可恢复的稳定操作标识。
 
 工程方向：减少 Admission 的多阶段事务代码，不再用增加更多验证用例替代领域职责收敛。测试主要沿用既有准入、预置液、A/B 资源分配、恢复与结算用例作为回归基线。
