@@ -286,7 +286,7 @@ public sealed class LiquidResourceAccountsTests
     [Fact]
     public void PrefillCanBeWithdrawnIntoAnOrderWithoutDoubleCountingCapacity()
     {
-        var staging = new WorkshopLiquidStaging(4);
+        var staging = new WorkshopLiquidStaging(5);
         staging.RestorePrefill(new Dictionary<string, int> { ["酒"] = 3 });
         var allocated = staging.WithdrawPrefillUpTo(new Dictionary<string, int> { ["酒"] = 2 });
         Assert.Equal(2, allocated["酒"]);
