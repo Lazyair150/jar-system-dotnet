@@ -200,7 +200,7 @@ public class ConfigAndCapabilityTests
 
         var roundTrip = WorldOptionsJson.FromJson(WorldOptionsJson.ToJson(world));
         Assert.Equal(7, roundTrip.Workshops[0].LiquidStagingCapacity);
-        Assert.Contains(world.Validate().Errors, e => !e.Contains("liquidStagingCapacity"));
+        Assert.True(world.Validate().IsValid);
 
         var system = new JarSystem.Core.JarSystem(
             randomSeed: 1, world: roundTrip,
