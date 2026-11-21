@@ -191,6 +191,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 demandId, board, solveBook, admission, roster,
                 admitted.Manifest, result.Plan, logicalTimePerUnit,
                 resourceLedger, resourceLedgerTick);
+
+            // 只有新自机液库路径才记录这笔实际扣款；旧兼容准入不伪造新的资源流向。
+            if (resourceLedger != null && admission.ShipLiquidInventory != null)
+            {
+                var tick = resourceLedgerTick?.Invoke() ?? 0;
+                foreach (var item in admitted.Manifest.MasterInitialLiquidAmounts)
+                    resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
+                        item.Key, item.Value, from: "自机液库", to: roster.Master!.Name);
+            }
             return WorldOrderExecutionStartResult.Started(session);
         }
         catch
