@@ -133,7 +133,7 @@ public sealed class WorldV2ApplicationService
 
             var specification = new JarOrderSpecification(
                 requirements, type, vocabulary: vocabulary);
-            var demand = new OrderDemand(specification, cooldownDuration);
+            var demand = new OrderDemand(specification, cooldownDuration, context.DemandIdGenerator);
             context.DemandBoard.AddDemand(demand, area);
             demandId = demand.Id;
         });
