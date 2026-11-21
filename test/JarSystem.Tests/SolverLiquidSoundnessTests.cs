@@ -173,9 +173,10 @@ public class SolverLiquidSoundnessTests
         {
             new() { Shape = "圆罐", Liquid = "酒" },
             new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" },
             new() { Shape = "圆罐", Liquid = "蜜" }
         };
-        var jars = Jars("酒", null, null);
+        var jars = Jars("酒", null, null, null);
         var liquids = new Dictionary<string, int> { ["酒"] = 0, ["蜜"] = 1 };
 
         var reason = SolverPrecheck.ProveInfeasible(requirements, info, jars, liquids, int.MaxValue);
