@@ -394,7 +394,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     }
 
     /// <summary>
-    /// B 类主台→从台转移：先全量预检，再执行所有移动。
+    /// B 类主台→从台交接：核对主台终态，再预检从台所需批次，最后执行 Jar 与液体转移。
     /// 任何预检失败都不移动一只罐子、不扣一份液体。
     /// </summary>
     private string? TransferToSlave()
@@ -582,7 +582,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
     private void CleanupTemporaryResources(int? ledgerTickOverride = null)
     {
-        // 只有本会话已经越过全量转移预检并取得从台资源所有权，才允许回流从台。
+        // 只有本会话已经通过从台所需液体批次预检并取得从台资源所有权，才允许处理从台回滚。
         // 若转移前发现从台被外部占用，失败路径必须原样保留那些外部资源与标记。
         if (_manifest.IsPartitioned && _slave != null && _slaveTransferCommitted)
         {
