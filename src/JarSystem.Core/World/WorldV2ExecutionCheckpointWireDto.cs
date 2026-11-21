@@ -51,7 +51,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             RuntimeLedgerTick = checkpoint.RuntimeLedgerTick,
             Sessions = checkpoint.Sessions.Select(WorldOrderExecutionSessionWireDto.FromSnapshot).ToList()
         };
-        wire.Validate();
+        // 来源是领域层已构造的不可变检查点；严格 Validate 在 JSON 入站/ToCheckpoint 边界执行。
         return wire;
     }
 
