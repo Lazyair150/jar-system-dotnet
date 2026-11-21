@@ -63,12 +63,33 @@ public sealed class WorldV2ApplicationService
                 step.WorldStep.LogicalTimeDeltaMilli,
                 resource.ProducedJarCount,
                 CopyList(resource.ProducedLiquids.Select(x => new WorldV2LiquidAmountDto(x.Liquid, x.Amount))),
+                CopyList(resource.LiquidProductionReceipts.Select(x => new WorldV2LiquidProductionReceiptDto(
+                    x.Liquid, x.ProducedAmount, x.AcceptedAmount, x.DiscardedAmount))),
                 resource.FlowedJarCount,
                 CopyDictionary(resource.FlowedLiquids),
                 CopyList(step.Scheduling.StartedDemandIds),
                 step.Scheduling.VisitedDemandCount,
                 context.Runtime.IsFaulted,
                 context.Runtime.FaultReason);
+        });
+        return result!;
+    }
+
+    /// <summary>
+    /// 读取资源账本的增量事实。Dropped/LastSeq 用于识别有界账本裁剪造成的事件缺口。
+    /// </summary>
+    public WorldV2ResourceLedgerDto GetResourceLedger(long afterSeq = 0)
+    {
+        if (afterSeq < 0) throw new ArgumentOutOfRangeException(nameof(afterSeq));
+        WorldV2ResourceLedgerDto? result = null;
+        _host.ExecuteExclusive(context =>
+        {
+            var ledger = context.ResourceLedger;
+            var events = ledger.Since(afterSeq).Select(item => new WorldV2ResourceEventDto(
+                item.Seq, item.Tick, item.Cause, item.Kind, item.Name, item.Amount,
+                item.From, item.To, item.Reason)).ToArray();
+            result = new WorldV2ResourceLedgerDto(
+                ledger.LastSeq, ledger.Dropped, ledger.Retained, CopyList(events));
         });
         return result!;
     }
@@ -190,7 +211,8 @@ public sealed class WorldV2ApplicationService
             result = new WorldV2WorkshopReplacementResultDto(
                 cancel.Success,
                 cancel.Error,
-                ToReplacementDto(context.Runtime.ActiveReplacement));
+                ToReplacementDto(context.Runtime.ActiveReplacement),
+                ToShipLiquidInventoryDto(context.ShipLiquidInventory));
         });
         return result!;
     }
@@ -276,6 +298,15 @@ public sealed class WorldV2ApplicationService
         public (bool Success, string? Error) InterruptForWorkshopReplacement() => (true, null);
     }
 
+    private static WorldV2ShipLiquidInventoryDto? ToShipLiquidInventoryDto(
+        ShipLiquidInventory? inventory)
+    {
+        if (inventory == null) return null;
+        return new WorldV2ShipLiquidInventoryDto(
+            inventory.Capacity, inventory.UsedCapacity, inventory.AvailableCapacity,
+            CopyDictionary(inventory.Balances));
+    }
+
     private static WorldV2WorkshopDto? ToWorkshopDto(Workshop? workshop)
     {
         if (workshop == null) return null;
@@ -313,6 +344,17 @@ public sealed record WorldV2AddJarDemandRequest(
 public sealed record WorldV2RequirementDto(string Shape, string? Liquid);
 public sealed record WorldV2JarDto(int? Id, string Shape, string? Liquid, bool IsMarked);
 public sealed record WorldV2LiquidAmountDto(string Liquid, int Amount);
+public sealed record WorldV2LiquidProductionReceiptDto(
+    string Liquid, int ProducedAmount, int AcceptedAmount, int DiscardedAmount);
+public sealed record WorldV2ShipLiquidInventoryDto(
+    int Capacity, int UsedCapacity, int AvailableCapacity,
+    IReadOnlyDictionary<string, int> Balances);
+public sealed record WorldV2ResourceEventDto(
+    long Seq, int Tick, string Cause, string Kind, string Name, int Amount,
+    string? From, string? To, string? Reason);
+public sealed record WorldV2ResourceLedgerDto(
+    long LastSeq, int Dropped, int Retained,
+    IReadOnlyList<WorldV2ResourceEventDto> Events);
 
 public sealed record WorldV2WorkshopDto(
     string Name,
@@ -348,6 +390,7 @@ public sealed record WorldV2AdvanceResultDto(
     long LogicalTimeDeltaMilli,
     int ProducedJarCount,
     IReadOnlyList<WorldV2LiquidAmountDto> ProducedLiquids,
+    IReadOnlyList<WorldV2LiquidProductionReceiptDto> LiquidProductionReceipts,
     int FlowedJarCount,
     IReadOnlyDictionary<string, int> FlowedLiquids,
     IReadOnlyList<int> StartedDemandIds,
@@ -390,4 +433,5 @@ public sealed record WorldV2SnapshotDto(
     IReadOnlyList<WorldV2DemandDto> Demands,
     IReadOnlyList<WorldV2ExecutionSessionDto> ActiveSessions,
     int ReservationCount,
-    WorldV2WorkshopReplacementDto? Replacement);
+    WorldV2WorkshopReplacementDto? Replacement,
+    WorldV2ShipLiquidInventoryDto? ShipLiquidInventory);
