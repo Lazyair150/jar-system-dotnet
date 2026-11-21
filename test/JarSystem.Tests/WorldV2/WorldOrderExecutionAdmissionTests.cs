@@ -535,4 +535,30 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Equal(1, scope.GetAmount("蜜"));
     }
 
+    [Fact]
+    public void ReservationBookOwnsOneLeaseAndLegacyReservationIsOnlyItsProjection()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+
+        var admitted = setup.Admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        var lease = Assert.IsType<OrderResourceLease>(
+            setup.Reservations.FindLease(demand.Id));
+        Assert.Equal(demand.Id, lease.DemandId);
+        Assert.Equal(admitted.Manifest!.WorldVersion, lease.WorldVersion);
+        Assert.Equal(new[] { jar.Id!.Value }, lease.LockedJarIds);
+        Assert.Equal(1, lease.InitialLiquidSupply["酒"]);
+        Assert.False(lease.UsesSlave);
+        Assert.Same(lease.Reservation, setup.Reservations.Find(demand.Id));
+        Assert.True(setup.Admission.Release(demand.Id));
+        Assert.Null(setup.Reservations.FindLease(demand.Id));
+    }
+
 }
