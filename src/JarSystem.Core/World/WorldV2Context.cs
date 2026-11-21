@@ -120,6 +120,10 @@ public sealed class WorldV2Context : IDisposable
     /// </summary>
     public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
     {
+        if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null)
+            throw new InvalidOperationException(
+                "世界故障或工作台替换状态尚未纳入执行资源检查点，拒绝生成不完整检查点。");
         if (ShipLiquidInventory == null)
             throw new InvalidOperationException("旧版兼容世界没有自机液库，不能捕获新液体资源检查点。");
         return new WorldV2ExecutionResourceCheckpoint(
@@ -173,6 +177,12 @@ public sealed class WorldV2Context : IDisposable
         _ = WorldClock.Restore(checkpoint.Clock);
         var activeScopeIds = checkpoint.Admission.ActiveOrders.Select(item => item.DemandId).ToHashSet();
         var sessionIds = checkpoint.Sessions.Select(item => item.DemandId).ToHashSet();
+        if (sessionIds.Count != checkpoint.Sessions.Count)
+            throw new InvalidOperationException("检查点包含重复执行会话 ID。");
+        if (checkpoint.Sessions.Any(item => item.DemandId <= 0))
+            throw new InvalidOperationException("检查点包含无效执行会话 ID。");
+        if (checkpoint.ResourceLedger.Entries.Any(item => item.Tick > checkpoint.RuntimeLedgerTick))
+            throw new InvalidOperationException("检查点资源账本事件 tick 超过 Runtime 当前 tick。");
         if (!activeScopeIds.SetEquals(sessionIds))
             throw new InvalidOperationException("检查点活动订单范围与执行会话集合不一致。");
         if (checkpoint.RuntimeLedgerTick < 0)
