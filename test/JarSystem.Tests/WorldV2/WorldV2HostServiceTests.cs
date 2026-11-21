@@ -164,6 +164,20 @@ public sealed class WorldV2HostServiceTests
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
         var beforePumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(beforePump);
+        var decodedWire = WorldV2CheckpointJsonCodec
+            .Decode<WorldV2ExecutionCheckpointWireDto>(beforePumpJson).Payload;
+        decodedWire.Validate();
+        var decodedVocabulary = new Vocabulary(decodedWire.Shapes, decodedWire.Liquids);
+        _ = decodedWire.ResourceArea.ToSnapshot(decodedVocabulary);
+        _ = decodedWire.DemandBoard.ToSnapshot();
+        _ = decodedWire.ShipLiquidInventory.ToSnapshot();
+        _ = decodedWire.MasterWorkshop.ToSnapshot(decodedVocabulary);
+        _ = decodedWire.SlaveWorkshop?.ToSnapshot(decodedVocabulary);
+        _ = decodedWire.Admission.ToSnapshot();
+        _ = WorldResourceReservationBook.RestoreWire(decodedWire.ReservationLeases).Capture();
+        _ = decodedWire.ResourceLedger.ToSnapshot();
+        _ = decodedWire.Clock.ToSnapshot();
+        _ = decodedWire.Sessions.Select(item => item.ToSnapshot()).ToArray();
         try
         {
             beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
