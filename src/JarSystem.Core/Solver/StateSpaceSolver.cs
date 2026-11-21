@@ -193,7 +193,11 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
                 bool isEmptyReq = reqs[idx].Liquid == null;
                 ni = (shapeMatch && isEmptyReq) ? idx + 1 : idx;
             }
-            var r = Bt(reqs, ni, ns, path);
+            // 以从台路径所需的最小初始供给重放当前前缀；容量只约束实际需要的资源，
+            // 不把来源工作台的全部剩余液体误算成必须进入本工作台的库存。
+            var withinLiquidCapacity = LiquidRequirementCalculator.ComputePeakCapacity(path)
+                <= st.WorkshopInfo.MaxLiquidCapacity;
+            var r = withinLiquidCapacity ? Bt(reqs, ni, ns, path) : null;
             path.RemoveAt(path.Count - 1);
             if (r != null)
             {
@@ -270,11 +274,12 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         {
             var j = st.Jars[i];
             if (j.Liquid != null && !j.IsMarked && !st.IsBanned(j.Liquid))
-                if (st.LiquidCount(j.Liquid) < st.WorkshopInfo.MaxLiquids)
+                if (st.WorkshopInfo.MaxLiquidCapacity != int.MaxValue ||
+                    st.LiquidCount(j.Liquid) < st.WorkshopInfo.MaxLiquids)
                 {
                     if (!WithinBudget(st, i)) continue;                       // 预算外：Apply 必拒
                     if (!seenPourOut.Add(Descriptor(j))) { Stats.IsomorphicPruned++; continue; }
-                    ops.Add(new SolverOperation { Type = "POUR_OUT", Description = "倒出 " + j.Shape + " 中的 " + j.Liquid, JarIndex = i, Consumed = new() });
+                    ops.Add(new SolverOperation { Type = "POUR_OUT", Description = "倒出 " + j.Shape + " 中的 " + j.Liquid, JarIndex = i, TargetLiquid = j.Liquid, Consumed = new() });
                 }
         }
         return ops;
