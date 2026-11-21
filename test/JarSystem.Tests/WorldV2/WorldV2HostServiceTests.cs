@@ -191,9 +191,7 @@ public sealed class WorldV2HostServiceTests
 
         // Checkpoint B：交接已提交、从台拥有订单液体。恢复不得再次泵送。
         var afterPump = application.CaptureExecutionResourceCheckpoint();
-        var afterPumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(afterPump);
-        var afterPumpJson = WorldV2CheckpointJsonCodec.Encode(
-            afterPumpWire, afterPump.ConfigurationFingerprint);
+        var afterPumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(afterPump);
         afterPump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(afterPumpJson);
         Assert.Equal(transferEventsBeforeOrder + 1, afterPump.ResourceLedger.Entries.Count(item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
