@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.World.Demands;
 
@@ -149,6 +152,82 @@ public sealed class OrderDemandBoard
                 demandId, area.Kind, area.Kind));
         }
         return ready.AsReadOnly();
+    }
+
+    /// <summary>
+    /// 捕获需求板运行态。当前可恢复的规格契约是 JarOrderSpecification；
+    /// 遇到未定义快照格式的自定义规格时明确拒绝，不能静默丢失订单语义。
+    /// </summary>
+    public OrderDemandBoardSnapshot CaptureRuntimeState(SequentialIdGenerator demandIds)
+    {
+        ArgumentNullException.ThrowIfNull(demandIds);
+        return new OrderDemandBoardSnapshot(
+            demandIds.CurrentValue,
+            Passive.FulfillmentPolicy,
+            Active.FulfillmentPolicy,
+            CaptureArea(Passive),
+            CaptureArea(Active));
+    }
+
+    /// <summary>
+    /// 从需求板快照重建一个新需求板。调用方必须提供与世界词表匹配的 Vocabulary
+    /// 和该世界专属的需求 ID 生成器；恢复只推进 ID 序列，不会复用已发出的 ID。
+    /// </summary>
+    public static OrderDemandBoard RestoreRuntimeState(
+        OrderDemandBoardSnapshot snapshot,
+        Vocabulary vocabulary,
+        SequentialIdGenerator demandIds)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(vocabulary);
+        ArgumentNullException.ThrowIfNull(demandIds);
+
+        var board = new OrderDemandBoard(
+            snapshot.PassiveFulfillmentPolicy,
+            snapshot.ActiveFulfillmentPolicy);
+        RestoreArea(board.Passive, snapshot.PassiveDemands, vocabulary);
+        RestoreArea(board.Active, snapshot.ActiveDemands, vocabulary);
+        demandIds.RestoreAtLeast(snapshot.DemandIdSequence);
+        return board;
+    }
+
+    private static IReadOnlyList<OrderDemandSnapshot> CaptureArea(OrderDemandArea area) =>
+        Array.AsReadOnly(area.Demands.Select(demand =>
+        {
+            if (demand.Specification is not JarOrderSpecification specification)
+                throw new NotSupportedException(
+                    "需求板检查点暂不支持规格类型: " + demand.Specification.GetType().FullName);
+
+            return new OrderDemandSnapshot(
+                demand.Id,
+                specification.Type,
+                specification.Requirements.Select(item =>
+                    new OrderRequirementSnapshot(item.Shape, item.Liquid)),
+                demand.CooldownDurationLogicalMilli,
+                demand.CooldownRemainingLogicalMilli);
+        }).ToArray());
+
+    private static void RestoreArea(
+        OrderDemandArea area,
+        IReadOnlyList<OrderDemandSnapshot> demands,
+        Vocabulary vocabulary)
+    {
+        foreach (var item in demands)
+        {
+            var specification = new JarOrderSpecification(
+                item.Requirements.Select(requirement => new Requirement
+                {
+                    Shape = requirement.Shape,
+                    Liquid = requirement.Liquid
+                }),
+                item.Type,
+                vocabulary);
+            area.Add(OrderDemand.Restore(
+                item.Id,
+                specification,
+                item.CooldownDurationLogicalMilli,
+                item.CooldownRemainingLogicalMilli));
+        }
     }
 
     private OrderDemandArea AreaOf(OrderDemand demand) =>
