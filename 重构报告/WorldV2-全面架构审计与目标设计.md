@@ -399,11 +399,12 @@ Envelope 建议：
 - `OrderTransferService` 现在必须接收对应的 `OrderResourceLease`，且只接受 B 类、阶段为 TransferPending、资源承诺与 Manifest 完全一致的租约。
 - 新增/加强 B 类检查点测试：租约阶段、交接液体、从台容量配额跨快照保持一致；伪造 Lease 阶段与 Session 不一致的检查点必须被拒绝，随后仍可恢复合法检查点。
 - 修复 `WorkshopWritersTests` 清单：新增的 `OrderTransferService` 被登记为唯一 B 类交接写入主体，保留工作台端口写入路径审计。
+- 修复结算 tick 的获取时机：成功交付、失败清理和工作台替换中断现在都在清理/交付变更前预取结算 tick，并把同一 tick 传给从台回滚与液体返还/丢弃账本记录，避免罐子已经交付后才调用可能抛错的外部 tick provider。
 
 ### 当前验证事实
 - 之前 HEAD `0140b3671dad5da8b00315071be49dc5d124dfd2` 对应 CI #1091 失败，唯一 xUnit 失败为 `WorkshopWritersTests.EveryWorkshopWriterIsOnTheList`；Release build、Godot Host builds、其余验证阶段通过。
 - 该失败的根因是新增 `OrderTransferService` 调用 Workshop 端口，但未登记在写入主体清单。本轮已补登记。
-- 上述之后又提交了 Lease 快照完整性、Session/Lease 一致性和 TransferService 租约门禁修改；这些改动尚未由最新 HEAD 的 CI 证明。
+- 上述之后又提交了 Lease 快照完整性、Session/Lease 一致性和 TransferService 租约门禁修改；这些改动尚未由最新 HEAD 的 CI 证明。当前最新 HEAD 为 `833c75a96757b17deb7cad6c869932f4d206481d`，CI #1122 正在运行。
 - 当前实施仍不是完整 JSON 世界存档：Reservation 快照的 Lease 字段尚未形成根级 Wire DTO；PreparedRestore、Host 原子 Context 交换、SettlementService、Legacy Adapter 仍未完成。
 
 ### 下一批实施顺序
