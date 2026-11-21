@@ -159,7 +159,39 @@ public sealed class WorkshopOrderLiquidScopeTests
             bannedWorkshop.Rules, scope, JarFacts.Of(bannedJar), WorkshopOperation.PourOut()));
     }
 
-    private static void AssertParity(
+
+    [Fact]
+    public void ExplicitEmptyReshapeCostCannotBypassWorkshopBan()
+    {
+        var workshop = CreateWorkshop(ban: new[] { "酒" });
+        var jar = new Jar("圆罐");
+        Assert.True(workshop.AddJar(jar));
+        var staging = new WorkshopLiquidStaging(4);
+        staging.Receive(101, "酒", 1);
+        var scope = new OrderLiquidScope(101, staging);
+
+        var result = workshop.TryReshape(jar, "尖罐", scope, ReshapeMode.Empty, "酒");
+
+        Assert.False(result.Success);
+        Assert.Equal("圆罐", jar.Shape);
+        Assert.Equal(1, staging.GetAmount(101, "酒"));
+    }
+
+    [Fact]
+    public void StagingBanIsAlsoRespectedByPourInAndRulebook()
+    {
+        var workshop = CreateWorkshop();
+        var jar = new Jar("圆罐");
+        Assert.True(workshop.AddJar(jar));
+        var staging = new WorkshopLiquidStaging(4, new[] { "酒" });
+        staging.Receive(101, "酒", 1); // 被暂存区拒收，不能伪造初始余额
+        var scope = new OrderLiquidScope(101, staging);
+
+        Assert.False(WorkshopRulebook.IsAllowed(
+            workshop.Rules, scope, JarFacts.Of(jar), WorkshopOperation.PourIn("酒")));
+        Assert.False(workshop.PourIn(jar, "酒", scope).Success);
+    }
+\n    private static void AssertParity(
         Jar initialJar,
         WorkshopOperation operation,
         System.Action<WorkshopLiquidStaging> seed)
