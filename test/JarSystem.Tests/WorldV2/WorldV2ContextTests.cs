@@ -334,8 +334,8 @@ public sealed class WorldV2ContextTests
         Assert.Same(bLeaseScopes.Master, firstWorld.Admission.GetLiquidScopes(firstDemand.Id)!.Value.Master);
         Assert.Same(bLeaseScopes.Slave, firstWorld.Admission.GetLiquidScopes(firstDemand.Id)!.Value.Slave);
         var capturedLease = Assert.Single(firstWorld.Reservations.Capture().Reservations);
-        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, capturedLease.Stage);
-        Assert.Empty(capturedLease.TransferLiquidAmounts);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting, capturedLease.Stage);
+        Assert.Equal(1, capturedLease.TransferLiquidAmounts["酒"]);
         Assert.Equal(firstWorld.Reservations.FindLease(firstDemand.Id)!.SlaveStagingPeakCapacity,
             capturedLease.SlaveStagingPeakCapacity);
         Assert.Throws<InvalidOperationException>(
