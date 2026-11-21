@@ -88,6 +88,17 @@ public sealed class WorldClock
         return logicalDelta;
     }
 
+    /// <summary>将已验证时钟快照恢复到当前时钟实例。</summary>
+    public void RestoreFrom(WorldClockSnapshot snapshot)
+    {
+        var restored = Restore(snapshot);
+        WorldTimeMilli = restored.WorldTimeMilli;
+        LogicalTimeMilli = restored.LogicalTimeMilli;
+        SpeedRatioMilli = restored.SpeedRatioMilli;
+        IsPaused = restored.IsPaused;
+        _conversionRemainder = restored._conversionRemainder;
+    }
+
     /// <summary>清零时间与换算余数，保留当前流速设置。</summary>
     public void Reset()
     {
