@@ -56,6 +56,15 @@ public sealed class WorldOrderExecutionAdmission
     /// <summary>
     /// 尝试准入一张订单。应在世界逻辑调度线程内同步调用，避免检查与预留之间插入世界变更。
     /// </summary>
+    public LiquidBatchReceipt PrefillMasterWorkshop(Workshop targetWorkshop, IEnumerable<string> productionPriority)
+    {
+        ArgumentNullException.ThrowIfNull(targetWorkshop);
+        ArgumentNullException.ThrowIfNull(productionPriority);
+        if (_shipLiquidInventory == null) throw new InvalidOperationException("旧版兼容准入不支持主台切换前置补液。");
+        if (!_roster.IsSpare(targetWorkshop)) throw new InvalidOperationException("主台前置补液目标必须是当前主从岗位之外的备用工作台。");
+        return GetOrCreateStaging(targetWorkshop).PrefillFromShip(_shipLiquidInventory, productionPriority);
+    }
+
     public WorldOrderExecutionAdmissionResult TryAdmit(int demandId)
     {
         var demand = _board.Find(demandId);
@@ -344,13 +353,18 @@ public sealed class WorldOrderExecutionAdmission
         ShipLiquidInventory inventory, WorldOrderResourceManifest manifest)
     {
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        var master = _roster.Master;
+        var prefill = master != null && _stagingByWorkshop.TryGetValue(master, out var masterStaging)
+            ? masterStaging.PrefillBalances
+            : new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var liquid in inventory.Balances.Keys
+            .Concat(prefill.Keys)
             .Concat(manifest.MasterInitialLiquidAmounts.Keys)
             .Distinct(StringComparer.Ordinal))
         {
             // ReservationBook 仍会扣除活动订单的预留；把已从自机液库实扣的预留加回输入，
             // 防止同一批资源被“真实扣除 + 逻辑预留”重复扣减。
-            result[liquid] = checked(inventory.GetAmount(liquid) +
+            result[liquid] = checked(inventory.GetAmount(liquid) + prefill.GetValueOrDefault(liquid) +
                 _reservations.ReservedLiquidAmount(liquid));
         }
         return result;
