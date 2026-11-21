@@ -97,8 +97,9 @@ public sealed class LiquidResourceAccountsTests
         Assert.True(OrderLiquidTransfer.TryExecute(101, master, slave,
             new Dictionary<string, int> { ["酒"] = 2, ["蜜"] = 1 }, out var reason));
         Assert.Null(reason);
-        Assert.Equal(2, master.GetAmount(101, "酒") + slave.GetAmount(101, "酒"));
-        Assert.Equal(1, master.GetAmount(101, "蜜") + slave.GetAmount(101, "蜜"));
+        Assert.Equal(3, master.GetAmount(101, "酒") + slave.GetAmount(101, "酒"));
+        Assert.Equal(2, master.GetAmount(101, "蜜") + slave.GetAmount(101, "蜜"));
+        Assert.Equal(5, master.GetBalance(101).Values.Sum() + slave.GetBalance(101).Values.Sum());
         Assert.Equal(2, slave.GetAmount(101, "酒"));
         Assert.Equal(1, slave.GetAmount(101, "蜜"));
     }
