@@ -235,7 +235,8 @@ public sealed class WorldV2ContextTests
         secondWorld.DemandBoard.AddDemand(restoredDemand, DemandAreaKind.Active);
 
         var invalidClockCheckpoint = new WorldV2ExecutionResourceCheckpoint(
-            checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
+            checkpoint.ResourceArea, checkpoint.ShipLiquidInventory,
+            checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
             checkpoint.Admission, checkpoint.Reservations, checkpoint.ResourceLedger,
             new WorldClockSnapshot(-1, checkpoint.Clock.LogicalTimeMilli,
                 checkpoint.Clock.SpeedRatioMilli, checkpoint.Clock.IsPaused,
@@ -348,6 +349,65 @@ public sealed class WorldV2ContextTests
             item => item.Kind == ResourceKinds.Liquid);
         Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Return),
             item => item.Kind == ResourceKinds.Liquid);
+    }
+
+    [Fact]
+    public void ExecutionCheckpointPreservesProductionRemaindersWarehouseAndFlowQuota()
+    {
+        static ResourceArea CreateProductionArea(ShipLiquidInventory ship)
+        {
+            var producers = new ProducerModule(Words);
+            producers.RegisterProducer("罐源", new Dictionary<string, double> { ["圆罐"] = 0.5 });
+            var liquidProduction = new LiquidProduction(
+                Words,
+                defaults: new Dictionary<string, double> { ["酒"] = 0.5, ["蜜"] = 0 });
+            return new ResourceArea(
+                producers, liquidProduction,
+                jarFlowRate: 0.5, liquidFlowRate: 0,
+                shipLiquidInventory: ship);
+        }
+
+        var firstMaster = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        var firstShip = new ShipLiquidInventory(10);
+        var firstResources = CreateProductionArea(firstShip);
+        firstResources.Inventory.StoreJars(new[] { new Jar("圆罐", vocabulary: Words) });
+        using var firstWorld = WorldV2Context.Create(
+            firstResources, new[] { firstMaster }, firstMaster, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: firstShip);
+
+        firstWorld.Runtime.AdvanceWorldTime(500);
+        var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
+        Assert.Single(checkpoint.ResourceArea.Warehouse.Jars);
+        Assert.Equal(0.25, checkpoint.ResourceArea.Producers.GeneratorAccumulatedMicro["圆罐"] / 1_000_000d);
+        Assert.Equal(0.25, checkpoint.ResourceArea.LiquidProduction.AccumulatedMicro["酒"] / 1_000_000d);
+        Assert.Equal(250_000, checkpoint.ResourceArea.JarFlowAccumulator);
+
+        var secondMaster = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        var secondShip = new ShipLiquidInventory(10);
+        var secondResources = CreateProductionArea(secondShip);
+        using var secondWorld = WorldV2Context.Create(
+            secondResources, new[] { secondMaster }, secondMaster, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: secondShip);
+
+        secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
+        Assert.Single(secondResources.Inventory.Jars);
+
+        secondWorld.Runtime.AdvanceWorldTime(1_500);
+
+        Assert.Single(secondMaster.Jars);
+        Assert.Single(secondResources.Inventory.Jars);
+        Assert.Equal(1, secondShip.GetAmount("酒"));
+        Assert.Equal(2_000, secondWorld.Runtime.Clock.WorldTimeMilli);
+        Assert.Equal(0, secondResources.Producers.Generators["圆罐"].Accumulated);
+        Assert.Equal(0, secondResources.LiquidProduction.Accumulated["酒"]);
     }
 
     [Fact]
