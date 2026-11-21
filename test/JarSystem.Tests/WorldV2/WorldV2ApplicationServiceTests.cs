@@ -333,8 +333,9 @@ public sealed class WorldV2ApplicationServiceTests
         app.AdvanceWorld(1_000);
         var reshaped = app.GetWorldSnapshot();
         Assert.Equal("主台", reshaped.Master!.Name);
-        Assert.Equal("酒", Assert.Single(reshaped.Master.Jars).Liquid);
+        Assert.Null(Assert.Single(reshaped.Master.Jars).Liquid);
         Assert.Equal(0, reshaped.Master.Liquids["酒"]);
+        Assert.Equal(1, reshaped.ShipLiquidInventory!.Balances["酒"]);
         Assert.False(reshaped.Replacement!.IsFinished);
         Assert.Equal(1, reshaped.Replacement.CompletedPhases);
 
