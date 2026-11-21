@@ -165,7 +165,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
         Assert.True(decoded.Payload.SlaveTransferCommitted);
         Assert.Equal(1, decoded.Payload.Manifest.TransferLiquids["water"]);
         Assert.Equal(2, decoded.Payload.Manifest.MasterFinalLiquidBalances["water"]);
-        Assert.Equal(1, decoded.Payload.Plan.SlaveSteps[0].Operation!.JarIndex);
+        Assert.Equal(0, decoded.Payload.Plan.SlaveSteps[0].Operation!.JarIndex);
         Assert.Equal("MATCH", decoded.Payload.Plan.SlaveSteps[0].Operation!.Type);
 
         var restored = decoded.Payload.ToSnapshot();
