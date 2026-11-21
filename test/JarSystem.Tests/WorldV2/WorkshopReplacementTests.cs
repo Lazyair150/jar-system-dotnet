@@ -684,7 +684,7 @@ public sealed class WorkshopReplacementTests
     [Fact]
     public void WorldV2MasterReplacementPrefillsTargetBeforeMigrationAndRecordsLedger()
     {
-        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" });
         var ship = new ShipLiquidInventory(8, new Dictionary<string, int>
         {
             ["酒"] = 3,
