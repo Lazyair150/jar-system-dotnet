@@ -275,11 +275,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             snapshot.UnitElapsedLogicalMilli < 0 ||
             snapshot.UnitElapsedLogicalMilli >= snapshot.UnitDurationLogicalMilli)
             throw new InvalidOperationException("执行会话快照的逻辑时间进度无效。");
-        if (snapshot.CompletedMasterSteps < 0 ||
-            snapshot.CompletedMasterSteps > snapshot.Plan.MasterSteps.Count ||
-            snapshot.CompletedSlaveSteps < 0 ||
-            snapshot.CompletedSlaveSteps > snapshot.Plan.SlaveSteps.Count)
-            throw new InvalidOperationException("执行会话快照的步骤游标越界。");
+        ExecutionProgressInvariants.Validate(
+            snapshot.Stage,
+            snapshot.CompletedMasterSteps,
+            snapshot.Plan.MasterSteps.Count,
+            snapshot.CompletedSlaveSteps,
+            snapshot.Plan.SlaveSteps.Count,
+            snapshot.Manifest.IsPartitioned,
+            snapshot.SlaveTransferCommitted,
+            snapshot.Reason);
 
         var reservation = reservations.Find(snapshot.DemandId)
             ?? throw new InvalidOperationException("恢复执行会话缺少资源预留。");
@@ -315,24 +319,6 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         var masterIndex = snapshot.CompletedMasterSteps;
         var slaveIndex = snapshot.CompletedSlaveSteps;
-        var validStage = snapshot.Stage switch
-        {
-            WorldOrderExecutionStage.MasterSteps =>
-                masterIndex < snapshot.Plan.MasterSteps.Count &&
-                slaveIndex == 0 && !snapshot.SlaveTransferCommitted,
-            WorldOrderExecutionStage.Transfer =>
-                snapshot.Manifest.IsPartitioned &&
-                masterIndex == snapshot.Plan.MasterSteps.Count &&
-                slaveIndex == 0 && !snapshot.SlaveTransferCommitted,
-            WorldOrderExecutionStage.SlaveSteps =>
-                snapshot.Manifest.IsPartitioned &&
-                masterIndex == snapshot.Plan.MasterSteps.Count &&
-                slaveIndex < snapshot.Plan.SlaveSteps.Count &&
-                snapshot.SlaveTransferCommitted,
-            _ => false
-        };
-        if (!validStage || snapshot.Reason != null)
-            throw new InvalidOperationException("执行会话快照的阶段与步骤游标组合无效。");
 
         var restored = new WorldOrderExecutionSession(
             snapshot.DemandId, board, solveBook, admission, roster,
