@@ -128,6 +128,70 @@ public sealed class WorldV2ContextTests
     }
 
     [Fact]
+    public void ExecutionResourceCheckpointCapturesDetachedLiquidScopesReservationsLedgerClockAndSessionProgress()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        using var world = WorldV2Context.Create(
+            CreateResources(), new[] { master }, master, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        world.DemandBoard.AddDemand(demand, DemandAreaKind.Active);
+        var started = world.Scheduler.TryStartActiveDemand(demand.Id);
+        Assert.True(started.Success, started.Reason);
+
+        var first = world.CaptureExecutionResourceCheckpoint();
+        Assert.Equal(0, first.ShipLiquidInventory.Balances.Values.Sum());
+        Assert.Equal(1, first.Admission.MasterStaging!.Accounts[demand.Id]["酒"]);
+        Assert.Empty(first.Admission.SlaveStaging?.Accounts ?? new Dictionary<int, IReadOnlyDictionary<string, int>>());
+        Assert.Single(first.Admission.ActiveOrders);
+        Assert.False(first.Admission.ActiveOrders[0].UsesSlave);
+        Assert.Single(first.Reservations.Reservations);
+        Assert.Single(first.Sessions);
+        Assert.Equal(WorldOrderExecutionStage.MasterSteps, first.Sessions[0].Stage);
+        Assert.Equal(0, first.Sessions[0].UnitElapsedLogicalMilli);
+        Assert.Contains(first.ResourceLedger.Entries, item =>
+            item.Cause == ResourceCauses.Stock && item.From == "关卡初始库存");
+        Assert.Contains(first.ResourceLedger.Entries, item =>
+            item.Cause == ResourceCauses.Flow && item.From == "自机液库" && item.To == "主台");
+
+        world.Runtime.AdvanceWorldTime(500);
+        var second = world.CaptureExecutionResourceCheckpoint();
+
+        Assert.Equal(0, first.Sessions[0].UnitElapsedLogicalMilli);
+        Assert.Equal(500, second.Sessions[0].UnitElapsedLogicalMilli);
+        Assert.Equal(0, first.Clock.WorldTimeMilli);
+        Assert.Equal(500, second.Clock.WorldTimeMilli);
+        Assert.Equal(1, first.Admission.MasterStaging!.Accounts[demand.Id]["酒"]);
+    }
+
+    [Fact]
+    public void WorldClockSnapshotPreservesFixedPointRemainderAcrossRestore()
+    {
+        var original = new WorldClock();
+        original.SetSpeedRatio(0.333);
+        Assert.Equal(0, original.Advance(1));
+        var snapshot = original.Capture();
+        var restored = WorldClock.Restore(snapshot);
+
+        Assert.Equal(original.Advance(2), restored.Advance(2));
+        Assert.Equal(original.WorldTimeMilli, restored.WorldTimeMilli);
+        Assert.Equal(original.LogicalTimeMilli, restored.LogicalTimeMilli);
+        Assert.Equal(original.Capture().ConversionRemainder,
+            restored.Capture().ConversionRemainder);
+    }
+
+    [Fact]
     public void CreateRejectsInvalidLogicalTimeScale()
     {
         var master = CreateMaster();
