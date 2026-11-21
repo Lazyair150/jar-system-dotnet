@@ -78,4 +78,111 @@ public sealed class WorldV2CheckpointJsonCodecTests
         Assert.Throws<ArgumentException>(
             () => WorldV2CheckpointJsonCodec.Encode(new[] { 1, 2, 3 }, null));
     }
+
+    [Fact]
+    public void SessionWireDtoRoundTripsBClassHandoffAndPlanWithoutRuntimeObjects()
+    {
+        var dto = new JarSystem.Core.World.Execution.WorldOrderExecutionSessionWireDto
+        {
+            DemandId = 17,
+            Stage = "SlaveSteps",
+            CompletedMasterSteps = 2,
+            CompletedSlaveSteps = 1,
+            UnitElapsedLogicalMilli = 25,
+            UnitDurationLogicalMilli = 100,
+            SlaveTransferCommitted = true,
+            Manifest = new JarSystem.Core.World.Execution.WorldOrderResourceManifestWireDto
+            {
+                DemandId = 17,
+                WorldVersion = "world-v2:42",
+                IsPartitioned = true,
+                MasterJarIds = new[] { 1, 2 },
+                TransferJarIds = new[] { 2 },
+                LockedJarIds = new[] { 1, 2 },
+                MasterInitialLiquidAmounts = new System.Collections.Generic.Dictionary<string, int> { ["water"] = 3 },
+                TransferLiquids = new System.Collections.Generic.Dictionary<string, int> { ["water"] = 1 },
+                MasterFinalLiquidBalances = new System.Collections.Generic.Dictionary<string, int> { ["water"] = 2 },
+                MasterStagingPeakCapacity = 3,
+                SlaveStagingPeakCapacity = 1
+            },
+            Plan = new JarSystem.Core.World.Execution.WorldOrderSolvePlanWireDto
+            {
+                IsPartitioned = true,
+                TransferJarIds = new[] { 2 },
+                TransferLiquids = new System.Collections.Generic.Dictionary<string, int> { ["water"] = 1 },
+                MasterSteps = new[]
+                {
+                    new JarSystem.Core.World.Execution.WorldPlanStepWireDto
+                    {
+                        Step = 0,
+                        RequirementShape = "round",
+                        RequirementLiquid = "water",
+                        Operation = new JarSystem.Core.World.Execution.WorldPlanOperationWireDto
+                        {
+                            Type = "POUR_IN", JarIndex = 0, TargetLiquid = "water",
+                            Consumed = new System.Collections.Generic.Dictionary<string, int> { ["water"] = 1 }
+                        },
+                        Before = new[] { new JarSystem.Core.World.Execution.WorldPlanJarStateWireDto { Id = 1, Shape = "round" } },
+                        After = new[] { new JarSystem.Core.World.Execution.WorldPlanJarStateWireDto { Id = 1, Shape = "round", Liquid = "water", IsMarked = true } },
+                        AfterLiquids = new System.Collections.Generic.Dictionary<string, int> { ["water"] = 2 }
+                    }
+                },
+                SlaveSteps = new[]
+                {
+                    new JarSystem.Core.World.Execution.WorldPlanStepWireDto
+                    {
+                        Step = 0,
+                        RequirementShape = "square",
+                        RequirementLiquid = "water",
+                        Operation = new JarSystem.Core.World.Execution.WorldPlanOperationWireDto
+                        {
+                            Type = "MATCH", JarIndex = 0, TargetShape = "square", TargetLiquid = "water",
+                            Consumed = new System.Collections.Generic.Dictionary<string, int>()
+                        },
+                        Before = new[] { new JarSystem.Core.World.Execution.WorldPlanJarStateWireDto { Id = 2, Shape = "square", Liquid = "water", MasterOrigin = true } },
+                        After = new[] { new JarSystem.Core.World.Execution.WorldPlanJarStateWireDto { Id = 2, Shape = "square", Liquid = "water", IsMarked = true, MasterOrigin = true } },
+                        AfterLiquids = new System.Collections.Generic.Dictionary<string, int>()
+                    }
+                }
+            }
+        };
+
+        dto.Validate();
+        var json = WorldV2CheckpointJsonCodec.Encode(dto, Fingerprint);
+        var decoded = WorldV2CheckpointJsonCodec.Decode<JarSystem.Core.World.Execution.WorldOrderExecutionSessionWireDto>(json);
+
+        decoded.Payload.Validate();
+        Assert.Equal(17, decoded.Payload.DemandId);
+        Assert.Equal("SlaveSteps", decoded.Payload.Stage);
+        Assert.True(decoded.Payload.SlaveTransferCommitted);
+        Assert.Equal(1, decoded.Payload.Manifest.TransferLiquids["water"]);
+        Assert.Equal(2, decoded.Payload.Manifest.MasterFinalLiquidBalances["water"]);
+        Assert.Equal(1, decoded.Payload.Plan.SlaveSteps[0].Operation!.JarIndex);
+        Assert.Equal("MATCH", decoded.Payload.Plan.SlaveSteps[0].Operation!.Type);
+    }
+
+    [Fact]
+    public void SessionWireDtoRejectsSlaveStageBeforeTransferCommit()
+    {
+        var dto = new JarSystem.Core.World.Execution.WorldOrderExecutionSessionWireDto
+        {
+            DemandId = 1,
+            Stage = "SlaveSteps",
+            UnitDurationLogicalMilli = 10,
+            UnitElapsedLogicalMilli = 1,
+            SlaveTransferCommitted = false,
+            Manifest = new JarSystem.Core.World.Execution.WorldOrderResourceManifestWireDto
+            {
+                DemandId = 1, WorldVersion = "v1", IsPartitioned = true,
+                MasterJarIds = new[] { 1 }, TransferJarIds = new[] { 1 }, LockedJarIds = new[] { 1 }
+            },
+            Plan = new JarSystem.Core.World.Execution.WorldOrderSolvePlanWireDto
+            {
+                IsPartitioned = true, TransferJarIds = new[] { 1 }
+            }
+        };
+
+        Assert.Throws<InvalidOperationException>(() => dto.Validate());
+    }
+
 }
