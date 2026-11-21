@@ -25,6 +25,7 @@ public sealed class WorldV2Context : IDisposable
     public bool IsDisposed => _disposed;
 
     public ResourceArea Resources { get; }
+    public ShipLiquidInventory? ShipLiquidInventory { get; }
     public WorkshopRoster Roster { get; }
     public OrderDemandBoard DemandBoard { get; }
     public WorldOrderSolveBook SolveBook { get; }
@@ -35,6 +36,7 @@ public sealed class WorldV2Context : IDisposable
 
     private WorldV2Context(
         ResourceArea resources,
+        ShipLiquidInventory? shipLiquidInventory,
         WorkshopRoster roster,
         OrderDemandBoard demandBoard,
         WorldOrderSolveBook solveBook,
@@ -44,6 +46,7 @@ public sealed class WorldV2Context : IDisposable
         WorldOrderScheduler scheduler)
     {
         Resources = resources;
+        ShipLiquidInventory = shipLiquidInventory;
         Roster = roster;
         DemandBoard = demandBoard;
         SolveBook = solveBook;
@@ -67,7 +70,8 @@ public sealed class WorldV2Context : IDisposable
         long logicalTimePerUnit,
         DemandAreaFulfillmentPolicy passiveFulfillmentPolicy,
         DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
-        WorldClock? clock = null)
+        WorldClock? clock = null,
+        ShipLiquidInventory? shipLiquidInventory = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -81,14 +85,16 @@ public sealed class WorldV2Context : IDisposable
         var board = new OrderDemandBoard(passiveFulfillmentPolicy, activeFulfillmentPolicy);
         var solveBook = new WorldOrderSolveBook(board);
         var reservations = new WorldResourceReservationBook();
-        var admission = new WorldOrderExecutionAdmission(board, solveBook, roster, reservations);
+        var admission = shipLiquidInventory == null
+            ? new WorldOrderExecutionAdmission(board, solveBook, roster, reservations)
+            : new WorldOrderExecutionAdmission(board, solveBook, roster, reservations, shipLiquidInventory);
         var runtime = new ResourceWorldRuntime(
             resources, clock: clock, roster: roster, demandBoard: board);
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
         return new WorldV2Context(
-            resources, roster, board, solveBook, reservations, admission, runtime, scheduler);
+            resources, shipLiquidInventory, roster, board, solveBook, reservations, admission, runtime, scheduler);
     }
 
     /// <summary>释放求解簿对需求板的事件订阅；不会尝试关闭或回滚世界资源。</summary>
