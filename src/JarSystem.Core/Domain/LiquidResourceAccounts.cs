@@ -77,8 +77,8 @@ public sealed class ShipLiquidInventory
         var remaining = AvailableCapacity;
         var acceptedTotal = 0;
 
-        // 保持调用方字典枚举顺序，确保同一输入得到确定的分配结果。
-        foreach (var pair in amounts)
+        // 按液体名序排序，避免输入字典的插入顺序改变不同液体的返还结果。
+        foreach (var pair in amounts.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             var accepted = Math.Min(pair.Value, remaining);
             AddUnchecked(pair.Key, accepted);
@@ -287,7 +287,7 @@ public sealed class WorkshopLiquidStagingSnapshot
         IReadOnlyDictionary<int, Dictionary<string, int>> accounts)
     {
         Capacity = capacity;
-        BannedLiquids = Array.AsReadOnly(bannedLiquids.ToArray());
+        BannedLiquids = Array.AsReadOnly(bannedLiquids.OrderBy(liquid => liquid, StringComparer.Ordinal).ToArray());
         var copy = new Dictionary<int, IReadOnlyDictionary<string, int>>();
         foreach (var pair in accounts)
             copy.Add(pair.Key, new ReadOnlyDictionary<string, int>(
