@@ -298,8 +298,12 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             !string.Equals(reservation.WorldVersion, snapshot.Manifest.WorldVersion, StringComparison.Ordinal) ||
             !reservation.LockedJarIds.ToHashSet().SetEquals(snapshot.Manifest.LockedJarIds) ||
             !LiquidBalancesEqual(reservation.MasterInitialLiquidAmounts,
-                snapshot.Manifest.MasterInitialLiquidAmounts))
-            throw new InvalidOperationException("执行会话快照与资源预留的版本、罐子或液体占用不一致。");
+                snapshot.Manifest.MasterInitialLiquidAmounts) ||
+            !LiquidBalancesEqual(reservation.TransferLiquidAmounts,
+                snapshot.Manifest.TransferLiquids) ||
+            reservation.MasterStagingPeakCapacity != snapshot.Manifest.MasterStagingPeakCapacity ||
+            reservation.SlaveStagingPeakCapacity != snapshot.Manifest.SlaveStagingPeakCapacity)
+            throw new InvalidOperationException("执行会话快照与资源租约的版本、罐子、液体交接或容量配额不一致。");
         var scopes = admission.GetLiquidScopes(snapshot.DemandId);
         if (!scopes.HasValue || scopes.Value.Master.OrderId != snapshot.DemandId)
             throw new InvalidOperationException("执行会话快照缺少订单主台液体范围。");
@@ -333,7 +337,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             WorldOrderExecutionStage.SlaveSteps => OrderResourceLeaseStage.SlaveExecuting,
             _ => throw new InvalidOperationException("无法从活动会话阶段恢复资源租约。")
         };
-        reservations.RestoreExecutionStage(snapshot.DemandId, leaseStage);
+        if (reservation.Stage != leaseStage)
+            throw new InvalidOperationException("执行会话阶段与资源租约生命周期阶段不一致。");
 
         var restored = new WorldOrderExecutionSession(
             snapshot.DemandId, board, solveBook, admission, roster,
