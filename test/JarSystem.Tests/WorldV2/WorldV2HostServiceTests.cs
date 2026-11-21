@@ -172,7 +172,15 @@ public sealed class WorldV2HostServiceTests
         _ = beforePump.ShipLiquidInventory.Balances.Keys.ToList();
         beforePump.ReservationLeases.Validate();
         _ = new WorldResourceReservationBookWireDto(beforePump.ReservationLeases.Leases);
-        var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
+        WorldV2ExecutionCheckpointWireDto beforePumpWire;
+        try
+        {
+            beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException("根级检查点 DTO 投影失败：" + exception, exception);
+        }
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
             beforePumpWire, beforePump.ConfigurationFingerprint);
         beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
