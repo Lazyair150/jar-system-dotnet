@@ -182,8 +182,16 @@ public sealed class WorldV2HostServiceTests
         {
             throw new InvalidOperationException("根级检查点 DTO 投影失败：" + exception, exception);
         }
-        var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
-            beforePumpWire, beforePump.ConfigurationFingerprint);
+        string beforePumpJson;
+        try
+        {
+            beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
+                beforePumpWire, beforePump.ConfigurationFingerprint);
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException("根级检查点 JSON 编码失败：" + exception, exception);
+        }
         beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
         Assert.DoesNotContain(beforePump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
