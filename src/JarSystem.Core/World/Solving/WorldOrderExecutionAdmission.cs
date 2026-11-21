@@ -16,6 +16,7 @@ public sealed class WorldOrderExecutionAdmission
     private readonly WorkshopRoster _roster;
     private readonly WorldResourceReservationBook _reservations;
     private readonly ShipLiquidInventory? _shipLiquidInventory;
+    private readonly OrderLiquidAllocationService? _liquidAllocationService;
     internal ShipLiquidInventory? ShipLiquidInventory => _shipLiquidInventory;
     internal WorldResourceReservationBook Reservations => _reservations;
     private readonly Dictionary<Workshop, WorkshopLiquidStaging> _stagingByWorkshop =
@@ -46,6 +47,8 @@ public sealed class WorldOrderExecutionAdmission
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
         _shipLiquidInventory = shipLiquidInventory ?? throw new ArgumentNullException(nameof(shipLiquidInventory));
+        _liquidAllocationService = new OrderLiquidAllocationService(
+            _shipLiquidInventory, _reservations, GetOrCreateStaging);
     }
 
     internal void BindOrderAdmissionGate(Func<bool> canAdmitOrders)
@@ -189,13 +192,13 @@ public sealed class WorldOrderExecutionAdmission
 
         var availableLiquids = _shipLiquidInventory == null
             ? master.LiquidStorage
-            : BuildReservationLiquidityView(_shipLiquidInventory, manifest);
+            : _liquidAllocationService!.BuildReservationLiquidityView(manifest);
         if (!_reservations.TryReserve(manifest, availableLiquids, out var reserveError))
             return WorldOrderExecutionAdmissionResult.Rejected(reserveError ?? "资源预留失败");
 
         if (_shipLiquidInventory != null)
         {
-            if (!TryAllocateOrderLiquids(manifest, master, _roster.Slave, out var allocationError))
+            if (!_liquidAllocationService!.TryAllocate(manifest, master, _roster.Slave, out var allocationError))
             {
                 _reservations.Release(demandId);
                 return WorldOrderExecutionAdmissionResult.Rejected(allocationError ?? "订单液体资源分配失败");
@@ -400,104 +403,6 @@ public sealed class WorldOrderExecutionAdmission
 
     internal OrderResourceLease? FindLease(int demandId) =>
         _reservations.FindLease(demandId);
-
-    private IReadOnlyDictionary<string, int> BuildReservationLiquidityView(
-        ShipLiquidInventory inventory, WorldOrderResourceManifest manifest)
-    {
-        var result = new Dictionary<string, int>(StringComparer.Ordinal);
-        var master = _roster.Master;
-        var prefill = master != null && _stagingByWorkshop.TryGetValue(master, out var masterStaging)
-            ? masterStaging.PrefillBalances
-            : new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var liquid in inventory.Balances.Keys
-            .Concat(prefill.Keys)
-            .Concat(manifest.MasterInitialLiquidAmounts.Keys)
-            .Distinct(StringComparer.Ordinal))
-        {
-            // ReservationBook 仍会扣除活动订单的预留；把已从自机液库实扣的预留加回输入，
-            // 防止同一批资源被“真实扣除 + 逻辑预留”重复扣减。
-            result[liquid] = checked(inventory.GetAmount(liquid) + prefill.GetValueOrDefault(liquid) +
-                _reservations.ReservedLiquidAmount(liquid));
-        }
-        return result;
-    }
-
-    private bool TryAllocateOrderLiquids(
-        WorldOrderResourceManifest manifest, Workshop master, Workshop? slave, out string? reason)
-    {
-        var masterStaging = GetOrCreateStaging(master);
-        WorkshopLiquidStaging? slaveStaging = null;
-
-        // 先把可用的主台预置液体暂时取出，再预留订单完整路径峰值；
-        // 这样预置液体转入订单子账时不会被当成额外占用重复计算。
-        var prefillGrant = masterStaging.WithdrawPrefillUpTo(manifest.MasterInitialLiquidAmounts);
-        var remainingFromShip = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var item in manifest.MasterInitialLiquidAmounts)
-        {
-            var remaining = item.Value - prefillGrant.GetValueOrDefault(item.Key);
-            if (remaining > 0) remainingFromShip.Add(item.Key, remaining);
-        }
-
-        if (!masterStaging.TryReserveOrderCapacity(manifest.DemandId, manifest.MasterStagingPeakCapacity))
-        {
-            masterStaging.RestorePrefill(prefillGrant);
-            reason = "主工作台订单液体峰值容量无法预留";
-            return false;
-        }
-
-        var slaveReserved = false;
-        if (manifest.IsPartitioned)
-        {
-            if (slave == null)
-            {
-                masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-                masterStaging.RestorePrefill(prefillGrant);
-                reason = "B 类订单缺少从工作台";
-                return false;
-            }
-            slaveStaging = GetOrCreateStaging(slave);
-            if (!slaveStaging.TryReserveOrderCapacity(manifest.DemandId, manifest.SlaveStagingPeakCapacity))
-            {
-                masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-                masterStaging.RestorePrefill(prefillGrant);
-                reason = "从工作台订单液体峰值容量无法预留";
-                return false;
-            }
-            slaveReserved = true;
-        }
-
-        if (!_shipLiquidInventory!.TryWithdraw(remainingFromShip, out _))
-        {
-            if (slaveReserved) slaveStaging!.ReleaseOrderCapacity(manifest.DemandId);
-            masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-            masterStaging.RestorePrefill(prefillGrant);
-            reason = "自机液库初始供给不足";
-            return false;
-        }
-
-        foreach (var item in manifest.MasterInitialLiquidAmounts)
-        {
-            if (item.Value == 0) continue;
-            if (!masterStaging.TryReceiveExact(manifest.DemandId, item.Key, item.Value, out var grant))
-            {
-                masterStaging.DrainOrder(manifest.DemandId);
-                _shipLiquidInventory.Return(remainingFromShip);
-                masterStaging.RestorePrefill(prefillGrant);
-                if (slaveReserved) slaveStaging!.ReleaseOrderCapacity(manifest.DemandId);
-                masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-                reason = grant.Reason ?? "主工作台暂存区无法接收订单初始供给";
-                return false;
-            }
-        }
-
-        var masterScope = new OrderLiquidScope(manifest.DemandId, masterStaging);
-        var slaveScope = slaveStaging == null ? null : new OrderLiquidScope(manifest.DemandId, slaveStaging);
-        var lease = _reservations.FindLease(manifest.DemandId)
-            ?? throw new InvalidOperationException("订单液体分配完成后缺少资源租约。");
-        lease.AttachLiquidScopes(masterScope, slaveScope);
-        reason = null;
-        return true;
-    }
 
     private WorkshopLiquidStaging GetOrCreateStaging(Workshop workshop)
     {
