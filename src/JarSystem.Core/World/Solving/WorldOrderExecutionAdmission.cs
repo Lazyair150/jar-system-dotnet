@@ -24,8 +24,11 @@ public sealed class WorldOrderExecutionAdmission
     public WorldOrderExecutionAdmission(
         OrderDemandBoard board, WorldOrderSolveBook solveBook,
         WorkshopRoster roster, WorldResourceReservationBook reservations)
-        : this(board, solveBook, roster, reservations, null)
     {
+        _board = board ?? throw new ArgumentNullException(nameof(board));
+        _solveBook = solveBook ?? throw new ArgumentNullException(nameof(solveBook));
+        _roster = roster ?? throw new ArgumentNullException(nameof(roster));
+        _reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
     }
 
     /// <summary>
@@ -42,18 +45,6 @@ public sealed class WorldOrderExecutionAdmission
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
         _shipLiquidInventory = shipLiquidInventory ?? throw new ArgumentNullException(nameof(shipLiquidInventory));
-    }
-
-    private WorldOrderExecutionAdmission(
-        OrderDemandBoard board, WorldOrderSolveBook solveBook,
-        WorkshopRoster roster, WorldResourceReservationBook reservations,
-        ShipLiquidInventory? shipLiquidInventory)
-    {
-        _board = board ?? throw new ArgumentNullException(nameof(board));
-        _solveBook = solveBook ?? throw new ArgumentNullException(nameof(solveBook));
-        _roster = roster ?? throw new ArgumentNullException(nameof(roster));
-        _reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
-        _shipLiquidInventory = shipLiquidInventory;
     }
 
     internal bool IsBoundTo(
@@ -188,11 +179,13 @@ public sealed class WorldOrderExecutionAdmission
     /// <summary>执行结束、取消或中断后释放预留；新路径先结算，再释放容量配额。</summary>
     public bool Release(int demandId)
     {
-        if (_scopesByDemand.Remove(demandId, out var scopes))
+        if (_scopesByDemand.TryGetValue(demandId, out var scopes))
         {
             SettleLiquidResources(demandId);
+            _scopesByDemand.Remove(demandId);
             scopes.Master.Staging.ReleaseOrderCapacity(demandId);
             scopes.Slave?.Staging.ReleaseOrderCapacity(demandId);
+            _settlementsByDemand.Remove(demandId);
         }
         var released = _reservations.Release(demandId);
         return released;
@@ -205,7 +198,6 @@ public sealed class WorldOrderExecutionAdmission
         WorkshopLiquidStaging? slaveStaging = null;
         var masterReserved = false;
         var slaveReserved = false;
-        var withdrawn = false;
 
         if (!masterStaging.TryReserveOrderCapacity(manifest.DemandId, manifest.MasterStagingPeakCapacity))
         {
@@ -239,7 +231,6 @@ public sealed class WorldOrderExecutionAdmission
             reason = "自机液库初始供给不足";
             return false;
         }
-        withdrawn = true;
 
         foreach (var item in manifest.MasterInitialLiquidAmounts)
         {
