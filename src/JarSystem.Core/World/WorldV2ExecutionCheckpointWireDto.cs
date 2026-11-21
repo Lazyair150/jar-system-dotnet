@@ -188,7 +188,8 @@ public sealed class ResourceAreaWireDto
     public void Validate()
     {
         if (JarFlowRateMilli < 0 || LiquidFlowRateMilli < 0 ||
-            JarFlowAccumulator < 0 || LiquidFlowAccumulator < 0 ||
+            JarFlowAccumulator < 0 || JarFlowAccumulator >= 1_000_000 ||
+            LiquidFlowAccumulator < 0 || LiquidFlowAccumulator >= 1_000_000 ||
             Producers == null || LiquidProduction == null || Warehouse == null)
             throw new InvalidOperationException("资源区 Wire DTO 包含无效状态。");
         Producers.Validate();
@@ -286,7 +287,8 @@ public sealed class WarehouseWireDto
 
     public void Validate()
     {
-        if (Jars == null || LiquidWarehouse == null || DiscardedLiquids == null || DiscardedJars < 0 ||
+        if (Jars == null || Jars.Any(item => item == null) ||
+            LiquidWarehouse == null || DiscardedLiquids == null || DiscardedJars < 0 ||
             LiquidWarehouse.Any(item => string.IsNullOrWhiteSpace(item.Key) || item.Value < 0) ||
             DiscardedLiquids.Any(item => string.IsNullOrWhiteSpace(item.Key) || item.Value < 0))
             throw new InvalidOperationException("中央仓库 Wire DTO 无效。");
@@ -552,6 +554,7 @@ public sealed class ResourceLedgerWireDto
         long previous = 0;
         foreach (var item in Events)
         {
+            if (item == null) throw new InvalidOperationException("资源账本 Wire DTO 包含空事件。");
             item.Validate();
             if (item.Seq <= previous || item.Seq > LastSeq) throw new InvalidOperationException("账本事件序号无效。");
             previous = item.Seq;
