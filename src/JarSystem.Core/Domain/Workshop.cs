@@ -79,9 +79,8 @@ public class Workshop
     /// 恢复工作台罐子实体与旧版游离液体池。先完整验证身份、词表、容量和配置，
     /// 验证通过后才替换集合；不改变工作台能力或规则修饰器。
     /// </summary>
-    public void RestoreRuntimeState(WorkshopRuntimeStateSnapshot snapshot)
+    public void ValidateRuntimeStateSnapshot(WorkshopRuntimeStateSnapshot snapshot)
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
         if (!string.Equals(snapshot.Name, Name, StringComparison.Ordinal) ||
             snapshot.MaxJars != MaxJars || snapshot.MaxLiquids != MaxLiquids ||
             snapshot.LiquidStagingCapacity != LiquidStagingCapacity ||
@@ -108,7 +107,11 @@ public class Workshop
             snapshot.LiquidStorage.Any(item => item.Value < 0 || item.Value > MaxLiquids))
             throw new DomainValidationException("工作台快照的游离液体键或数量不符合当前容量配置。");
 
-        // 先在局部构造全部罐子副本，避免验证/克隆失败时留下半恢复状态。
+    }
+
+    public void RestoreRuntimeState(WorkshopRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
         var restoredJars = snapshot.Jars.Select(jar => jar.DeepClone()).ToArray();
         _jars.Clear();
         _jars.AddRange(restoredJars);
