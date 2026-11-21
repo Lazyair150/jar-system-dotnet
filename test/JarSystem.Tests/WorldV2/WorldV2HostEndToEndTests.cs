@@ -69,6 +69,7 @@ public sealed class WorldV2HostEndToEndTests
         var remainingReservations = -1;
         var runtimeFaulted = true;
         var logicalTime = -1L;
+        ResourceEvent[] resourceEvents = System.Array.Empty<ResourceEvent>();
 
         host.ExecuteExclusive(context =>
         {
@@ -104,6 +105,7 @@ public sealed class WorldV2HostEndToEndTests
             remainingReservations = context.Reservations.Count;
             runtimeFaulted = context.Runtime.IsFaulted;
             logicalTime = context.Runtime.Clock.LogicalTimeMilli;
+            resourceEvents = context.ResourceLedger.Entries.ToArray();
         });
 
         Assert.Equal(1, producedJars);
@@ -117,6 +119,15 @@ public sealed class WorldV2HostEndToEndTests
         Assert.Equal(0, remainingReservations);
         Assert.False(runtimeFaulted);
         Assert.Equal(2_000, logicalTime);
+        Assert.Contains(resourceEvents, item =>
+            item.Cause == ResourceCauses.Stock && item.Kind == ResourceKinds.Liquid &&
+            item.Name == "酒" && item.From == "关卡初始库存" && item.To == "自机液库" &&
+            item.Amount == 1);
+        Assert.Contains(resourceEvents, item =>
+            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Liquid &&
+            item.Name == "酒" && item.From == "自机液库" && item.To == "主台" &&
+            item.Amount == 1);
+        Assert.DoesNotContain(resourceEvents, item => item.Cause == ResourceCauses.Transfer);
 
         // Host 操作结束后，仍可通过下一次独占操作读取同一世界的脱离式状态。
         var worldStillAvailable = false;
