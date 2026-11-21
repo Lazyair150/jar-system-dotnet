@@ -316,6 +316,9 @@ public static class OrderLiquidTransfer
         ArgumentNullException.ThrowIfNull(slave);
         ShipLiquidInventory.ValidateAmounts(amounts);
 
+        if (ReferenceEquals(master, slave))
+            throw new DomainValidationException("主工作台和从工作台不能是同一个暂存区。");
+
         if (orderId <= 0)
             throw new DomainValidationException("订单 ID 必须是正整数。");
 
