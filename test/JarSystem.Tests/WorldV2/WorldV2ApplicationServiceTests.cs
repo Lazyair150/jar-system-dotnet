@@ -457,4 +457,36 @@ public sealed class WorldV2ApplicationServiceTests
         var demand = Assert.Single(app.GetWorldSnapshot().Demands);
         Assert.Equal(DemandAreaKind.Active, demand.Area);
     }
+
+    [Fact]
+    public void ApplicationServiceRestoresCheckpointAfterReplacingTheEntireWorldContext()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+        app.AdvanceWorld(1_000);
+
+        var demandId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Active, 0));
+        Assert.True(app.StartActiveDemand(demandId).Success);
+
+        var checkpoint = app.CaptureExecutionResourceCheckpoint();
+        app.CreateOrReplaceWorld(Options());
+        Assert.Empty(app.GetWorldSnapshot().ActiveSessions);
+
+        app.RestoreExecutionResourceCheckpoint(checkpoint);
+
+        var restored = app.GetWorldSnapshot();
+        Assert.Single(restored.ActiveSessions);
+        Assert.Equal(demandId, restored.ActiveSessions[0].DemandId);
+        Assert.Single(restored.Demands);
+        Assert.Equal(demandId, restored.Demands[0].Id);
+        Assert.Equal(1_000, restored.WorldTimeMilli);
+
+        var finished = app.AdvanceWorld(1_000);
+        Assert.False(finished.RuntimeFaulted);
+        Assert.Empty(app.GetWorldSnapshot().ActiveSessions);
+        Assert.Empty(app.GetWorldSnapshot().Demands);
+    }
 }
