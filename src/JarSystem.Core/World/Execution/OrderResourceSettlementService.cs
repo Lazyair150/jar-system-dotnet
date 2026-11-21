@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.World.Solving;
 
@@ -21,6 +22,13 @@ public sealed class OrderResourceSettlementService
         int? settlementTick)
     {
         ArgumentNullException.ThrowIfNull(admission);
+
+        var scopes = admission.GetLiquidScopes(demandId);
+        var hasBalance = scopes.HasValue &&
+            (scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
+             (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false));
+        if (ledger != null && hasBalance && !settlementTick.HasValue)
+            throw new InvalidOperationException("结算前必须取得资源账本逻辑 tick。");
 
         var receipt = admission.SettleLiquidResources(demandId);
         if (receipt != null)
