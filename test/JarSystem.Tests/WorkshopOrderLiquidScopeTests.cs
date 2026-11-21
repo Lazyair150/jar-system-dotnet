@@ -191,7 +191,8 @@ public sealed class WorkshopOrderLiquidScopeTests
             workshop.Rules, scope, JarFacts.Of(jar), WorkshopOperation.PourIn("酒")));
         Assert.False(workshop.PourIn(jar, "酒", scope).Success);
     }
-\n    private static void AssertParity(
+
+    private static void AssertParity(
         Jar initialJar,
         WorkshopOperation operation,
         System.Action<WorkshopLiquidStaging> seed)
