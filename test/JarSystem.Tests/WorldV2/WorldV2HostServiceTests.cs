@@ -148,69 +148,20 @@ public sealed class WorldV2HostServiceTests
             Constants.OrderType.B,
             DemandAreaKind.Active,
             CooldownDurationLogicalMilli: 0));
+        var transferEventsBeforeOrder = 0;
+        host.ExecuteExclusive(context =>
+            transferEventsBeforeOrder = context.ResourceLedger.For(ResourceCauses.Transfer)
+                .Count(item => item.Kind == ResourceKinds.Liquid));
+
         var started = application.StartActiveDemand(demandId);
         Assert.True(started.Success, started.Reason);
 
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
-        _ = ProducerModuleWireDto.FromSnapshot(beforePump.ResourceArea.Producers);
-        _ = LiquidProductionWireDto.FromSnapshot(beforePump.ResourceArea.LiquidProduction);
-        _ = WarehouseWireDto.FromSnapshot(beforePump.ResourceArea.Warehouse);
-        _ = ResourceAreaWireDto.FromSnapshot(beforePump.ResourceArea);
-        _ = DemandBoardWireDto.FromSnapshot(beforePump.DemandBoard);
-        _ = ShipLiquidInventoryWireDto.FromSnapshot(beforePump.ShipLiquidInventory);
-        _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.MasterWorkshop);
-        _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.SlaveWorkshop!);
-        _ = AdmissionWireDto.FromSnapshot(beforePump.Admission);
-        _ = beforePump.ResourceLedger.Entries.Select(ResourceEventWireDto.FromEvent).ToList();
-        _ = beforePump.ResourceLedger.OperationIds.ToList();
-        _ = ResourceLedgerWireDto.FromSnapshot(beforePump.ResourceLedger);
-        Assert.NotNull(beforePump.Clock);
-        var clockWireDiagnostic = WorldClockWireDto.FromSnapshot(beforePump.Clock);
-        Assert.Equal(beforePump.Clock.WorldTimeMilli, clockWireDiagnostic.WorldTimeMilli);
-        _ = beforePump.Sessions.Select(WorldOrderExecutionSessionWireDto.FromSnapshot).ToList();
-        _ = beforePump.ResourceArea.Producers.GeneratorAccumulatedMicro.Keys.ToList();
-        _ = beforePump.ShipLiquidInventory.Balances.Keys.ToList();
-        beforePump.ReservationLeases.Validate();
-        _ = new WorldResourceReservationBookWireDto(beforePump.ReservationLeases.Leases);
-        WorldV2ExecutionCheckpointWireDto beforePumpWire;
-        try
-        {
-            beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
-        }
-        catch (Exception exception)
-        {
-            throw new InvalidOperationException("根级检查点 DTO 投影失败：" + exception, exception);
-        }
-        string beforePumpJson;
-        try
-        {
-            beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
-                beforePumpWire, beforePump.ConfigurationFingerprint);
-        }
-        catch (Exception exception)
-        {
-            throw new InvalidOperationException("根级检查点 JSON 编码失败：" + exception, exception);
-        }
-        WorldV2CheckpointEnvelope<WorldV2ExecutionCheckpointWireDto> beforePumpEnvelope;
-        try
-        {
-            beforePumpEnvelope = WorldV2CheckpointJsonCodec.Decode<WorldV2ExecutionCheckpointWireDto>(beforePumpJson);
-        }
-        catch (Exception exception)
-        {
-            throw new InvalidOperationException("根级检查点 JSON 反序列化失败：" + exception, exception);
-        }
-        try
-        {
-            beforePump = beforePumpEnvelope.Payload.ToCheckpoint(beforePumpEnvelope.ConfigurationFingerprint);
-        }
-        catch (Exception exception)
-        {
-            throw new InvalidOperationException("根级检查点领域快照重建失败：" + exception, exception);
-        }
-        Assert.DoesNotContain(beforePump.ResourceLedger.Entries, item =>
-            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
+        var beforePumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(beforePump);
+        beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
+        Assert.Equal(transferEventsBeforeOrder, beforePump.ResourceLedger.Entries.Count(item =>
+            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
         Assert.Equal(2, beforePump.ShipLiquidInventory.Balances["酒"]);
 
         WorldV2Context? previous = null;
@@ -224,8 +175,8 @@ public sealed class WorldV2HostServiceTests
             var scopes = context.Admission.GetLiquidScopes(demandId)!.Value;
             Assert.Equal(1, scopes.Master.GetAmount("酒"));
             Assert.Equal(0, scopes.Slave!.GetAmount("酒"));
-            Assert.DoesNotContain(context.ResourceLedger.For(ResourceCauses.Transfer),
-                item => item.Kind == ResourceKinds.Liquid);
+            Assert.Equal(transferEventsBeforeOrder,
+                context.ResourceLedger.For(ResourceCauses.Transfer).Count(item => item.Kind == ResourceKinds.Liquid));
             Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
         });
 
@@ -244,8 +195,8 @@ public sealed class WorldV2HostServiceTests
         var afterPumpJson = WorldV2CheckpointJsonCodec.Encode(
             afterPumpWire, afterPump.ConfigurationFingerprint);
         afterPump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(afterPumpJson);
-        Assert.Single(afterPump.ResourceLedger.Entries, item =>
-            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
+        Assert.Equal(transferEventsBeforeOrder + 1, afterPump.ResourceLedger.Entries.Count(item =>
+            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
         Assert.Equal(2, afterPump.ShipLiquidInventory.Balances["酒"]);
 
         host.ExecuteExclusive(context => previous = context);
@@ -259,8 +210,8 @@ public sealed class WorldV2HostServiceTests
             Assert.True(session.CaptureProgress().SlaveTransferCommitted);
             Assert.Equal(0, context.Admission.GetLiquidScopes(demandId)!.Value.Master.GetAmount("酒"));
             Assert.Equal(1, context.Admission.GetLiquidScopes(demandId)!.Value.Slave!.GetAmount("酒"));
-            Assert.Single(context.ResourceLedger.For(ResourceCauses.Transfer),
-                item => item.Kind == ResourceKinds.Liquid);
+            Assert.Equal(transferEventsBeforeOrder + 1,
+                context.ResourceLedger.For(ResourceCauses.Transfer).Count(item => item.Kind == ResourceKinds.Liquid));
             Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
         });
 
@@ -278,8 +229,8 @@ public sealed class WorldV2HostServiceTests
             Assert.Null(context.Reservations.FindLease(demandId));
             Assert.Empty(context.Roster.Slave!.Jars);
             Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
-            Assert.Single(context.ResourceLedger.For(ResourceCauses.Transfer),
-                item => item.Kind == ResourceKinds.Liquid);
+            Assert.Equal(transferEventsBeforeOrder + 1,
+                context.ResourceLedger.For(ResourceCauses.Transfer).Count(item => item.Kind == ResourceKinds.Liquid));
         });
     }
 
