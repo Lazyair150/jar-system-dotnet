@@ -13,7 +13,12 @@ namespace JarSystem.Core.Solver;
 /// </summary>
 public static class LiquidRequirementCalculator
 {
-    public static Dictionary<string, int> ComputeRequired(IReadOnlyList<SolverStep> path)
+    public static Dictionary<string, int> ComputeRequired(IReadOnlyList<SolverStep> path) =>
+        ComputeRequired(path, null);
+
+    /// <summary>计算路径执行完后还必须保留指定液体量时，所需的最小初始供给。</summary>
+    public static Dictionary<string, int> ComputeRequired(
+        IReadOnlyList<SolverStep> path, IReadOnlyDictionary<string, int>? requiredAtEnd)
     {
         var required = new Dictionary<string, int>(StringComparer.Ordinal);
         var net = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -43,6 +48,17 @@ public static class LiquidRequirementCalculator
                 required[item.Key] = Math.Max(required.GetValueOrDefault(item.Key), item.Value);
         }
 
+        if (requiredAtEnd != null)
+        {
+            foreach (var item in requiredAtEnd)
+            {
+                if (item.Value < 0)
+                    throw new ArgumentOutOfRangeException(nameof(requiredAtEnd), "路径终态所需液体量不能为负数");
+                required[item.Key] = Math.Max(required.GetValueOrDefault(item.Key),
+                    checked(net.GetValueOrDefault(item.Key) + item.Value));
+            }
+        }
+
         foreach (var key in required.Keys.ToArray())
             required[key] = Math.Max(0, required[key]);
         return required;
@@ -52,9 +68,10 @@ public static class LiquidRequirementCalculator
     /// 使用最小初始供给重放路径，返回该路径真实需要的合计暂存容量峰值。
     /// 该值不包含主台没有被从台路径需要的剩余液体。
     /// </summary>
-    public static int ComputePeakCapacity(IReadOnlyList<SolverStep> path)
+    public static int ComputePeakCapacity(
+        IReadOnlyList<SolverStep> path, IReadOnlyDictionary<string, int>? requiredAtEnd = null)
     {
-        var balances = ComputeRequired(path);
+        var balances = ComputeRequired(path, requiredAtEnd);
         var peak = ShipLiquidInventory.TotalAmount(balances);
         foreach (var step in path)
         {
