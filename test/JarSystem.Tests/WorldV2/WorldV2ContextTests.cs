@@ -252,6 +252,8 @@ public sealed class WorldV2ContextTests
 
         secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
 
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
+            Assert.Single(secondWorld.Reservations.Capture().Reservations).Stage);
         Assert.Equal(1, secondShip.GetAmount("酒"));
         Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Master.GetAmount("酒"));
         var restoredSession = Assert.Single(secondWorld.Runtime.ActiveExecutionSessions);
@@ -297,6 +299,8 @@ public sealed class WorldV2ContextTests
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, firstSession.Stage);
         Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
             firstWorld.Reservations.FindLease(firstDemand.Id)!.Stage);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
+            Assert.Single(firstWorld.Reservations.Capture().Reservations).Stage);
         Assert.Throws<InvalidOperationException>(
             () => firstWorld.Reservations.MarkTransferCommitted(firstDemand.Id));
         Assert.True(firstSlave.HasResources);
