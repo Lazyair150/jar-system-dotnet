@@ -147,7 +147,7 @@ public sealed class WorldV2Context : IDisposable
     }
 
     /// <summary>
-    /// 将活动执行检查点恢复到一个已按相同世界配置装配、且需求板已恢复订单的空 Context。
+    /// 将活动执行检查点恢复到一个已按相同世界配置装配的空 Context；需求板本身也由检查点恢复。
     /// 此方法不会重新准入订单，不会重复扣液、泵送、MATCH 或执行任何计划步骤。
     /// </summary>
     public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
