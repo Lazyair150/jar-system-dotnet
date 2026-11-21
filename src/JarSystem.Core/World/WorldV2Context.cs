@@ -135,6 +135,66 @@ public sealed class WorldV2Context : IDisposable
             Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()));
     }
 
+    /// <summary>
+    /// 将活动执行检查点恢复到一个已按相同世界配置装配、且需求板已恢复订单的空 Context。
+    /// 此方法不会重新准入订单，不会重复扣液、泵送、MATCH 或执行任何计划步骤。
+    /// </summary>
+    public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
+        if (ShipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容世界不能恢复新液体资源检查点。");
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null ||
+            Runtime.ActiveExecutionSessions.Count != 0 || Reservations.Count != 0 ||
+            Admission.Capture().ActiveOrders.Count != 0)
+            throw new InvalidOperationException("只能向没有活动会话、预留或工作台替换的 Context 恢复检查点。");
+
+        if (checkpoint.ShipLiquidInventory.Capacity != ShipLiquidInventory.Capacity)
+            throw new InvalidOperationException("检查点自机液库容量与当前世界配置不一致。");
+        if ((Roster.Slave == null) != (checkpoint.SlaveWorkshop == null))
+            throw new InvalidOperationException("检查点主从工作台岗位结构与当前世界不一致。");
+        Roster.Master!.ValidateRuntimeStateSnapshot(checkpoint.MasterWorkshop);
+        if (Roster.Slave != null)
+            Roster.Slave.ValidateRuntimeStateSnapshot(checkpoint.SlaveWorkshop!);
+        if (checkpoint.ResourceLedger.Capacity != ResourceLedger.Capacity)
+            throw new InvalidOperationException("检查点资源账本容量与当前世界不一致。");
+
+        // 先在临时对象图中完整验证资源账户、所有权索引、时钟与会话游标。
+        // 任一快照无效时，当前 Context 不发生任何状态修改。
+        var stagedShip = new ShipLiquidInventory(
+            checkpoint.ShipLiquidInventory.Capacity,
+            checkpoint.ShipLiquidInventory.Balances);
+        var stagedReservations = WorldResourceReservationBook.Restore(checkpoint.Reservations);
+        var stagedAdmission = new WorldOrderExecutionAdmission(
+            DemandBoard, SolveBook, Roster, stagedReservations, stagedShip);
+        stagedAdmission.Restore(checkpoint.Admission);
+        var stagedLedger = ResourceLedger.Restore(checkpoint.ResourceLedger);
+        var stagedClock = WorldClock.Restore(checkpoint.Clock);
+        var activeScopeIds = checkpoint.Admission.ActiveOrders.Select(item => item.DemandId).ToHashSet();
+        var sessionIds = checkpoint.Sessions.Select(item => item.DemandId).ToHashSet();
+        if (!activeScopeIds.SetEquals(sessionIds))
+            throw new InvalidOperationException("检查点活动订单范围与执行会话集合不一致。");
+        if (checkpoint.RuntimeLedgerTick < 0)
+            throw new InvalidOperationException("检查点 Runtime 账本 tick 无效。");
+        foreach (var session in checkpoint.Sessions)
+            WorldOrderExecutionSession.RestoreProgress(
+                session, DemandBoard, SolveBook, stagedAdmission, Roster,
+                stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick);
+
+        // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
+        Roster.Master.RestoreRuntimeState(checkpoint.MasterWorkshop);
+        if (Roster.Slave != null)
+            Roster.Slave.RestoreRuntimeState(checkpoint.SlaveWorkshop!);
+        ShipLiquidInventory.RestoreFrom(checkpoint.ShipLiquidInventory);
+        Reservations.RestoreFrom(checkpoint.Reservations);
+        Admission.Restore(checkpoint.Admission);
+        ResourceLedger.RestoreFrom(checkpoint.ResourceLedger);
+        Runtime.Clock.RestoreFrom(checkpoint.Clock);
+        Runtime.RestoreExecutionSessions(
+            checkpoint.Sessions, SolveBook, Admission, Reservations, checkpoint.RuntimeLedgerTick);
+    }
+
     /// <summary>释放求解簿对需求板的事件订阅；不会尝试关闭或回滚世界资源。</summary>
     public void Dispose()
     {
