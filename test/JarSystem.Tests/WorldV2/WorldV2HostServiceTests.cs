@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using JarSystem.Core.World;
 using JarSystem.Core.Config;
-using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
 using JarSystem.Core.World.Execution;
@@ -139,13 +138,9 @@ public sealed class WorldV2HostServiceTests
         host.Replace(options);
         var application = new WorldV2ApplicationService(host);
 
-        host.ExecuteExclusive(context =>
-        {
-            var vocabulary = new Vocabulary(
-                context.Resources.Producers.Generators.Keys,
-                context.Resources.Inventory.LiquidWarehouse.Keys);
-            context.Roster.Master!.AddJar(new Jar("圆罐", id: 501, vocabulary: vocabulary));
-        });
+        // 通过真实生产区→仓库→主台链路准备一只罐子，避免测试绕过资源所有权路径。
+        application.AdvanceWorld(1_000);
+        host.ExecuteExclusive(context => Assert.Single(context.Roster.Master!.Jars));
 
         var demandId = application.AddJarDemand(new WorldV2AddJarDemandRequest(
             new[] { new WorldV2RequirementInput("圆罐", "酒") },
