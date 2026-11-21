@@ -347,7 +347,7 @@ public sealed class WorldV2ContextTests
         Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Flow));
         Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Transfer),
             item => item.Kind == ResourceKinds.Liquid);
-        Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Return),
+        Assert.DoesNotContain(secondWorld.ResourceLedger.For(ResourceCauses.Return),
             item => item.Kind == ResourceKinds.Liquid);
     }
 
