@@ -24,7 +24,7 @@ public sealed class WorldResourceReservationBook
         lock (_gate)
         {
             var copy = _byDemand.Values.OrderBy(item => item.DemandId)
-                .Select(item => item.Reservation)
+                .Select(item => item.CaptureReservation())
                 .ToArray();
             return new WorldResourceReservationBookSnapshot(copy);
         }
@@ -72,7 +72,7 @@ public sealed class WorldResourceReservationBook
 
     public WorldResourceReservation? Find(int demandId)
     {
-        lock (_gate) return _byDemand.TryGetValue(demandId, out var value) ? value.Reservation : null;
+        lock (_gate) return _byDemand.TryGetValue(demandId, out var value) ? value.CaptureReservation() : null;
     }
 
     /// <summary>读取订单资源所有权聚合；新领域代码应优先使用此入口。</summary>
@@ -246,14 +246,17 @@ public sealed class WorldResourceReservation
     public IReadOnlyList<int> LockedJarIds { get; }
     public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
     public bool UsesSlave { get; }
+    public OrderResourceLeaseStage Stage { get; }
 
     internal WorldResourceReservation(
         int demandId, string worldVersion, IEnumerable<int> jarIds,
-        IReadOnlyDictionary<string, int> liquids, bool usesSlave)
+        IReadOnlyDictionary<string, int> liquids, bool usesSlave,
+        OrderResourceLeaseStage stage = OrderResourceLeaseStage.Admitted)
     {
         DemandId = demandId;
         WorldVersion = worldVersion;
         UsesSlave = usesSlave;
+        Stage = stage;
         LockedJarIds = Array.AsReadOnly(jarIds.ToArray());
         MasterInitialLiquidAmounts = new ReadOnlyDictionary<string, int>(
             liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
@@ -268,7 +271,7 @@ public sealed class WorldResourceReservationBookSnapshot
     {
         Reservations = Array.AsReadOnly(reservations.Select(item =>
             new WorldResourceReservation(item.DemandId, item.WorldVersion, item.LockedJarIds,
-                item.MasterInitialLiquidAmounts, item.UsesSlave)).ToArray());
+                item.MasterInitialLiquidAmounts, item.UsesSlave, item.Stage)).ToArray());
     }
 
     public IReadOnlyList<WorldResourceReservation> Reservations { get; }
