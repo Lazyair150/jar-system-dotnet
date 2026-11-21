@@ -124,6 +124,9 @@ public sealed class WorldV2Context : IDisposable
             throw new InvalidOperationException("旧版兼容世界没有自机液库，不能捕获新液体资源检查点。");
         return new WorldV2ExecutionResourceCheckpoint(
             ShipLiquidInventory.Capture(),
+            Roster.Master?.CaptureRuntimeState()
+                ?? throw new InvalidOperationException("检查点捕获时没有主工作台。"),
+            Roster.Slave?.CaptureRuntimeState(),
             Admission.Capture(),
             Reservations.Capture(),
             ResourceLedger.Capture(),
@@ -142,13 +145,16 @@ public sealed class WorldV2Context : IDisposable
 
 
 /// <summary>
-/// 活动执行的资源检查点：保留液库、主从订单暂存、容量/罐子预留、资源账本、世界时钟和执行游标。
-/// 这不是完整世界存档；恢复执行还必须与同一版本的工作台罐子实体状态及需求板状态配套。
+/// 活动执行检查点：保留自机液库、主从工作台动态库存、订单暂存、容量/罐子预留、
+/// 资源账本、世界时钟和执行游标。
+/// 这不是完整世界存档；恢复执行仍需配套需求板、资源生产器/时钟策略与规则修饰器状态。
 /// </summary>
 public sealed class WorldV2ExecutionResourceCheckpoint
 {
     internal WorldV2ExecutionResourceCheckpoint(
         ShipLiquidInventorySnapshot shipLiquidInventory,
+        WorkshopRuntimeStateSnapshot masterWorkshop,
+        WorkshopRuntimeStateSnapshot? slaveWorkshop,
         WorldOrderExecutionAdmissionSnapshot admission,
         WorldResourceReservationBookSnapshot reservations,
         ResourceLedgerSnapshot resourceLedger,
@@ -156,6 +162,8 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
     {
         ShipLiquidInventory = shipLiquidInventory;
+        MasterWorkshop = masterWorkshop;
+        SlaveWorkshop = slaveWorkshop;
         Admission = admission;
         Reservations = reservations;
         ResourceLedger = resourceLedger;
@@ -164,6 +172,8 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     }
 
     public ShipLiquidInventorySnapshot ShipLiquidInventory { get; }
+    public WorkshopRuntimeStateSnapshot MasterWorkshop { get; }
+    public WorkshopRuntimeStateSnapshot? SlaveWorkshop { get; }
     public WorldOrderExecutionAdmissionSnapshot Admission { get; }
     public WorldResourceReservationBookSnapshot Reservations { get; }
     public ResourceLedgerSnapshot ResourceLedger { get; }
