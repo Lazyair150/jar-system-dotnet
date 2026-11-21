@@ -69,7 +69,7 @@ public sealed class WorldOrderResourceManifest
 
         Dictionary<string, int> transferLiquids;
         Dictionary<string, int> masterInitial;
-        Dictionary<string, int> masterTransfer;
+        Dictionary<string, int> masterFinal;
         int masterPeak;
         int slavePeak;
         if (!plan.IsPartitioned)
@@ -81,7 +81,7 @@ public sealed class WorldOrderResourceManifest
             transferLiquids = new Dictionary<string, int>(StringComparer.Ordinal);
             masterInitial = RequiredInitialLiquids(plan.MasterSteps, null);
             var masterSimulation = SimulatePath(plan.MasterSteps, masterInitial);
-            masterTransfer = masterSimulation.FinalBalances;
+            masterFinal = masterSimulation.FinalBalances;
             masterPeak = masterSimulation.PeakCapacity;
             slavePeak = 0;
         }
@@ -104,8 +104,8 @@ public sealed class WorldOrderResourceManifest
 
             masterInitial = RequiredInitialLiquids(plan.MasterSteps, transferLiquids);
             var masterSimulation = SimulatePath(plan.MasterSteps, masterInitial);
-            masterTransfer = masterSimulation.FinalBalances;
-            if (!DictionaryAtLeast(masterTransfer, transferLiquids))
+            masterFinal = masterSimulation.FinalBalances;
+            if (!DictionaryAtLeast(masterFinal, transferLiquids))
                 throw new InvalidOperationException("主台路径结束时的液体余额不足以满足从台路径");
             masterPeak = masterSimulation.PeakCapacity;
             // 从台只接收其执行路径所需的最低初始供给；主台额外剩余液体不进入从台容量计算。
@@ -120,7 +120,7 @@ public sealed class WorldOrderResourceManifest
         return new WorldOrderResourceManifest(
             result.DemandId, result.WorldVersion, plan.IsPartitioned,
             masterPathIds, transferIds, masterInitial, transferLiquids,
-            masterTransfer, masterPeak, slavePeak);
+            masterFinal, masterPeak, slavePeak);
     }
 
     private static HashSet<int> ReadPathJarIds(
