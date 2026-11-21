@@ -208,7 +208,8 @@ public sealed class WorldOrderExecutionAdmission
             if (ReferenceEquals(workshop, master) || ReferenceEquals(workshop, slave))
                 continue;
             var retired = _stagingByWorkshop[workshop].Capture();
-            if (retired.Accounts.Count != 0 || retired.ReservedCapacityByOrder.Count != 0)
+            if (retired.Accounts.Count != 0 || retired.ReservedCapacityByOrder.Count != 0 ||
+                retired.PrefillBalances.Count != 0)
                 throw new InvalidOperationException("已退役工作台仍持有订单暂存资源，不能静默丢弃。");
             // 工作台替换后留下的空暂存对象不再属于当前岗位图，不进入新快照。
             _stagingByWorkshop.Remove(workshop);
