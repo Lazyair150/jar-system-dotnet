@@ -358,4 +358,56 @@ public sealed class OrderDemandTests
     private sealed class TestSpecification : IOrderSpecification
     {
     }
+
+    [Fact]
+    public void DemandBoardCheckpointPreservesAreaOrderPoliciesCooldownAndIdSequence()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = CreateBoard(
+            DemandAreaFulfillmentPolicy.Continuous,
+            DemandAreaFulfillmentPolicy.OneShot);
+        var passiveFirst = CreateDemand(ids, cooldown: 1_500, type: Constants.OrderType.B,
+            new Requirement { Shape = "圆罐" },
+            new Requirement { Shape = "方罐", Liquid = "酒" });
+        var passiveSecond = CreateDemand(ids);
+        var active = CreateDemand(ids, type: Constants.OrderType.B,
+            new Requirement { Shape = "方罐", Liquid = "蜜" });
+
+        board.AddDemand(passiveFirst, DemandAreaKind.Passive);
+        board.AddDemand(passiveSecond, DemandAreaKind.Passive);
+        board.AddDemand(active, DemandAreaKind.Active);
+        Assert.True(board.StartCooldown(passiveFirst.Id));
+        Assert.True(board.MovePassiveDemand(passiveSecond.Id, 0));
+
+        var snapshot = board.CaptureRuntimeState(ids);
+        var restoredIds = new SequentialIdGenerator();
+        var restored = OrderDemandBoard.RestoreRuntimeState(snapshot, Words, restoredIds);
+
+        Assert.Equal(DemandAreaFulfillmentPolicy.Continuous, restored.Passive.FulfillmentPolicy);
+        Assert.Equal(DemandAreaFulfillmentPolicy.OneShot, restored.Active.FulfillmentPolicy);
+        Assert.Equal(new[] { passiveSecond.Id, passiveFirst.Id },
+            restored.Passive.Demands.Select(item => item.Id));
+        Assert.Equal(new[] { active.Id }, restored.Active.Demands.Select(item => item.Id));
+
+        var restoredPassive = restored.Find(passiveFirst.Id)!;
+        var restoredSpecification = Assert.IsType<JarOrderSpecification>(restoredPassive.Specification);
+        Assert.Equal(Constants.OrderType.B, restoredSpecification.Type);
+        Assert.Equal(new[] { ("圆罐", (string?)null), ("方罐", "酒") },
+            restoredSpecification.Requirements.Select(item => (item.Shape, item.Liquid)));
+        Assert.Equal(1_500, restoredPassive.CooldownRemainingLogicalMilli);
+        Assert.True(restoredPassive.IsCoolingDown);
+
+        var next = CreateDemand(restoredIds);
+        Assert.Equal(active.Id + 1, next.Id);
+    }
+
+    [Fact]
+    public void DemandBoardCheckpointRejectsOpaqueSpecificationsInsteadOfDroppingThem()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = CreateBoard();
+        board.AddDemand(new OrderDemand(new TestSpecification(), 0, ids), DemandAreaKind.Active);
+
+        Assert.Throws<NotSupportedException>(() => board.CaptureRuntimeState(ids));
+    }
 }
