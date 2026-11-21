@@ -241,6 +241,16 @@ public sealed class WorkshopLiquidStaging
         return new LiquidInventoryReceipt(amount, accepted, amount - accepted);
     }
 
+    public LiquidGrant CanConsume(int orderId, string liquid, int amount)
+    {
+        ValidateOrderId(orderId);
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
+        if (_banned.Contains(liquid)) return LiquidGrant.Banned(liquid);
+        var have = GetAmount(orderId, liquid);
+        return have >= amount ? LiquidGrant.Yes() : LiquidGrant.Insufficient(liquid);
+    }
+
     public bool TryConsume(int orderId, string liquid, int amount)
     {
         ValidateOrderId(orderId);
@@ -425,6 +435,7 @@ public sealed class OrderLiquidScope
     public WorkshopLiquidStaging Staging { get; }
     public IReadOnlyDictionary<string, int> Balance => Staging.GetBalance(OrderId);
     public int GetAmount(string liquid) => Staging.GetAmount(OrderId, liquid);
+    public LiquidGrant CanConsume(string liquid, int amount) => Staging.CanConsume(OrderId, liquid, amount);
     public bool TryConsume(string liquid, int amount) => Staging.TryConsume(OrderId, liquid, amount);
     public LiquidGrant CanReceiveOperation(string liquid, int amount) =>
         Staging.CanAcceptOperation(liquid, amount);
