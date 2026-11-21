@@ -516,3 +516,41 @@ Envelope 建议：
 - 这一步是职责分离，不宣称持久化事务或崩溃恢复 exactly-once。Lease 的结算收据目前仍是运行时状态；下一阶段再把 SettlementState/Receipt 纳入正式 checkpoint wire contract，并为账本副作用建立可恢复的稳定操作标识。
 
 工程方向：减少 Admission 的多阶段事务代码，不再用增加更多验证用例替代领域职责收敛。测试主要沿用既有准入、预置液、A/B 资源分配、恢复与结算用例作为回归基线。
+
+
+## 18. 当前工程完成度盘点（2026-11-22）
+
+这里的“完成”只表示当前 PR 分支内已有实现，不表示已经合并到主干，也不表示整个 Jar 游戏项目已经交付。
+
+| 子系统 | 当前状态 | 主要剩余工作 |
+|---|---|---|
+| World V2 订单主链 | 已建立 | 清理旧兼容入口，统一领域契约 |
+| Solver / Manifest | 已建立 | 完整 solver registry/profile 指纹与运行时规则版本 |
+| A/B 资源租约 | 主体已落地 | 租约 Wire DTO 与完整恢复契约 |
+| 订单液体 Scope 所有权 | 已迁入 Lease | 将 staging 快照/Scope 句柄映射从 Admission restore 流程进一步收敛 |
+| 订单液体分配 | 已拆为 AllocationService | 把补偿路径与资源事务日志整合 |
+| 主从交接 | TransferService 已拆出 | 交接收据/OperationId 的持久恢复 |
+| 订单结算 | SettlementService 已拆出；Lease 有运行时结算阶段/收据/稳定 ID | 将状态和收据写入根级 checkpoint；账本按 OperationId 批量去重 |
+| 主台切换预置补液 | 进程内事务与失败隔离已建立 | 持久化切换事务阶段，支持崩溃恢复 |
+| 内存执行 Checkpoint | 已覆盖主要运行时对象 | 补齐所有权快照的一致映射 |
+| JSON Checkpoint | Envelope 与 Session Wire DTO 已有 | 根级 World DTO、所有组件双向映射、版本迁移 |
+| Restore | 有较完整 preflight | PreparedRestore + 无业务拒绝的原子 Context Swap |
+| Host / Godot Bridge | 有独占操作与恢复入口 | 将命令边界、错误恢复和持久化生命周期收敛 |
+| 兼容层 | 仍存在 | 在调用方迁移完成后分批删除，不能一次性破坏旧 API |
+
+### 当前阶段判断
+
+- PR #27 是 4.10b 液体资源领域基础，PR #28 是建立在其上的 4.10b-8 checkpoint 与运行时收敛工作；截至本记录，两者都仍为 Draft/Open，均未合并。
+- 订单执行链已经不再是纯原型：需求 → 求解 → Manifest → Admission/Lease → Session → Transfer/Settlement → 资源账本有真实实现。
+- 但持久化仍是最大结构性缺口：现在能捕获和恢复内存对象图，也能序列化部分专用 DTO，尚不能把整个 World V2 根状态作为稳定、版本化的 JSON 存档完整重建。
+- 因此当前应称为“核心领域与运行时基础已形成，正在收敛持久化和恢复架构”，不能称为“Jar 项目整体已经完成”。
+
+### 接下来的工程优先级（按交付价值排序）
+
+1. 完成 Lease / Settlement / Transfer 的根级 Wire DTO 与双向映射，不再在 Admission、Reservation、Session 中复制资源事实。
+2. 实现 PreparedRestore：预检阶段生成不可变恢复计划；提交阶段只做无业务拒绝的状态替换。
+3. 实现 Host 原子 Context Swap，并用 B 类活动会话完成“序列化 → 销毁旧 Context → 重建 → 恢复 → 继续执行”的完整链路。
+4. 将主台预置补液与订单结算的 operation log 纳入同一恢复协议，明确哪些副作用可重放、哪些必须拒绝恢复。
+5. 最后才清理兼容层、统一 Godot 端 API，并转向完整游戏流程集成。
+
+工程节奏调整：优先交付完整模块与跨模块链路；除非新边界引入风险，否则不为单一方法增加大量重复测试。每个阶段保留少量关键回归和 CI 基线即可。
