@@ -160,6 +160,8 @@ public sealed class WorldV2ContextTests
         Assert.Empty(first.Admission.SlaveStaging?.Accounts ?? new Dictionary<int, IReadOnlyDictionary<string, int>>());
         Assert.Single(first.Admission.ActiveOrders);
         Assert.False(first.Admission.ActiveOrders[0].UsesSlave);
+        Assert.True(first.Admission.ActiveOrders[0].MasterCapacityReserved);
+        Assert.False(first.Admission.ActiveOrders[0].SlaveCapacityReserved);
         Assert.Single(first.Reservations.Reservations);
         Assert.Single(first.Sessions);
         Assert.Equal(WorldOrderExecutionStage.MasterSteps, first.Sessions[0].Stage);
@@ -260,6 +262,92 @@ public sealed class WorldV2ContextTests
         Assert.Empty(secondWorld.Roster.Master!.Jars);
         Assert.Equal(1, secondShip.GetAmount("酒"));
         Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Flow));
+    }
+
+    [Fact]
+    public void BOrderCheckpointAfterMasterToSlavePumpRestoresWithoutRepumpingOrRequiringReleasedMasterQuota()
+    {
+        var firstMaster = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        firstMaster.AddJar(new Jar("圆罐", id: 51, vocabulary: Words));
+        firstMaster.AddLiquid("酒", 1); // 兼容求解输入；新订单供给只从自机液库扣除
+        var firstSlave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        var firstShip = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 2 });
+        using var firstWorld = WorldV2Context.Create(
+            CreateResources(), new[] { firstMaster, firstSlave }, firstMaster, firstSlave,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: firstShip);
+        var firstDemand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        firstWorld.DemandBoard.AddDemand(firstDemand, DemandAreaKind.Active);
+        var start = firstWorld.Scheduler.TryStartActiveDemand(firstDemand.Id);
+        Assert.True(start.Success, start.Reason);
+
+        var firstSession = Assert.Single(firstWorld.Runtime.ActiveExecutionSessions);
+        for (var i = 0; i < 8 && firstSession.Stage != WorldOrderExecutionStage.SlaveSteps; i++)
+            firstWorld.Runtime.AdvanceWorldTime(1_000);
+        Assert.Equal(WorldOrderExecutionStage.SlaveSteps, firstSession.Stage);
+        Assert.True(firstSlave.HasResources);
+
+        var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
+        var activeScope = Assert.Single(checkpoint.Admission.ActiveOrders);
+        Assert.True(activeScope.UsesSlave);
+        Assert.False(activeScope.MasterCapacityReserved);
+        Assert.True(activeScope.SlaveCapacityReserved);
+        Assert.Empty(checkpoint.Admission.MasterStaging!.ReservedCapacityByOrder);
+        Assert.Contains(firstDemand.Id, checkpoint.Admission.SlaveStaging!.ReservedCapacityByOrder.Keys);
+        Assert.Equal(1, checkpoint.Admission.SlaveStaging.Accounts[firstDemand.Id]["酒"]);
+        Assert.Equal(1, checkpoint.ShipLiquidInventory.Balances["酒"]);
+        Assert.Single(checkpoint.ResourceLedger.Entries, item => item.Cause == ResourceCauses.Flow);
+        Assert.Single(checkpoint.ResourceLedger.Entries, item =>
+            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
+
+        var secondMaster = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        secondMaster.AddJar(new Jar("圆罐", id: 51, vocabulary: Words));
+        secondMaster.AddLiquid("酒", 1);
+        var secondSlave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        var secondShip = new ShipLiquidInventory(4);
+        using var secondWorld = WorldV2Context.Create(
+            CreateResources(), new[] { secondMaster, secondSlave }, secondMaster, secondSlave,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: secondShip);
+        var restoredDemand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        Assert.Equal(firstDemand.Id, restoredDemand.Id);
+        secondWorld.DemandBoard.AddDemand(restoredDemand, DemandAreaKind.Active);
+
+        secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
+
+        Assert.Equal(1, secondShip.GetAmount("酒"));
+        Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Slave!.GetAmount("酒"));
+        var restoredSession = Assert.Single(secondWorld.Runtime.ActiveExecutionSessions);
+        Assert.Equal(WorldOrderExecutionStage.SlaveSteps, restoredSession.Stage);
+        Assert.True(restoredSession.CaptureProgress().SlaveTransferCommitted);
+
+        for (var i = 0; i < 8 && secondWorld.Runtime.ActiveExecutionSessions.Count > 0; i++)
+            secondWorld.Runtime.AdvanceWorldTime(1_000);
+
+        Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
+        Assert.Empty(secondSlave.Jars);
+        Assert.Equal(1, secondShip.GetAmount("酒"));
+        Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Flow));
+        Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Transfer),
+            item => item.Kind == ResourceKinds.Liquid);
+        Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Return),
+            item => item.Kind == ResourceKinds.Liquid);
     }
 
     [Fact]
