@@ -52,8 +52,7 @@ public sealed class WorldResourceReservationBook
                 foreach (var amount in reservation.MasterInitialLiquidAmounts)
                     if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
                         throw new InvalidOperationException("资源预留快照包含无效液体数量。");
-                lease.MarkSettled();
-            foreach (var jarId in lease.LockedJarIds)
+                foreach (var jarId in reservation.LockedJarIds)
                 {
                     if (restored._jarOwners.ContainsKey(jarId))
                         throw new InvalidOperationException("资源预留快照中的罐子被多个订单同时占用：" + jarId);
@@ -226,7 +225,8 @@ public sealed class WorldResourceReservationBook
         {
             if (!_byDemand.Remove(demandId, out var lease))
                 return false;
-            foreach (var jarId in reservation.LockedJarIds)
+            lease.MarkSettled();
+            foreach (var jarId in lease.LockedJarIds)
             {
                 if (_jarOwners.TryGetValue(jarId, out var owner) && owner == demandId)
                     _jarOwners.Remove(jarId);
