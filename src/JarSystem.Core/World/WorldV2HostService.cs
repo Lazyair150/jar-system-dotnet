@@ -75,21 +75,10 @@ public sealed class WorldV2HostService : IDisposable
         {
             lock (_sync) ThrowIfDisposed();
 
-            WorldV2Context? prepared = null;
-            try
-            {
-                // Prepare：完全独立地装配新世界并恢复快照。此期间 _current 不可见地改变。
-                prepared = WorldV2Factory.Create(options);
-                prepared.RestoreExecutionResourceCheckpoint(checkpoint);
-            }
-            catch
-            {
-                prepared?.Dispose();
-                throw;
-            }
-
-            var next = prepared
-                ?? throw new InvalidOperationException("检查点恢复准备阶段没有产生新 Context。");
+            // Prepare 对象拥有未发布 Context；异常或提前退出时自动释放。
+            // Restore 成功后 TakeContext 才把所有权交给 Host 的唯一发布点。
+            using var preparedRestore = PreparedWorldV2Restore.Create(options, checkpoint);
+            var next = preparedRestore.TakeContext();
 
             // Commit：唯一发布点。Host 操作门保证没有调用方同时使用旧 Context。
             WorldV2Context? previous;
