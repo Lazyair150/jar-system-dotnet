@@ -88,13 +88,16 @@ public sealed class WorldV2HostService : IDisposable
                 throw;
             }
 
+            var next = prepared
+                ?? throw new InvalidOperationException("检查点恢复准备阶段没有产生新 Context。");
+
             // Commit：唯一发布点。Host 操作门保证没有调用方同时使用旧 Context。
             WorldV2Context? previous;
             lock (_sync)
             {
                 ThrowIfDisposed();
                 previous = _current;
-                _current = prepared;
+                _current = next;
             }
 
             previous?.Dispose();
