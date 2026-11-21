@@ -38,6 +38,7 @@ public sealed class WorldV2Options
 
     [JsonPropertyName("jarFlowRatePerLogicalTime")]
     public double JarFlowRatePerLogicalTime { get; set; }
+    /// <summary>旧仓库液体流入参数；注入 ShipLiquidInventory 的 World v2 路径不会使用它。</summary>
     [JsonPropertyName("liquidFlowRatePerLogicalTime")]
     public double LiquidFlowRatePerLogicalTime { get; set; }
 
