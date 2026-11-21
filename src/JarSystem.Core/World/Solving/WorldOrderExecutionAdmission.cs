@@ -56,6 +56,11 @@ public sealed class WorldOrderExecutionAdmission
     /// <summary>
     /// 尝试准入一张订单。应在世界逻辑调度线程内同步调用，避免检查与预留之间插入世界变更。
     /// </summary>
+    internal IReadOnlyDictionary<string, int> GetPrefillBalances(Workshop workshop) =>
+        _stagingByWorkshop.TryGetValue(workshop, out var staging)
+            ? staging.PrefillBalances
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+
     internal WorldSnapshot CaptureWorldSnapshot()
     {
         var master = _roster.Master;
