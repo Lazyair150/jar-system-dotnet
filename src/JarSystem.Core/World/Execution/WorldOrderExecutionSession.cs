@@ -448,8 +448,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     throw new InvalidOperationException("主台订单液体快照读取不一致");
             if (!LiquidBalancesEqual(outgoing, _manifest.MasterTransferLiquidAmounts))
                 return "主台订单液体余额与资源清单预测不一致，拒绝执行跨台泵送";
-            if (!_slaveLiquidScope.Staging.CanReceiveTransferBatch(DemandId, outgoing))
-                return "从台订单暂存区不能接收主台当前全部游离液体（禁令或总容量不足）";
+            var requiredTransfer = _manifest.TransferLiquids
+                .Where(item => item.Value > 0)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+            if (!_slaveLiquidScope.Staging.CanReceiveTransferBatch(DemandId, requiredTransfer))
+                return "从台订单暂存区不能接收从台路径所需液体（禁令或总容量不足）";
         }
 
         // 从这里开始从台资源由本会话独占。若后续提交阶段出现不变量异常，
@@ -495,13 +498,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         }
         else
         {
-            var outgoing = _masterLiquidScope.Balance;
+            var requiredTransfer = _manifest.TransferLiquids
+                .Where(item => item.Value > 0)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
             if (!OrderLiquidTransfer.TryExecute(
                 DemandId, _masterLiquidScope.Staging, _slaveLiquidScope!.Staging,
-                outgoing, out var transferReason))
+                requiredTransfer, out var transferReason))
                 throw new InvalidOperationException(
                     transferReason ?? "主从订单液体交接在提交阶段违反预检结果");
-            foreach (var item in outgoing)
+            foreach (var item in requiredTransfer)
                 _resourceLedger?.Record(ledgerTick, ResourceCauses.Transfer,
                     ResourceKinds.Liquid, item.Key, item.Value, from: _master.Name, to: slave.Name);
             _masterLiquidScope.Staging.ReleaseOrderCapacity(DemandId);
