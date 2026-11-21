@@ -4,6 +4,7 @@ using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
+using JarSystem.Core.World.Execution;
 using JarSystem.Core.World.Solving;
 
 namespace JarSystem.Core.World;
@@ -113,6 +114,23 @@ public sealed class WorldV2Context : IDisposable
             resources, shipLiquidInventory, resourceLedger, roster, board, solveBook, reservations, admission, runtime, scheduler);
     }
 
+    /// <summary>
+    /// 捕获活动执行所需的液体资源、资源预留、账本、时钟与会话进度。
+    /// 必须在 Host 独占操作内调用。工作台罐子实体快照仍由独立的 Workshop 状态边界负责。
+    /// </summary>
+    public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
+    {
+        if (ShipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容世界没有自机液库，不能捕获新液体资源检查点。");
+        return new WorldV2ExecutionResourceCheckpoint(
+            ShipLiquidInventory.Capture(),
+            Admission.Capture(),
+            Reservations.Capture(),
+            ResourceLedger.Capture(),
+            Runtime.Clock.Capture(),
+            Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()));
+    }
+
     /// <summary>释放求解簿对需求板的事件订阅；不会尝试关闭或回滚世界资源。</summary>
     public void Dispose()
     {
@@ -120,4 +138,35 @@ public sealed class WorldV2Context : IDisposable
         SolveBook.Dispose();
         _disposed = true;
     }
+}
+
+
+/// <summary>
+/// 活动执行的资源检查点：保留液库、主从订单暂存、容量/罐子预留、资源账本、世界时钟和执行游标。
+/// 这不是完整世界存档；恢复执行还必须与同一版本的工作台罐子实体状态及需求板状态配套。
+/// </summary>
+public sealed class WorldV2ExecutionResourceCheckpoint
+{
+    internal WorldV2ExecutionResourceCheckpoint(
+        ShipLiquidInventorySnapshot shipLiquidInventory,
+        WorldOrderExecutionAdmissionSnapshot admission,
+        WorldResourceReservationBookSnapshot reservations,
+        ResourceLedgerSnapshot resourceLedger,
+        WorldClockSnapshot clock,
+        IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
+    {
+        ShipLiquidInventory = shipLiquidInventory;
+        Admission = admission;
+        Reservations = reservations;
+        ResourceLedger = resourceLedger;
+        Clock = clock;
+        Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
+    }
+
+    public ShipLiquidInventorySnapshot ShipLiquidInventory { get; }
+    public WorldOrderExecutionAdmissionSnapshot Admission { get; }
+    public WorldResourceReservationBookSnapshot Reservations { get; }
+    public ResourceLedgerSnapshot ResourceLedger { get; }
+    public WorldClockSnapshot Clock { get; }
+    public IReadOnlyList<WorldOrderExecutionSessionProgressSnapshot> Sessions { get; }
 }
