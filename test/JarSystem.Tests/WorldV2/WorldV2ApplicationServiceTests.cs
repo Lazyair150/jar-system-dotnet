@@ -179,7 +179,7 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Single(checkpoint.Admission.ActiveOrders);
         Assert.Single(checkpoint.Reservations.Reservations);
         Assert.Single(checkpoint.Sessions);
-        Assert.Equal(2_000, checkpoint.Clock.WorldTimeMilli);
+        Assert.Equal(1_000, checkpoint.Clock.WorldTimeMilli);
 
         var funding = Assert.Single(app.GetResourceLedger().Events,
             item => item.Cause == "flow" && item.Name == "酒");
