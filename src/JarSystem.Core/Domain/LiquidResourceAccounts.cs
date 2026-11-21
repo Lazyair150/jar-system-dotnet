@@ -521,6 +521,7 @@ public sealed class WorkshopLiquidStaging
 
     public LiquidGrant CanConsume(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -548,6 +549,7 @@ public sealed class WorkshopLiquidStaging
     /// </summary>
     public LiquidGrant CanAcceptOperation(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -559,6 +561,7 @@ public sealed class WorkshopLiquidStaging
 
     public LiquidGrant CanAcceptOperation(string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
         if (_banned.Contains(liquid)) return LiquidGrant.Banned(liquid);
@@ -678,6 +681,7 @@ public sealed class WorkshopLiquidStaging
 
     internal bool CanReceiveForTransfer(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -686,6 +690,7 @@ public sealed class WorkshopLiquidStaging
 
     internal bool CanReceiveTransferBatch(int orderId, IReadOnlyDictionary<string, int> amounts)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateAmounts(amounts);
         if (amounts.Keys.Any(_banned.Contains)) return false;
@@ -694,13 +699,17 @@ public sealed class WorkshopLiquidStaging
 
     internal bool TryTransferOut(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         if (GetAmount(orderId, liquid) < amount) return false;
         AddUnchecked(orderId, liquid, -amount);
         return true;
     }
 
-    internal void ReceiveTransferUnchecked(int orderId, string liquid, int amount) =>
+    internal void ReceiveTransferUnchecked(int orderId, string liquid, int amount)
+    {
+        EnsureNoPendingPrefillTransaction();
         AddUnchecked(orderId, liquid, amount);
+    }
 
     private int AvailableCapacityFor(int orderId)
     {
