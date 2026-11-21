@@ -214,7 +214,7 @@ public static class WorldSnapshotFactory
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
-            writer.Write("JarSystem.WorldSolveSnapshot.v1");
+            writer.Write("JarSystem.WorldSolveSnapshot.v2");
             WriteWorkshop(writer, master);
             WriteWorkshop(writer, slave);
         }
