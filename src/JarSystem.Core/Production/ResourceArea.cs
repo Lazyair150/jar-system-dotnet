@@ -104,17 +104,25 @@ public sealed class ResourceArea
 
         var producedJars = _producers.AdvanceLogicalTime(deltaLogicalTimeMilli);
         var producedLiquids = _liquidProduction.AdvanceLogicalTime(deltaLogicalTimeMilli);
-        foreach (var (liquid, amount) in producedLiquids)
+        var liquidProductionReceipts = new List<LiquidProductionReceipt>();
+        foreach (var (liquid, amount) in producedLiquids.OrderBy(item => item.Liquid, StringComparer.Ordinal))
         {
             if (_shipLiquidInventory == null)
+            {
                 Inventory.ProduceLiquid(liquid, amount);
+                liquidProductionReceipts.Add(new LiquidProductionReceipt(liquid, amount, amount, 0));
+            }
             else
-                _shipLiquidInventory.Produce(liquid, amount);
+            {
+                var receipt = _shipLiquidInventory.Produce(liquid, amount);
+                liquidProductionReceipts.Add(new LiquidProductionReceipt(
+                    liquid, amount, receipt.AcceptedAmount, receipt.DiscardedAmount));
+            }
         }
 
         if (master == null || deltaLogicalTimeMilli == 0)
-            return new ResourceAreaAdvanceResult(producedJars.Count, producedLiquids, 0,
-                new Dictionary<string, int>());
+            return new ResourceAreaAdvanceResult(producedJars.Count, producedLiquids,
+                liquidProductionReceipts, 0, new Dictionary<string, int>());
 
         // 吞吐额度是"本时间片可处理的上限"，不是资源欠条。
         // 整数额度无论库存/目的地是否足够都会在本时间片消耗；只有小数余量留到下一片。
@@ -128,6 +136,7 @@ public sealed class ResourceArea
         return new ResourceAreaAdvanceResult(
             producedJars.Count,
             producedLiquids,
+            liquidProductionReceipts,
             moved.Jars.Count,
             moved.Liquids);
     }
@@ -145,21 +154,30 @@ public sealed class ResourceArea
 }
 
 /// <summary>资源区一次逻辑时间推进的结果快照。</summary>
+public sealed record LiquidProductionReceipt(
+    string Liquid,
+    int ProducedAmount,
+    int AcceptedAmount,
+    int DiscardedAmount);
+
 public sealed class ResourceAreaAdvanceResult
 {
     public int ProducedJarCount { get; }
     public IReadOnlyList<(string Liquid, int Amount)> ProducedLiquids { get; }
+    public IReadOnlyList<LiquidProductionReceipt> LiquidProductionReceipts { get; }
     public int FlowedJarCount { get; }
     public IReadOnlyDictionary<string, int> FlowedLiquids { get; }
 
     internal ResourceAreaAdvanceResult(
         int producedJarCount,
         IReadOnlyList<(string Liquid, int Amount)> producedLiquids,
+        IReadOnlyList<LiquidProductionReceipt> liquidProductionReceipts,
         int flowedJarCount,
         IReadOnlyDictionary<string, int> flowedLiquids)
     {
         ProducedJarCount = producedJarCount;
         ProducedLiquids = producedLiquids;
+        LiquidProductionReceipts = Array.AsReadOnly(liquidProductionReceipts.ToArray());
         FlowedJarCount = flowedJarCount;
         FlowedLiquids = flowedLiquids;
     }
