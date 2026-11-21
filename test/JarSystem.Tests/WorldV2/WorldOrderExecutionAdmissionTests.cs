@@ -272,7 +272,7 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
-    public void ShipInventoryAdmissionRejectsWhenOrderPeakCannotFitSharedWorkshopCapacity()
+    public void AdmissionCannotStartWhenSolverRejectsAnOrderPeakAboveSharedWorkshopCapacity()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
             maxLiquids: 1, vocabulary: Words);
@@ -297,7 +297,8 @@ public sealed class WorldOrderExecutionAdmissionTests
         var admitted = admission.TryAdmit(demand.Id);
 
         Assert.False(admitted.Success);
-        Assert.Contains("容量", admitted.Reason);
+        Assert.False(setup.Book.Find(demand.Id)!.Result!.IsFeasible,
+            "求解器应先按工作台合计暂存容量排除该执行路径");
         Assert.Equal(1, ship.GetAmount("酒"));
         Assert.Equal(0, setup.Reservations.Count);
     }
