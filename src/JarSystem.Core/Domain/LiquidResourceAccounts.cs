@@ -96,6 +96,22 @@ public sealed class ShipLiquidInventory
     public ShipLiquidInventorySnapshot Capture() =>
         new(Capacity, new Dictionary<string, int>(_balances, StringComparer.Ordinal));
 
+    /// <summary>将已验证的库存快照装入同容量液库；不会执行生产、扣款或返还语义。</summary>
+    public void RestoreFrom(ShipLiquidInventorySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Capacity != Capacity)
+            throw new DomainValidationException("自机液库快照容量与当前实例不一致。");
+        ValidateAmounts(snapshot.Balances);
+        if (TotalAmount(snapshot.Balances) > Capacity)
+            throw new DomainValidationException("自机液库快照总库存超过容量。");
+
+        var next = snapshot.Balances.Where(item => item.Value > 0)
+            .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        _balances.Clear();
+        foreach (var item in next) _balances.Add(item.Key, item.Value);
+    }
+
     private void AddUnchecked(string liquid, int delta)
     {
         var next = checked(_balances.GetValueOrDefault(liquid) + delta);
