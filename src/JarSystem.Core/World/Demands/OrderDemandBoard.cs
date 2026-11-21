@@ -208,14 +208,14 @@ public sealed class OrderDemandBoard
             throw new InvalidOperationException("检查点需求区域成功策略与当前世界配置不一致");
 
         var staged = RestoreRuntimeState(snapshot, vocabulary, new SequentialIdGenerator());
-        var old = Passive.Clear().Concat(Active.Clear()).ToArray();
-        foreach (var demand in old)
+        var oldPassive = Passive.Clear();
+        var oldActive = Active.Clear();
+        foreach (var demand in oldPassive)
             Changed?.Invoke(new OrderDemandBoardChange(
-                OrderDemandBoardChangeKind.Removed, demand.Id,
-                old.Contains(demand) && snapshot.PassiveDemands.Any(item => item.Id == demand.Id)
-                    ? DemandAreaKind.Passive
-                    : DemandAreaKind.Active,
-                null));
+                OrderDemandBoardChangeKind.Removed, demand.Id, DemandAreaKind.Passive, null));
+        foreach (var demand in oldActive)
+            Changed?.Invoke(new OrderDemandBoardChange(
+                OrderDemandBoardChangeKind.Removed, demand.Id, DemandAreaKind.Active, null));
 
         foreach (var demand in staged.Passive.Demands)
         {
