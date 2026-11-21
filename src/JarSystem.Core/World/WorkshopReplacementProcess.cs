@@ -23,6 +23,7 @@ public sealed class WorkshopReplacementProcess
     private readonly IOrderInterruptionPort _interruptionPort;
     private readonly long _phaseDurationMilli;
     private readonly WorkshopSwitchEvent? _masterSwitch;
+    private readonly Action<Workshop>? _masterPrefill;
 
     private long _phaseElapsedMilli;
     private int _phase;
@@ -51,7 +52,8 @@ public sealed class WorkshopReplacementProcess
         Workshop targetWorkshop,
         IOrderInterruptionPort interruptionPort,
         long phaseDurationMilli,
-        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null)
+        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null,
+        Action<Workshop>? masterPrefill = null)
     {
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _role = role;
@@ -60,6 +62,7 @@ public sealed class WorkshopReplacementProcess
         if (phaseDurationMilli <= 0)
             throw new ArgumentOutOfRangeException(nameof(phaseDurationMilli), "替换阶段时长必须大于零");
         _phaseDurationMilli = phaseDurationMilli;
+        _masterPrefill = role == WorkshopRole.Master ? masterPrefill : null;
 
         _oldWorkshop = role switch
         {
@@ -117,6 +120,8 @@ public sealed class WorkshopReplacementProcess
                 throw new InvalidOperationException("订单中断已成功，但旧从工作台仍有资源；拒绝继续替换");
 
             // 必须在订单中断与从台结算之后拍快照，确保回滚不会复活已中断订单的临时资源。
+            // 前置补液是切换流程中独立提交的资源流转；迁徙失败/取消时目标备用台保留该库存，重试不会重复扣款。
+            if (_role == WorkshopRole.Master) _masterPrefill?.Invoke(_targetWorkshop);
             _masterSwitch?.Begin();
             _begun = true;
             return (true, null);
