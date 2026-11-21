@@ -22,7 +22,7 @@ public sealed class WorldOrderResourceManifest
     public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
     public IReadOnlyDictionary<string, int> TransferLiquids { get; }
     /// <summary>主台路径完成后的实际全部剩余游离液体；仅用于核对主台终态，不代表泵送批次。</summary>
-    public IReadOnlyDictionary<string, int> MasterTransferLiquidAmounts { get; }
+    public IReadOnlyDictionary<string, int> MasterFinalLiquidBalances { get; }
     public int MasterStagingPeakCapacity { get; }
     public int SlaveStagingPeakCapacity { get; }
 
@@ -30,7 +30,7 @@ public sealed class WorldOrderResourceManifest
         int demandId, string worldVersion, bool isPartitioned,
         IEnumerable<int> masterJarIds, IEnumerable<int> transferJarIds,
         IDictionary<string, int> masterLiquids, IDictionary<string, int> transferLiquids,
-        IDictionary<string, int> masterTransferLiquids,
+        IDictionary<string, int> masterFinalLiquidBalances,
         int masterStagingPeakCapacity, int slaveStagingPeakCapacity)
     {
         DemandId = demandId;
@@ -41,7 +41,7 @@ public sealed class WorldOrderResourceManifest
         LockedJarIds = Array.AsReadOnly(MasterJarIds.Concat(TransferJarIds).Distinct().OrderBy(x => x).ToArray());
         MasterInitialLiquidAmounts = Freeze(masterLiquids);
         TransferLiquids = Freeze(transferLiquids);
-        MasterTransferLiquidAmounts = Freeze(masterTransferLiquids);
+        MasterFinalLiquidBalances = Freeze(masterFinalLiquidBalances);
         MasterStagingPeakCapacity = masterStagingPeakCapacity;
         SlaveStagingPeakCapacity = slaveStagingPeakCapacity;
     }
