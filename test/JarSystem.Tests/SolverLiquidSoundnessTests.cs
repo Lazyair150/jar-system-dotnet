@@ -183,7 +183,7 @@ public class SolverLiquidSoundnessTests
 
         Assert.NotNull(reason);
         Assert.Contains("酒", reason);
-        Assert.Contains("至少需要 1 份", reason);
+        Assert.Contains("至少需要 2 份", reason);
 
         var exact = new StateSpaceSolver().Solve(requirements, info, jars, liquids);
         Assert.False(exact.Feasible);
