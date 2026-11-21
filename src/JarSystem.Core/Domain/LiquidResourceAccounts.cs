@@ -705,17 +705,6 @@ public sealed class WorkshopLiquidStaging
         return AvailableCapacity;
     }
 
-    internal void RemovePrefillForRollback(IReadOnlyDictionary<string, int> amounts)
-    {
-        ShipLiquidInventory.ValidateAmounts(amounts);
-        foreach (var item in amounts)
-        {
-            if (_prefillBalances.GetValueOrDefault(item.Key) < item.Value)
-                throw new InvalidOperationException("主台预置账户在回滚前已发生变化：" + item.Key);
-            AddPrefillUnchecked(item.Key, -item.Value);
-        }
-    }
-
     private void AddPrefillUnchecked(string liquid, int delta)
     {
         var next = checked(_prefillBalances.GetValueOrDefault(liquid) + delta);
