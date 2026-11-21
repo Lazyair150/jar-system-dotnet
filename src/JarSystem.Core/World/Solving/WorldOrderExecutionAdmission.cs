@@ -259,6 +259,8 @@ public sealed class WorldOrderExecutionAdmission
         if (snapshot.MasterStaging != null &&
             snapshot.MasterStaging.Accounts.Keys.Any(id => !activeIds.Contains(id)))
             throw new InvalidOperationException("主台暂存账户属于未登记的活动订单。");
+        var slaveOrderIds = snapshot.ActiveOrders.Where(item => item.UsesSlave)
+            .Select(item => item.DemandId).ToHashSet();
         if (snapshot.SlaveStaging != null &&
             snapshot.SlaveStaging.Accounts.Keys.Any(id => !slaveOrderIds.Contains(id)))
             throw new InvalidOperationException("从台暂存账户属于非 B 类活动订单。");
