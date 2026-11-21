@@ -556,6 +556,11 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Equal(new[] { jar.Id!.Value }, lease.LockedJarIds);
         Assert.Equal(1, lease.InitialLiquidSupply["酒"]);
         Assert.False(lease.UsesSlave);
+        Assert.Equal(OrderResourceLeaseStage.Admitted, lease.Stage);
+        Assert.Throws<System.InvalidOperationException>(
+            () => setup.Reservations.MarkTransferPending(demand.Id));
+        setup.Reservations.MarkMasterExecuting(demand.Id);
+        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, lease.Stage);
         Assert.Same(lease.Reservation, setup.Reservations.Find(demand.Id));
         Assert.True(setup.Admission.Release(demand.Id));
         Assert.Null(setup.Reservations.FindLease(demand.Id));
