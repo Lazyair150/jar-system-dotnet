@@ -113,6 +113,10 @@ public sealed class WorldOrderResourceManifest
             slavePeak = slaveSimulation.PeakCapacity;
         }
 
+        if (snapshot.ShipLiquidInventory != null &&
+            !DictionaryAtLeast(snapshot.ShipLiquidInventory.Balances, masterInitial))
+            throw new InvalidOperationException("自机液库库存不足以提供订单初始液体供给");
+
         return new WorldOrderResourceManifest(
             result.DemandId, result.WorldVersion, plan.IsPartitioned,
             masterPathIds, transferIds, masterInitial, transferLiquids,
