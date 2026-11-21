@@ -220,6 +220,7 @@ public sealed class WorldV2Context : IDisposable
                 session, stagedBoard, stagedSolveBook, stagedAdmission, Roster,
                 stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick);
         }
+        stagedSolveBook.Dispose();
 
         // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
         Resources.RestoreRuntimeState(checkpoint.ResourceArea);
