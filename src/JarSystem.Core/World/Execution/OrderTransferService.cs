@@ -1,0 +1,152 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
+using JarSystem.Core.World.Solving;
+
+namespace JarSystem.Core.World.Execution;
+
+/// <summary>
+/// B 类订单唯一的主台→从台交接服务。
+/// 预检阶段只读取；CommitStarted 回调发生后，调用方必须允许失败清理回收本次从台资源。
+/// </summary>
+internal sealed class OrderTransferService
+{
+    public string? Transfer(
+        int demandId,
+        WorldOrderResourceManifest manifest,
+        Workshop master,
+        Workshop slave,
+        OrderLiquidScope? masterScope,
+        OrderLiquidScope? slaveScope,
+        ResourceLedger? ledger,
+        Func<int>? ledgerTickProvider,
+        Action commitStarted)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(slave);
+        ArgumentNullException.ThrowIfNull(commitStarted);
+        if (!manifest.IsPartitioned || manifest.DemandId != demandId)
+            throw new InvalidOperationException("TransferService 只接受与 B 类租约匹配的订单资源清单。");
+
+        if (slave.HasResources)
+            return "B 类资源转移前，从工作台的旧版资源池必须为空";
+
+        var jars = new Dictionary<int, Jar>();
+        foreach (var id in manifest.TransferJarIds)
+        {
+            var matches = master.Jars.Where(jar => jar.Id == id).ToArray();
+            if (matches.Length != 1)
+                return matches.Length == 0
+                    ? $"转移前主台找不到罐子 #{id}"
+                    : $"转移前主台存在重复罐子 ID #{id}";
+            if (slave.Jars.Any(jar => jar.Id == id))
+                return $"从台已存在待转移罐子 #{id}";
+            jars.Add(id, matches[0]);
+        }
+
+        if (manifest.TransferJarIds.Count > slave.MaxJars - slave.Jars.Count)
+            return "从台罐位不足，无法完整接收转移罐子清单";
+
+        Dictionary<string, int>? requiredTransfer = null;
+        if (masterScope == null)
+        {
+            foreach (var item in manifest.TransferLiquids)
+            {
+                if (item.Value < 0)
+                    return $"转移液体「{item.Key}」数量无效";
+                if (item.Value == 0) continue;
+                var available = master.LiquidStorage.GetValueOrDefault(item.Key);
+                if (available < item.Value)
+                    return $"主台液体「{item.Key}」不足：需要 {item.Value}，当前 {available}";
+                if (slave.IsBanned(item.Key))
+                    return $"从台禁用液体「{item.Key}」，不能转移执行所需液体";
+                var storage = slave.CanStoreLiquid(item.Key, item.Value);
+                if (!storage.Granted)
+                    return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
+            }
+        }
+        else
+        {
+            if (slaveScope == null)
+                throw new InvalidOperationException("新液体资源路径的 B 类会话缺少从台订单范围");
+            var masterFinalBalances = masterScope.Balance;
+            foreach (var item in masterFinalBalances)
+                if (masterScope.GetAmount(item.Key) != item.Value)
+                    throw new InvalidOperationException("主台订单液体快照读取不一致");
+            if (!LiquidBalancesEqual(masterFinalBalances, manifest.MasterFinalLiquidBalances))
+                return "主台订单液体余额与资源清单预测不一致，拒绝执行跨台泵送";
+            requiredTransfer = manifest.TransferLiquids
+                .Where(item => item.Value > 0)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+            if (!slaveScope.Staging.CanReceiveTransferBatch(demandId, requiredTransfer))
+                return "从台订单暂存区不能接收从台路径所需液体（禁令或总容量不足）";
+        }
+
+        // tick provider 在提交前取得；它抛错时仍没有罐子、液体或租约所有权变化。
+        var ledgerTick = ledger == null ? 0 :
+            (ledgerTickProvider ?? throw new InvalidOperationException("资源账本缺少逻辑 tick provider。"))();
+
+        // 从这里开始调用方拥有失败清理权限；之后出现异常不能伪装成普通预检拒绝。
+        commitStarted();
+
+        foreach (var id in manifest.TransferJarIds)
+        {
+            var jar = jars[id];
+            if (!ReferenceEquals(master.TransferOut(jar), jar))
+                throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段无法从主台移出");
+
+            if (!slave.TransferIn(jar))
+            {
+                if (!master.TransferIn(jar))
+                    throw new InvalidOperationException($"罐子 #{id} 转移失败且无法恢复主台归属");
+                throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
+            }
+            ledger?.Record(ledgerTick, ResourceCauses.Transfer,
+                ResourceKinds.Jar, jar.Shape, 1, from: master.Name, to: slave.Name);
+        }
+
+        if (masterScope == null)
+        {
+            foreach (var item in manifest.TransferLiquids)
+            {
+                if (item.Value == 0) continue;
+                if (!slave.AddLiquid(item.Key, item.Value))
+                    throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
+
+                if (!master.RemoveLiquid(item.Key, item.Value))
+                {
+                    if (!slave.RemoveLiquid(item.Key, item.Value))
+                        throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
+                    throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
+                }
+                ledger?.Record(ledgerTick, ResourceCauses.Transfer,
+                    ResourceKinds.Liquid, item.Key, item.Value, from: master.Name, to: slave.Name);
+            }
+        }
+        else
+        {
+            if (!OrderLiquidTransfer.TryExecute(
+                demandId, masterScope.Staging, slaveScope!.Staging,
+                requiredTransfer!, out var transferReason))
+                throw new InvalidOperationException(
+                    transferReason ?? "主从订单液体交接在提交阶段违反预检结果");
+            foreach (var item in requiredTransfer!)
+                ledger?.Record(ledgerTick, ResourceCauses.Transfer,
+                    ResourceKinds.Liquid, item.Key, item.Value, from: master.Name, to: slave.Name);
+            masterScope.Staging.ReleaseOrderCapacity(demandId);
+        }
+
+        return null;
+    }
+
+    private static bool LiquidBalancesEqual(
+        IReadOnlyDictionary<string, int> left,
+        IReadOnlyDictionary<string, int> right)
+    {
+        if (left.Count != right.Count) return false;
+        return left.All(item => right.TryGetValue(item.Key, out var value) && value == item.Value);
+    }
+}
