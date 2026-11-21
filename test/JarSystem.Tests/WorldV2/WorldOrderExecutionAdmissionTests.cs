@@ -561,7 +561,9 @@ public sealed class WorldOrderExecutionAdmissionTests
             () => setup.Reservations.MarkTransferPending(demand.Id));
         setup.Reservations.MarkMasterExecuting(demand.Id);
         Assert.Equal(OrderResourceLeaseStage.MasterExecuting, lease.Stage);
-        Assert.Same(lease.Reservation, setup.Reservations.Find(demand.Id));
+        var projection = lease.Reservation;
+        Assert.Same(projection, lease.Reservation);
+        Assert.Equal(projection.Stage, setup.Reservations.Find(demand.Id)!.Stage);
         Assert.True(setup.Admission.Release(demand.Id));
         Assert.Null(setup.Reservations.FindLease(demand.Id));
     }
