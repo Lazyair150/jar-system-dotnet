@@ -158,7 +158,9 @@ public sealed class WorldV2HostServiceTests
 
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
-        var beforePumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(beforePump);
+        var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
+        var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
+            beforePumpWire, beforePump.ConfigurationFingerprint);
         var decodedWire = WorldV2CheckpointJsonCodec
             .Decode<WorldV2ExecutionCheckpointWireDto>(beforePumpJson).Payload;
         decodedWire.Validate();
