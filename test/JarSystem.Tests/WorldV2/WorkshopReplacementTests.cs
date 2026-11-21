@@ -736,6 +736,7 @@ public sealed class WorkshopReplacementTests
 
         Assert.Same(target, world.Roster.Master);
         Assert.True(world.Runtime.ActiveReplacement!.Succeeded);
+        Assert.Equal("订单已不在需求板中", world.Admission.TryAdmit(999).Reason);
         Assert.Empty(oldMaster.Jars);
         Assert.Same(jar, Assert.Single(target.Jars));
         var checkpoint = world.CaptureExecutionResourceCheckpoint();
