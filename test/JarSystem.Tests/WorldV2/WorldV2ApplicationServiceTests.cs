@@ -365,6 +365,11 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal("用户取消主台替换", cancel.Replacement.FailureReason);
 
         var after = app.GetWorldSnapshot();
+        host.ExecuteExclusive(context =>
+        {
+            var target = context.Roster.Find("备用台")!;
+            Assert.Empty(context.Admission.GetPrefillBalances(target));
+        });
         Assert.Equal("主台", after.Master!.Name);
         Assert.Single(after.Master.Jars);
         Assert.Null(after.Master.Jars[0].Liquid);
