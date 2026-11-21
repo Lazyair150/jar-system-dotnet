@@ -94,7 +94,7 @@ public sealed class ShipLiquidInventory
 
     private void AddUnchecked(string liquid, int delta)
     {
-        var next = _balances.GetValueOrDefault(liquid) + delta;
+        var next = checked(_balances.GetValueOrDefault(liquid) + delta);
         if (next < 0) throw new InvalidOperationException("液体库存内部不变量被破坏。");
         if (next == 0) _balances.Remove(liquid);
         else _balances[liquid] = next;
@@ -265,7 +265,7 @@ public sealed class WorkshopLiquidStaging
             _accounts.Add(orderId, account);
         }
 
-        var next = account.GetValueOrDefault(liquid) + delta;
+        var next = checked(account.GetValueOrDefault(liquid) + delta);
         if (next < 0) throw new InvalidOperationException("订单暂存余额内部不变量被破坏。");
         if (next == 0) account.Remove(liquid);
         else account[liquid] = next;
@@ -319,6 +319,13 @@ public static class OrderLiquidTransfer
         if (orderId <= 0)
             throw new DomainValidationException("订单 ID 必须是正整数。");
 
+        var transferTotal = ShipLiquidInventory.TotalAmount(amounts);
+        if (transferTotal > slave.AvailableCapacity)
+        {
+            rejectionReason = "从工作台液体暂存总容量不足。";
+            return false;
+        }
+
         foreach (var pair in amounts)
         {
             if (master.GetAmount(orderId, pair.Key) < pair.Value)
@@ -328,9 +335,7 @@ public static class OrderLiquidTransfer
             }
             if (!slave.CanReceiveForTransfer(orderId, pair.Key, pair.Value))
             {
-                rejectionReason = slave.BannedLiquids.Contains(pair.Key)
-                    ? "从工作台禁" + pair.Key
-                    : "从工作台液体暂存容量不足。";
+                rejectionReason = "从工作台禁" + pair.Key;
                 return false;
             }
         }
