@@ -134,6 +134,15 @@ public class ShapeProductionLine
         return jars;
     }
 
+    internal long CaptureAccumulatedMicro() => _accumulatedMicro;
+
+    internal void RestoreAccumulatedMicro(long value)
+    {
+        if (value < 0 || value >= MicroUnit)
+            throw new DomainValidationException("罐子生产线快照包含越界定点余数。");
+        _accumulatedMicro = value;
+    }
+
     public double GetTotalRate() => Producers.Sum(p => p.Rate);
 
     /// <summary>
@@ -274,6 +283,66 @@ public class ProducerModule
         _generators[shape].UpdateRate(name, rate);
     }
 
+    /// <summary>捕获各生产者速率、产线累加器与槽位配置。</summary>
+    public ProducerModuleRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(
+            ProducerSlots,
+            _producers.Select(pair =>
+                new KeyValuePair<string, IReadOnlyDictionary<string, double>>(
+                    pair.Key, pair.Value.Rates)),
+            _generators.ToDictionary(
+                pair => pair.Key, pair => pair.Value.CaptureAccumulatedMicro(),
+                StringComparer.Ordinal));
+
+    /// <summary>验证生产者/形状拓扑和产能数值；不修改当前模块。</summary>
+    public void ValidateRuntimeStateSnapshot(ProducerModuleRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.ProducerSlots < 0 ||
+            !_producers.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.Producers.Keys) ||
+            !_generators.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.GeneratorAccumulatedMicro.Keys))
+            throw new InvalidOperationException("罐子生产模块快照的生产者/形状拓扑与当前配置不一致。");
+
+        var activeSlots = 0;
+        foreach (var producer in _producers)
+        {
+            var rates = snapshot.Producers[producer.Key];
+            if (!producer.Value.Rates.Keys.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(rates.Keys))
+                throw new InvalidOperationException("生产者「" + producer.Key + "」的形状集合与快照不一致。");
+            foreach (var rate in rates)
+            {
+                if (!_generators.ContainsKey(rate.Key) ||
+                    double.IsNaN(rate.Value) || double.IsInfinity(rate.Value) ||
+                    rate.Value < 0 || rate.Value > Constants.MAX_PRODUCER_RATE)
+                    throw new DomainValidationException("生产者快照包含无效形状或速率：" + producer.Key);
+                if (rate.Value > 0) activeSlots++;
+            }
+        }
+        if (snapshot.ProducerSlots > 0 && activeSlots > snapshot.ProducerSlots)
+            throw new DomainValidationException("生产者快照的启用产线数量超过槽位上限。");
+        foreach (var accumulator in snapshot.GeneratorAccumulatedMicro)
+            if (accumulator.Value < 0 || accumulator.Value >= 1_000_000)
+                throw new DomainValidationException("生产线快照包含越界定点余数：" + accumulator.Key);
+    }
+
+    /// <summary>恢复生产者速率和产线余数；对象池/强度修饰器仍由当前世界装配提供。</summary>
+    public void RestoreRuntimeState(ProducerModuleRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        ProducerSlots = snapshot.ProducerSlots;
+        foreach (var producer in _producers)
+        {
+            foreach (var rate in snapshot.Producers[producer.Key])
+            {
+                producer.Value.SetRate(rate.Key, rate.Value);
+                _generators[rate.Key].UpdateRate(producer.Key, rate.Value);
+            }
+        }
+        foreach (var generator in _generators)
+            generator.Value.RestoreAccumulatedMicro(snapshot.GeneratorAccumulatedMicro[generator.Key]);
+    }
+
     public List<Jar> Tick(int count = 1)
     {
         var newJars = new List<Jar>();
@@ -310,4 +379,28 @@ public class ProducerModule
     //   · GetWarehouseLiquid —— 只读单个液体库存，已被 LiquidWarehouse 只读视图取代
     //   · GetProducerStatus —— 弱类型报告字典，已被 StateSerializer + StateDtos 的强类型投影取代
     //     （后者才是对外契约，且键序由 [JsonPropertyName] 与快照钉死）
+}
+
+
+/// <summary>罐子生产模块运行时快照；保留产线小数余数和可变速率。</summary>
+public sealed class ProducerModuleRuntimeStateSnapshot
+{
+    public ProducerModuleRuntimeStateSnapshot(
+        int producerSlots,
+        IEnumerable<KeyValuePair<string, IReadOnlyDictionary<string, double>>> producers,
+        IReadOnlyDictionary<string, long> generatorAccumulatedMicro)
+    {
+        ProducerSlots = producerSlots;
+        var copied = new Dictionary<string, IReadOnlyDictionary<string, double>>(StringComparer.Ordinal);
+        foreach (var producer in producers)
+            copied.Add(producer.Key, new ReadOnlyDictionary<string, double>(
+                new Dictionary<string, double>(producer.Value, StringComparer.Ordinal)));
+        Producers = new ReadOnlyDictionary<string, IReadOnlyDictionary<string, double>>(copied);
+        GeneratorAccumulatedMicro = new ReadOnlyDictionary<string, long>(
+            new Dictionary<string, long>(generatorAccumulatedMicro, StringComparer.Ordinal));
+    }
+
+    public int ProducerSlots { get; }
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, double>> Producers { get; }
+    public IReadOnlyDictionary<string, long> GeneratorAccumulatedMicro { get; }
 }
