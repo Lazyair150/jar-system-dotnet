@@ -178,9 +178,13 @@ public sealed class WorldV2Context : IDisposable
         if (checkpoint.RuntimeLedgerTick < 0)
             throw new InvalidOperationException("检查点 Runtime 账本 tick 无效。");
         foreach (var session in checkpoint.Sessions)
+        {
+            WorldOrderExecutionSession.ValidateProgressAgainstWorkshopSnapshots(
+                session, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop);
             WorldOrderExecutionSession.RestoreProgress(
                 session, DemandBoard, SolveBook, stagedAdmission, Roster,
                 stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick);
+        }
 
         // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
         Roster.Master.RestoreRuntimeState(checkpoint.MasterWorkshop);
