@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace JarSystem.Core.World.Execution;
 
@@ -43,4 +45,26 @@ internal static class ExecutionProgressInvariants
         if (!validStage || reason != null)
             throw new InvalidOperationException("执行会话快照的阶段与步骤游标组合无效。");
     }
+    public static void ValidateManifestPlan(
+        int demandId,
+        WorldOrderResourceManifest manifest,
+        WorldOrderSolvePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (manifest.DemandId != demandId || manifest.IsPartitioned != plan.IsPartitioned ||
+            !manifest.TransferJarIds.OrderBy(x => x).SequenceEqual(
+                plan.TransferJarIds.OrderBy(x => x)) ||
+            !LiquidMapsEqual(manifest.TransferLiquids, plan.TransferLiquids))
+            throw new InvalidOperationException("执行会话的 Manifest 与 Plan 订单身份或交接资源不一致。");
+    }
+
+    private static bool LiquidMapsEqual(
+        IReadOnlyDictionary<string, int> left,
+        IReadOnlyDictionary<string, int> right)
+    {
+        if (left.Count != right.Count) return false;
+        return left.All(item => right.TryGetValue(item.Key, out var value) && value == item.Value);
+    }
+
 }
