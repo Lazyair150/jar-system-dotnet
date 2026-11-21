@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.World.Solving;
 
@@ -30,9 +31,34 @@ public sealed class OrderResourceLease
     public int SlaveStagingPeakCapacity { get; }
     public bool UsesSlave { get; }
     public OrderResourceLeaseStage Stage { get; private set; } = OrderResourceLeaseStage.Admitted;
+    private WorldResourceReservation? _reservationProjection;
+    private (OrderLiquidScope Master, OrderLiquidScope? Slave)? _liquidScopes;
+    public LiquidBatchReceipt? SettlementReceipt { get; private set; }
+    internal bool HasLiquidScopes => _liquidScopes.HasValue;
+    internal (OrderLiquidScope Master, OrderLiquidScope? Slave)? LiquidScopes => _liquidScopes;
+
+    internal void AttachLiquidScopes(OrderLiquidScope master, OrderLiquidScope? slave)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        if (master.OrderId != DemandId || (slave != null && slave.OrderId != DemandId))
+            throw new InvalidOperationException("订单液体范围与资源租约身份不一致。");
+        if (UsesSlave != (slave != null))
+            throw new InvalidOperationException("订单液体范围的主从结构与资源租约不一致。");
+        if (_liquidScopes.HasValue)
+            throw new InvalidOperationException("资源租约已经绑定液体范围。");
+        _liquidScopes = (master, slave);
+    }
+
+    internal LiquidBatchReceipt RecordSettlement(LiquidBatchReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (SettlementReceipt != null) return SettlementReceipt;
+        SettlementReceipt = receipt;
+        return receipt;
+    }
 
     /// <summary>兼容既有 ReservationBook/Restore API 的不可变只读视图。</summary>
-    public WorldResourceReservation Reservation => CaptureReservation();
+    public WorldResourceReservation Reservation => _reservationProjection ??= CaptureReservation();
 
     internal OrderResourceLease(WorldOrderResourceManifest manifest)
     {
@@ -52,7 +78,7 @@ public sealed class OrderResourceLease
     internal void MarkMasterExecuting()
     {
         if (Stage == OrderResourceLeaseStage.Admitted)
-            Stage = OrderResourceLeaseStage.MasterExecuting;
+        { Stage = OrderResourceLeaseStage.MasterExecuting; _reservationProjection = null; }
         else if (Stage != OrderResourceLeaseStage.MasterExecuting)
             throw new InvalidOperationException("资源租约不能进入主台执行阶段。");
     }
@@ -61,21 +87,21 @@ public sealed class OrderResourceLease
     {
         if (!UsesSlave || Stage is not (OrderResourceLeaseStage.MasterExecuting or OrderResourceLeaseStage.Admitted))
             throw new InvalidOperationException("只有 B 类租约可以从主台执行进入交接待提交阶段。");
-        Stage = OrderResourceLeaseStage.TransferPending;
+        Stage = OrderResourceLeaseStage.TransferPending; _reservationProjection = null;
     }
 
     internal void MarkTransferCommitted()
     {
         if (!UsesSlave || Stage != OrderResourceLeaseStage.TransferPending)
             throw new InvalidOperationException("资源租约当前不允许提交主从交接。");
-        Stage = OrderResourceLeaseStage.TransferCommitted;
+        Stage = OrderResourceLeaseStage.TransferCommitted; _reservationProjection = null;
     }
 
     internal void MarkSlaveExecuting()
     {
         if (!UsesSlave || Stage != OrderResourceLeaseStage.TransferCommitted)
             throw new InvalidOperationException("从台执行必须建立在已提交的主从交接之上。");
-        Stage = OrderResourceLeaseStage.SlaveExecuting;
+        Stage = OrderResourceLeaseStage.SlaveExecuting; _reservationProjection = null;
     }
 
     internal void RestoreExecutionStage(OrderResourceLeaseStage stage)
@@ -109,7 +135,7 @@ public sealed class OrderResourceLease
     internal void MarkSettled()
     {
         if (Stage == OrderResourceLeaseStage.Settled) return;
-        Stage = OrderResourceLeaseStage.Settled;
+        Stage = OrderResourceLeaseStage.Settled; _reservationProjection = null;
     }
 
     internal WorldResourceReservation CaptureReservation() => new(
