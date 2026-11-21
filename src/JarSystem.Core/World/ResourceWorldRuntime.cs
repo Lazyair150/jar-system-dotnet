@@ -29,7 +29,9 @@ public sealed class ResourceWorldRuntime
     public Exception? FaultException => _faultException;
     private Exception? _faultException;
     private bool ReplacementBlocksWorld =>
-        ActiveReplacement is { IsFinished: false } or { InterruptionOutcomeUncertain: true };
+        ActiveReplacement is { IsFinished: false } or
+            { InterruptionOutcomeUncertain: true } or
+            { PrefillRollbackOutcomeUncertain: true };
 
     private readonly List<WorldOrderExecutionSession> _executionSessions = new();
     private readonly IReadOnlyList<WorldOrderExecutionSession> _executionSessionsView;
@@ -228,9 +230,18 @@ public sealed class ResourceWorldRuntime
                     }
                     return transaction;
                 }
-                catch
+                catch (Exception prefillError)
                 {
-                    transaction.Rollback();
+                    try
+                    {
+                        transaction.Rollback();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        throw new WorkshopPrefillRollbackException(
+                            "主台前置补液账本记录失败，且库存回滚也失败。",
+                            new AggregateException(prefillError, rollbackError));
+                    }
                     throw;
                 }
             };
@@ -255,8 +266,12 @@ public sealed class ResourceWorldRuntime
         // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查。
         if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
             ActiveReplacement = process;
+        if (process.PrefillRollbackOutcomeUncertain)
+            LatchFault(new InvalidOperationException(process.FailureReason ??
+                "主台前置补液回滚结果不确定。"),
+                "主台前置补液回滚失败；世界资源状态可能不完整");
 
-        // 中断结果不确定，或订单中断已提交但替换初始化失败，均不能安全继续世界。
+        // 中断结果不确定或前置补液回滚结果不确定时，禁止继续推进世界。
         if (process.InterruptionOutcomeUncertain ||
             (process.InterruptionCommitted && !result.Success))
         {
