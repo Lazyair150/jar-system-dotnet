@@ -345,8 +345,53 @@ public sealed class WorkshopLiquidStaging
             new Dictionary<string, int>(account, StringComparer.Ordinal));
     }
 
+    /// <summary>捕获订单子账与容量预留；快照不暴露内部可变字典。</summary>
     public WorkshopLiquidStagingSnapshot Capture() =>
-        new(Capacity, _banned, _accounts);
+        new(Capacity, _banned, _accounts, _reservedCapacityByOrder);
+
+    /// <summary>
+    /// 从纯值快照重建暂存区。恢复前完整验证 ban、订单账户、容量预留及总占用，
+    /// 任一不变量不成立都拒绝恢复，不进行部分装载。
+    /// </summary>
+    public static WorkshopLiquidStaging Restore(WorkshopLiquidStagingSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Capacity < 0)
+            throw new DomainValidationException("工作台液体暂存快照容量不能为负数。");
+
+        var staging = new WorkshopLiquidStaging(snapshot.Capacity, snapshot.BannedLiquids);
+        foreach (var pair in snapshot.Accounts)
+        {
+            ValidateOrderId(pair.Key);
+            foreach (var balance in pair.Value)
+            {
+                ShipLiquidInventory.ValidateLiquid(balance.Key);
+                ShipLiquidInventory.ValidateAmount(balance.Value, allowZero: false);
+                if (staging._banned.Contains(balance.Key))
+                    throw new DomainValidationException("暂存快照包含工作台禁用液体：" + balance.Key);
+                staging.AddUnchecked(pair.Key, balance.Key, balance.Value);
+            }
+        }
+
+        foreach (var pair in snapshot.ReservedCapacityByOrder)
+        {
+            ValidateOrderId(pair.Key);
+            if (pair.Value < 0)
+                throw new DomainValidationException("暂存快照包含负数订单容量预留。");
+            if (pair.Value > 0)
+                staging._reservedCapacityByOrder.Add(pair.Key, pair.Value);
+        }
+
+        foreach (var pair in staging._accounts)
+        {
+            if (staging._reservedCapacityByOrder.TryGetValue(pair.Key, out var reserved) &&
+                ShipLiquidInventory.TotalAmount(pair.Value) > reserved)
+                throw new DomainValidationException("订单暂存余额超过其容量预留。");
+        }
+        if (staging.OccupiedCapacity > staging.Capacity)
+            throw new DomainValidationException("订单暂存账户与容量预留总和超过工作台总容量。");
+        return staging;
+    }
 
     internal bool CanReceiveForTransfer(int orderId, string liquid, int amount)
     {
@@ -414,7 +459,8 @@ public sealed class WorkshopLiquidStagingSnapshot
     public WorkshopLiquidStagingSnapshot(
         int capacity,
         IEnumerable<string> bannedLiquids,
-        IReadOnlyDictionary<int, Dictionary<string, int>> accounts)
+        IReadOnlyDictionary<int, Dictionary<string, int>> accounts,
+        IReadOnlyDictionary<int, int>? reservedCapacityByOrder = null)
     {
         Capacity = capacity;
         BannedLiquids = Array.AsReadOnly(bannedLiquids.OrderBy(liquid => liquid, StringComparer.Ordinal).ToArray());
@@ -423,11 +469,30 @@ public sealed class WorkshopLiquidStagingSnapshot
             copy.Add(pair.Key, new ReadOnlyDictionary<string, int>(
                 new Dictionary<string, int>(pair.Value, StringComparer.Ordinal)));
         Accounts = new ReadOnlyDictionary<int, IReadOnlyDictionary<string, int>>(copy);
+        ReservedCapacityByOrder = new ReadOnlyDictionary<int, int>(
+            new Dictionary<int, int>(reservedCapacityByOrder ?? new Dictionary<int, int>()));
     }
 
     public int Capacity { get; }
     public IReadOnlyCollection<string> BannedLiquids { get; }
     public IReadOnlyDictionary<int, IReadOnlyDictionary<string, int>> Accounts { get; }
+    public IReadOnlyDictionary<int, int> ReservedCapacityByOrder { get; }
+    public int ReservedCapacity => ReservedCapacityByOrder.Values.Sum();
+    public int OccupiedCapacity
+    {
+        get
+        {
+            var occupied = 0;
+            foreach (var pair in Accounts)
+                occupied = checked(occupied + Math.Max(
+                    ReservedCapacityByOrder.GetValueOrDefault(pair.Key),
+                    ShipLiquidInventory.TotalAmount(pair.Value)));
+            foreach (var pair in ReservedCapacityByOrder)
+                if (!Accounts.ContainsKey(pair.Key))
+                    occupied = checked(occupied + pair.Value);
+            return occupied;
+        }
+    }
     public int UsedCapacity => ShipLiquidInventory.TotalAmount(
         Accounts.Values.SelectMany(account => account));
 }
