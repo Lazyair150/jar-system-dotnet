@@ -247,16 +247,27 @@ public sealed class WorldResourceReservation
     public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
     public bool UsesSlave { get; }
     public OrderResourceLeaseStage Stage { get; }
+    public IReadOnlyDictionary<string, int> TransferLiquidAmounts { get; }
+    public int MasterStagingPeakCapacity { get; }
+    public int SlaveStagingPeakCapacity { get; }
 
     internal WorldResourceReservation(
         int demandId, string worldVersion, IEnumerable<int> jarIds,
         IReadOnlyDictionary<string, int> liquids, bool usesSlave,
-        OrderResourceLeaseStage stage = OrderResourceLeaseStage.Admitted)
+        OrderResourceLeaseStage stage = OrderResourceLeaseStage.Admitted,
+        IReadOnlyDictionary<string, int>? transferLiquidAmounts = null,
+        int masterStagingPeakCapacity = 0,
+        int slaveStagingPeakCapacity = 0)
     {
         DemandId = demandId;
         WorldVersion = worldVersion;
         UsesSlave = usesSlave;
         Stage = stage;
+        TransferLiquidAmounts = new ReadOnlyDictionary<string, int>(
+            (transferLiquidAmounts ?? new Dictionary<string, int>())
+                .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+        MasterStagingPeakCapacity = masterStagingPeakCapacity;
+        SlaveStagingPeakCapacity = slaveStagingPeakCapacity;
         LockedJarIds = Array.AsReadOnly(jarIds.ToArray());
         MasterInitialLiquidAmounts = new ReadOnlyDictionary<string, int>(
             liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
@@ -271,7 +282,9 @@ public sealed class WorldResourceReservationBookSnapshot
     {
         Reservations = Array.AsReadOnly(reservations.Select(item =>
             new WorldResourceReservation(item.DemandId, item.WorldVersion, item.LockedJarIds,
-                item.MasterInitialLiquidAmounts, item.UsesSlave, item.Stage)).ToArray());
+                item.MasterInitialLiquidAmounts, item.UsesSlave, item.Stage,
+                item.TransferLiquidAmounts, item.MasterStagingPeakCapacity,
+                item.SlaveStagingPeakCapacity)).ToArray());
     }
 
     public IReadOnlyList<WorldResourceReservation> Reservations { get; }
