@@ -193,4 +193,33 @@ public sealed class WorldOrderSolverTests
     private sealed class ForeignSpecification : IOrderSpecification
     {
     }
+
+    [Fact]
+    public void ShipInventoryIsTheSolverSupplySourceWhenPresent()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        master.AddLiquid("蜜", 1); // 旧工作台池不再为新路径提供液体
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+
+        var suppliedByShip = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { master }, master),
+            new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 }));
+        var first = Registry().Solve(demand, suppliedByShip);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, first.Status);
+
+        master.AddLiquid("酒", 1);
+        var shipWithoutWine = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { master }, master),
+            new ShipLiquidInventory(4, new Dictionary<string, int> { ["蜜"] = 1 }));
+        var second = Registry().Solve(demand, shipWithoutWine);
+
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, second.Status);
+    }
+
 }
