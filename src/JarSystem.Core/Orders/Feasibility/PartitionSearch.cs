@@ -177,7 +177,7 @@ public sealed class PartitionSearch
             foreach (var l in Constants.LIQUIDS)
                 tLiquids[l] = Math.Min(
                     masterFinalLiq.GetValueOrDefault(l, 0),
-                    request.SlaveInfo.MaxLiquids);
+                    request.SlaveInfo.MaxLiquidCapacity);
 
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
             if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
