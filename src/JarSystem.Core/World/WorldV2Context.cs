@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Config;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
 using JarSystem.Core.World.Execution;
@@ -31,6 +32,7 @@ public sealed class WorldV2Context : IDisposable
     public ResourceLedger ResourceLedger { get; }
     public WorkshopRoster Roster { get; }
     public OrderDemandBoard DemandBoard { get; }
+    public SequentialIdGenerator DemandIdGenerator { get; }
     public WorldOrderSolveBook SolveBook { get; }
     public WorldResourceReservationBook Reservations { get; }
     public WorldOrderExecutionAdmission Admission { get; }
@@ -43,6 +45,7 @@ public sealed class WorldV2Context : IDisposable
         ResourceLedger resourceLedger,
         WorkshopRoster roster,
         OrderDemandBoard demandBoard,
+        SequentialIdGenerator demandIdGenerator,
         WorldOrderSolveBook solveBook,
         WorldResourceReservationBook reservations,
         WorldOrderExecutionAdmission admission,
@@ -54,6 +57,7 @@ public sealed class WorldV2Context : IDisposable
         ResourceLedger = resourceLedger;
         Roster = roster;
         DemandBoard = demandBoard;
+        DemandIdGenerator = demandIdGenerator;
         SolveBook = solveBook;
         Reservations = reservations;
         Admission = admission;
@@ -92,6 +96,7 @@ public sealed class WorldV2Context : IDisposable
         // 先完成所有可能失败的基础对象校验与组装，再向调用方返回 Context。
         var roster = new WorkshopRoster(workshops, master, slave);
         var board = new OrderDemandBoard(passiveFulfillmentPolicy, activeFulfillmentPolicy);
+        var demandIdGenerator = new SequentialIdGenerator();
         var solveBook = new WorldOrderSolveBook(board);
         var reservations = new WorldResourceReservationBook();
         var resourceLedger = new ResourceLedger();
@@ -111,7 +116,7 @@ public sealed class WorldV2Context : IDisposable
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
         return new WorldV2Context(
-            resources, shipLiquidInventory, resourceLedger, roster, board, solveBook, reservations, admission, runtime, scheduler);
+            resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator, solveBook, reservations, admission, runtime, scheduler);
     }
 
     /// <summary>
@@ -128,6 +133,7 @@ public sealed class WorldV2Context : IDisposable
             throw new InvalidOperationException("旧版兼容世界没有自机液库，不能捕获新液体资源检查点。");
         return new WorldV2ExecutionResourceCheckpoint(
             Resources.CaptureRuntimeState(),
+            DemandBoard.CaptureRuntimeState(DemandIdGenerator),
             ShipLiquidInventory.Capture(),
             Roster.Master?.CaptureRuntimeState()
                 ?? throw new InvalidOperationException("检查点捕获时没有主工作台。"),
@@ -181,9 +187,16 @@ public sealed class WorldV2Context : IDisposable
         var stagedShip = new ShipLiquidInventory(
             checkpoint.ShipLiquidInventory.Capacity,
             checkpoint.ShipLiquidInventory.Balances);
+        var vocabulary = new Vocabulary(
+            Resources.Producers.Generators.Keys,
+            Resources.Inventory.LiquidWarehouse.Keys);
+        var stagedDemandIds = new SequentialIdGenerator();
+        var stagedBoard = OrderDemandBoard.RestoreRuntimeState(
+            checkpoint.DemandBoard, vocabulary, stagedDemandIds);
+        var stagedSolveBook = new WorldOrderSolveBook(stagedBoard);
         var stagedReservations = WorldResourceReservationBook.Restore(checkpoint.Reservations);
         var stagedAdmission = new WorldOrderExecutionAdmission(
-            DemandBoard, SolveBook, Roster, stagedReservations, stagedShip);
+            stagedBoard, stagedSolveBook, Roster, stagedReservations, stagedShip);
         stagedAdmission.Restore(checkpoint.Admission);
         var stagedLedger = ResourceLedger.Restore(checkpoint.ResourceLedger);
         _ = WorldClock.Restore(checkpoint.Clock);
@@ -204,12 +217,13 @@ public sealed class WorldV2Context : IDisposable
             WorldOrderExecutionSession.ValidateProgressAgainstWorkshopSnapshots(
                 session, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop);
             WorldOrderExecutionSession.RestoreProgress(
-                session, DemandBoard, SolveBook, stagedAdmission, Roster,
+                session, stagedBoard, stagedSolveBook, stagedAdmission, Roster,
                 stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick);
         }
 
         // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
         Resources.RestoreRuntimeState(checkpoint.ResourceArea);
+        DemandBoard.RestoreRuntimeStateFrom(checkpoint.DemandBoard, vocabulary, DemandIdGenerator);
         Roster.Master.RestoreRuntimeState(checkpoint.MasterWorkshop);
         if (Roster.Slave != null)
             Roster.Slave.RestoreRuntimeState(checkpoint.SlaveWorkshop!);
@@ -241,6 +255,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
 {
     internal WorldV2ExecutionResourceCheckpoint(
         ResourceAreaRuntimeStateSnapshot resourceArea,
+        OrderDemandBoardSnapshot demandBoard,
         ShipLiquidInventorySnapshot shipLiquidInventory,
         WorkshopRuntimeStateSnapshot masterWorkshop,
         WorkshopRuntimeStateSnapshot? slaveWorkshop,
@@ -252,6 +267,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
     {
         ResourceArea = resourceArea;
+        DemandBoard = demandBoard;
         ShipLiquidInventory = shipLiquidInventory;
         MasterWorkshop = masterWorkshop;
         SlaveWorkshop = slaveWorkshop;
@@ -264,6 +280,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     }
 
     public ResourceAreaRuntimeStateSnapshot ResourceArea { get; }
+    public OrderDemandBoardSnapshot DemandBoard { get; }
     public ShipLiquidInventorySnapshot ShipLiquidInventory { get; }
     public WorkshopRuntimeStateSnapshot MasterWorkshop { get; }
     public WorkshopRuntimeStateSnapshot? SlaveWorkshop { get; }
