@@ -140,7 +140,9 @@ public sealed class WorldOrderExecutionAdmission
             }
         }
 
-        var availableLiquids = _shipLiquidInventory?.Balances ?? master.LiquidStorage;
+        var availableLiquids = _shipLiquidInventory == null
+            ? master.LiquidStorage
+            : BuildReservationLiquidityView(_shipLiquidInventory, manifest);
         if (!_reservations.TryReserve(manifest, availableLiquids, out var reserveError))
             return WorldOrderExecutionAdmissionResult.Rejected(reserveError ?? "资源预留失败");
 
@@ -189,6 +191,22 @@ public sealed class WorldOrderExecutionAdmission
         }
         var released = _reservations.Release(demandId);
         return released;
+    }
+
+    private IReadOnlyDictionary<string, int> BuildReservationLiquidityView(
+        ShipLiquidInventory inventory, WorldOrderResourceManifest manifest)
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var liquid in inventory.Balances.Keys
+            .Concat(manifest.MasterInitialLiquidAmounts.Keys)
+            .Distinct(StringComparer.Ordinal))
+        {
+            // ReservationBook 仍会扣除活动订单的预留；把已从自机液库实扣的预留加回输入，
+            // 防止同一批资源被“真实扣除 + 逻辑预留”重复扣减。
+            result[liquid] = checked(inventory.GetAmount(liquid) +
+                _reservations.ReservedLiquidAmount(liquid));
+        }
+        return result;
     }
 
     private bool TryAllocateOrderLiquids(
