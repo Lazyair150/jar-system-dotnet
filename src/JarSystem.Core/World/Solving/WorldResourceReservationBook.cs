@@ -18,6 +18,26 @@ public sealed class WorldResourceReservationBook
 
     public int Count { get { lock (_gate) return _byDemand.Count; } }
 
+    /// <summary>捕获包含结算状态的租约 wire 快照；不保存可重建的索引。</summary>
+    public WorldResourceReservationBookWireDto CaptureWire() =>
+        new(_byDemand.Values.OrderBy(item => item.DemandId)
+            .Select(OrderResourceLeaseWireDto.FromLease));
+
+    /// <summary>从完整租约 wire DTO 恢复预留簿及其派生索引。</summary>
+    public static WorldResourceReservationBook RestoreWire(WorldResourceReservationBookWireDto snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var reservations = snapshot.Leases.Select(item => item.ToReservation()).ToArray();
+        var restored = Restore(new WorldResourceReservationBookSnapshot(reservations));
+        foreach (var item in snapshot.Leases)
+        {
+            var lease = restored.FindLease(item.DemandId)
+                ?? throw new InvalidOperationException("Wire 租约恢复后丢失：" + item.DemandId);
+            lease.RestoreSettlement(item.SettlementStage, item.ToReceipt());
+        }
+        return restored;
+    }
+
     /// <summary>捕获所有活动订单的罐子、液体及从台岗位占用声明。</summary>
     public WorldResourceReservationBookSnapshot Capture()
     {
