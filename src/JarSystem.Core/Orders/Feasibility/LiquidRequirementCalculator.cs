@@ -6,46 +6,80 @@ using JarSystem.Core.Abstractions;
 namespace JarSystem.Core.Orders;
 
 /// <summary>
-/// 计算 B 类订单从台阶段**实际需要**从主台转移的游离液体量（每种液体一份）。
-///
-/// 语义：沿从台路径累计每种液体的净消耗（消耗 − 倒出回补），取累计峰值，
-/// 从台开始时为空，因此峰值就是需要从主台转移的量；满罐改形自耗不占用外部液体。
+/// 计算 B 类订单从台阶段实际需要从主台转移的游离液体量。
+/// 沿路径累计每种液体的净消耗（消耗 − POUR_OUT 回补），取前缀峰值。
 /// </summary>
 public static class LiquidRequirementCalculator
 {
-    public static Dictionary<string, int> ComputeRequired(List<SolverStep> path)
+    public static Dictionary<string, int> ComputeRequired(IReadOnlyList<SolverStep> path)
     {
-        var required = new Dictionary<string, int>();
-        var consumed = new Dictionary<string, int>();
-        var produced = new Dictionary<string, int>();
-        foreach (var l in Constants.LIQUIDS) { required[l] = 0; consumed[l] = 0; produced[l] = 0; }
+        var required = new Dictionary<string, int>(StringComparer.Ordinal);
+        var net = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var step in path)
         {
             var op = step.Operation;
             if (op == null) continue;
-            if (op.Type == "POUR_IN" && op.TargetLiquid != null) consumed[op.TargetLiquid]++;
-            else if (op.Type == "RESHAPE" && op.CostLiquid != null)
+
+            if (op.Type == "POUR_IN" && op.TargetLiquid != null)
+                Add(net, op.TargetLiquid, 1);
+            else if (op.Type == "RESHAPE" && !op.FullReshape && op.CostLiquid != null)
+                Add(net, op.CostLiquid, 1);
+            else if (op.Type == "POUR_OUT")
             {
-                var isFull = step.Before != null && op.JarIndex.HasValue && op.JarIndex.Value >= 0 &&
-                    op.JarIndex.Value < step.Before.Count && step.Before[op.JarIndex.Value].Liquid != null;
-                if (!isFull) consumed[op.CostLiquid]++;
-            }
-            else if (op.Type == "POUR_OUT" && step.Before != null && op.JarIndex.HasValue &&
-                op.JarIndex.Value >= 0 && op.JarIndex.Value < step.Before.Count && step.Before[op.JarIndex.Value].Liquid != null)
-            {
-                produced[step.Before[op.JarIndex.Value].Liquid!]++;
+                var liquid = PourOutLiquid(step);
+                if (liquid != null) Add(net, liquid, -1);
             }
 
-            foreach (var l in Constants.LIQUIDS)
-            {
-                int net = consumed[l] - produced[l];
-                if (net > required[l])
-                    required[l] = net;
-            }
+            foreach (var item in net)
+                required[item.Key] = Math.Max(required.GetValueOrDefault(item.Key), item.Value);
         }
-        foreach (var l in Constants.LIQUIDS)
-            required[l] = Math.Max(0, required[l]);
+
+        foreach (var key in required.Keys.ToArray())
+            required[key] = Math.Max(0, required[key]);
         return required;
     }
+
+    /// <summary>
+    /// 使用最小初始供给重放路径，返回该路径真实需要的合计暂存容量峰值。
+    /// 该值不包含主台没有被从台路径需要的剩余液体。
+    /// </summary>
+    public static int ComputePeakCapacity(IReadOnlyList<SolverStep> path)
+    {
+        var balances = ComputeRequired(path);
+        var peak = ShipLiquidInventory.TotalAmount(balances);
+        foreach (var step in path)
+        {
+            var op = step.Operation;
+            if (op == null) continue;
+
+            if (op.Type == "POUR_IN" && op.TargetLiquid != null)
+                Add(balances, op.TargetLiquid, -1);
+            else if (op.Type == "RESHAPE" && !op.FullReshape && op.CostLiquid != null)
+                Add(balances, op.CostLiquid, -1);
+            else if (op.Type == "POUR_OUT")
+            {
+                var liquid = PourOutLiquid(step);
+                if (liquid != null) Add(balances, liquid, 1);
+            }
+
+            peak = Math.Max(peak, ShipLiquidInventory.TotalAmount(balances));
+        }
+
+        return peak;
+    }
+
+    private static string? PourOutLiquid(SolverStep step)
+    {
+        if (!string.IsNullOrWhiteSpace(step.Operation?.TargetLiquid))
+            return step.Operation.TargetLiquid;
+        var index = step.Operation?.JarIndex;
+        return step.Before != null && index.HasValue &&
+            index.Value >= 0 && index.Value < step.Before.Count
+                ? step.Before[index.Value].Liquid
+                : null;
+    }
+
+    private static void Add(Dictionary<string, int> values, string liquid, int amount) =>
+        values[liquid] = checked(values.GetValueOrDefault(liquid) + amount);
 }
