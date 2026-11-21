@@ -195,4 +195,25 @@ public sealed class WorldV2FactoryTests
         Assert.NotEqual(firstFingerprint, WorldV2ConfigurationFingerprint.Compute(second));
         Assert.Equal(64, firstFingerprint.Length);
     }
+
+    [Fact]
+    public void ExecutionCheckpointRejectsDifferentFactoryConfigurationBeforeMutatingTarget()
+    {
+        var sourceOptions = ValidOptions();
+        using var source = WorldV2Factory.Create(sourceOptions);
+        var checkpoint = source.CaptureExecutionResourceCheckpoint();
+
+        var targetOptions = ValidOptions();
+        targetOptions.ShipLiquidCapacity++;
+        using var target = WorldV2Factory.Create(targetOptions);
+        var targetShip = target.ShipLiquidInventory!;
+
+        var error = Assert.Throws<System.InvalidOperationException>(
+            () => target.RestoreExecutionResourceCheckpoint(checkpoint));
+
+        Assert.Contains("配置指纹", error.Message);
+        Assert.Equal(3, targetShip.GetAmount("酒"));
+        Assert.Empty(target.DemandBoard.AllDemands);
+        Assert.Equal(0, target.Reservations.Count);
+    }
 }
