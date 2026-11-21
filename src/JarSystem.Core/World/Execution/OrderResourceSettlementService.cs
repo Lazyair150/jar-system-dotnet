@@ -42,19 +42,18 @@ public sealed class OrderResourceSettlementService
             receipt = lease!.RecordSettlement(admission.ShipLiquidInventory.Return(requested));
         }
 
-        if (receipt != null && lease!.SettlementStage == OrderResourceSettlementStage.ResourcesReturned)
+        if (receipt != null && lease!.SettlementStage == OrderResourceSettlementStage.ResourcesReturned &&
+            ledger != null)
         {
             var tick = settlementTick ?? 0;
-            foreach (var item in receipt.Accepted)
-                ledger?.Record(tick, ResourceCauses.Return,
-                    ResourceKinds.Liquid, item.Key, item.Value,
-                    from: "订单暂存", to: "自机液库");
-            foreach (var item in receipt.Discarded)
-                ledger?.Record(tick, ResourceCauses.Discard,
-                    ResourceKinds.Liquid, item.Key, item.Value,
-                    from: "订单暂存", to: null, reason: "自机液库总容量不足");
-            if (ledger != null)
-                lease.MarkSettlementLedgerRecorded();
+            var mutations = receipt.Accepted.Select(item => new ResourceLedgerMutation(
+                    ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: "自机液库"))
+                .Concat(receipt.Discarded.Select(item => new ResourceLedgerMutation(
+                    ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: null, Reason: "自机液库总容量不足")));
+            ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations);
+            lease.MarkSettlementLedgerRecorded();
         }
 
         if (!admission.ReleaseReservationOnly(demandId))
