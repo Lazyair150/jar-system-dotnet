@@ -55,8 +55,11 @@ public class Workshop
     /// <summary>罐位上限（变更只能经 <see cref="ResizeJarCapacity"/>）。</summary>
     public int MaxJars { get; private set; }
 
-    /// <summary>液体上限（变更只能经 <see cref="ResizeLiquidCapacity"/>）。</summary>
+    /// <summary>旧版游离液体池的单液种上限。</summary>
     public int MaxLiquids { get; private set; }
+
+    /// <summary>新订单暂存区的全液种合计容量，与旧版单液种上限分离。</summary>
+    public int LiquidStagingCapacity { get; }
 
     /// <summary>罐子只读视图（真只读包装）。增删只能经 AddJar / RemoveJar / TransferOut / TransferIn / ResizeJarCapacity。</summary>
     public IReadOnlyList<Jar> Jars => _jarsView;
@@ -74,13 +77,17 @@ public class Workshop
     /// </param>
     public Workshop(string name, List<string>? baseMarks = null, List<string>? additionalMarks = null,
         List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null,
-        Vocabulary? vocabulary = null, ModifierStack? modifiers = null)
+        Vocabulary? vocabulary = null, ModifierStack? modifiers = null,
+        int? liquidStagingCapacity = null)
     {
         Name = name;
         _capability = new WorkshopCapability(baseMarks, additionalMarks, ban);
         _rules = new RuleContext(_capability, modifiers ?? new ModifierStack());
         MaxJars = maxJars ?? Constants.DEFAULT_MAX_JARS;
         MaxLiquids = maxLiquids ?? Constants.DEFAULT_MAX_LIQUIDS;
+        LiquidStagingCapacity = liquidStagingCapacity ?? MaxLiquids;
+        if (LiquidStagingCapacity < 0)
+            throw new ArgumentOutOfRangeException(nameof(liquidStagingCapacity), "工作台订单液体总暂存容量不能为负数");
         _ids = ids ?? DefaultIdGenerators.Jars;
         // 液体账目按**词表**建键（顺序 = 词表顺序 ⇒ 契约快照里 liquids 的键序）
         foreach (var l in (vocabulary ?? Vocabulary.Default).Liquids) _liquidStorage[l] = 0;
