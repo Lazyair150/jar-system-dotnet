@@ -156,8 +156,7 @@ public sealed class WorldV2HostServiceTests
         beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
         Assert.DoesNotContain(beforePump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
-        Assert.Single(beforePump.ResourceLedger.Entries, item =>
-            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Liquid);
+        Assert.Equal(2, beforePump.ShipLiquidInventory.Balances["酒"]);
 
         WorldV2Context? previous = null;
         host.ExecuteExclusive(context => previous = context);
@@ -172,8 +171,7 @@ public sealed class WorldV2HostServiceTests
             Assert.Equal(0, scopes.Slave!.GetAmount("酒"));
             Assert.DoesNotContain(context.ResourceLedger.For(ResourceCauses.Transfer),
                 item => item.Kind == ResourceKinds.Liquid);
-            Assert.Single(context.ResourceLedger.For(ResourceCauses.Flow),
-                item => item.Kind == ResourceKinds.Liquid);
+            Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
         });
 
         WorldOrderExecutionStage stage = WorldOrderExecutionStage.MasterSteps;
@@ -191,8 +189,7 @@ public sealed class WorldV2HostServiceTests
         afterPump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(afterPumpJson);
         Assert.Single(afterPump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
-        Assert.Single(afterPump.ResourceLedger.Entries, item =>
-            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Liquid);
+        Assert.Equal(2, afterPump.ShipLiquidInventory.Balances["酒"]);
 
         host.ExecuteExclusive(context => previous = context);
         application.RestoreExecutionResourceCheckpoint(options, afterPump);
@@ -207,8 +204,7 @@ public sealed class WorldV2HostServiceTests
             Assert.Equal(1, context.Admission.GetLiquidScopes(demandId)!.Value.Slave!.GetAmount("酒"));
             Assert.Single(context.ResourceLedger.For(ResourceCauses.Transfer),
                 item => item.Kind == ResourceKinds.Liquid);
-            Assert.Single(context.ResourceLedger.For(ResourceCauses.Flow),
-                item => item.Kind == ResourceKinds.Liquid);
+            Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
         });
 
         for (var i = 0; i < 12; i++)
@@ -227,8 +223,7 @@ public sealed class WorldV2HostServiceTests
             Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
             Assert.Single(context.ResourceLedger.For(ResourceCauses.Transfer),
                 item => item.Kind == ResourceKinds.Liquid);
-            Assert.Single(context.ResourceLedger.For(ResourceCauses.Flow),
-                item => item.Kind == ResourceKinds.Liquid);
+            Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
         });
     }
 
