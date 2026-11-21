@@ -180,8 +180,8 @@ public sealed class WorldOrderResourceManifestTests
 
         Assert.Equal(1, manifest.MasterInitialLiquidAmounts["酒"]);
         Assert.Equal(1, manifest.TransferLiquids["酒"]);
-        Assert.Equal(1, manifest.MasterTransferLiquidAmounts["酒"]);
-        Assert.Equal(1, manifest.MasterTransferLiquidAmounts["蜜"]);
+        Assert.Equal(1, manifest.MasterFinalLiquidBalances["酒"]);
+        Assert.Equal(1, manifest.MasterFinalLiquidBalances["蜜"]);
         Assert.Equal(1, manifest.SlaveStagingPeakCapacity);
     }
 }
