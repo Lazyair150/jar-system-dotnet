@@ -387,7 +387,7 @@ public sealed class WorkshopLiquidStaging
     /// 优先级列表必须由调用方提供确定顺序；剩余液种按名称排序，结果不依赖字典枚举顺序。
     /// 只补到工作台总暂存容量，库存不足时允许部分补入。
     /// </summary>
-    public WorkshopPrefillTransaction BeginPrefillFromShip(
+    internal WorkshopPrefillTransaction BeginPrefillFromShip(
         ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
     {
         ArgumentNullException.ThrowIfNull(inventory);
@@ -424,7 +424,7 @@ public sealed class WorkshopLiquidStaging
         }
     }
 
-    public LiquidBatchReceipt PrefillFromShip(ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
+    internal LiquidBatchReceipt PrefillFromShip(ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
     {
         var transaction = BeginPrefillFromShip(inventory, preferredLiquids);
         transaction.Commit();
