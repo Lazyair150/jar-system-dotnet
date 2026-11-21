@@ -332,6 +332,12 @@ public sealed class WorldV2ApplicationServiceTests
         var begin = app.BeginWorkshopReplacement(
             WorkshopRole.Master, "备用台", phaseDurationLogicalMilli: 1_000);
         Assert.True(begin.Success);
+        host.ExecuteExclusive(context =>
+        {
+            var target = context.Roster.Find("备用台")!;
+            Assert.Equal(1, context.Admission.GetPrefillBalances(target).GetValueOrDefault("酒"));
+            Assert.Equal(0, context.ShipLiquidInventory!.GetAmount("酒"));
+        });
 
         // 替换开始时真实执行会话已被中断，订单进入冷却且预留被释放。
         var interrupted = app.GetWorldSnapshot();
