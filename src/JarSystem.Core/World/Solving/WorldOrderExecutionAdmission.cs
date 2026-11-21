@@ -56,6 +56,15 @@ public sealed class WorldOrderExecutionAdmission
     /// <summary>
     /// 尝试准入一张订单。应在世界逻辑调度线程内同步调用，避免检查与预留之间插入世界变更。
     /// </summary>
+    internal WorldSnapshot CaptureWorldSnapshot()
+    {
+        var master = _roster.Master;
+        var prefill = master != null && _stagingByWorkshop.TryGetValue(master, out var staging)
+            ? staging.PrefillBalances
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+        return WorldSnapshotFactory.Capture(_roster, _shipLiquidInventory, prefill);
+    }
+
     public LiquidBatchReceipt PrefillMasterWorkshop(Workshop targetWorkshop, IEnumerable<string> productionPriority)
     {
         ArgumentNullException.ThrowIfNull(targetWorkshop);
@@ -86,7 +95,7 @@ public sealed class WorldOrderExecutionAdmission
             return WorldOrderExecutionAdmissionResult.Rejected(reason);
         }
 
-        var snapshot = WorldSnapshotFactory.Capture(_roster, _shipLiquidInventory);
+        var snapshot = CaptureWorldSnapshot();
         var result = _solveBook.GetCurrentResult(demandId, snapshot);
         if (result == null)
             return WorldOrderExecutionAdmissionResult.Rejected("求解结果不存在或与当前世界版本不一致");
