@@ -41,7 +41,7 @@ public sealed class OrderResourceLease
             manifest.MasterInitialLiquidAmounts.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
         UsesSlave = manifest.IsPartitioned;
         Reservation = new WorldResourceReservation(
-            DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave);
+            DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave, Stage);
     }
 
     internal void MarkMasterExecuting()
@@ -106,6 +106,9 @@ public sealed class OrderResourceLease
         if (Stage == OrderResourceLeaseStage.Settled) return;
         Stage = OrderResourceLeaseStage.Settled;
     }
+
+    internal WorldResourceReservation CaptureReservation() => new(
+        DemandId, WorldVersion, LockedJarIds, InitialLiquidSupply, UsesSlave, Stage);
 
     internal OrderResourceLease(WorldResourceReservation reservation)
     {
