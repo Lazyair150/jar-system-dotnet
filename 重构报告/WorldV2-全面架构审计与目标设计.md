@@ -375,3 +375,13 @@ Envelope 建议：
 - ReservationBook 快照仍保存兼容 Reservation 投影；完整根级 Wire DTO 尚未纳入 Lease 的独立 DTO。
 - TransferService 与 SettlementService 尚未从 Session 抽离。
 - CI #1048 曾有两项 xUnit 失败；后续提交修正了 JSON 字段名测试与 Runtime Restore 的过度校验，并增加 Lease 生命周期集成。必须以当前最新 HEAD 的 CI 结果为准。
+
+
+### TransferService 拆分进度
+- 新增 `OrderTransferService`，把 B 类主台→从台交接的预检与提交从 Session 拆出。
+- Service 输入明确为订单身份、Manifest、主从工作台、主从订单液体范围、账本与 tick provider。
+- 预检先核对从台为空、转移罐子归属/重复 ID/罐位、旧液体兼容路径容量与 ban、新液体订单余额与从台批次容量。
+- tick provider 在提交前取得；预检拒绝或 tick provider 失败时不触碰罐子和液体。
+- 预检全部通过后调用 CommitStarted 回调，再连续提交 Jar 和液体转移；提交阶段不变量异常继续抛出，由 Session 负责失败清理。
+- Session 保留阶段推进、交接提交标记与失败清理，不再直接实现转移算法。
+- 该拆分仍保留旧液体兼容分支；后续由 Legacy Adapter 收敛，不在本次直接删除兼容行为。
