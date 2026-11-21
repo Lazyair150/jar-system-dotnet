@@ -614,12 +614,12 @@ public sealed class WorkshopReplacementTests
             shipLiquidInventory: ship);
 
         var begin = world.Runtime.BeginReplacement(
-            WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 2_000);
+            WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 2_000_000);
         Assert.True(begin.Success, begin.Error);
         Assert.Equal(3, ship.ReservedReturnCapacity);
         Assert.Equal(0, ship.UsedCapacity);
 
-        world.Runtime.AdvanceWorldTime(1_000);
+        world.Runtime.AdvanceWorldTime(1_000_000);
 
         Assert.Equal(3, ship.ReservedReturnCapacity);
         Assert.Equal(1, ship.UsedCapacity);
