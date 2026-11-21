@@ -40,6 +40,7 @@ public sealed class ResourceWorldRuntime
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
+    private int _ledgerTick;
 
     public ResourceWorldRuntime(
         ResourceArea resources,
@@ -55,10 +56,14 @@ public sealed class ResourceWorldRuntime
         Roster = roster;
         _masterSwitchFactory = masterSwitchFactory;
         DemandBoard = demandBoard;
-        if ((resourceLedger == null) != (resourceLedgerTick == null))
-            throw new ArgumentException("资源账本与其 tick 来源必须同时提供；World v2 不隐式换算旧系统 tick");
+        if (resourceLedger == null && resourceLedgerTick != null)
+            throw new ArgumentException("未配置资源账本时不能单独提供 tick 来源", nameof(resourceLedgerTick));
         _resourceLedger = resourceLedger;
-        _resourceLedgerTick = resourceLedgerTick;
+        // 新 World v2 默认使用运行时逻辑推进序号作为账本 tick；
+        // 旧宿主仍可显式注入自己的 tick 来源，不在内核中猜测旧 tick 换算。
+        _resourceLedgerTick = resourceLedger == null
+            ? null
+            : resourceLedgerTick ?? (() => _ledgerTick);
         _executionSessionsView = _executionSessions.AsReadOnly();
     }
 
@@ -229,6 +234,8 @@ public sealed class ResourceWorldRuntime
     private ResourceWorldStep AdvanceCoreUnsafe(long deltaWorldTimeMilli, Workshop? requestedMaster)
     {
         var logicalDelta = Clock.Advance(deltaWorldTimeMilli);
+        if (logicalDelta > 0)
+            _ledgerTick = checked(_ledgerTick + 1);
 
         // CD 与资源生产、订单执行使用同一份逻辑时间；暂停/零流速时 logicalDelta 为 0。
         DemandBoard?.AdvanceLogicalTime(logicalDelta);
@@ -239,13 +246,14 @@ public sealed class ResourceWorldRuntime
         var replacementOutcomeUncertain = ActiveReplacement is { InterruptionOutcomeUncertain: true };
         var replacementBlocksWorld = replacementWasActive || replacementOutcomeUncertain;
 
-        // 一个世界推进片段只要与替换过程有重叠，就全片段暂停流入。
-        // 生产仍然推进并留在仓库；替换完成后的下一片段才向新主台流入。
+        // 一个世界推进片段只要与替换过程有重叠，就全片段暂停罐子流入。
+        // 生产仍然推进：罐子留在仓库，液体进入自机液库；替换完成后的下一片段才向新主台流入。
         // 不在这里重新读取 Roster.Master：无参重载已在入口处解析岗位，
         // 显式参数重载则必须保留调用者指定的目标（包括 null）。
         var effectiveMaster = replacementBlocksWorld ? null : requestedMaster;
 
         var resources = Resources.Advance(logicalDelta, effectiveMaster);
+        RecordLiquidProduction(resources);
 
         // 执行会话与生产、CD 共用同一个逻辑时间增量。先推进本片段的生产，
         // 再推进已预留资源上的订单步骤；会话自身仍按步骤时长控制实际操作时点。
@@ -266,6 +274,27 @@ public sealed class ResourceWorldRuntime
         }
 
         return new ResourceWorldStep(logicalDelta, resources);
+    }
+
+    private void RecordLiquidProduction(ResourceAreaAdvanceResult result)
+    {
+        if (_resourceLedger == null || result.LiquidProductionReceipts.Count == 0)
+            return;
+
+        var tick = _resourceLedgerTick!();
+        var destination = Resources.ShipLiquidInventory == null ? "中央仓库" : "自机液库";
+        foreach (var receipt in result.LiquidProductionReceipts)
+        {
+            // 生产事件只记录真正进入库存的数量；未接收部分单独记 discard。
+            // 两者之和等于 ProducedAmount，避免同一份液体被重复计量。
+            _resourceLedger.Record(tick, ResourceCauses.Production, ResourceKinds.Liquid,
+                receipt.Liquid, receipt.AcceptedAmount,
+                from: "液体生产区", to: destination);
+            _resourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid,
+                receipt.Liquid, receipt.DiscardedAmount,
+                from: "液体生产区", to: null,
+                reason: "自机液库或资源库存容量不足");
+        }
     }
 
     private void ThrowIfFaulted()
