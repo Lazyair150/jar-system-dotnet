@@ -173,6 +173,14 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.True(start.Success);
         Assert.Null(start.Reason);
 
+        var checkpoint = app.CaptureExecutionResourceCheckpoint();
+        Assert.Equal(0, checkpoint.ShipLiquidInventory.UsedCapacity);
+        Assert.Equal(1, checkpoint.Admission.MasterStaging!.Accounts[demandId]["酒"]);
+        Assert.Single(checkpoint.Admission.ActiveOrders);
+        Assert.Single(checkpoint.Reservations.Reservations);
+        Assert.Single(checkpoint.Sessions);
+        Assert.Equal(2_000, checkpoint.Clock.WorldTimeMilli);
+
         var funding = Assert.Single(app.GetResourceLedger().Events,
             item => item.Cause == "flow" && item.Name == "酒");
         Assert.Equal("自机液库", funding.From);
@@ -191,6 +199,8 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Empty(completed.Demands);
         Assert.Equal(0, completed.ReservationCount);
         Assert.Equal(2_000, completed.LogicalTimeMilli);
+        Assert.Equal(1, checkpoint.Admission.MasterStaging!.Accounts[demandId]["酒"]);
+        Assert.Single(checkpoint.Sessions);
         Assert.False(completed.RuntimeFaulted);
     }
 
