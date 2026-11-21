@@ -495,7 +495,7 @@ Envelope 建议：
 
 ## 16. 主台预置事务隔离与不确定回滚故障边界（2026-11-21）
 
-- 前置补液事务处于 Pending 时，目标主台 staging 禁止订单容量预留、预置液提取、订单接收/消耗/Drain、主从泵送和 staging 快照；避免绕过 Runtime 调度门禁的直接调用在事务窗口内消费或改写预置余额。
+- 前置补液事务处于 Pending 时，目标主台 staging 禁止订单容量预留、预置液提取、订单接收/消耗/Drain、操作接收/消耗预检、主从泵送和 staging 快照；避免绕过 Runtime 调度门禁的直接调用在事务窗口内消费或改写预置余额。
 - WorldV2Context 装配时把订单准入门禁绑定到 Runtime；即使调用方绕过 Scheduler 直接调用 Admission.TryAdmit，替换活动期或 Runtime 故障期也会被拒绝。
 - 生产区仍可继续向自机液库生产。液库的 `ReservedReturnCapacity` 保证预置补液回滚所需容量不会被生产占用；生产只使用扣除预留后的可用容量，超出部分按自机液库既有规则丢弃。
 - Commit/rollback 都必须同时结束 staging Pending 锁与 Ship 回库容量预留；无库存可补的空事务可以安全地作为 no-op 提交或回滚。
