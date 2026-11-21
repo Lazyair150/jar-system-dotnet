@@ -496,12 +496,13 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         try
         {
-            CleanupTemporaryResources();
+            var settlementTick = AcquireSettlementTick();
+            CleanupTemporaryResources(settlementTick);
             _board.StartCooldown(DemandId);
             if (_board.Find(DemandId) != null &&
                 _board.Find(DemandId)!.ReadyForSolve)
                 _solveBook.MarkDirty(DemandId, "订单被工作台替换中断；重新检查当前世界");
-            ReleaseReservation();
+            ReleaseReservation(settlementTick);
             Reason = "工作台替换导致订单执行中断";
             Stage = WorldOrderExecutionStage.Interrupted;
             return (true, null);
@@ -654,10 +655,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
         // 账本 tick 来源可能由 Runtime 管理，也可能由旧宿主显式提供。必须在任何交付罐标记/归属发生变化前取得，
         // 避免交付已移除后，结算才调用外部 tick provider 并抛出异常。
-        int? settlementTick = null;
-        if (_resourceLedger != null && _manifest.IsPartitioned &&
-            _slaveTransferCommitted && _slave!.HasResources)
-            settlementTick = _resourceLedgerTick!();
+        int? settlementTick = AcquireSettlementTick();
 
         // 先完整验证交付集合，再统一移除，避免前几个交付罐已离台后才发现后续 ID 缺失。
         var deliveryJars = new List<Jar>();
@@ -691,7 +689,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (_board.RecordSuccessfulFulfillment(DemandId) == DemandFulfillmentResult.NotFound)
             throw new InvalidOperationException("执行成功时订单已不在需求板中");
 
-        ReleaseReservation();
+        ReleaseReservation(settlementTick);
         Reason = null;
         Stage = WorldOrderExecutionStage.Completed;
     }
@@ -699,15 +697,17 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private void TerminateFailure(string reason)
     {
         if (IsTerminal) return;
+        int? settlementTick = null;
         try
         {
-            CleanupTemporaryResources();
+            settlementTick = AcquireSettlementTick();
+            CleanupTemporaryResources(settlementTick);
             if (_board.Find(DemandId) != null)
                 _solveBook.MarkDirty(DemandId, "订单执行失败，需按当前世界重新求解：" + reason);
         }
         finally
         {
-            ReleaseReservation();
+            ReleaseReservation(settlementTick);
             Reason = reason;
             Stage = WorldOrderExecutionStage.Failed;
         }
@@ -767,7 +767,21 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         }
     }
 
-    private void ReleaseReservation()
+    private int? AcquireSettlementTick()
+    {
+        if (_resourceLedger == null) return null;
+        var scopes = _admission.GetLiquidScopes(DemandId);
+        var hasLiquidBalance = scopes.HasValue &&
+            (scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
+             (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false));
+        var needsSlaveRollback = _manifest.IsPartitioned &&
+            _slaveTransferCommitted && _slave?.HasResources == true;
+        return hasLiquidBalance || needsSlaveRollback
+            ? _resourceLedgerTick!()
+            : null;
+    }
+
+    private void ReleaseReservation(int? settlementTickOverride = null)
     {
         if (_reservationReleased) return;
         var scopes = _admission.GetLiquidScopes(DemandId);
@@ -776,7 +790,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             var hasBalance = scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
                 (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false);
             var settlementTick = _resourceLedger != null && hasBalance
-                ? _resourceLedgerTick!()
+                ? settlementTickOverride ?? _resourceLedgerTick!()
                 : 0;
             var settlement = _admission.SettleLiquidResources(DemandId);
             if (settlement != null)
