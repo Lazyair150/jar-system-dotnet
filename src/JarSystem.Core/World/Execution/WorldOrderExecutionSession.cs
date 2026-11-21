@@ -367,7 +367,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         }
 
         index++;
-        PumpInstantMatches(workshop, steps, ref index, phase);
+        PumpInstantMatches(workshop, steps, ref index, phase, scope);
     }
 
     /// <summary>按计划顺序立即应用当前位置连续的 MATCH；MATCH 不消耗逻辑时间。</summary>
