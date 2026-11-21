@@ -54,6 +54,9 @@ public class WorkshopInfo
     public int MaxJars { get; set; } = 20;
     public int MaxLiquids { get; set; } = 30;
 
+    /// <summary>订单阶段游离液体的合计暂存容量；默认无限以保持旧版直接求解调用兼容。</summary>
+    public int MaxLiquidCapacity { get; set; } = int.MaxValue;
+
     public List<string> GetPossibleTransforms(string shape) => Capability.GetPossibleTransforms(shape);
 }
 
