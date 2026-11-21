@@ -20,6 +20,7 @@ public sealed class WorldOrderExecutionAdmission
     internal WorldResourceReservationBook Reservations => _reservations;
     private readonly Dictionary<Workshop, WorkshopLiquidStaging> _stagingByWorkshop =
         new(ReferenceEqualityComparer.Instance);
+    private Func<bool>? _canAdmitOrders;
 
     public WorldOrderExecutionAdmission(
         OrderDemandBoard board, WorldOrderSolveBook solveBook,
@@ -45,6 +46,14 @@ public sealed class WorldOrderExecutionAdmission
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
         _shipLiquidInventory = shipLiquidInventory ?? throw new ArgumentNullException(nameof(shipLiquidInventory));
+    }
+
+    internal void BindOrderAdmissionGate(Func<bool> canAdmitOrders)
+    {
+        ArgumentNullException.ThrowIfNull(canAdmitOrders);
+        if (_canAdmitOrders != null)
+            throw new InvalidOperationException("订单准入门禁已经绑定。");
+        _canAdmitOrders = canAdmitOrders;
     }
 
     internal bool IsBoundTo(
@@ -93,6 +102,9 @@ public sealed class WorldOrderExecutionAdmission
 
     public WorldOrderExecutionAdmissionResult TryAdmit(int demandId)
     {
+        if (_canAdmitOrders != null && !_canAdmitOrders())
+            return WorldOrderExecutionAdmissionResult.Rejected(
+                "世界当前不允许订单准入：工作台替换正在进行或世界运行时已故障。");
         var demand = _board.Find(demandId);
         if (demand == null)
             return WorldOrderExecutionAdmissionResult.Rejected("订单已不在需求板中");
