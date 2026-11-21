@@ -557,6 +557,9 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Equal(1, lease.InitialLiquidSupply["酒"]);
         Assert.False(lease.UsesSlave);
         Assert.Equal(OrderResourceLeaseStage.Admitted, lease.Stage);
+        var ownedScopes = Assert.NotNull(lease.LiquidScopes).Value;
+        Assert.Null(ownedScopes.Slave);
+        Assert.Same(ownedScopes.Master, setup.Admission.GetLiquidScopes(demand.Id)!.Value.Master);
         Assert.Throws<System.InvalidOperationException>(
             () => setup.Reservations.MarkTransferPending(demand.Id));
         setup.Reservations.MarkMasterExecuting(demand.Id);
