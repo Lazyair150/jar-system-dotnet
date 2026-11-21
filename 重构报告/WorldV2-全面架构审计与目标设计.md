@@ -363,16 +363,16 @@ Envelope 建议：
 
 ### 已落地的 OrderResourceLease 第一阶段
 - 新增 `OrderResourceLease`，由 `WorldResourceReservationBook` 持有，成为订单资源所有权的聚合入口。
-- Lease 汇总 DemandId、WorldVersion、LockedJarIds、InitialLiquidSupply、UsesSlave。
+- Lease 汇总 DemandId、WorldVersion、LockedJarIds、InitialLiquidSupply、TransferLiquidAmounts、主从暂存峰值配额、UsesSlave。
 - 原 `WorldResourceReservation` 保留为兼容只读投影；旧调用方仍可通过 `Find` 获取投影，新代码使用 `FindLease`。
 - Lease 增加生命周期阶段：Admitted、MasterExecuting、TransferPending、TransferCommitted、SlaveExecuting、Settled。
-- Session 在主台执行、进入交接、交接提交、从台执行时驱动 Lease 阶段；Checkpoint Restore 根据已验证的 Session 阶段重建 Lease 阶段。
+- Session 在主台执行、进入交接、交接提交、从台执行时驱动 Lease 阶段；Reservation 快照捕获当前 Lease 阶段，Restore 要求 Lease 阶段与 Session 阶段完全一致，不再用 Session 阶段覆盖 Lease 状态。
 - ReservationBook 在释放时将 Lease 标记 Settled 后移除占用索引。
 - B 类端到端恢复测试检查 SlaveExecuting 阶段；A 类测试检查不能进入 TransferPending。
 
 ### 尚未完成
 - Lease 阶段目前由 Session 驱动，Admission 仍管理液体 Scope 与暂存区；尚未完成 Admission/Reservation/Scope 的完全收敛。
-- ReservationBook 快照仍保存兼容 Reservation 投影；完整根级 Wire DTO 尚未纳入 Lease 的独立 DTO。
+- ReservationBook 快照仍通过兼容 Reservation 投影承载 Lease 状态，但现在包含阶段、交接液体和主从暂存峰值；完整根级 Wire DTO 尚未纳入 Lease 的独立 DTO。
 - TransferService 与 SettlementService 尚未从 Session 抽离。
 - CI #1048 曾有两项 xUnit 失败；后续提交修正了 JSON 字段名测试与 Runtime Restore 的过度校验，并增加 Lease 生命周期集成。必须以当前最新 HEAD 的 CI 结果为准。
 
@@ -385,3 +385,30 @@ Envelope 建议：
 - 预检全部通过后调用 CommitStarted 回调，再连续提交 Jar 和液体转移；提交阶段不变量异常继续抛出，由 Session 负责失败清理。
 - Session 保留阶段推进、交接提交标记与失败清理，不再直接实现转移算法。
 - 该拆分仍保留旧液体兼容分支；后续由 Legacy Adapter 收敛，不在本次直接删除兼容行为。
+
+
+## 12. 2026-11-21 后续实施增量：租约快照一致性与交接门禁
+
+### 已落地的代码修改
+- `WorldResourceReservation` 兼容投影新增 `Stage`、`TransferLiquidAmounts`、`MasterStagingPeakCapacity`、`SlaveStagingPeakCapacity`。
+- `WorldResourceReservationBook.Capture()` 不再返回 Lease 构造时缓存的旧投影，而是从当前 Lease 状态即时生成快照；`Find()` 同样返回当前状态投影。
+- `OrderResourceLease.Reservation` 改为动态只读投影，避免 Stage 在 Lease 推进后仍停留在 Admitted。
+- Lease 从 Manifest 创建时复制主台初始供给、主从交接液体、主从暂存峰值；从 Reservation 快照恢复时恢复并验证生命周期阶段。
+- Restore 拒绝 Settled 活动租约、非法阶段、负配额、A 类从台阶段/从台配额/交接液体。
+- Session Restore 不再调用 `RestoreExecutionStage()` 覆盖租约状态，而是比较 Session 推导阶段与快照中的 Lease.Stage；同时比较 Manifest 与 Lease 的罐子、初始供给、交接液体及容量配额。
+- `OrderTransferService` 现在必须接收对应的 `OrderResourceLease`，且只接受 B 类、阶段为 TransferPending、资源承诺与 Manifest 完全一致的租约。
+- 新增/加强 B 类检查点测试：租约阶段、交接液体、从台容量配额跨快照保持一致；伪造 Lease 阶段与 Session 不一致的检查点必须被拒绝，随后仍可恢复合法检查点。
+- 修复 `WorkshopWritersTests` 清单：新增的 `OrderTransferService` 被登记为唯一 B 类交接写入主体，保留工作台端口写入路径审计。
+
+### 当前验证事实
+- 之前 HEAD `0140b3671dad5da8b00315071be49dc5d124dfd2` 对应 CI #1091 失败，唯一 xUnit 失败为 `WorkshopWritersTests.EveryWorkshopWriterIsOnTheList`；Release build、Godot Host builds、其余验证阶段通过。
+- 该失败的根因是新增 `OrderTransferService` 调用 Workshop 端口，但未登记在写入主体清单。本轮已补登记。
+- 上述之后又提交了 Lease 快照完整性、Session/Lease 一致性和 TransferService 租约门禁修改；这些改动尚未由最新 HEAD 的 CI 证明。
+- 当前实施仍不是完整 JSON 世界存档：Reservation 快照的 Lease 字段尚未形成根级 Wire DTO；PreparedRestore、Host 原子 Context 交换、SettlementService、Legacy Adapter 仍未完成。
+
+### 下一批实施顺序
+1. 把 Session 的终结与资源清理从流程代码中抽成幂等 `SettlementService`，先保持现有行为，再逐步让 Lease 成为结算入口。
+2. 将 Admission 的活动订单 Scope/结算收据纳入以 DemandId 为键的 Lease 生命周期记录，减少 ReservationBook 与 Admission 双重活动订单状态。
+3. 为 Lease 建立独立 Wire DTO，并纳入根级 Checkpoint DTO；不要继续扩张兼容 Reservation DTO。
+4. 建立 PreparedRestore 与新 Context 装配流程，最后再做 Host 原子交换。
+5. Legacy 路径迁移到 Adapter 后再删除，不改变用户已确认的 A/B 订单规则。
