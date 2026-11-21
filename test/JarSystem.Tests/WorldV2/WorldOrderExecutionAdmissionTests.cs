@@ -240,4 +240,57 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Contains("不在需求板", result.Reason);
         Assert.Equal(0, setup.Reservations.Count);
     }
+
+    [Fact]
+    public void ShipInventoryAdmissionCreatesReservedOrderScopeAndReturnsUnusedLiquidOnRelease()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        // 旧池只作为当前求解快照的兼容投影；新准入实际扣除自机液库。
+        master.AddLiquid("酒", 1);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 2 });
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        var scopes = admission.GetLiquidScopes(demand.Id);
+        Assert.True(scopes.HasValue);
+        Assert.Equal(1, scopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(1, scopes.Value.Master.Staging.ReservedCapacity);
+        Assert.True(admission.Release(demand.Id));
+        Assert.Equal(2, ship.GetAmount("酒"));
+        Assert.Equal(0, scopes.Value.Master.Staging.UsedCapacity);
+        Assert.Equal(0, scopes.Value.Master.Staging.ReservedCapacity);
+    }
+
+    [Fact]
+    public void ShipInventoryAdmissionRejectsWhenOrderPeakCannotFitSharedWorkshopCapacity()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxLiquids: 0, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddLiquid("酒", 1);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 1 });
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.False(admitted.Success);
+        Assert.Contains("容量", admitted.Reason);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
 }
