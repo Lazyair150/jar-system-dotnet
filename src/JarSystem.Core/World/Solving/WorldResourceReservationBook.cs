@@ -31,6 +31,7 @@ public sealed class WorldResourceReservationBook
     public static WorldResourceReservationBook RestoreWire(WorldResourceReservationBookWireDto snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        snapshot.Validate();
         var reservations = snapshot.Leases.Select(item => item.ToReservation()).ToArray();
         var restored = Restore(new WorldResourceReservationBookSnapshot(reservations));
         foreach (var item in snapshot.Leases)
