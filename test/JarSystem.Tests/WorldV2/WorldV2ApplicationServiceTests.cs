@@ -351,7 +351,7 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal("主台", reshaped.Master!.Name);
         Assert.Null(Assert.Single(reshaped.Master.Jars).Liquid);
         Assert.Equal(0, reshaped.Master.Liquids["酒"]);
-        Assert.Equal(0, reshaped.ShipLiquidInventory!.Balances["酒"]);
+        Assert.Equal(0, reshaped.ShipLiquidInventory!.Balances.GetValueOrDefault("酒"));
         Assert.False(reshaped.Replacement!.IsFinished);
         Assert.Equal(1, reshaped.Replacement.CompletedPhases);
 
