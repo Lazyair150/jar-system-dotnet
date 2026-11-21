@@ -288,6 +288,43 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
+    public void NewAdmissionRefreshesEmptyStagingWhenWorkshopBanRulesChange()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 4);
+        master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
+        var firstDemand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, firstDemand);
+        var ship = new ShipLiquidInventory(4);
+        ReevaluateWithShip(setup.Book, setup.Roster, ship, firstDemand.Id);
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var first = admission.TryAdmit(firstDemand.Id);
+        Assert.True(first.Success, first.Reason);
+        Assert.True(admission.Release(firstDemand.Id));
+
+        master.ReplaceCapability(new WorkshopCapability(
+            master.BaseMarks, master.AdditionalMarks, new[] { "酒" }));
+        var secondDemand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        setup.Board.AddDemand(secondDemand, DemandAreaKind.Active);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        setup.Book.Evaluate(secondDemand.Id,
+            WorldSnapshotFactory.Capture(setup.Roster, ship), registry);
+
+        var second = admission.TryAdmit(secondDemand.Id);
+
+        Assert.True(second.Success, second.Reason);
+        var scopes = admission.GetLiquidScopes(secondDemand.Id);
+        Assert.True(scopes.HasValue);
+        Assert.Contains("酒", scopes.Value.Master.Staging.BannedLiquids);
+        Assert.True(admission.Release(secondDemand.Id));
+    }
+
+    [Fact]
     public void AdmissionRestoreRejectsMismatchBetweenActiveScopesAndReservationOwnership()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
