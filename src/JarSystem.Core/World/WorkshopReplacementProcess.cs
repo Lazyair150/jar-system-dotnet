@@ -23,7 +23,9 @@ public sealed class WorkshopReplacementProcess
     private readonly IOrderInterruptionPort _interruptionPort;
     private readonly long _phaseDurationMilli;
     private readonly WorkshopSwitchEvent? _masterSwitch;
-    private readonly Action<Workshop>? _masterPrefill;
+    private readonly Func<Workshop, WorkshopPrefillTransaction>? _masterPrefill;
+    private readonly Action<WorkshopPrefillTransaction>? _rollbackMasterPrefill;
+    private WorkshopPrefillTransaction? _prefillTransaction;
 
     private long _phaseElapsedMilli;
     private int _phase;
@@ -63,6 +65,7 @@ public sealed class WorkshopReplacementProcess
             throw new ArgumentOutOfRangeException(nameof(phaseDurationMilli), "替换阶段时长必须大于零");
         _phaseDurationMilli = phaseDurationMilli;
         _masterPrefill = role == WorkshopRole.Master ? masterPrefill : null;
+        _rollbackMasterPrefill = role == WorkshopRole.Master ? rollbackMasterPrefill : null;
 
         _oldWorkshop = role switch
         {
@@ -121,15 +124,21 @@ public sealed class WorkshopReplacementProcess
 
             // 必须在订单中断与从台结算之后拍快照，确保回滚不会复活已中断订单的临时资源。
             // 前置补液是切换流程中独立提交的资源流转；迁徙失败/取消时目标备用台保留该库存，重试不会重复扣款。
-            if (_role == WorkshopRole.Master) _masterPrefill?.Invoke(_targetWorkshop);
+            if (_role == WorkshopRole.Master) _prefillTransaction = _masterPrefill?.Invoke(_targetWorkshop);
             _masterSwitch?.Begin();
             _begun = true;
             return (true, null);
         }
         catch (Exception ex)
         {
-            // 订单中断已经成功，是不可逆边界；初始化失败时明确终止，不能重复中断或假装恢复订单。
-            FailureReason = "订单已中断，但替换初始化失败；订单中断不会自动撤销: " + ex.Message;
+            // 订单中断已经成功，是不可逆边界；补液本身可回滚，不能把初始化失败留成半笔资源转移。
+            var failure = ex;
+            try { RollbackPrefillIfPending(); }
+            catch (Exception rollbackError)
+            {
+                failure = new AggregateException("主台前置补液回滚失败。", ex, rollbackError);
+            }
+            FailureReason = "订单已中断，但替换初始化失败；订单中断不会自动撤销: " + failure.Message;
             _finished = true;
             return (false, FailureReason);
         }
@@ -185,6 +194,16 @@ public sealed class WorkshopReplacementProcess
                         {
                             CommitWarning = "迁徙已提交，但外部副作用提交失败: " + commitError.Message;
                         }
+                        try
+                        {
+                            _prefillTransaction?.Commit();
+                            _prefillTransaction = null;
+                        }
+                        catch (Exception prefillCommitError)
+                        {
+                            CommitWarning = (CommitWarning == null ? "" : CommitWarning + "；") +
+                                "主台前置补液提交确认失败: " + prefillCommitError.Message;
+                        }
                         Succeed();
                     }
                     catch (Exception ex)
@@ -213,7 +232,6 @@ public sealed class WorkshopReplacementProcess
     public void Cancel(string reason = "工作台替换已取消")
     {
         if (!_begun || _finished) return;
-        _masterSwitch?.Rollback();
         Fail(reason);
     }
 
@@ -230,10 +248,27 @@ public sealed class WorkshopReplacementProcess
 
     private void Fail(string reason)
     {
-        _masterSwitch?.Rollback();
+        try
+        {
+            _masterSwitch?.Rollback();
+        }
+        finally
+        {
+            RollbackPrefillIfPending();
+        }
         FailureReason = reason;
         Succeeded = false;
         _finished = true;
+    }
+
+    private void RollbackPrefillIfPending()
+    {
+        if (_prefillTransaction == null || _prefillTransaction.IsCompleted) return;
+        if (_rollbackMasterPrefill != null)
+            _rollbackMasterPrefill(_prefillTransaction);
+        else
+            _prefillTransaction.Rollback();
+        _prefillTransaction = null;
     }
 
     private void Succeed()
