@@ -274,14 +274,23 @@ public sealed class WorldOrderExecutionAdmissionTests
     [Fact]
     public void ShipInventoryAdmissionRejectsWhenOrderPeakCannotFitSharedWorkshopCapacity()
     {
-        var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxLiquids: 0, vocabulary: Words);
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxLiquids: 1, vocabulary: Words);
         master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
         master.AddLiquid("酒", 1);
-        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        master.AddLiquid("蜜", 1);
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐", Liquid = "酒" },
+                    new Requirement { Shape = "方罐", Liquid = "蜜" }
+                }, Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
         var setup = Prepare(master, demand);
         var ship = new ShipLiquidInventory(4,
-            new Dictionary<string, int> { ["酒"] = 1 });
+            new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 });
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
 
