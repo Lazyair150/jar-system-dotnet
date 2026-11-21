@@ -45,6 +45,7 @@ internal static class ExecutionProgressInvariants
         if (!validStage || reason != null)
             throw new InvalidOperationException("执行会话快照的阶段与步骤游标组合无效。");
     }
+
     public static void ValidateManifestPlan(
         int demandId,
         WorldOrderResourceManifest manifest,
@@ -66,5 +67,4 @@ internal static class ExecutionProgressInvariants
         if (left.Count != right.Count) return false;
         return left.All(item => right.TryGetValue(item.Key, out var value) && value == item.Value);
     }
-
 }
