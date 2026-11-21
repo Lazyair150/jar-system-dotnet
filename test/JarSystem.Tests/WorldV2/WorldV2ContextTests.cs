@@ -294,6 +294,8 @@ public sealed class WorldV2ContextTests
         for (var i = 0; i < 8 && firstSession.Stage != WorldOrderExecutionStage.SlaveSteps; i++)
             firstWorld.Runtime.AdvanceWorldTime(1_000);
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, firstSession.Stage);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
+            firstWorld.Reservations.FindLease(firstDemand.Id)!.Stage);
         Assert.True(firstSlave.HasResources);
 
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
@@ -336,6 +338,8 @@ public sealed class WorldV2ContextTests
         Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Slave!.GetAmount("酒"));
         var restoredSession = Assert.Single(secondWorld.Runtime.ActiveExecutionSessions);
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, restoredSession.Stage);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
+            secondWorld.Reservations.FindLease(restoredDemand.Id)!.Stage);
         Assert.True(restoredSession.CaptureProgress().SlaveTransferCommitted);
 
         for (var i = 0; i < 8 && secondWorld.Runtime.ActiveExecutionSessions.Count > 0; i++)
