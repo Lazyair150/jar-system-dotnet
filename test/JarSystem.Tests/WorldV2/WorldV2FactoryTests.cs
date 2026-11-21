@@ -167,4 +167,53 @@ public sealed class WorldV2FactoryTests
         Assert.Contains(result.Errors, error => error.Contains("有限非负数"));
         Assert.Contains(result.Errors, error => error.Contains("不能是同一台"));
     }
+
+    [Fact]
+    public void ConfigurationFingerprintIgnoresDictionaryInsertionOrderButTracksSemanticChanges()
+    {
+        var first = ValidOptions();
+        var second = ValidOptions();
+        second.LiquidProductionRates = new Dictionary<string, double>
+        {
+            ["蜜"] = 0,
+            ["酒"] = 0.5
+        };
+        second.InitialLiquidStock = new Dictionary<string, int>
+        {
+            ["酒"] = 3
+        };
+        second.Producers[0].Rates = new Dictionary<string, double>
+        {
+            ["圆罐"] = 1.0
+        };
+
+        var firstFingerprint = WorldV2ConfigurationFingerprint.Compute(first);
+        var reorderedFingerprint = WorldV2ConfigurationFingerprint.Compute(second);
+
+        Assert.Equal(firstFingerprint, reorderedFingerprint);
+        second.ShipLiquidCapacity++;
+        Assert.NotEqual(firstFingerprint, WorldV2ConfigurationFingerprint.Compute(second));
+        Assert.Equal(64, firstFingerprint.Length);
+    }
+
+    [Fact]
+    public void ExecutionCheckpointRejectsDifferentFactoryConfigurationBeforeMutatingTarget()
+    {
+        var sourceOptions = ValidOptions();
+        using var source = WorldV2Factory.Create(sourceOptions);
+        var checkpoint = source.CaptureExecutionResourceCheckpoint();
+
+        var targetOptions = ValidOptions();
+        targetOptions.ShipLiquidCapacity++;
+        using var target = WorldV2Factory.Create(targetOptions);
+        var targetShip = target.ShipLiquidInventory!;
+
+        var error = Assert.Throws<System.InvalidOperationException>(
+            () => target.RestoreExecutionResourceCheckpoint(checkpoint));
+
+        Assert.Contains("配置指纹", error.Message);
+        Assert.Equal(3, targetShip.GetAmount("酒"));
+        Assert.Empty(target.DemandBoard.AllDemands);
+        Assert.Equal(0, target.Reservations.Count);
+    }
 }

@@ -59,6 +59,41 @@ public sealed class WorldV2HostService : IDisposable
     }
 
     /// <summary>
+    /// 通过新 Context 执行检查点恢复，并在全部恢复校验成功后一次性替换当前世界。
+    /// 准备阶段或恢复失败时，新 Context 被释放，当前 Context 保持原样；
+    /// 成功时先发布恢复完成的新 Context，再释放旧 Context。
+    /// </summary>
+    public void RestoreExecutionResourceCheckpoint(
+        WorldV2Options options,
+        WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        if (options == null) throw new ArgumentNullException(nameof(options));
+        if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
+        ThrowIfOperationReentrant();
+
+        lock (_operationSync)
+        {
+            lock (_sync) ThrowIfDisposed();
+
+            // Prepare 对象拥有未发布 Context；异常或提前退出时自动释放。
+            // Restore 成功后 TakeContext 才把所有权交给 Host 的唯一发布点。
+            using var preparedRestore = PreparedWorldV2Restore.Create(options, checkpoint);
+            var next = preparedRestore.TakeContext();
+
+            // Commit：唯一发布点。Host 操作门保证没有调用方同时使用旧 Context。
+            WorldV2Context? previous;
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                previous = _current;
+                _current = next;
+            }
+
+            previous?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// 在 Host 独占操作范围内访问当前世界。
     ///
     /// 回调是同步操作：禁止 async/await、async void，禁止把 Context 或其可变子对象

@@ -332,6 +332,12 @@ public sealed class WorldV2ApplicationServiceTests
         var begin = app.BeginWorkshopReplacement(
             WorkshopRole.Master, "备用台", phaseDurationLogicalMilli: 1_000);
         Assert.True(begin.Success);
+        host.ExecuteExclusive(context =>
+        {
+            var target = context.Roster.Find("备用台")!;
+            Assert.Equal(1, context.Admission.GetPrefillBalances(target).GetValueOrDefault("酒"));
+            Assert.Equal(0, context.ShipLiquidInventory!.GetAmount("酒"));
+        });
 
         // 替换开始时真实执行会话已被中断，订单进入冷却且预留被释放。
         var interrupted = app.GetWorldSnapshot();
@@ -345,7 +351,7 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal("主台", reshaped.Master!.Name);
         Assert.Null(Assert.Single(reshaped.Master.Jars).Liquid);
         Assert.Equal(0, reshaped.Master.Liquids["酒"]);
-        Assert.Equal(1, reshaped.ShipLiquidInventory!.Balances["酒"]);
+        Assert.Equal(0, reshaped.ShipLiquidInventory!.Balances.GetValueOrDefault("酒"));
         Assert.False(reshaped.Replacement!.IsFinished);
         Assert.Equal(1, reshaped.Replacement.CompletedPhases);
 
@@ -359,15 +365,24 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal("用户取消主台替换", cancel.Replacement.FailureReason);
 
         var after = app.GetWorldSnapshot();
+        host.ExecuteExclusive(context =>
+        {
+            var target = context.Roster.Find("备用台")!;
+            Assert.Empty(context.Admission.GetPrefillBalances(target));
+        });
         Assert.Equal("主台", after.Master!.Name);
         Assert.Single(after.Master.Jars);
         Assert.Null(after.Master.Jars[0].Liquid);
         Assert.Equal(1, after.ShipLiquidInventory!.Balances["酒"]);
         Assert.Equal(0, after.Master.Liquids["酒"]);
-        var returned = Assert.Single(app.GetResourceLedger().Events,
-            item => item.Cause == "return" && item.Kind == "liquid" && item.Name == "酒");
-        Assert.Equal("订单暂存", returned.From);
-        Assert.Equal("自机液库", returned.To);
+        var returnedEvents = app.GetResourceLedger().Events
+            .Where(item => item.Cause == "return" && item.Kind == "liquid" && item.Name == "酒")
+            .ToArray();
+        Assert.Contains(returnedEvents, item =>
+            item.From == "订单暂存" && item.To == "自机液库");
+        Assert.Contains(returnedEvents, item =>
+            item.From == "主台预置" && item.To == "自机液库" &&
+            item.Reason == "主工作台切换回滚");
         Assert.False(after.RuntimeFaulted);
         Assert.Empty(after.ActiveSessions);
         Assert.Equal(0, after.ReservationCount);
@@ -456,5 +471,37 @@ public sealed class WorldV2ApplicationServiceTests
 
         var demand = Assert.Single(app.GetWorldSnapshot().Demands);
         Assert.Equal(DemandAreaKind.Active, demand.Area);
+    }
+
+    [Fact]
+    public void ApplicationServiceRestoresCheckpointAfterReplacingTheEntireWorldContext()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+        app.AdvanceWorld(1_000);
+
+        var demandId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Active, 0));
+        Assert.True(app.StartActiveDemand(demandId).Success);
+
+        var checkpoint = app.CaptureExecutionResourceCheckpoint();
+        app.CreateOrReplaceWorld(Options());
+        Assert.Empty(app.GetWorldSnapshot().ActiveSessions);
+
+        app.RestoreExecutionResourceCheckpoint(checkpoint);
+
+        var restored = app.GetWorldSnapshot();
+        Assert.Single(restored.ActiveSessions);
+        Assert.Equal(demandId, restored.ActiveSessions[0].DemandId);
+        Assert.Single(restored.Demands);
+        Assert.Equal(demandId, restored.Demands[0].Id);
+        Assert.Equal(1_000, restored.WorldTimeMilli);
+
+        var finished = app.AdvanceWorld(1_000);
+        Assert.False(finished.RuntimeFaulted);
+        Assert.Empty(app.GetWorldSnapshot().ActiveSessions);
+        Assert.Empty(app.GetWorldSnapshot().Demands);
     }
 }

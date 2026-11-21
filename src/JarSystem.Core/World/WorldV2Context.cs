@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Config;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
 using JarSystem.Core.World.Execution;
@@ -31,6 +32,8 @@ public sealed class WorldV2Context : IDisposable
     public ResourceLedger ResourceLedger { get; }
     public WorkshopRoster Roster { get; }
     public OrderDemandBoard DemandBoard { get; }
+    public SequentialIdGenerator DemandIdGenerator { get; }
+    public string? ConfigurationFingerprint { get; }
     public WorldOrderSolveBook SolveBook { get; }
     public WorldResourceReservationBook Reservations { get; }
     public WorldOrderExecutionAdmission Admission { get; }
@@ -43,22 +46,26 @@ public sealed class WorldV2Context : IDisposable
         ResourceLedger resourceLedger,
         WorkshopRoster roster,
         OrderDemandBoard demandBoard,
+        SequentialIdGenerator demandIdGenerator,
         WorldOrderSolveBook solveBook,
         WorldResourceReservationBook reservations,
         WorldOrderExecutionAdmission admission,
         ResourceWorldRuntime runtime,
-        WorldOrderScheduler scheduler)
+        WorldOrderScheduler scheduler,
+        string? configurationFingerprint)
     {
         Resources = resources;
         ShipLiquidInventory = shipLiquidInventory;
         ResourceLedger = resourceLedger;
         Roster = roster;
         DemandBoard = demandBoard;
+        DemandIdGenerator = demandIdGenerator;
         SolveBook = solveBook;
         Reservations = reservations;
         Admission = admission;
         Runtime = runtime;
         Scheduler = scheduler;
+        ConfigurationFingerprint = configurationFingerprint;
     }
 
     /// <summary>
@@ -76,7 +83,8 @@ public sealed class WorldV2Context : IDisposable
         DemandAreaFulfillmentPolicy passiveFulfillmentPolicy,
         DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
         WorldClock? clock = null,
-        ShipLiquidInventory? shipLiquidInventory = null)
+        ShipLiquidInventory? shipLiquidInventory = null,
+        string? configurationFingerprint = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -92,6 +100,7 @@ public sealed class WorldV2Context : IDisposable
         // 先完成所有可能失败的基础对象校验与组装，再向调用方返回 Context。
         var roster = new WorkshopRoster(workshops, master, slave);
         var board = new OrderDemandBoard(passiveFulfillmentPolicy, activeFulfillmentPolicy);
+        var demandIdGenerator = new SequentialIdGenerator();
         var solveBook = new WorldOrderSolveBook(board);
         var reservations = new WorldResourceReservationBook();
         var resourceLedger = new ResourceLedger();
@@ -106,34 +115,44 @@ public sealed class WorldV2Context : IDisposable
             : new WorldOrderExecutionAdmission(board, solveBook, roster, reservations, shipLiquidInventory);
         var runtime = new ResourceWorldRuntime(
             resources, clock: clock, roster: roster, demandBoard: board,
-            resourceLedger: resourceLedger);
+            resourceLedger: resourceLedger,
+            masterPrefill: shipLiquidInventory == null
+                ? null
+                : targetWorkshop => admission.BeginMasterWorkshopPrefill(
+                    targetWorkshop, resources.LiquidProductionPriority));
+        admission.BindOrderAdmissionGate(() => !runtime.BlocksOrderAdmission);
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
         return new WorldV2Context(
-            resources, shipLiquidInventory, resourceLedger, roster, board, solveBook, reservations, admission, runtime, scheduler);
+            resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator, solveBook, reservations, admission, runtime, scheduler, configurationFingerprint);
     }
 
     /// <summary>
-    /// 捕获活动执行所需的工作台动态库存、液体资源、资源预留、账本、时钟与会话进度。
-    /// 必须在 Host 独占操作内调用；需求板、生产器和规则修饰器配置仍由其他快照边界负责。
+    /// 捕获活动执行所需的工作台动态库存、液体资源、需求板、资源预留、账本、时钟与会话进度，
+    /// 同时记录由 WorldV2Factory 装配时生成的配置指纹。必须在 Host 独占操作内调用。
+    /// 当前 World v2 Context 尚未持有动态 ModifierStack；不能把其他旧世界修饰器误认为已纳入本检查点。
     /// </summary>
     public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
     {
         if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
-        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null)
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement is { IsFinished: false } ||
+            Runtime.ActiveReplacement is { InterruptionOutcomeUncertain: true })
             throw new InvalidOperationException(
                 "世界故障或工作台替换状态尚未纳入执行资源检查点，拒绝生成不完整检查点。");
         if (ShipLiquidInventory == null)
             throw new InvalidOperationException("旧版兼容世界没有自机液库，不能捕获新液体资源检查点。");
         return new WorldV2ExecutionResourceCheckpoint(
             Resources.CaptureRuntimeState(),
+            DemandBoard.CaptureRuntimeState(DemandIdGenerator),
+            ConfigurationFingerprint,
             ShipLiquidInventory.Capture(),
             Roster.Master?.CaptureRuntimeState()
                 ?? throw new InvalidOperationException("检查点捕获时没有主工作台。"),
             Roster.Slave?.CaptureRuntimeState(),
             Admission.Capture(),
             Reservations.Capture(),
+            Reservations.CaptureWire(),
             ResourceLedger.Capture(),
             Runtime.Clock.Capture(),
             Runtime.LedgerTick,
@@ -141,7 +160,7 @@ public sealed class WorldV2Context : IDisposable
     }
 
     /// <summary>
-    /// 将活动执行检查点恢复到一个已按相同世界配置装配、且需求板已恢复订单的空 Context。
+    /// 将活动执行检查点恢复到一个已按相同世界配置装配的空 Context；需求板本身也由检查点恢复。
     /// 此方法不会重新准入订单，不会重复扣液、泵送、MATCH 或执行任何计划步骤。
     /// </summary>
     public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
@@ -150,12 +169,15 @@ public sealed class WorldV2Context : IDisposable
         if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
         if (ShipLiquidInventory == null)
             throw new InvalidOperationException("旧版兼容世界不能恢复新液体资源检查点。");
-        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null ||
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement is { IsFinished: false } ||
+            Runtime.ActiveReplacement is { InterruptionOutcomeUncertain: true } ||
             Runtime.ActiveExecutionSessions.Count != 0 || Reservations.Count != 0 ||
             Admission.Capture().ActiveOrders.Count != 0)
             throw new InvalidOperationException("只能向没有活动会话、预留或工作台替换的 Context 恢复检查点。");
 
         Resources.ValidateRuntimeStateSnapshot(checkpoint.ResourceArea);
+        if (!string.Equals(ConfigurationFingerprint, checkpoint.ConfigurationFingerprint, StringComparison.Ordinal))
+            throw new InvalidOperationException("检查点配置指纹与当前世界不一致，拒绝恢复。");
         if (checkpoint.ShipLiquidInventory.Capacity != ShipLiquidInventory.Capacity)
             throw new InvalidOperationException("检查点自机液库容量与当前世界配置不一致。");
         if ((Roster.Slave == null) != (checkpoint.SlaveWorkshop == null))
@@ -181,9 +203,16 @@ public sealed class WorldV2Context : IDisposable
         var stagedShip = new ShipLiquidInventory(
             checkpoint.ShipLiquidInventory.Capacity,
             checkpoint.ShipLiquidInventory.Balances);
-        var stagedReservations = WorldResourceReservationBook.Restore(checkpoint.Reservations);
+        var vocabulary = new Vocabulary(
+            Resources.Producers.Generators.Keys,
+            Resources.Inventory.LiquidWarehouse.Keys);
+        var stagedDemandIds = new SequentialIdGenerator();
+        var stagedBoard = OrderDemandBoard.RestoreRuntimeState(
+            checkpoint.DemandBoard, vocabulary, stagedDemandIds);
+        var stagedSolveBook = new WorldOrderSolveBook(stagedBoard);
+        var stagedReservations = WorldResourceReservationBook.RestoreWire(checkpoint.ReservationLeases);
         var stagedAdmission = new WorldOrderExecutionAdmission(
-            DemandBoard, SolveBook, Roster, stagedReservations, stagedShip);
+            stagedBoard, stagedSolveBook, Roster, stagedReservations, stagedShip);
         stagedAdmission.Restore(checkpoint.Admission);
         var stagedLedger = ResourceLedger.Restore(checkpoint.ResourceLedger);
         _ = WorldClock.Restore(checkpoint.Clock);
@@ -204,17 +233,19 @@ public sealed class WorldV2Context : IDisposable
             WorldOrderExecutionSession.ValidateProgressAgainstWorkshopSnapshots(
                 session, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop);
             WorldOrderExecutionSession.RestoreProgress(
-                session, DemandBoard, SolveBook, stagedAdmission, Roster,
+                session, stagedBoard, stagedSolveBook, stagedAdmission, Roster,
                 stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick);
         }
+        stagedSolveBook.Dispose();
 
         // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
         Resources.RestoreRuntimeState(checkpoint.ResourceArea);
+        DemandBoard.RestoreRuntimeStateFrom(checkpoint.DemandBoard, vocabulary, DemandIdGenerator);
         Roster.Master.RestoreRuntimeState(checkpoint.MasterWorkshop);
         if (Roster.Slave != null)
             Roster.Slave.RestoreRuntimeState(checkpoint.SlaveWorkshop!);
         ShipLiquidInventory.RestoreFrom(checkpoint.ShipLiquidInventory);
-        Reservations.RestoreFrom(checkpoint.Reservations);
+        Reservations.RestoreFromWire(checkpoint.ReservationLeases);
         Admission.Restore(checkpoint.Admission);
         ResourceLedger.RestoreFrom(checkpoint.ResourceLedger);
         Runtime.Clock.RestoreFrom(checkpoint.Clock);
@@ -234,29 +265,36 @@ public sealed class WorldV2Context : IDisposable
 
 /// <summary>
 /// 活动执行检查点：保留自机液库、主从工作台动态库存、订单暂存、容量/罐子预留、
-/// 资源账本、世界时钟和执行游标。
-/// 这不是完整世界存档；恢复执行仍需配套需求板、资源生产器/时钟策略与规则修饰器状态。
+/// 资源账本、世界时钟、需求板、配置指纹和执行游标。
+/// 这仍是活动执行检查点而非完整世界存档；当前不保存动态 ModifierStack 实例，也不包含可独立重建求解器注册表的插件数据。
 /// </summary>
 public sealed class WorldV2ExecutionResourceCheckpoint
 {
     internal WorldV2ExecutionResourceCheckpoint(
         ResourceAreaRuntimeStateSnapshot resourceArea,
+        OrderDemandBoardSnapshot demandBoard,
+        string? configurationFingerprint,
         ShipLiquidInventorySnapshot shipLiquidInventory,
         WorkshopRuntimeStateSnapshot masterWorkshop,
         WorkshopRuntimeStateSnapshot? slaveWorkshop,
         WorldOrderExecutionAdmissionSnapshot admission,
         WorldResourceReservationBookSnapshot reservations,
+        WorldResourceReservationBookWireDto reservationLeases,
         ResourceLedgerSnapshot resourceLedger,
         WorldClockSnapshot clock,
         int runtimeLedgerTick,
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
     {
         ResourceArea = resourceArea;
+        DemandBoard = demandBoard;
+        ConfigurationFingerprint = configurationFingerprint;
         ShipLiquidInventory = shipLiquidInventory;
         MasterWorkshop = masterWorkshop;
         SlaveWorkshop = slaveWorkshop;
         Admission = admission;
         Reservations = reservations;
+        ReservationLeases = reservationLeases ?? throw new ArgumentNullException(nameof(reservationLeases));
+        ReservationLeases.Validate();
         ResourceLedger = resourceLedger;
         Clock = clock;
         RuntimeLedgerTick = runtimeLedgerTick;
@@ -264,11 +302,15 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     }
 
     public ResourceAreaRuntimeStateSnapshot ResourceArea { get; }
+    public OrderDemandBoardSnapshot DemandBoard { get; }
+    public string? ConfigurationFingerprint { get; }
     public ShipLiquidInventorySnapshot ShipLiquidInventory { get; }
     public WorkshopRuntimeStateSnapshot MasterWorkshop { get; }
     public WorkshopRuntimeStateSnapshot? SlaveWorkshop { get; }
     public WorldOrderExecutionAdmissionSnapshot Admission { get; }
+    /// <summary>兼容旧投影；完整恢复以包含 Lease 结算收据的 ReservationLeases 为准。</summary>
     public WorldResourceReservationBookSnapshot Reservations { get; }
+    public WorldResourceReservationBookWireDto ReservationLeases { get; }
     public ResourceLedgerSnapshot ResourceLedger { get; }
     public WorldClockSnapshot Clock { get; }
     public int RuntimeLedgerTick { get; }

@@ -109,6 +109,20 @@ public sealed class WorldV2BridgeSession : IDisposable
         return _application.GetWorldSnapshot();
     }
 
+    /// <summary>捕获当前 World v2 执行检查点（纯托管数据，不包含 Godot 对象引用）。</summary>
+    public WorldV2ExecutionResourceCheckpoint CaptureExecutionCheckpoint()
+    {
+        ThrowIfDisposed();
+        return _application.CaptureExecutionResourceCheckpoint();
+    }
+
+    /// <summary>将执行检查点恢复到已创建的兼容世界。</summary>
+    public void RestoreExecutionCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        ThrowIfDisposed();
+        _application.RestoreExecutionResourceCheckpoint(checkpoint);
+    }
+
     /// <summary>
     /// 释放会话拥有的 Host 与当前 World Context。
     /// Host 会等待正在执行的独占操作完成；重复释放安全。

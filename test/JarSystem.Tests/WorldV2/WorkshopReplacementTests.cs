@@ -4,6 +4,9 @@ using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
+using JarSystem.Core.Solver;
+using JarSystem.Core.World.Demands;
+using JarSystem.Core.World.Solving;
 using JarSystem.Core.World;
 using Xunit;
 
@@ -578,6 +581,194 @@ public sealed class WorkshopReplacementTests
 
         // 故障后不能再推进世界；替换对象仍保留，供快照/诊断读取。
         Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1));
+    }
+
+
+    [Fact]
+    public void WorldV2ProductionCannotConsumeMasterPrefillRollbackCapacity()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 3 });
+        var resources = new ResourceArea(
+            new ProducerModule(vocabulary),
+            new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+            {
+                ["酒"] = 0.001,
+                ["蜜"] = 0.001
+            }),
+            0, 0, ship);
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var target = new Workshop("目标主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        oldMaster.AddJar(new Jar("圆罐", vocabulary: vocabulary));
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { oldMaster, target }, oldMaster, null, solverRegistry,
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var begin = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 2_000_000);
+        Assert.True(begin.Success, begin.Error);
+        Assert.Equal(3, ship.ReservedReturnCapacity);
+        Assert.Equal(0, ship.UsedCapacity);
+
+        world.Runtime.AdvanceWorldTime(1_000_000);
+
+        Assert.Equal(3, ship.ReservedReturnCapacity);
+        Assert.Equal(1, ship.UsedCapacity);
+        Assert.Equal(0, ship.AvailableCapacity);
+
+        var cancelled = world.Runtime.CancelActiveReplacement("验证生产与补液回滚隔离");
+        Assert.True(cancelled.Success);
+        Assert.Equal(0, ship.ReservedReturnCapacity);
+        Assert.InRange(ship.GetAmount("酒"), 3, 4);
+        Assert.Equal(4, ship.UsedCapacity);
+        Assert.Empty(world.Admission.GetPrefillBalances(target));
+        Assert.Contains(world.ResourceLedger.For(ResourceCauses.Return), item =>
+            item.From == "主台预置" && item.To == "自机液库" &&
+            item.Reason == "主工作台切换回滚");
+    }
+
+    [Fact]
+    public void WorldV2SlaveReplacementDoesNotPrefillOrWithdrawShipLiquids()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var ship = new ShipLiquidInventory(6, new Dictionary<string, int>
+        {
+            ["酒"] = 3,
+            ["蜜"] = 2
+        });
+        var resources = new ResourceArea(
+            new ProducerModule(vocabulary),
+            new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+            {
+                ["酒"] = 0.001,
+                ["蜜"] = 0.0005
+            }),
+            0, 0, ship);
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var oldSlave = new Workshop("旧从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var target = new Workshop("备用台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { master, oldSlave, target }, master, oldSlave, solverRegistry,
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var begin = world.Runtime.BeginReplacement(
+            WorkshopRole.Slave, target, new NoOrderInterruption(), phaseDurationMilli: 1_000);
+
+        Assert.True(begin.Success, begin.Error);
+        Assert.Empty(world.Admission.GetPrefillBalances(target));
+        Assert.Equal(3, ship.GetAmount("酒"));
+        Assert.Equal(2, ship.GetAmount("蜜"));
+        Assert.Empty(world.ResourceLedger.For(ResourceCauses.Flow));
+        world.Runtime.CancelActiveReplacement("测试结束");
+    }
+
+    [Fact]
+    public void WorldV2MasterReplacementPrefillsTargetBeforeMigrationAndRecordsLedger()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" });
+        var ship = new ShipLiquidInventory(8, new Dictionary<string, int>
+        {
+            ["酒"] = 3,
+            ["蜜"] = 2
+        });
+        var producers = new ProducerModule(vocabulary);
+        var production = new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+        {
+            ["酒"] = 0.001,
+            ["蜜"] = 0.0005
+        });
+        var resources = new ResourceArea(producers, production, 0, 0, ship);
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var target = new Workshop("目标主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var jar = new Jar("圆罐", vocabulary: vocabulary);
+        oldMaster.AddJar(jar);
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { oldMaster, target }, oldMaster, null, solverRegistry,
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var begin = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 1_000);
+
+        Assert.True(begin.Success, begin.Error);
+        Assert.False(world.Admission.TryAdmit(999).Success);
+        Assert.Same(jar, Assert.Single(oldMaster.Jars));
+        Assert.Equal(3, world.Admission.GetPrefillBalances(target)["酒"]);
+        Assert.Equal(1, world.Admission.GetPrefillBalances(target)["蜜"]);
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(1, ship.GetAmount("蜜"));
+        var prefillEvents = world.ResourceLedger.For(ResourceCauses.Flow);
+        Assert.Equal(2, prefillEvents.Count);
+        Assert.All(prefillEvents, item =>
+        {
+            Assert.Equal("自机液库", item.From);
+            Assert.Equal("主台预置", item.To);
+        });
+
+        world.Runtime.AdvanceWorldTime(2_000);
+
+        Assert.Same(target, world.Roster.Master);
+        Assert.True(world.Runtime.ActiveReplacement!.Succeeded);
+        Assert.Equal("订单已不在需求板中", world.Admission.TryAdmit(999).Reason);
+        Assert.Empty(oldMaster.Jars);
+        Assert.Same(jar, Assert.Single(target.Jars));
+        var checkpoint = world.CaptureExecutionResourceCheckpoint();
+        Assert.Equal(3, checkpoint.Admission.MasterStaging!.PrefillBalances["酒"]);
+        Assert.Equal(1, checkpoint.Admission.MasterStaging.PrefillBalances["蜜"]);
+
+        var restoredShip = new ShipLiquidInventory(8, checkpoint.ShipLiquidInventory.Balances);
+        var restoredResources = new ResourceArea(
+            new ProducerModule(vocabulary),
+            new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+            {
+                ["酒"] = 0.001,
+                ["蜜"] = 0.0005
+            }),
+            0, 0, restoredShip);
+        var restoredMaster = new Workshop("目标主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        restoredMaster.AddJar(new Jar("圆罐",
+            id: checkpoint.MasterWorkshop.Jars[0].Id, vocabulary: vocabulary));
+        var restoredSpare = new Workshop("旧主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        using var restoredWorld = WorldV2Context.Create(
+            restoredResources, new[] { restoredMaster, restoredSpare },
+            restoredMaster, null, solverRegistry,
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: restoredShip);
+        restoredWorld.RestoreExecutionResourceCheckpoint(checkpoint);
+        Assert.Equal(3, restoredWorld.Admission.GetPrefillBalances(restoredMaster)["酒"]);
+        Assert.Equal(1, restoredWorld.Admission.GetPrefillBalances(restoredMaster)["蜜"]);
+        Assert.Equal(1, restoredShip.GetAmount("蜜"));
     }
 
 }

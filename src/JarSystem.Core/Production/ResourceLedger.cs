@@ -12,9 +12,9 @@ namespace JarSystem.Core.Production;
 /// <list type="bullet">
 /// <item><c>production</c> 世界自己产（形状产线出罐、液体产能出液）</item>
 /// <item><c>stock</c> 开局库存（关卡文件里写死的初始量）</item>
-/// <item><c>flow</c> 资源进入执行端：旧路径为中央仓库 → 主台，新路径为自机液库 → 主台订单账户</item>
+/// <item><c>flow</c> 自机液库向主台资源空间流入：订单路径进入主台订单账户，岗位切换前置补液进入主台预置账户</item>
 /// <item><c>transfer</c> 主台 → 从台的转移（B 类订单的"挑罐过去"）</item>
-/// <item><c>return</c> 从台 → 主台的归还（交付后剩下的工具罐/游离液体）</item>
+/// <item><c>return</c> 资源归还：订单结算剩余液体返回自机液库，或主台预置事务回滚至自机液库</item>
 /// <item><c>discard</c> 容量溢出被丢弃</item>
 /// </list>
 /// </summary>
@@ -82,6 +82,7 @@ public sealed class ResourceLedger
     public const int DefaultCapacity = 512;
 
     private readonly List<ResourceEvent> _entries = new();
+    private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
     private long _seq;
 
     public ResourceLedger(int capacity = DefaultCapacity)
@@ -108,7 +109,7 @@ public sealed class ResourceLedger
 
     /// <summary>捕获完整账本游标、裁剪计数和当前保留事件。</summary>
     public ResourceLedgerSnapshot Capture() => new(
-        Capacity, _seq, Dropped, _entries);
+        Capacity, _seq, Dropped, _entries, _operationIds);
 
     /// <summary>
     /// 从快照恢复账本。保留原始 Seq/Dropped，不重新编号历史事件，
@@ -118,7 +119,9 @@ public sealed class ResourceLedger
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (snapshot.Capacity < 1 || snapshot.LastSeq < 0 || snapshot.Dropped < 0 ||
-            snapshot.Entries.Count > snapshot.Capacity)
+            snapshot.Entries.Count > snapshot.Capacity ||
+            snapshot.OperationIds.Any(string.IsNullOrWhiteSpace) ||
+            snapshot.OperationIds.Distinct(StringComparer.Ordinal).Count() != snapshot.OperationIds.Count)
             throw new DomainValidationException("资源账本快照的容量或游标无效。");
 
         long previousSeq = 0;
@@ -141,6 +144,8 @@ public sealed class ResourceLedger
             Dropped = snapshot.Dropped
         };
         ledger._entries.AddRange(snapshot.Entries.Select(Clone));
+        foreach (var operationId in snapshot.OperationIds)
+            ledger._operationIds.Add(operationId);
         return ledger;
     }
 
@@ -154,6 +159,9 @@ public sealed class ResourceLedger
         _entries.AddRange(restored._entries.Select(Clone));
         _seq = restored._seq;
         Dropped = restored.Dropped;
+        _operationIds.Clear();
+        foreach (var operationId in restored._operationIds)
+            _operationIds.Add(operationId);
     }
 
     private static ResourceEvent Clone(ResourceEvent item) => new()
@@ -196,6 +204,58 @@ public sealed class ResourceLedger
         return e;
     }
 
+    /// <summary>
+    /// 以稳定操作 ID 原子记录一组账本事实。重复操作 ID 不会再次写入任何事件；
+    /// 操作 ID 与账本事件一起进入快照，事件被容量裁剪后去重标记仍保留。
+    /// </summary>
+    public bool RecordBatchOnce(
+        string operationId, int tick, IEnumerable<ResourceLedgerMutation> mutations)
+    {
+        if (string.IsNullOrWhiteSpace(operationId))
+            throw new ArgumentException("账本操作 ID 不能为空。", nameof(operationId));
+        if (tick < 0) throw new ArgumentOutOfRangeException(nameof(tick));
+        ArgumentNullException.ThrowIfNull(mutations);
+        if (_operationIds.Contains(operationId)) return false;
+
+        var batch = mutations.Where(item => item.Amount > 0).ToArray();
+        foreach (var item in batch)
+        {
+            if (string.IsNullOrWhiteSpace(item.Cause) ||
+                string.IsNullOrWhiteSpace(item.Kind) ||
+                string.IsNullOrWhiteSpace(item.Name) ||
+                (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid))
+                throw new DomainValidationException("账本批次包含无效资源事实。");
+        }
+
+        // 先构造全部事件，只有整批成功构造后才推进游标并发布。
+        var nextSeq = _seq;
+        var events = new List<ResourceEvent>(batch.Length);
+        foreach (var item in batch)
+        {
+            nextSeq = checked(nextSeq + 1);
+            events.Add(new ResourceEvent
+            {
+                Seq = nextSeq,
+                Tick = tick,
+                Cause = item.Cause,
+                Kind = item.Kind,
+                Name = item.Name,
+                Amount = item.Amount,
+                From = item.From,
+                To = item.To,
+                Reason = item.Reason
+            });
+        }
+        _seq = nextSeq;
+        _entries.AddRange(events);
+        _operationIds.Add(operationId);
+        Trim();
+        return true;
+    }
+
+    public bool HasRecordedOperation(string operationId) =>
+        _operationIds.Contains(operationId);
+
     /// <summary>清空保留的事件（序号不回绕，于是"清过"也能从序号跳变看出）。</summary>
     public void Clear() => _entries.Clear();
 
@@ -221,7 +281,8 @@ public sealed class ResourceLedger
 public sealed class ResourceLedgerSnapshot
 {
     public ResourceLedgerSnapshot(
-        int capacity, long lastSeq, int dropped, IEnumerable<ResourceEvent> entries)
+        int capacity, long lastSeq, int dropped, IEnumerable<ResourceEvent> entries,
+        IEnumerable<string>? operationIds = null)
     {
         Capacity = capacity;
         LastSeq = lastSeq;
@@ -238,11 +299,20 @@ public sealed class ResourceLedgerSnapshot
             To = item.To,
             Reason = item.Reason
         }).ToArray());
+        OperationIds = Array.AsReadOnly((operationIds ?? Array.Empty<string>())
+            .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray());
     }
 
     public int Capacity { get; }
     public long LastSeq { get; }
     public int Dropped { get; }
     public IReadOnlyList<ResourceEvent> Entries { get; }
+    public IReadOnlyList<string> OperationIds { get; }
     public int Retained => Entries.Count;
 }
+
+
+/// <summary>单条资源账本事实的不可变输入；由 RecordBatchOnce 作为一个操作整体提交。</summary>
+public sealed record ResourceLedgerMutation(
+    string Cause, string Kind, string Name, int Amount,
+    string? From = null, string? To = null, string? Reason = null);

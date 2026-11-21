@@ -107,11 +107,16 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
             plan: WorldOrderSolvePlan.Partitioned(outcome));
     }
 
-    private static Dictionary<string, int> CreateMasterSupplyLiquids(WorldSnapshot snapshot) =>
-        snapshot.ShipLiquidInventory == null
+    private static Dictionary<string, int> CreateMasterSupplyLiquids(WorldSnapshot snapshot)
+    {
+        var balances = snapshot.ShipLiquidInventory == null
             ? snapshot.Master!.CreateSolverLiquids()
             : snapshot.ShipLiquidInventory.Balances.ToDictionary(
                 item => item.Key, item => item.Value, StringComparer.Ordinal);
+        foreach (var item in snapshot.MasterPrefillLiquidBalances)
+            balances[item.Key] = checked(balances.GetValueOrDefault(item.Key) + item.Value);
+        return balances;
+    }
 
     private static WorldOrderSolveResult Result(
         OrderDemand demand,

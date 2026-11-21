@@ -535,4 +535,116 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Equal(1, scope.GetAmount("蜜"));
     }
 
+    [Fact]
+    public void ReservationBookOwnsOneLeaseAndLegacyReservationIsOnlyItsProjection()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+
+        var admitted = setup.Admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        var lease = Assert.IsType<OrderResourceLease>(
+            setup.Reservations.FindLease(demand.Id));
+        Assert.Equal(demand.Id, lease.DemandId);
+        Assert.Equal(admitted.Manifest!.WorldVersion, lease.WorldVersion);
+        Assert.Equal(new[] { jar.Id!.Value }, lease.LockedJarIds);
+        Assert.Equal(1, lease.InitialLiquidSupply["酒"]);
+        Assert.False(lease.UsesSlave);
+        Assert.Equal(OrderResourceLeaseStage.Admitted, lease.Stage);
+        Assert.Throws<System.InvalidOperationException>(
+            () => setup.Reservations.MarkTransferPending(demand.Id));
+        setup.Reservations.MarkMasterExecuting(demand.Id);
+        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, lease.Stage);
+        var projection = lease.Reservation;
+        Assert.Same(projection, lease.Reservation);
+        Assert.Equal(projection.Stage, setup.Reservations.Find(demand.Id)!.Stage);
+        Assert.True(setup.Admission.Release(demand.Id));
+        Assert.Null(setup.Reservations.FindLease(demand.Id));
+    }
+
+
+    [Fact]
+    public void LeaseWireRoundTripPreservesSettlementReceiptAndRebuildsReservationIndexes()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var admitted = setup.Admission.TryAdmit(demand.Id);
+        Assert.True(admitted.Success, admitted.Reason);
+
+        var lease = setup.Reservations.FindLease(demand.Id)!;
+        lease.RecordSettlement(new LiquidBatchReceipt(
+            new Dictionary<string, int> { ["酒"] = 2 },
+            new Dictionary<string, int> { ["酒"] = 1 },
+            new Dictionary<string, int> { ["酒"] = 1 }));
+
+        var json = WorldV2CheckpointJsonCodec.Encode(
+            setup.Reservations.CaptureWire(), configurationFingerprint: null);
+        var wire = WorldV2CheckpointJsonCodec.Decode<WorldResourceReservationBookWireDto>(json);
+        var restored = WorldResourceReservationBook.RestoreWire(wire.Payload);
+        var restoredLease = Assert.IsType<OrderResourceLease>(
+            restored.FindLease(demand.Id));
+
+        Assert.Equal(lease.SettlementOperationId, restoredLease.SettlementOperationId);
+        Assert.Equal(OrderResourceSettlementStage.ResourcesReturned, restoredLease.SettlementStage);
+        Assert.Equal(2, restoredLease.SettlementReceipt!.Requested["酒"]);
+        Assert.Equal(1, restoredLease.SettlementReceipt.Accepted["酒"]);
+        Assert.Equal(1, restoredLease.SettlementReceipt.Discarded["酒"]);
+        Assert.Equal(demand.Id, restored.JarReservationOwner(jar.Id!.Value));
+    }
+
+    [Fact]
+    public void MasterPrefillIsIncludedInSolveManifestAndFundsOrderBeforeShipInventory()
+    {
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" }, vocabulary: Words);
+        var target = new Workshop("目标主台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 4);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        target.AddJar(jar);
+        var roster = new WorkshopRoster(new[] { oldMaster, target }, oldMaster);
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var book = new WorldOrderSolveBook(board);
+        var reservations = new WorldResourceReservationBook();
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+
+        var prefill = admission.PrefillMasterWorkshop(target, new[] { "酒" });
+        Assert.Equal(1, prefill.Accepted["酒"]);
+        Assert.Equal(0, ship.GetAmount("酒"));
+        roster.CommitMasterReplacement(oldMaster, target);
+
+        var solveSnapshot = admission.CaptureWorldSnapshot();
+        Assert.Equal(1, solveSnapshot.MasterPrefillLiquidBalances["酒"]);
+        var solved = book.Evaluate(demand.Id, solveSnapshot, registry);
+        Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+
+        var admitted = admission.TryAdmit(demand.Id);
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Empty(admission.Capture().MasterStaging!.PrefillBalances);
+        var lease = reservations.FindLease(demand.Id)!;
+        var scopes = lease.LiquidScopes
+            ?? throw new System.InvalidOperationException("准入后租约缺少主台液体范围。");
+        Assert.Equal(1, scopes.Master.GetAmount("酒"));
+        Assert.Null(scopes.Slave);
+        Assert.Same(scopes.Master, admission.GetLiquidScopes(demand.Id)!.Value.Master);
+    }
+
 }

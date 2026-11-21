@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
@@ -235,9 +236,10 @@ public sealed class WorldV2ContextTests
         secondWorld.DemandBoard.AddDemand(restoredDemand, DemandAreaKind.Active);
 
         var invalidClockCheckpoint = new WorldV2ExecutionResourceCheckpoint(
-            checkpoint.ResourceArea, checkpoint.ShipLiquidInventory,
+            checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint, checkpoint.ShipLiquidInventory,
             checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
-            checkpoint.Admission, checkpoint.Reservations, checkpoint.ResourceLedger,
+            checkpoint.Admission, checkpoint.Reservations, checkpoint.ReservationLeases,
+            checkpoint.ResourceLedger,
             new WorldClockSnapshot(-1, checkpoint.Clock.LogicalTimeMilli,
                 checkpoint.Clock.SpeedRatioMilli, checkpoint.Clock.IsPaused,
                 checkpoint.Clock.ConversionRemainder),
@@ -249,8 +251,50 @@ public sealed class WorldV2ContextTests
         Assert.Equal(0, secondWorld.Reservations.Count);
         Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
 
+        var capturedLease = Assert.Single(firstWorld.Reservations.Capture().Reservations);
+        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, capturedLease.Stage);
+        Assert.Empty(capturedLease.TransferLiquidAmounts);
+        var originalLeaseWire = Assert.Single(checkpoint.ReservationLeases.Leases);
+        var mismatchedLeaseWire = new OrderResourceLeaseWireDto
+        {
+            DemandId = originalLeaseWire.DemandId,
+            WorldVersion = originalLeaseWire.WorldVersion,
+            LockedJarIds = new List<int> { originalLeaseWire.LockedJarIds[0] + 100000 },
+            InitialLiquidSupply = new Dictionary<string, int>(originalLeaseWire.InitialLiquidSupply),
+            TransferLiquidAmounts = new Dictionary<string, int>(originalLeaseWire.TransferLiquidAmounts),
+            MasterStagingPeakCapacity = originalLeaseWire.MasterStagingPeakCapacity,
+            SlaveStagingPeakCapacity = originalLeaseWire.SlaveStagingPeakCapacity,
+            UsesSlave = originalLeaseWire.UsesSlave,
+            Stage = originalLeaseWire.Stage,
+            SettlementStage = originalLeaseWire.SettlementStage,
+            SettlementOperationId = originalLeaseWire.SettlementOperationId,
+            SettlementRequested = originalLeaseWire.SettlementRequested == null ? null :
+                new Dictionary<string, int>(originalLeaseWire.SettlementRequested),
+            SettlementAccepted = originalLeaseWire.SettlementAccepted == null ? null :
+                new Dictionary<string, int>(originalLeaseWire.SettlementAccepted),
+            SettlementDiscarded = originalLeaseWire.SettlementDiscarded == null ? null :
+                new Dictionary<string, int>(originalLeaseWire.SettlementDiscarded)
+        };
+        var mismatchedCheckpoint = new WorldV2ExecutionResourceCheckpoint(
+            checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint,
+            checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
+            checkpoint.Admission,
+            checkpoint.Reservations,
+            new WorldResourceReservationBookWireDto(new[] { mismatchedLeaseWire }),
+            checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick, checkpoint.Sessions);
+        Assert.Throws<InvalidOperationException>(
+            () => secondWorld.RestoreExecutionResourceCheckpoint(mismatchedCheckpoint));
+
         secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
 
+        var restoredLease = Assert.Single(secondWorld.Reservations.Capture().Reservations);
+        Assert.Equal(OrderResourceLeaseStage.MasterExecuting, restoredLease.Stage);
+        Assert.Empty(restoredLease.TransferLiquidAmounts);
+        Assert.Equal(0, restoredLease.SlaveStagingPeakCapacity);
+        var restoredLeaseScopes = secondWorld.Reservations.FindLease(restoredDemand.Id)!.LiquidScopes
+            ?? throw new InvalidOperationException("恢复后的 A 类租约缺少主台液体范围。");
+        Assert.Null(restoredLeaseScopes.Slave);
+        Assert.Same(restoredLeaseScopes.Master, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Master);
         Assert.Equal(1, secondShip.GetAmount("酒"));
         Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Master.GetAmount("酒"));
         var restoredSession = Assert.Single(secondWorld.Runtime.ActiveExecutionSessions);
@@ -294,6 +338,20 @@ public sealed class WorldV2ContextTests
         for (var i = 0; i < 8 && firstSession.Stage != WorldOrderExecutionStage.SlaveSteps; i++)
             firstWorld.Runtime.AdvanceWorldTime(1_000);
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, firstSession.Stage);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
+            firstWorld.Reservations.FindLease(firstDemand.Id)!.Stage);
+        var bLeaseScopes = firstWorld.Reservations.FindLease(firstDemand.Id)!.LiquidScopes
+            ?? throw new InvalidOperationException("B 类租约缺少主从液体范围。");
+        Assert.NotNull(bLeaseScopes.Slave);
+        Assert.Same(bLeaseScopes.Master, firstWorld.Admission.GetLiquidScopes(firstDemand.Id)!.Value.Master);
+        Assert.Same(bLeaseScopes.Slave, firstWorld.Admission.GetLiquidScopes(firstDemand.Id)!.Value.Slave);
+        var capturedLease = Assert.Single(firstWorld.Reservations.Capture().Reservations);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting, capturedLease.Stage);
+        Assert.Equal(1, capturedLease.TransferLiquidAmounts["酒"]);
+        Assert.Equal(firstWorld.Reservations.FindLease(firstDemand.Id)!.SlaveStagingPeakCapacity,
+            capturedLease.SlaveStagingPeakCapacity);
+        Assert.Throws<InvalidOperationException>(
+            () => firstWorld.Reservations.MarkTransferCommitted(firstDemand.Id));
         Assert.True(firstSlave.HasResources);
 
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
@@ -336,12 +394,15 @@ public sealed class WorldV2ContextTests
         Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Slave!.GetAmount("酒"));
         var restoredSession = Assert.Single(secondWorld.Runtime.ActiveExecutionSessions);
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, restoredSession.Stage);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
+            secondWorld.Reservations.FindLease(restoredDemand.Id)!.Stage);
         Assert.True(restoredSession.CaptureProgress().SlaveTransferCommitted);
 
         for (var i = 0; i < 8 && secondWorld.Runtime.ActiveExecutionSessions.Count > 0; i++)
             secondWorld.Runtime.AdvanceWorldTime(1_000);
 
         Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
+        Assert.Null(secondWorld.Reservations.FindLease(restoredDemand.Id));
         Assert.Empty(secondSlave.Jars);
         Assert.Equal(1, secondShip.GetAmount("酒"));
         Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Flow));

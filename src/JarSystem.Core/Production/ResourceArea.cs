@@ -36,6 +36,14 @@ public sealed class ResourceArea
     /// <summary>资源区按品种生产的游离液体产能。</summary>
     public LiquidProduction LiquidProduction => _liquidProduction;
 
+    /// <summary>主台切换补液优先级：正产能液种优先、产能高者优先，同速率按名称排序；零产能排最后。</summary>
+    public IReadOnlyList<string> LiquidProductionPriority => _liquidProduction.Rates
+        .OrderByDescending(item => item.Value > 0)
+        .ThenByDescending(item => item.Value)
+        .ThenBy(item => item.Key, StringComparer.Ordinal)
+        .Select(item => item.Key)
+        .ToArray();
+
     /// <summary>World v2 的自机长期液库；为空时使用旧仓库液体路径（迁移兼容）。</summary>
     public ShipLiquidInventory? ShipLiquidInventory => _shipLiquidInventory;
 

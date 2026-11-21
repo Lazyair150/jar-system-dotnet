@@ -36,6 +36,27 @@ public sealed class WorldOrderSolvePlan
                 : transferLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
     }
 
+    internal static WorldOrderSolvePlan RestoreFromWire(
+        bool isPartitioned,
+        IEnumerable<int> transferJarIds,
+        IReadOnlyDictionary<string, int> transferLiquids,
+        IEnumerable<WorldPlanStep> masterSteps,
+        IEnumerable<WorldPlanStep> slaveSteps)
+    {
+        if (transferJarIds == null || transferLiquids == null ||
+            masterSteps == null || slaveSteps == null)
+            throw new ArgumentNullException("Wire plan collections cannot be null.");
+        var jars = transferJarIds.ToArray();
+        var master = masterSteps.ToArray();
+        var slave = slaveSteps.ToArray();
+        if (jars.Any(x => x <= 0) || jars.Distinct().Count() != jars.Length ||
+            transferLiquids.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value < 0))
+            throw new InvalidOperationException("Wire plan transfer resources are invalid.");
+        if (!isPartitioned && (jars.Length != 0 || transferLiquids.Count != 0 || slave.Length != 0))
+            throw new InvalidOperationException("A-class wire plan cannot contain slave resources.");
+        return new WorldOrderSolvePlan(master, slave, jars, transferLiquids, isPartitioned);
+    }
+
     public static WorldOrderSolvePlan SinglePhase(IEnumerable<SolverStep> path)
     {
         if (path == null) throw new ArgumentNullException(nameof(path));

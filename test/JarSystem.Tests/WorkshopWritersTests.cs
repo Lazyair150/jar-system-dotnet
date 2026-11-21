@@ -40,6 +40,7 @@ public class WorkshopWritersTests
         ["Executor/SolverStepApplier.cs"] = "旧执行器：把求解器步骤逐条施加到真实工作台，MATCH 也经 Workshop.MarkJar",
         ["World/Execution/WorldPlanStepApplier.cs"] = "新世界计划步骤执行器：按不可变 WorldPlanStep 调用 Workshop 领域端口",
         ["World/Execution/WorldOrderExecutionSession.cs"] = "新世界订单执行会话：按已准入计划执行并管理主从资源转移与收尾",
+        ["World/Execution/OrderTransferService.cs"] = "B 类唯一主台到从台交接服务：按资源清单提交罐子与液体的单向转移",
         ["Executor/GreedyPlanBuilder.cs"] = "执行器：求解器未判定时的贪心兜底",
         ["Orders/OrderEvent.cs"] = "订单交付：把交付罐从交付台上取下",
         ["Orders/SlaveRollback.cs"] = "失败/结束时的跨台回流（唯一被回滚的东西）",

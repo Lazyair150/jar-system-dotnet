@@ -16,11 +16,12 @@ public sealed class WorldOrderExecutionAdmission
     private readonly WorkshopRoster _roster;
     private readonly WorldResourceReservationBook _reservations;
     private readonly ShipLiquidInventory? _shipLiquidInventory;
+    private readonly OrderLiquidAllocationService? _liquidAllocationService;
     internal ShipLiquidInventory? ShipLiquidInventory => _shipLiquidInventory;
+    internal WorldResourceReservationBook Reservations => _reservations;
     private readonly Dictionary<Workshop, WorkshopLiquidStaging> _stagingByWorkshop =
         new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<int, (OrderLiquidScope Master, OrderLiquidScope? Slave)> _scopesByDemand = new();
-    private readonly Dictionary<int, LiquidBatchReceipt> _settlementsByDemand = new();
+    private Func<bool>? _canAdmitOrders;
 
     public WorldOrderExecutionAdmission(
         OrderDemandBoard board, WorldOrderSolveBook solveBook,
@@ -46,6 +47,16 @@ public sealed class WorldOrderExecutionAdmission
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
         _shipLiquidInventory = shipLiquidInventory ?? throw new ArgumentNullException(nameof(shipLiquidInventory));
+        _liquidAllocationService = new OrderLiquidAllocationService(
+            _shipLiquidInventory, _reservations, GetOrCreateStaging);
+    }
+
+    internal void BindOrderAdmissionGate(Func<bool> canAdmitOrders)
+    {
+        ArgumentNullException.ThrowIfNull(canAdmitOrders);
+        if (_canAdmitOrders != null)
+            throw new InvalidOperationException("订单准入门禁已经绑定。");
+        _canAdmitOrders = canAdmitOrders;
     }
 
     internal bool IsBoundTo(
@@ -57,8 +68,46 @@ public sealed class WorldOrderExecutionAdmission
     /// <summary>
     /// 尝试准入一张订单。应在世界逻辑调度线程内同步调用，避免检查与预留之间插入世界变更。
     /// </summary>
+    internal IReadOnlyDictionary<string, int> GetPrefillBalances(Workshop workshop) =>
+        _stagingByWorkshop.TryGetValue(workshop, out var staging)
+            ? staging.PrefillBalances
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+
+    internal WorldSnapshot CaptureWorldSnapshot()
+    {
+        var master = _roster.Master;
+        var prefill = master != null && _stagingByWorkshop.TryGetValue(master, out var staging)
+            ? staging.PrefillBalances
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+        return WorldSnapshotFactory.Capture(_roster, _shipLiquidInventory, prefill);
+    }
+
+    internal WorkshopPrefillTransaction BeginMasterWorkshopPrefill(
+        Workshop targetWorkshop, IEnumerable<string> productionPriority)
+    {
+        ArgumentNullException.ThrowIfNull(targetWorkshop);
+        ArgumentNullException.ThrowIfNull(productionPriority);
+        if (_shipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容准入不支持主台切换前置补液。");
+        if (!_roster.IsSpare(targetWorkshop))
+            throw new InvalidOperationException("主台前置补液目标必须是当前主从岗位之外的备用工作台。");
+        return GetOrCreateStaging(targetWorkshop)
+            .BeginPrefillFromShip(_shipLiquidInventory, productionPriority);
+    }
+
+    internal LiquidBatchReceipt PrefillMasterWorkshop(
+        Workshop targetWorkshop, IEnumerable<string> productionPriority)
+    {
+        var transaction = BeginMasterWorkshopPrefill(targetWorkshop, productionPriority);
+        transaction.Commit();
+        return transaction.Receipt;
+    }
+
     public WorldOrderExecutionAdmissionResult TryAdmit(int demandId)
     {
+        if (_canAdmitOrders != null && !_canAdmitOrders())
+            return WorldOrderExecutionAdmissionResult.Rejected(
+                "世界当前不允许订单准入：工作台替换正在进行或世界运行时已故障。");
         var demand = _board.Find(demandId);
         if (demand == null)
             return WorldOrderExecutionAdmissionResult.Rejected("订单已不在需求板中");
@@ -78,7 +127,7 @@ public sealed class WorldOrderExecutionAdmission
             return WorldOrderExecutionAdmissionResult.Rejected(reason);
         }
 
-        var snapshot = WorldSnapshotFactory.Capture(_roster, _shipLiquidInventory);
+        var snapshot = CaptureWorldSnapshot();
         var result = _solveBook.GetCurrentResult(demandId, snapshot);
         if (result == null)
             return WorldOrderExecutionAdmissionResult.Rejected("求解结果不存在或与当前世界版本不一致");
@@ -143,13 +192,13 @@ public sealed class WorldOrderExecutionAdmission
 
         var availableLiquids = _shipLiquidInventory == null
             ? master.LiquidStorage
-            : BuildReservationLiquidityView(_shipLiquidInventory, manifest);
+            : _liquidAllocationService!.BuildReservationLiquidityView(manifest, master);
         if (!_reservations.TryReserve(manifest, availableLiquids, out var reserveError))
             return WorldOrderExecutionAdmissionResult.Rejected(reserveError ?? "资源预留失败");
 
         if (_shipLiquidInventory != null)
         {
-            if (!TryAllocateOrderLiquids(manifest, master, _roster.Slave, out var allocationError))
+            if (!_liquidAllocationService!.TryAllocate(manifest, master, _roster.Slave, out var allocationError))
             {
                 _reservations.Release(demandId);
                 return WorldOrderExecutionAdmissionResult.Rejected(allocationError ?? "订单液体资源分配失败");
@@ -174,7 +223,8 @@ public sealed class WorldOrderExecutionAdmission
             if (ReferenceEquals(workshop, master) || ReferenceEquals(workshop, slave))
                 continue;
             var retired = _stagingByWorkshop[workshop].Capture();
-            if (retired.Accounts.Count != 0 || retired.ReservedCapacityByOrder.Count != 0)
+            if (retired.Accounts.Count != 0 || retired.ReservedCapacityByOrder.Count != 0 ||
+                retired.PrefillBalances.Count != 0)
                 throw new InvalidOperationException("已退役工作台仍持有订单暂存资源，不能静默丢弃。");
             // 工作台替换后留下的空暂存对象不再属于当前岗位图，不进入新快照。
             _stagingByWorkshop.Remove(workshop);
@@ -186,12 +236,12 @@ public sealed class WorldOrderExecutionAdmission
         var slaveStaging = slave != null && _stagingByWorkshop.TryGetValue(slave, out var slaveValue)
             ? slaveValue.Capture()
             : null;
-        var activeOrders = _scopesByDemand.OrderBy(pair => pair.Key)
-            .Select(pair => new WorldOrderExecutionScopeSnapshot(
-                pair.Key,
-                pair.Value.Slave != null,
-                masterStaging?.ReservedCapacityByOrder.ContainsKey(pair.Key) ?? false,
-                slaveStaging?.ReservedCapacityByOrder.ContainsKey(pair.Key) ?? false))
+        var activeOrders = _reservations.Capture().Reservations.OrderBy(item => item.DemandId)
+            .Select(item => new WorldOrderExecutionScopeSnapshot(
+                item.DemandId,
+                item.UsesSlave,
+                masterStaging?.ReservedCapacityByOrder.ContainsKey(item.DemandId) ?? false,
+                slaveStaging?.ReservedCapacityByOrder.ContainsKey(item.DemandId) ?? false))
             .ToArray();
         return new WorldOrderExecutionAdmissionSnapshot(masterStaging, slaveStaging, activeOrders);
     }
@@ -205,7 +255,9 @@ public sealed class WorldOrderExecutionAdmission
         ArgumentNullException.ThrowIfNull(snapshot);
         if (_shipLiquidInventory == null)
             throw new InvalidOperationException("旧版兼容准入不支持活动液体资源恢复。");
-        if (_stagingByWorkshop.Count != 0 || _scopesByDemand.Count != 0 || _settlementsByDemand.Count != 0)
+        if (_stagingByWorkshop.Count != 0 ||
+            _reservations.Capture().Reservations.Any(item =>
+                _reservations.FindLease(item.DemandId)?.HasLiquidScopes == true))
             throw new InvalidOperationException("只能向没有活动暂存状态的新准入器恢复。");
 
         var master = _roster.Master ?? throw new InvalidOperationException("恢复时没有主工作台。");
@@ -279,7 +331,9 @@ public sealed class WorldOrderExecutionAdmission
             var slaveScope = active.UsesSlave
                 ? new OrderLiquidScope(active.DemandId, _stagingByWorkshop[slave!])
                 : null;
-            _scopesByDemand.Add(active.DemandId, (masterScope, slaveScope));
+            var lease = _reservations.FindLease(active.DemandId)
+                ?? throw new InvalidOperationException("恢复活动液体范围时缺少资源租约：" + active.DemandId);
+            lease.AttachLiquidScopes(masterScope, slaveScope);
         }
     }
 
@@ -302,117 +356,53 @@ public sealed class WorldOrderExecutionAdmission
     }
 
     internal (OrderLiquidScope Master, OrderLiquidScope? Slave)? GetLiquidScopes(int demandId) =>
-        _scopesByDemand.TryGetValue(demandId, out var scopes) ? scopes : null;
+        _reservations.FindLease(demandId)?.LiquidScopes;
 
     /// <summary>结算并返还订单全部工作台游离液体；重复调用返回同一结果。</summary>
     internal LiquidBatchReceipt? SettleLiquidResources(int demandId)
     {
-        if (_settlementsByDemand.TryGetValue(demandId, out var settled)) return settled;
-        if (_shipLiquidInventory == null || !_scopesByDemand.TryGetValue(demandId, out var scopes))
+        var lease = _reservations.FindLease(demandId);
+        if (lease?.SettlementReceipt != null) return lease.SettlementReceipt;
+        var scopes = lease?.LiquidScopes;
+        if (_shipLiquidInventory == null || !scopes.HasValue)
             return null;
 
         var requested = new Dictionary<string, int>(StringComparer.Ordinal);
-        Merge(requested, scopes.Master.Staging.DrainOrder(demandId));
-        if (scopes.Slave != null)
-            Merge(requested, scopes.Slave.Staging.DrainOrder(demandId));
+        Merge(requested, scopes.Value.Master.Staging.DrainOrder(demandId));
+        if (scopes.Value.Slave != null)
+            Merge(requested, scopes.Value.Slave.Staging.DrainOrder(demandId));
 
         var receipt = _shipLiquidInventory.Return(requested);
-        _settlementsByDemand.Add(demandId, receipt);
-        return receipt;
+        return lease!.RecordSettlement(receipt);
     }
 
-    /// <summary>执行结束、取消或中断后释放预留；新路径先结算，再释放容量配额。</summary>
+    /// <summary>
+    /// 释放资源租约及其容量配额，不执行液体结算。
+    /// 新执行路径必须由 OrderResourceSettlementService 先完成结算，再调用此方法。
+    /// </summary>
+    internal bool ReleaseReservationOnly(int demandId)
+    {
+        var lease = _reservations.FindLease(demandId);
+        var scopes = lease?.LiquidScopes;
+        if (scopes.HasValue)
+        {
+            scopes.Value.Master.Staging.ReleaseOrderCapacity(demandId);
+            scopes.Value.Slave?.Staging.ReleaseOrderCapacity(demandId);
+        }
+        return _reservations.Release(demandId);
+    }
+
+    /// <summary>
+    /// 兼容旧调用方：结算液体后释放资源。新执行会话不应调用此入口。
+    /// </summary>
     public bool Release(int demandId)
     {
-        if (_scopesByDemand.TryGetValue(demandId, out var scopes))
-        {
-            SettleLiquidResources(demandId);
-            _scopesByDemand.Remove(demandId);
-            scopes.Master.Staging.ReleaseOrderCapacity(demandId);
-            scopes.Slave?.Staging.ReleaseOrderCapacity(demandId);
-            _settlementsByDemand.Remove(demandId);
-        }
-        var released = _reservations.Release(demandId);
-        return released;
+        SettleLiquidResources(demandId);
+        return ReleaseReservationOnly(demandId);
     }
 
-    private IReadOnlyDictionary<string, int> BuildReservationLiquidityView(
-        ShipLiquidInventory inventory, WorldOrderResourceManifest manifest)
-    {
-        var result = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var liquid in inventory.Balances.Keys
-            .Concat(manifest.MasterInitialLiquidAmounts.Keys)
-            .Distinct(StringComparer.Ordinal))
-        {
-            // ReservationBook 仍会扣除活动订单的预留；把已从自机液库实扣的预留加回输入，
-            // 防止同一批资源被“真实扣除 + 逻辑预留”重复扣减。
-            result[liquid] = checked(inventory.GetAmount(liquid) +
-                _reservations.ReservedLiquidAmount(liquid));
-        }
-        return result;
-    }
-
-    private bool TryAllocateOrderLiquids(
-        WorldOrderResourceManifest manifest, Workshop master, Workshop? slave, out string? reason)
-    {
-        var masterStaging = GetOrCreateStaging(master);
-        WorkshopLiquidStaging? slaveStaging = null;
-        var masterReserved = false;
-        var slaveReserved = false;
-
-        if (!masterStaging.TryReserveOrderCapacity(manifest.DemandId, manifest.MasterStagingPeakCapacity))
-        {
-            reason = "主工作台订单液体峰值容量无法预留";
-            return false;
-        }
-        masterReserved = true;
-
-        if (manifest.IsPartitioned)
-        {
-            if (slave == null)
-            {
-                masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-                reason = "B 类订单缺少从工作台";
-                return false;
-            }
-            slaveStaging = GetOrCreateStaging(slave);
-            if (!slaveStaging.TryReserveOrderCapacity(manifest.DemandId, manifest.SlaveStagingPeakCapacity))
-            {
-                masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-                reason = "从工作台订单液体峰值容量无法预留";
-                return false;
-            }
-            slaveReserved = true;
-        }
-
-        if (!_shipLiquidInventory!.TryWithdraw(manifest.MasterInitialLiquidAmounts, out _))
-        {
-            if (slaveReserved) slaveStaging!.ReleaseOrderCapacity(manifest.DemandId);
-            if (masterReserved) masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-            reason = "自机液库初始供给不足";
-            return false;
-        }
-
-        foreach (var item in manifest.MasterInitialLiquidAmounts)
-        {
-            if (item.Value == 0) continue;
-            if (!masterStaging.TryReceiveExact(manifest.DemandId, item.Key, item.Value, out var grant))
-            {
-                var drained = masterStaging.DrainOrder(manifest.DemandId);
-                _shipLiquidInventory.Return(drained);
-                if (slaveReserved) slaveStaging!.ReleaseOrderCapacity(manifest.DemandId);
-                if (masterReserved) masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-                reason = grant.Reason ?? "主工作台暂存区无法接收订单初始供给";
-                return false;
-            }
-        }
-
-        var masterScope = new OrderLiquidScope(manifest.DemandId, masterStaging);
-        var slaveScope = slaveStaging == null ? null : new OrderLiquidScope(manifest.DemandId, slaveStaging);
-        _scopesByDemand.Add(manifest.DemandId, (masterScope, slaveScope));
-        reason = null;
-        return true;
-    }
+    internal OrderResourceLease? FindLease(int demandId) =>
+        _reservations.FindLease(demandId);
 
     private WorkshopLiquidStaging GetOrCreateStaging(Workshop workshop)
     {

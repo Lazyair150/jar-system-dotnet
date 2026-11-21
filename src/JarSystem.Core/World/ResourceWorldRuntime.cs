@@ -28,8 +28,13 @@ public sealed class ResourceWorldRuntime
     /// <summary>导致世界进入故障状态的首次异常。</summary>
     public Exception? FaultException => _faultException;
     private Exception? _faultException;
+    internal bool BlocksOrderAdmission => IsFaulted || ReplacementBlocksWorld;
+
     private bool ReplacementBlocksWorld =>
-        ActiveReplacement is { IsFinished: false } or { InterruptionOutcomeUncertain: true };
+        ActiveReplacement is { IsFinished: false } or
+            { InterruptionOutcomeUncertain: true } or
+            { PrefillRollbackOutcomeUncertain: true } or
+            { PrefillCommitOutcomeUncertain: true };
 
     private readonly List<WorldOrderExecutionSession> _executionSessions = new();
     private readonly IReadOnlyList<WorldOrderExecutionSession> _executionSessionsView;
@@ -53,7 +58,7 @@ public sealed class ResourceWorldRuntime
         ArgumentNullException.ThrowIfNull(snapshots);
         if (ledgerTick < 0) throw new ArgumentOutOfRangeException(nameof(ledgerTick));
         ThrowIfFaulted();
-        if (_executionSessions.Count != 0 || ReplacementBlocksWorld || ActiveReplacement != null)
+        if (_executionSessions.Count != 0 || ReplacementBlocksWorld)
             throw new InvalidOperationException("只能向没有活动会话或工作台替换的 Runtime 恢复执行。");
         if (Roster == null || DemandBoard == null)
             throw new InvalidOperationException("当前 Runtime 缺少需求板或工作台岗位，不能恢复会话。");
@@ -75,6 +80,7 @@ public sealed class ResourceWorldRuntime
 
     // 世界级资源服务由装配层提供，避免 Runtime 创建缺少账本/对象池依赖的迁徙事件。
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
+    private readonly Func<Workshop, WorkshopPrefillTransaction>? _masterPrefill;
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
     private int _ledgerTick;
@@ -86,12 +92,14 @@ public sealed class ResourceWorldRuntime
         Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null,
         OrderDemandBoard? demandBoard = null,
         ResourceLedger? resourceLedger = null,
-        Func<int>? resourceLedgerTick = null)
+        Func<int>? resourceLedgerTick = null,
+        Func<Workshop, WorkshopPrefillTransaction>? masterPrefill = null)
     {
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         Clock = clock ?? new WorldClock();
         Roster = roster;
         _masterSwitchFactory = masterSwitchFactory;
+        _masterPrefill = masterPrefill;
         DemandBoard = demandBoard;
         if (resourceLedger == null && resourceLedgerTick != null)
             throw new ArgumentException("未配置资源账本时不能单独提供 tick 来源", nameof(resourceLedgerTick));
@@ -205,14 +213,78 @@ public sealed class ResourceWorldRuntime
         // 已登记会话也是当前世界中的活动订单。先让外部适配器完成其负责的订单中断，
         // 再逐个中断本 Runtime 持有的会话；任何后续失败都按“不确定”处理，不自动重试。
         var combinedInterruption = new RuntimeOrderInterruptionPort(_executionSessions, interruptionPort);
+        Func<Workshop, WorkshopPrefillTransaction>? prefillBeforeMigration = null;
+        Action<WorkshopPrefillTransaction>? rollbackPrefill = null;
+        if (role == WorkshopRole.Master && _masterPrefill != null)
+        {
+            prefillBeforeMigration = targetWorkshop =>
+            {
+                // 先取得 tick，再移动库存；tick provider 异常不能发生在资源扣款之后。
+                var tick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
+                WorkshopPrefillTransaction transaction;
+                try
+                {
+                    transaction = _masterPrefill(targetWorkshop);
+                }
+                catch (AggregateException creationRollbackError)
+                {
+                    throw new WorkshopPrefillRollbackException(
+                        "主台预置账户创建失败，且内部扣款回滚结果不确定。",
+                        creationRollbackError);
+                }
+                try
+                {
+                    if (_resourceLedger != null)
+                    {
+                        foreach (var item in transaction.Receipt.Accepted)
+                            _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
+                                item.Key, item.Value, from: "自机液库", to: "主台预置",
+                                reason: "主工作台切换前置补液");
+                    }
+                    return transaction;
+                }
+                catch (Exception prefillError)
+                {
+                    try
+                    {
+                        transaction.Rollback();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        throw new WorkshopPrefillRollbackException(
+                            "主台前置补液账本记录失败，且库存回滚也失败。",
+                            new AggregateException(prefillError, rollbackError));
+                    }
+                    throw;
+                }
+            };
+            rollbackPrefill = transaction =>
+            {
+                // 回滚 tick 也必须在资源回滚前取得；容量预留保证生产不会占用返还空间。
+                var tick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
+                transaction.Rollback();
+                if (_resourceLedger != null)
+                {
+                    foreach (var item in transaction.Receipt.Accepted)
+                        _resourceLedger.Record(tick, ResourceCauses.Return, ResourceKinds.Liquid,
+                            item.Key, item.Value, from: "主台预置", to: "自机液库",
+                            reason: "主工作台切换回滚");
+                }
+            };
+        }
         var process = new WorkshopReplacementProcess(
-            Roster, role, target, combinedInterruption, phaseDurationMilli, _masterSwitchFactory);
+            Roster, role, target, combinedInterruption, phaseDurationMilli,
+            _masterSwitchFactory, prefillBeforeMigration, rollbackPrefill);
         var result = process.Begin();
         // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查。
         if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
             ActiveReplacement = process;
+        if (process.PrefillRollbackOutcomeUncertain)
+            LatchFault(new InvalidOperationException(process.FailureReason ??
+                "主台前置补液回滚结果不确定。"),
+                "主台前置补液回滚失败；世界资源状态可能不完整");
 
-        // 中断结果不确定，或订单中断已提交但替换初始化失败，均不能安全继续世界。
+        // 中断结果不确定或前置补液回滚结果不确定时，禁止继续推进世界。
         if (process.InterruptionOutcomeUncertain ||
             (process.InterruptionCommitted && !result.Success))
         {

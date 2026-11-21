@@ -56,6 +56,8 @@ public sealed class WorldOrderScheduler
     {
         if (_runtime.IsFaulted)
             throw new InvalidOperationException("世界运行时已故障，不能执行订单调度：" + _runtime.FaultReason);
+        if (_runtime.BlocksOrderAdmission)
+            return new WorldOrderSchedulingPassResult(0, Array.Empty<int>(), Array.Empty<WorldOrderSchedulingDecision>());
         if (_running)
             throw new InvalidOperationException("订单调度过程不可重入");
 
@@ -70,7 +72,7 @@ public sealed class WorldOrderScheduler
 
             // 所有订单先共享同一份只读世界快照。Evaluate 会复用同版本缓存，
             // 只对 Dirty、NotReady 到期或世界版本变化的订单真正调用求解器。
-            var sharedSnapshot = WorldSnapshotFactory.Capture(_roster, _admission.ShipLiquidInventory);
+            var sharedSnapshot = _admission.CaptureWorldSnapshot();
             foreach (var demand in initialDemands)
             {
                 var record = _solveBook.Evaluate(demand.Id, sharedSnapshot, _solverRegistry);
@@ -90,7 +92,7 @@ public sealed class WorldOrderScheduler
 
                 if (refreshSnapshot)
                 {
-                    currentSnapshot = WorldSnapshotFactory.Capture(_roster, _admission.ShipLiquidInventory);
+                    currentSnapshot = _admission.CaptureWorldSnapshot();
                     refreshSnapshot = false;
                 }
                 var record = _solveBook.Evaluate(demand.Id, currentSnapshot, _solverRegistry);
@@ -123,7 +125,7 @@ public sealed class WorldOrderScheduler
 
             // 把本轮末尾仍登记的订单记录同步到最终世界版本。被动启动过程中若发生
             // 零时间 MATCH/即时交付，主动订单的早期求解结果也不能被报告为当前结果。
-            var finalSnapshot = WorldSnapshotFactory.Capture(_roster, _admission.ShipLiquidInventory);
+            var finalSnapshot = _admission.CaptureWorldSnapshot();
             foreach (var demand in initialDemands)
             {
                 var record = _solveBook.Evaluate(demand.Id, finalSnapshot, _solverRegistry);
@@ -176,13 +178,15 @@ public sealed class WorldOrderScheduler
     {
         if (_runtime.IsFaulted)
             return WorldOrderExecutionStartResult.Rejected("世界运行时已故障，不能启动订单：" + _runtime.FaultReason);
+        if (_runtime.BlocksOrderAdmission)
+            return WorldOrderExecutionStartResult.Rejected("工作台替换正在进行或结果不确定，不能启动订单。");
         if (_running)
             return WorldOrderExecutionStartResult.Rejected("当前正在执行调度过程，不能重入启动主动订单");
 
         if (!_board.Active.Demands.Any(demand => demand.Id == demandId))
             return WorldOrderExecutionStartResult.Rejected("指定订单不属于主动需求区域");
 
-        var snapshot = WorldSnapshotFactory.Capture(_roster, _admission.ShipLiquidInventory);
+        var snapshot = _admission.CaptureWorldSnapshot();
         _solveBook.Evaluate(demandId, snapshot, _solverRegistry);
         return _runtime.TryStartExecutionSession(
             demandId, _solveBook, _admission, _logicalTimePerUnit);

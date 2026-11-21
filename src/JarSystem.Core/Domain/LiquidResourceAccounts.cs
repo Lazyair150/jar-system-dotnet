@@ -8,6 +8,7 @@ namespace JarSystem.Core.Domain;
 public sealed class ShipLiquidInventory
 {
     private readonly Dictionary<string, int> _balances = new(StringComparer.Ordinal);
+    private int _reservedReturnCapacity;
     private readonly IReadOnlyDictionary<string, int> _view;
 
     public ShipLiquidInventory(int capacity, IReadOnlyDictionary<string, int>? initialBalances = null)
@@ -34,7 +35,8 @@ public sealed class ShipLiquidInventory
 
     public int Capacity { get; }
     public int UsedCapacity => TotalAmount(_balances);
-    public int AvailableCapacity => Capacity - UsedCapacity;
+    public int ReservedReturnCapacity => _reservedReturnCapacity;
+    public int AvailableCapacity => Capacity - UsedCapacity - _reservedReturnCapacity;
     public IReadOnlyDictionary<string, int> Balances => _view;
     public int GetAmount(string liquid) => _balances.GetValueOrDefault(ValidateLiquid(liquid));
 
@@ -69,6 +71,49 @@ public sealed class ShipLiquidInventory
         return true;
     }
 
+    /// <summary>
+    /// 为可回滚的主台预置转移扣款，并同时预留等量回库容量。
+    /// 替换期间生产仍可继续，但不能占用这部分回滚所需的容量。
+    /// </summary>
+    internal bool TryWithdrawForTransfer(
+        IReadOnlyDictionary<string, int> amounts,
+        out ShipLiquidTransferReservation? reservation)
+    {
+        ValidateAmounts(amounts);
+        foreach (var pair in amounts)
+        {
+            if (GetAmount(pair.Key) < pair.Value)
+            {
+                reservation = null;
+                return false;
+            }
+        }
+
+        var total = TotalAmount(amounts);
+        foreach (var pair in amounts) AddUnchecked(pair.Key, -pair.Value);
+        _reservedReturnCapacity = checked(_reservedReturnCapacity + total);
+        reservation = new ShipLiquidTransferReservation(this,
+            new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(amounts, StringComparer.Ordinal)),
+            total);
+        return true;
+    }
+
+    internal void CommitTransferReservation(int amount)
+    {
+        if (amount < 0 || amount > _reservedReturnCapacity)
+            throw new InvalidOperationException("自机液库回滚容量预留内部状态无效。");
+        _reservedReturnCapacity -= amount;
+    }
+
+    internal void RollbackTransferReservation(IReadOnlyDictionary<string, int> amounts, int reservedAmount)
+    {
+        if (reservedAmount < 0 || reservedAmount > _reservedReturnCapacity ||
+            TotalAmount(amounts) != reservedAmount)
+            throw new InvalidOperationException("自机液库预置转移回滚预留不匹配。");
+        foreach (var item in amounts) AddUnchecked(item.Key, item.Value);
+        _reservedReturnCapacity -= reservedAmount;
+    }
+
     /// <summary>订单结算返还：允许部分接收，超出自机总容量的部分丢弃。</summary>
     public LiquidBatchReceipt Return(IReadOnlyDictionary<string, int> amounts)
     {
@@ -93,13 +138,19 @@ public sealed class ShipLiquidInventory
         return new LiquidBatchReceipt(requested, acceptedAmounts, discardedAmounts);
     }
 
-    public ShipLiquidInventorySnapshot Capture() =>
-        new(Capacity, new Dictionary<string, int>(_balances, StringComparer.Ordinal));
+    public ShipLiquidInventorySnapshot Capture()
+    {
+        if (_reservedReturnCapacity != 0)
+            throw new InvalidOperationException("自机液库存在尚未提交的预置转移事务，不能单独捕获库存快照。");
+        return new ShipLiquidInventorySnapshot(Capacity, new Dictionary<string, int>(_balances, StringComparer.Ordinal));
+    }
 
     /// <summary>将已验证的库存快照装入同容量液库；不会执行生产、扣款或返还语义。</summary>
     public void RestoreFrom(ShipLiquidInventorySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        if (_reservedReturnCapacity != 0)
+            throw new InvalidOperationException("自机液库存在尚未结束的预置转移事务，不能恢复库存快照。");
         if (snapshot.Capacity != Capacity)
             throw new DomainValidationException("自机液库快照容量与当前实例不一致。");
         ValidateAmounts(snapshot.Balances);
@@ -196,6 +247,85 @@ public sealed class ShipLiquidInventorySnapshot
     public int UsedCapacity => ShipLiquidInventory.TotalAmount(Balances);
 }
 
+
+/// <summary>自机液库到工作台预置账户的可回滚资源转移；提交后不可回滚。</summary>
+public sealed class WorkshopPrefillTransaction
+{
+    private readonly WorkshopLiquidStaging _staging;
+    private readonly ShipLiquidTransferReservation? _shipReservation;
+    private bool _completed;
+    private bool _committed;
+
+    internal WorkshopPrefillTransaction(
+        WorkshopLiquidStaging staging,
+        ShipLiquidTransferReservation? shipReservation,
+        LiquidBatchReceipt receipt)
+    {
+        _staging = staging;
+        _shipReservation = shipReservation;
+        Receipt = receipt;
+    }
+
+    public LiquidBatchReceipt Receipt { get; }
+    public bool IsCompleted => _completed;
+    public bool IsCommitted => _committed;
+
+    public void Commit()
+    {
+        if (_completed) return;
+        _shipReservation?.Commit();
+        if (_shipReservation != null) _staging.CompletePrefillTransaction();
+        _completed = true;
+        _committed = true;
+    }
+
+    public void Rollback()
+    {
+        if (_completed)
+        {
+            if (_committed) throw new InvalidOperationException("已提交的主台预置补液不能回滚。");
+            return;
+        }
+        if (_shipReservation != null)
+        {
+            _staging.RemovePrefillForRollback(Receipt.Accepted);
+            _shipReservation.Rollback();
+            _staging.CompletePrefillTransaction();
+        }
+        _completed = true;
+    }
+}
+
+internal sealed class ShipLiquidTransferReservation
+{
+    private readonly ShipLiquidInventory _inventory;
+    private readonly IReadOnlyDictionary<string, int> _amounts;
+    private readonly int _total;
+    private bool _completed;
+
+    public ShipLiquidTransferReservation(
+        ShipLiquidInventory inventory, IReadOnlyDictionary<string, int> amounts, int total)
+    {
+        _inventory = inventory;
+        _amounts = amounts;
+        _total = total;
+    }
+
+    public void Commit()
+    {
+        if (_completed) return;
+        _inventory.CommitTransferReservation(_total);
+        _completed = true;
+    }
+
+    public void Rollback()
+    {
+        if (_completed) throw new InvalidOperationException("自机液库预置转移预留已经结束。");
+        _inventory.RollbackTransferReservation(_amounts, _total);
+        _completed = true;
+    }
+}
+
 /// <summary>
 /// 单个工作台的液体暂存区。容量由该工作台所有订单子账共同占用。
 /// 本对象不执行 Jar 操作，只提供订单范围内的液体资源读写。
@@ -203,8 +333,10 @@ public sealed class ShipLiquidInventorySnapshot
 public sealed class WorkshopLiquidStaging
 {
     private readonly Dictionary<int, Dictionary<string, int>> _accounts = new();
+    private readonly Dictionary<string, int> _prefillBalances = new(StringComparer.Ordinal);
     // 订单预留的是整条路径可能达到的总库存峰值，而不是额外可用量。
     private readonly Dictionary<int, int> _reservedCapacityByOrder = new();
+    private bool _prefillTransactionPending;
     private readonly HashSet<string> _banned;
     private readonly IReadOnlyCollection<string> _bannedView;
 
@@ -221,14 +353,16 @@ public sealed class WorkshopLiquidStaging
     }
 
     public int Capacity { get; }
-    public int UsedCapacity => ShipLiquidInventory.TotalAmount(
-        _accounts.Values.SelectMany(account => account));
+    public int UsedCapacity => checked(ShipLiquidInventory.TotalAmount(_prefillBalances) +
+        ShipLiquidInventory.TotalAmount(_accounts.Values.SelectMany(account => account)));
+    public IReadOnlyDictionary<string, int> PrefillBalances =>
+        new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(_prefillBalances, StringComparer.Ordinal));
     public int ReservedCapacity => _reservedCapacityByOrder.Values.Sum();
     public int OccupiedCapacity
     {
         get
         {
-            var occupied = 0;
+            var occupied = ShipLiquidInventory.TotalAmount(_prefillBalances);
             foreach (var pair in _accounts)
                 occupied = checked(occupied + Math.Max(
                     _reservedCapacityByOrder.GetValueOrDefault(pair.Key),
@@ -246,6 +380,7 @@ public sealed class WorkshopLiquidStaging
     /// </summary>
     public bool TryReserveOrderCapacity(int orderId, int peakCapacity)
     {
+        if (_prefillTransactionPending) return false;
         ValidateOrderId(orderId);
         if (peakCapacity < 0) throw new DomainValidationException("订单液体容量预留不能为负数。");
         if (_reservedCapacityByOrder.ContainsKey(orderId)) return false;
@@ -254,8 +389,97 @@ public sealed class WorkshopLiquidStaging
         return true;
     }
 
+    /// <summary>
+    /// 切换主工作台时，从自机液库为目标主台预置账户补液。
+    /// 优先级列表必须由调用方提供确定顺序；剩余液种按名称排序，结果不依赖字典枚举顺序。
+    /// 只补到工作台总暂存容量，库存不足时允许部分补入。
+    /// </summary>
+    internal WorkshopPrefillTransaction BeginPrefillFromShip(
+        ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentNullException.ThrowIfNull(preferredLiquids);
+        EnsureNoPendingPrefillTransaction();
+        var preferred = preferredLiquids.Select(ShipLiquidInventory.ValidateLiquid).Distinct(StringComparer.Ordinal).ToArray();
+        var ordered = preferred.Concat(inventory.Balances.Keys.OrderBy(item => item, StringComparer.Ordinal)).Distinct(StringComparer.Ordinal);
+        var remaining = AvailableCapacity;
+        var transfer = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var liquid in ordered)
+        {
+            if (remaining == 0) break;
+            if (_banned.Contains(liquid)) continue;
+            var amount = Math.Min(inventory.GetAmount(liquid), remaining);
+            if (amount <= 0) continue;
+            transfer.Add(liquid, amount);
+            remaining -= amount;
+        }
+
+        if (transfer.Count == 0)
+            return new WorkshopPrefillTransaction(this, null,
+                new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>()));
+        if (!inventory.TryWithdrawForTransfer(transfer, out var reservation))
+            throw new InvalidOperationException("自机液库在主台前置补液提交前发生变化。");
+        try
+        {
+            RestorePrefill(transfer);
+            _prefillTransactionPending = true;
+            return new WorkshopPrefillTransaction(this, reservation,
+                new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>()));
+        }
+        catch (Exception prefillError)
+        {
+            try
+            {
+                reservation!.Rollback();
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "主台预置账户写入失败，且自机液库扣款回滚也失败。",
+                    prefillError, rollbackError);
+            }
+            throw;
+        }
+    }
+
+    internal LiquidBatchReceipt PrefillFromShip(ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
+    {
+        var transaction = BeginPrefillFromShip(inventory, preferredLiquids);
+        transaction.Commit();
+        return transaction.Receipt;
+    }
+
+    /// <summary>从空闲预置余额中为新订单取液；不足部分由订单准入再从自机液库扣除。</summary>
+    internal IReadOnlyDictionary<string, int> WithdrawPrefillUpTo(IReadOnlyDictionary<string, int> requested)
+    {
+        EnsureNoPendingPrefillTransaction();
+        ShipLiquidInventory.ValidateAmounts(requested);
+        var withdrawn = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in requested.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            var amount = Math.Min(item.Value, _prefillBalances.GetValueOrDefault(item.Key));
+            if (amount <= 0) continue;
+            AddPrefillUnchecked(item.Key, -amount);
+            withdrawn.Add(item.Key, amount);
+        }
+        return new ReadOnlyDictionary<string, int>(withdrawn);
+    }
+
+    /// <summary>准入回滚时把尚未提交给订单账户的预置液体放回原账户。</summary>
+    internal void RestorePrefill(IReadOnlyDictionary<string, int> amounts)
+    {
+        ShipLiquidInventory.ValidateAmounts(amounts);
+        foreach (var item in amounts)
+        {
+            if (item.Value == 0) continue;
+            if (_banned.Contains(item.Key)) throw new InvalidOperationException("不能把已禁用液体恢复到工作台预置账户：" + item.Key);
+            AddPrefillUnchecked(item.Key, item.Value);
+        }
+        if (OccupiedCapacity > Capacity) throw new InvalidOperationException("恢复工作台预置液体后超过暂存区总容量。");
+    }
     public bool ReleaseOrderCapacity(int orderId)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         return _reservedCapacityByOrder.Remove(orderId);
     }
@@ -282,6 +506,7 @@ public sealed class WorkshopLiquidStaging
     /// <summary>普通资源产出入口：ban 拒收；容量不足时部分接收，其余丢弃。</summary>
     public LiquidInventoryReceipt Receive(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -296,6 +521,7 @@ public sealed class WorkshopLiquidStaging
 
     public LiquidGrant CanConsume(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -306,6 +532,7 @@ public sealed class WorkshopLiquidStaging
 
     public bool TryConsume(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -322,6 +549,7 @@ public sealed class WorkshopLiquidStaging
     /// </summary>
     public LiquidGrant CanAcceptOperation(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -333,6 +561,7 @@ public sealed class WorkshopLiquidStaging
 
     public LiquidGrant CanAcceptOperation(string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
         if (_banned.Contains(liquid)) return LiquidGrant.Banned(liquid);
@@ -344,6 +573,7 @@ public sealed class WorkshopLiquidStaging
     /// <summary>操作执行专用的全量接收；失败时不修改库存。</summary>
     public bool TryReceiveExact(int orderId, string liquid, int amount, out LiquidGrant result)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         result = CanAcceptOperation(orderId, liquid, amount);
         if (!result.Granted) return false;
@@ -354,6 +584,7 @@ public sealed class WorkshopLiquidStaging
     /// <summary>只允许清除指定订单子账；返回被清除的真实余额。</summary>
     public IReadOnlyDictionary<string, int> DrainOrder(int orderId)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         if (!_accounts.Remove(orderId, out var account))
             return new ReadOnlyDictionary<string, int>(new Dictionary<string, int>());
@@ -362,8 +593,40 @@ public sealed class WorkshopLiquidStaging
     }
 
     /// <summary>捕获订单子账与容量预留；快照不暴露内部可变字典。</summary>
-    public WorkshopLiquidStagingSnapshot Capture() =>
-        new(Capacity, _banned, _accounts, _reservedCapacityByOrder);
+    public WorkshopLiquidStagingSnapshot Capture()
+    {
+        EnsureNoPendingPrefillTransaction();
+        return new WorkshopLiquidStagingSnapshot(
+            Capacity, _banned, _accounts, _reservedCapacityByOrder, _prefillBalances);
+    }
+
+    internal void CompletePrefillTransaction()
+    {
+        if (!_prefillTransactionPending)
+            throw new InvalidOperationException("主台预置事务状态不匹配。");
+        _prefillTransactionPending = false;
+    }
+
+    internal void RemovePrefillForRollback(IReadOnlyDictionary<string, int> amounts)
+    {
+        if (!_prefillTransactionPending)
+            throw new InvalidOperationException("没有待回滚的主台预置事务。");
+        ShipLiquidInventory.ValidateAmounts(amounts);
+        foreach (var item in amounts)
+        {
+            if (_prefillBalances.GetValueOrDefault(item.Key) < item.Value)
+                throw new InvalidOperationException("主台预置账户在回滚前已发生变化：" + item.Key);
+            AddPrefillUnchecked(item.Key, -item.Value);
+        }
+    }
+
+    private void EnsureNoPendingPrefillTransaction()
+    {
+        if (_prefillTransactionPending)
+            throw new InvalidOperationException("主台前置补液事务尚未提交，不能并发修改订单暂存账户。");
+    }
+
+    internal void EnsureCanTransferOrderLiquids() => EnsureNoPendingPrefillTransaction();
 
     /// <summary>
     /// 从纯值快照重建暂存区。恢复前完整验证 ban、订单账户、容量预留及总占用，
@@ -376,6 +639,14 @@ public sealed class WorkshopLiquidStaging
             throw new DomainValidationException("工作台液体暂存快照容量不能为负数。");
 
         var staging = new WorkshopLiquidStaging(snapshot.Capacity, snapshot.BannedLiquids);
+        foreach (var balance in snapshot.PrefillBalances)
+        {
+            ShipLiquidInventory.ValidateLiquid(balance.Key);
+            ShipLiquidInventory.ValidateAmount(balance.Value, allowZero: false);
+            if (staging._banned.Contains(balance.Key)) throw new DomainValidationException("暂存快照包含工作台禁用的预置液体：" + balance.Key);
+            staging.AddPrefillUnchecked(balance.Key, balance.Value);
+        }
+
         foreach (var pair in snapshot.Accounts)
         {
             ValidateOrderId(pair.Key);
@@ -410,6 +681,7 @@ public sealed class WorkshopLiquidStaging
 
     internal bool CanReceiveForTransfer(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateLiquid(liquid);
         ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
@@ -418,6 +690,7 @@ public sealed class WorkshopLiquidStaging
 
     internal bool CanReceiveTransferBatch(int orderId, IReadOnlyDictionary<string, int> amounts)
     {
+        EnsureNoPendingPrefillTransaction();
         ValidateOrderId(orderId);
         ShipLiquidInventory.ValidateAmounts(amounts);
         if (amounts.Keys.Any(_banned.Contains)) return false;
@@ -426,13 +699,17 @@ public sealed class WorkshopLiquidStaging
 
     internal bool TryTransferOut(int orderId, string liquid, int amount)
     {
+        EnsureNoPendingPrefillTransaction();
         if (GetAmount(orderId, liquid) < amount) return false;
         AddUnchecked(orderId, liquid, -amount);
         return true;
     }
 
-    internal void ReceiveTransferUnchecked(int orderId, string liquid, int amount) =>
+    internal void ReceiveTransferUnchecked(int orderId, string liquid, int amount)
+    {
+        EnsureNoPendingPrefillTransaction();
         AddUnchecked(orderId, liquid, amount);
+    }
 
     private int AvailableCapacityFor(int orderId)
     {
@@ -444,6 +721,14 @@ public sealed class WorkshopLiquidStaging
             return Math.Max(0, quota - used);
         }
         return AvailableCapacity;
+    }
+
+    private void AddPrefillUnchecked(string liquid, int delta)
+    {
+        var next = checked(_prefillBalances.GetValueOrDefault(liquid) + delta);
+        if (next < 0) throw new InvalidOperationException("工作台预置液体余额内部不变量被破坏。");
+        if (next == 0) _prefillBalances.Remove(liquid);
+        else _prefillBalances[liquid] = next;
     }
 
     private void AddUnchecked(int orderId, string liquid, int delta)
@@ -475,7 +760,8 @@ public sealed class WorkshopLiquidStagingSnapshot
         int capacity,
         IEnumerable<string> bannedLiquids,
         IReadOnlyDictionary<int, Dictionary<string, int>> accounts,
-        IReadOnlyDictionary<int, int>? reservedCapacityByOrder = null)
+        IReadOnlyDictionary<int, int>? reservedCapacityByOrder = null,
+        IReadOnlyDictionary<string, int>? prefillBalances = null)
     {
         Capacity = capacity;
         BannedLiquids = Array.AsReadOnly(bannedLiquids.OrderBy(liquid => liquid, StringComparer.Ordinal).ToArray());
@@ -486,18 +772,21 @@ public sealed class WorkshopLiquidStagingSnapshot
         Accounts = new ReadOnlyDictionary<int, IReadOnlyDictionary<string, int>>(copy);
         ReservedCapacityByOrder = new ReadOnlyDictionary<int, int>(
             new Dictionary<int, int>(reservedCapacityByOrder ?? new Dictionary<int, int>()));
+        PrefillBalances = new ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(prefillBalances ?? new Dictionary<string, int>(), StringComparer.Ordinal));
     }
 
     public int Capacity { get; }
     public IReadOnlyCollection<string> BannedLiquids { get; }
     public IReadOnlyDictionary<int, IReadOnlyDictionary<string, int>> Accounts { get; }
     public IReadOnlyDictionary<int, int> ReservedCapacityByOrder { get; }
+    public IReadOnlyDictionary<string, int> PrefillBalances { get; }
     public int ReservedCapacity => ReservedCapacityByOrder.Values.Sum();
     public int OccupiedCapacity
     {
         get
         {
-            var occupied = 0;
+            var occupied = ShipLiquidInventory.TotalAmount(PrefillBalances);
             foreach (var pair in Accounts)
                 occupied = checked(occupied + Math.Max(
                     ReservedCapacityByOrder.GetValueOrDefault(pair.Key),
@@ -508,8 +797,8 @@ public sealed class WorkshopLiquidStagingSnapshot
             return occupied;
         }
     }
-    public int UsedCapacity => ShipLiquidInventory.TotalAmount(
-        Accounts.Values.SelectMany(account => account));
+    public int UsedCapacity => checked(ShipLiquidInventory.TotalAmount(PrefillBalances) +
+        ShipLiquidInventory.TotalAmount(Accounts.Values.SelectMany(account => account)));
 }
 
 /// <summary>主台到从台的订单液体单向交接。整批原子提交，不允许部分交接。</summary>
@@ -528,6 +817,8 @@ public static class OrderLiquidTransfer
 
         if (ReferenceEquals(master, slave))
             throw new DomainValidationException("主工作台和从工作台不能是同一个暂存区。");
+        master.EnsureCanTransferOrderLiquids();
+        slave.EnsureCanTransferOrderLiquids();
 
         if (orderId <= 0)
             throw new DomainValidationException("订单 ID 必须是正整数。");

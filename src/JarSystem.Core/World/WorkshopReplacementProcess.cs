@@ -4,6 +4,12 @@ using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.World;
 
+public sealed class WorkshopPrefillRollbackException : InvalidOperationException
+{
+    public WorkshopPrefillRollbackException(string message, Exception innerException)
+        : base(message, innerException) { }
+}
+
 public enum WorkshopRole
 {
     Master,
@@ -23,6 +29,9 @@ public sealed class WorkshopReplacementProcess
     private readonly IOrderInterruptionPort _interruptionPort;
     private readonly long _phaseDurationMilli;
     private readonly WorkshopSwitchEvent? _masterSwitch;
+    private readonly Func<Workshop, WorkshopPrefillTransaction>? _masterPrefill;
+    private readonly Action<WorkshopPrefillTransaction>? _rollbackMasterPrefill;
+    private WorkshopPrefillTransaction? _prefillTransaction;
 
     private long _phaseElapsedMilli;
     private int _phase;
@@ -35,6 +44,10 @@ public sealed class WorkshopReplacementProcess
     public bool InterruptionCommitted { get; private set; }
     /// <summary>订单中断接口抛出异常，外部是否已中断无法确认。</summary>
     public bool InterruptionOutcomeUncertain { get; private set; }
+    /// <summary>前置补液回滚失败，世界资源状态可能不完整。</summary>
+    public bool PrefillRollbackOutcomeUncertain { get; private set; }
+    /// <summary>岗位已提交，但前置补液 Commit 失败，世界资源提交状态不确定。</summary>
+    public bool PrefillCommitOutcomeUncertain { get; private set; }
     public string? FailureReason { get; private set; }
     /// <summary>迁徙已提交后，外部账本/统计/对象池副作用若失败，记录警告而不回滚已提交世界。</summary>
     public string? CommitWarning { get; private set; }
@@ -51,7 +64,9 @@ public sealed class WorkshopReplacementProcess
         Workshop targetWorkshop,
         IOrderInterruptionPort interruptionPort,
         long phaseDurationMilli,
-        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null)
+        Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null,
+        Func<Workshop, WorkshopPrefillTransaction>? masterPrefill = null,
+        Action<WorkshopPrefillTransaction>? rollbackMasterPrefill = null)
     {
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _role = role;
@@ -60,6 +75,8 @@ public sealed class WorkshopReplacementProcess
         if (phaseDurationMilli <= 0)
             throw new ArgumentOutOfRangeException(nameof(phaseDurationMilli), "替换阶段时长必须大于零");
         _phaseDurationMilli = phaseDurationMilli;
+        _masterPrefill = role == WorkshopRole.Master ? masterPrefill : null;
+        _rollbackMasterPrefill = role == WorkshopRole.Master ? rollbackMasterPrefill : null;
 
         _oldWorkshop = role switch
         {
@@ -117,14 +134,25 @@ public sealed class WorkshopReplacementProcess
                 throw new InvalidOperationException("订单中断已成功，但旧从工作台仍有资源；拒绝继续替换");
 
             // 必须在订单中断与从台结算之后拍快照，确保回滚不会复活已中断订单的临时资源。
+            // 前置补液与迁徙共享替换生命周期；迁徙失败/取消时回滚预置余额和自机扣款。
+            if (_role == WorkshopRole.Master) _prefillTransaction = _masterPrefill?.Invoke(_targetWorkshop);
             _masterSwitch?.Begin();
             _begun = true;
             return (true, null);
         }
         catch (Exception ex)
         {
-            // 订单中断已经成功，是不可逆边界；初始化失败时明确终止，不能重复中断或假装恢复订单。
-            FailureReason = "订单已中断，但替换初始化失败；订单中断不会自动撤销: " + ex.Message;
+            // 订单中断已经成功，是不可逆边界；补液本身可回滚，不能把初始化失败留成半笔资源转移。
+            var failure = ex;
+            if (ex is WorkshopPrefillRollbackException)
+                PrefillRollbackOutcomeUncertain = true;
+            try { RollbackPrefillIfPending(); }
+            catch (Exception rollbackError)
+            {
+                PrefillRollbackOutcomeUncertain = true;
+                failure = new AggregateException("主台前置补液回滚失败。", ex, rollbackError);
+            }
+            FailureReason = "订单已中断，但替换初始化失败；订单中断不会自动撤销: " + failure.Message;
             _finished = true;
             return (false, FailureReason);
         }
@@ -171,21 +199,38 @@ public sealed class WorkshopReplacementProcess
                     try
                     {
                         _roster.CommitMasterReplacement(_oldWorkshop, _targetWorkshop);
-                        try
-                        {
-                            // 岗位指向已提交；此后外部副作用失败不能再伪装成可回滚的迁徙失败。
-                            _masterSwitch!.CommitTransferEffects();
-                        }
-                        catch (Exception commitError)
-                        {
-                            CommitWarning = "迁徙已提交，但外部副作用提交失败: " + commitError.Message;
-                        }
-                        Succeed();
                     }
                     catch (Exception ex)
                     {
                         Fail(ex.Message);
+                        return;
                     }
+
+                    try
+                    {
+                        // 岗位指向已提交；此后外部副作用失败不能再伪装成可回滚的迁徙失败。
+                        _masterSwitch!.CommitTransferEffects();
+                    }
+                    catch (Exception commitError)
+                    {
+                        CommitWarning = "迁徙已提交，但外部副作用提交失败: " + commitError.Message;
+                    }
+
+                    try
+                    {
+                        _prefillTransaction?.Commit();
+                        _prefillTransaction = null;
+                    }
+                    catch (Exception prefillCommitError)
+                    {
+                        // 岗位/迁徙已提交，不得再调用 Fail() 回滚已经提交的迁徙。
+                        PrefillCommitOutcomeUncertain = true;
+                        FailureReason = "岗位已提交，但主台前置补液事务提交失败: " + prefillCommitError.Message;
+                        _finished = true;
+                        throw;
+                    }
+
+                    Succeed();
                 }
             }
             else
@@ -208,7 +253,6 @@ public sealed class WorkshopReplacementProcess
     public void Cancel(string reason = "工作台替换已取消")
     {
         if (!_begun || _finished) return;
-        _masterSwitch?.Rollback();
         Fail(reason);
     }
 
@@ -225,10 +269,27 @@ public sealed class WorkshopReplacementProcess
 
     private void Fail(string reason)
     {
-        _masterSwitch?.Rollback();
+        try
+        {
+            _masterSwitch?.Rollback();
+        }
+        finally
+        {
+            RollbackPrefillIfPending();
+        }
         FailureReason = reason;
         Succeeded = false;
         _finished = true;
+    }
+
+    private void RollbackPrefillIfPending()
+    {
+        if (_prefillTransaction == null || _prefillTransaction.IsCompleted) return;
+        if (_rollbackMasterPrefill != null)
+            _rollbackMasterPrefill(_prefillTransaction);
+        else
+            _prefillTransaction.Rollback();
+        _prefillTransaction = null;
     }
 
     private void Succeed()

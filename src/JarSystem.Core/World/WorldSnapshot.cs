@@ -25,17 +25,21 @@ public sealed class WorldSnapshot
     public WorkshopSolveSnapshot? Slave { get; }
     /// <summary>新液体资源路径的自机液库纯值快照；为空表示旧版兼容求解输入。</summary>
     public ShipLiquidInventorySnapshot? ShipLiquidInventory { get; }
+    public IReadOnlyDictionary<string, int> MasterPrefillLiquidBalances { get; }
 
     internal WorldSnapshot(
         string version,
         WorkshopSolveSnapshot? master,
         WorkshopSolveSnapshot? slave,
-        ShipLiquidInventorySnapshot? shipLiquidInventory)
+        ShipLiquidInventorySnapshot? shipLiquidInventory,
+        IReadOnlyDictionary<string, int>? masterPrefillLiquidBalances = null)
     {
         Version = version;
         Master = master;
         Slave = slave;
         ShipLiquidInventory = shipLiquidInventory;
+        MasterPrefillLiquidBalances = new ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(masterPrefillLiquidBalances ?? new Dictionary<string, int>(), StringComparer.Ordinal));
     }
 }
 
@@ -200,7 +204,8 @@ public sealed record WorldRuleModifierSnapshot(
 public static class WorldSnapshotFactory
 {
     public static WorldSnapshot Capture(
-        WorkshopRoster roster, ShipLiquidInventory? shipLiquidInventory = null)
+        WorkshopRoster roster, ShipLiquidInventory? shipLiquidInventory = null,
+        IReadOnlyDictionary<string, int>? masterPrefillLiquidBalances = null)
     {
         if (roster == null) throw new ArgumentNullException(nameof(roster));
 
@@ -209,14 +214,18 @@ public static class WorldSnapshotFactory
         var master = masterWorkshop == null ? null : new WorkshopSolveSnapshot(masterWorkshop);
         var slave = slaveWorkshop == null ? null : new WorkshopSolveSnapshot(slaveWorkshop);
         var ship = shipLiquidInventory?.Capture();
-        var version = ComputeVersion(master, slave, ship);
-        return new WorldSnapshot(version, master, slave, ship);
+        if (masterPrefillLiquidBalances != null)
+            ShipLiquidInventory.ValidateAmounts(masterPrefillLiquidBalances);
+        var prefill = masterPrefillLiquidBalances ?? new Dictionary<string, int>(StringComparer.Ordinal);
+        var version = ComputeVersion(master, slave, ship, prefill);
+        return new WorldSnapshot(version, master, slave, ship, prefill);
     }
 
     private static string ComputeVersion(
         WorkshopSolveSnapshot? master,
         WorkshopSolveSnapshot? slave,
-        ShipLiquidInventorySnapshot? ship)
+        ShipLiquidInventorySnapshot? ship,
+        IReadOnlyDictionary<string, int> masterPrefill)
     {
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
@@ -225,6 +234,9 @@ public static class WorldSnapshotFactory
             WriteWorkshop(writer, master);
             WriteWorkshop(writer, slave);
             WriteShipLiquidInventory(writer, ship);
+            var prefill = masterPrefill.OrderBy(item => item.Key, StringComparer.Ordinal).ToArray();
+            writer.Write(prefill.Length);
+            foreach (var item in prefill) { writer.Write(item.Key); writer.Write(item.Value); }
         }
 
         return Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant();

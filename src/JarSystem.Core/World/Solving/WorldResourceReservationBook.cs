@@ -11,12 +11,37 @@ namespace JarSystem.Core.World.Solving;
 public sealed class WorldResourceReservationBook
 {
     private readonly object _gate = new();
-    private readonly Dictionary<int, WorldResourceReservation> _byDemand = new();
+    private readonly Dictionary<int, OrderResourceLease> _byDemand = new();
     private readonly Dictionary<int, int> _jarOwners = new();
     // 当前世界只有一个从台岗位；B 类执行会独占它直到会话终结。
     private int? _slaveOwnerDemandId;
 
     public int Count { get { lock (_gate) return _byDemand.Count; } }
+
+    /// <summary>捕获包含结算状态的租约 wire 快照；不保存可重建的索引。</summary>
+    public WorldResourceReservationBookWireDto CaptureWire()
+    {
+        lock (_gate)
+            return new WorldResourceReservationBookWireDto(
+                _byDemand.Values.OrderBy(item => item.DemandId)
+                    .Select(OrderResourceLeaseWireDto.FromLease));
+    }
+
+    /// <summary>从完整租约 wire DTO 恢复预留簿及其派生索引。</summary>
+    public static WorldResourceReservationBook RestoreWire(WorldResourceReservationBookWireDto snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        snapshot.Validate();
+        var reservations = snapshot.Leases.Select(item => item.ToReservation()).ToArray();
+        var restored = Restore(new WorldResourceReservationBookSnapshot(reservations));
+        foreach (var item in snapshot.Leases)
+        {
+            var lease = restored.FindLease(item.DemandId)
+                ?? throw new InvalidOperationException("Wire 租约恢复后丢失：" + item.DemandId);
+            lease.RestoreSettlement(item.SettlementStage, item.ToReceipt());
+        }
+        return restored;
+    }
 
     /// <summary>捕获所有活动订单的罐子、液体及从台岗位占用声明。</summary>
     public WorldResourceReservationBookSnapshot Capture()
@@ -24,9 +49,7 @@ public sealed class WorldResourceReservationBook
         lock (_gate)
         {
             var copy = _byDemand.Values.OrderBy(item => item.DemandId)
-                .Select(item => new WorldResourceReservation(
-                    item.DemandId, item.WorldVersion, item.LockedJarIds,
-                    item.MasterInitialLiquidAmounts, item.UsesSlave))
+                .Select(item => item.CaptureReservation())
                 .ToArray();
             return new WorldResourceReservationBookSnapshot(copy);
         }
@@ -54,6 +77,19 @@ public sealed class WorldResourceReservationBook
                 foreach (var amount in reservation.MasterInitialLiquidAmounts)
                     if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
                         throw new InvalidOperationException("资源预留快照包含无效液体数量。");
+                foreach (var amount in reservation.TransferLiquidAmounts)
+                    if (string.IsNullOrWhiteSpace(amount.Key) || amount.Value < 0)
+                        throw new InvalidOperationException("资源预留快照包含无效交接液体数量。");
+                if (!Enum.IsDefined(reservation.Stage) ||
+                    reservation.Stage == OrderResourceLeaseStage.Settled ||
+                    reservation.MasterStagingPeakCapacity < 0 ||
+                    reservation.SlaveStagingPeakCapacity < 0 ||
+                    (!reservation.UsesSlave &&
+                        (reservation.TransferLiquidAmounts.Count != 0 ||
+                         reservation.SlaveStagingPeakCapacity != 0 ||
+                         reservation.Stage is OrderResourceLeaseStage.TransferPending or
+                             OrderResourceLeaseStage.TransferCommitted or OrderResourceLeaseStage.SlaveExecuting)))
+                    throw new InvalidOperationException("资源预留快照包含无效租约阶段或主从资源边界。");
                 foreach (var jarId in reservation.LockedJarIds)
                 {
                     if (restored._jarOwners.ContainsKey(jarId))
@@ -66,9 +102,7 @@ public sealed class WorldResourceReservationBook
                         throw new InvalidOperationException("资源预留快照中存在多个从台占用者。");
                     restored._slaveOwnerDemandId = reservation.DemandId;
                 }
-                restored._byDemand.Add(reservation.DemandId, new WorldResourceReservation(
-                    reservation.DemandId, reservation.WorldVersion, reservation.LockedJarIds,
-                    reservation.MasterInitialLiquidAmounts, reservation.UsesSlave));
+                restored._byDemand.Add(reservation.DemandId, new OrderResourceLease(reservation));
             }
         }
         return restored;
@@ -76,8 +110,44 @@ public sealed class WorldResourceReservationBook
 
     public WorldResourceReservation? Find(int demandId)
     {
-        lock (_gate) return _byDemand.TryGetValue(demandId, out var value) ? value : null;
+        lock (_gate) return _byDemand.TryGetValue(demandId, out var value) ? value.CaptureReservation() : null;
     }
+
+    /// <summary>读取订单资源所有权聚合；新领域代码应优先使用此入口。</summary>
+    public OrderResourceLease? FindLease(int demandId)
+    {
+        lock (_gate) return _byDemand.TryGetValue(demandId, out var lease) ? lease : null;
+    }
+
+    public void MarkMasterExecuting(int demandId)
+    {
+        lock (_gate) GetRequiredLease(demandId).MarkMasterExecuting();
+    }
+
+    public void MarkTransferPending(int demandId)
+    {
+        lock (_gate) GetRequiredLease(demandId).MarkTransferPending();
+    }
+
+    public void MarkTransferCommitted(int demandId)
+    {
+        lock (_gate) GetRequiredLease(demandId).MarkTransferCommitted();
+    }
+
+    public void MarkSlaveExecuting(int demandId)
+    {
+        lock (_gate) GetRequiredLease(demandId).MarkSlaveExecuting();
+    }
+
+    public void RestoreExecutionStage(int demandId, OrderResourceLeaseStage stage)
+    {
+        lock (_gate) GetRequiredLease(demandId).RestoreExecutionStage(stage);
+    }
+
+    private OrderResourceLease GetRequiredLease(int demandId) =>
+        _byDemand.TryGetValue(demandId, out var lease)
+            ? lease
+            : throw new InvalidOperationException("订单缺少资源租约：" + demandId);
 
     public bool IsJarReserved(int jarId)
     {
@@ -94,7 +164,7 @@ public sealed class WorldResourceReservationBook
         if (string.IsNullOrWhiteSpace(liquid))
             throw new ArgumentException("液体名称不能为空", nameof(liquid));
         lock (_gate)
-            return _byDemand.Values.Sum(x => x.MasterInitialLiquidAmounts.GetValueOrDefault(liquid));
+            return _byDemand.Values.Sum(x => x.InitialLiquidSupply.GetValueOrDefault(liquid));
     }
 
     /// <summary>
@@ -149,7 +219,7 @@ public sealed class WorldResourceReservationBook
 
                 var actual = availableLiquids.GetValueOrDefault(item.Key);
                 var alreadyReserved = _byDemand.Values.Sum(
-                    x => x.MasterInitialLiquidAmounts.GetValueOrDefault(item.Key));
+                    x => x.InitialLiquidSupply.GetValueOrDefault(item.Key));
                 if (item.Value > actual - alreadyReserved)
                 {
                     reason = $"液体「{item.Key}」可预留量不足：需要 {item.Value}，当前库存 {actual}，已有预留 {alreadyReserved}";
@@ -158,17 +228,31 @@ public sealed class WorldResourceReservationBook
             }
 
             // 所有检查通过后才写入，失败路径不会留下部分预留。
-            var reservation = new WorldResourceReservation(
-                manifest.DemandId, manifest.WorldVersion,
-                manifest.LockedJarIds, manifest.MasterInitialLiquidAmounts, manifest.IsPartitioned);
-            _byDemand.Add(manifest.DemandId, reservation);
-            foreach (var jarId in reservation.LockedJarIds)
+            var lease = new OrderResourceLease(manifest);
+            _byDemand.Add(manifest.DemandId, lease);
+            foreach (var jarId in lease.LockedJarIds)
                 _jarOwners.Add(jarId, manifest.DemandId);
-            if (reservation.UsesSlave)
+            if (lease.UsesSlave)
                 _slaveOwnerDemandId = manifest.DemandId;
 
             reason = null;
             return true;
+        }
+    }
+
+    /// <summary>将完整租约 wire 状态恢复到空预留簿；派生索引重新构建，结算收据随租约恢复。</summary>
+    public void RestoreFromWire(WorldResourceReservationBookWireDto snapshot)
+    {
+        var restored = RestoreWire(snapshot);
+        lock (_gate)
+        {
+            if (_byDemand.Count != 0 || _jarOwners.Count != 0 || _slaveOwnerDemandId.HasValue)
+                throw new InvalidOperationException("只能向空资源预留簿恢复 wire 快照。");
+            foreach (var pair in restored._byDemand)
+                _byDemand.Add(pair.Key, pair.Value);
+            foreach (var pair in restored._jarOwners)
+                _jarOwners.Add(pair.Key, pair.Value);
+            _slaveOwnerDemandId = restored._slaveOwnerDemandId;
         }
     }
 
@@ -193,9 +277,10 @@ public sealed class WorldResourceReservationBook
     {
         lock (_gate)
         {
-            if (!_byDemand.Remove(demandId, out var reservation))
+            if (!_byDemand.Remove(demandId, out var lease))
                 return false;
-            foreach (var jarId in reservation.LockedJarIds)
+            lease.MarkSettled();
+            foreach (var jarId in lease.LockedJarIds)
             {
                 if (_jarOwners.TryGetValue(jarId, out var owner) && owner == demandId)
                     _jarOwners.Remove(jarId);
@@ -215,14 +300,28 @@ public sealed class WorldResourceReservation
     public IReadOnlyList<int> LockedJarIds { get; }
     public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
     public bool UsesSlave { get; }
+    public OrderResourceLeaseStage Stage { get; }
+    public IReadOnlyDictionary<string, int> TransferLiquidAmounts { get; }
+    public int MasterStagingPeakCapacity { get; }
+    public int SlaveStagingPeakCapacity { get; }
 
     internal WorldResourceReservation(
         int demandId, string worldVersion, IEnumerable<int> jarIds,
-        IReadOnlyDictionary<string, int> liquids, bool usesSlave)
+        IReadOnlyDictionary<string, int> liquids, bool usesSlave,
+        OrderResourceLeaseStage stage = OrderResourceLeaseStage.Admitted,
+        IReadOnlyDictionary<string, int>? transferLiquidAmounts = null,
+        int masterStagingPeakCapacity = 0,
+        int slaveStagingPeakCapacity = 0)
     {
         DemandId = demandId;
         WorldVersion = worldVersion;
         UsesSlave = usesSlave;
+        Stage = stage;
+        TransferLiquidAmounts = new ReadOnlyDictionary<string, int>(
+            (transferLiquidAmounts ?? new Dictionary<string, int>())
+                .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+        MasterStagingPeakCapacity = masterStagingPeakCapacity;
+        SlaveStagingPeakCapacity = slaveStagingPeakCapacity;
         LockedJarIds = Array.AsReadOnly(jarIds.ToArray());
         MasterInitialLiquidAmounts = new ReadOnlyDictionary<string, int>(
             liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
@@ -237,7 +336,9 @@ public sealed class WorldResourceReservationBookSnapshot
     {
         Reservations = Array.AsReadOnly(reservations.Select(item =>
             new WorldResourceReservation(item.DemandId, item.WorldVersion, item.LockedJarIds,
-                item.MasterInitialLiquidAmounts, item.UsesSlave)).ToArray());
+                item.MasterInitialLiquidAmounts, item.UsesSlave, item.Stage,
+                item.TransferLiquidAmounts, item.MasterStagingPeakCapacity,
+                item.SlaveStagingPeakCapacity)).ToArray());
     }
 
     public IReadOnlyList<WorldResourceReservation> Reservations { get; }
