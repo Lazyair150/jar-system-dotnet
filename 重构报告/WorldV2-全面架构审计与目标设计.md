@@ -349,3 +349,29 @@ Envelope 建议：
 - 当前 CI #1022 的唯一首个编译根因是 Manifest 的重复 RestoreFromWire；其余步骤因编译失败而连锁失败。
 - 本轮已删除重复方法，并进一步收紧 Session Wire DTO 阶段/游标组合验证；这些修改必须由新 HEAD 的 CI 证明。
 - 完整根级 Wire Checkpoint、PreparedRestore、原子 Context 交换、OrderResourceLease、Legacy Adapter 隔离均为后续目标，不能标记为已实现。
+
+
+## 11. 2026-11-21 实施增量：执行进度与资源租约
+
+本节记录后续代码提交，不覆盖前文审计时点的历史状态。
+
+### 已落地的执行进度契约
+- 新增 `ExecutionProgressInvariants`，统一活动 Session 的阶段、主从步骤游标、B 类标记与终态原因约束。
+- Wire DTO 与 Runtime Restore 共用该验证器。
+- Manifest/Plan 的 Wire 一致性仍在 DTO 边界检查；不在 Runtime Restore 中额外重建对象图做重复校验，以避免把 DTO 校验副作用带入活动世界恢复。
+- A 类只允许 MasterSteps；B 类允许 MasterSteps、Transfer、SlaveSteps。Transfer 仅允许未提交状态，SlaveSteps 必须已提交交接。
+
+### 已落地的 OrderResourceLease 第一阶段
+- 新增 `OrderResourceLease`，由 `WorldResourceReservationBook` 持有，成为订单资源所有权的聚合入口。
+- Lease 汇总 DemandId、WorldVersion、LockedJarIds、InitialLiquidSupply、UsesSlave。
+- 原 `WorldResourceReservation` 保留为兼容只读投影；旧调用方仍可通过 `Find` 获取投影，新代码使用 `FindLease`。
+- Lease 增加生命周期阶段：Admitted、MasterExecuting、TransferPending、TransferCommitted、SlaveExecuting、Settled。
+- Session 在主台执行、进入交接、交接提交、从台执行时驱动 Lease 阶段；Checkpoint Restore 根据已验证的 Session 阶段重建 Lease 阶段。
+- ReservationBook 在释放时将 Lease 标记 Settled 后移除占用索引。
+- B 类端到端恢复测试检查 SlaveExecuting 阶段；A 类测试检查不能进入 TransferPending。
+
+### 尚未完成
+- Lease 阶段目前由 Session 驱动，Admission 仍管理液体 Scope 与暂存区；尚未完成 Admission/Reservation/Scope 的完全收敛。
+- ReservationBook 快照仍保存兼容 Reservation 投影；完整根级 Wire DTO 尚未纳入 Lease 的独立 DTO。
+- TransferService 与 SettlementService 尚未从 Session 抽离。
+- CI #1048 曾有两项 xUnit 失败；后续提交修正了 JSON 字段名测试与 Runtime Restore 的过度校验，并增加 Lease 生命周期集成。必须以当前最新 HEAD 的 CI 结果为准。
