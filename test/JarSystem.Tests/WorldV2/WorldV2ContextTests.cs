@@ -296,6 +296,8 @@ public sealed class WorldV2ContextTests
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, firstSession.Stage);
         Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
             firstWorld.Reservations.FindLease(firstDemand.Id)!.Stage);
+        Assert.Throws<InvalidOperationException>(
+            () => firstWorld.Reservations.MarkTransferCommitted(firstDemand.Id));
         Assert.True(firstSlave.HasResources);
 
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
@@ -346,6 +348,7 @@ public sealed class WorldV2ContextTests
             secondWorld.Runtime.AdvanceWorldTime(1_000);
 
         Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
+        Assert.Null(secondWorld.Reservations.FindLease(restoredDemand.Id));
         Assert.Empty(secondSlave.Jars);
         Assert.Equal(1, secondShip.GetAmount("酒"));
         Assert.Single(secondWorld.ResourceLedger.For(ResourceCauses.Flow));
