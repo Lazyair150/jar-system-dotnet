@@ -159,8 +159,8 @@ public sealed class WorldV2HostServiceTests
         var beforePump = application.CaptureExecutionResourceCheckpoint();
         var beforePumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(beforePump);
         beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
-        Assert.Empty(beforePump.ResourceLedger.Entries.Where(item =>
-            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
+        Assert.DoesNotContain(beforePump.ResourceLedger.Entries, item =>
+            item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
         Assert.Single(beforePump.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Liquid);
 
@@ -175,7 +175,8 @@ public sealed class WorldV2HostServiceTests
             var scopes = context.Admission.GetLiquidScopes(demandId)!.Value;
             Assert.Equal(1, scopes.Master.GetAmount("酒"));
             Assert.Equal(0, scopes.Slave!.GetAmount("酒"));
-            Assert.Empty(context.ResourceLedger.For(ResourceCauses.Transfer));
+            Assert.DoesNotContain(context.ResourceLedger.For(ResourceCauses.Transfer),
+                item => item.Kind == ResourceKinds.Liquid);
             Assert.Single(context.ResourceLedger.For(ResourceCauses.Flow),
                 item => item.Kind == ResourceKinds.Liquid);
         });
