@@ -253,6 +253,31 @@ public sealed class WorkshopLiquidStaging
         return true;
     }
 
+    /// <summary>
+    /// 操作合法性专用检查：必须同时满足工作台 ban 与工作台所有订单共享的总容量。
+    /// 与普通 Receive 的部分接收语义不同，Workshop 操作必须完整接收其固定产出量。
+    /// </summary>
+    public LiquidGrant CanAcceptOperation(string liquid, int amount)
+    {
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
+        if (_banned.Contains(liquid))
+            return LiquidGrant.Banned(liquid);
+        return AvailableCapacity >= amount
+            ? LiquidGrant.Yes()
+            : LiquidGrant.OverCapacity(liquid);
+    }
+
+    /// <summary>操作执行专用的全量接收；失败时不修改库存。</summary>
+    public bool TryReceiveExact(int orderId, string liquid, int amount, out LiquidGrant result)
+    {
+        ValidateOrderId(orderId);
+        result = CanAcceptOperation(liquid, amount);
+        if (!result.Granted) return false;
+        AddUnchecked(orderId, liquid, amount);
+        return true;
+    }
+
     /// <summary>只允许清除指定订单子账；返回被清除的真实余额。</summary>
     public IReadOnlyDictionary<string, int> DrainOrder(int orderId)
     {
@@ -380,4 +405,29 @@ public static class OrderLiquidTransfer
         rejectionReason = null;
         return true;
     }
+}
+
+/// <summary>
+/// Workshop 一次订单操作所使用的液体范围。它只选择订单子账，不执行任何 Jar 操作。
+/// Workshop 仍然是 PourIn / PourOut / Reshape 的唯一执行者。
+/// </summary>
+public sealed class OrderLiquidScope
+{
+    public OrderLiquidScope(int orderId, WorkshopLiquidStaging staging)
+    {
+        if (orderId <= 0)
+            throw new DomainValidationException("订单 ID 必须是正整数。");
+        Staging = staging ?? throw new ArgumentNullException(nameof(staging));
+        OrderId = orderId;
+    }
+
+    public int OrderId { get; }
+    public WorkshopLiquidStaging Staging { get; }
+    public IReadOnlyDictionary<string, int> Balance => Staging.GetBalance(OrderId);
+    public int GetAmount(string liquid) => Staging.GetAmount(OrderId, liquid);
+    public bool TryConsume(string liquid, int amount) => Staging.TryConsume(OrderId, liquid, amount);
+    public LiquidGrant CanReceiveOperation(string liquid, int amount) =>
+        Staging.CanAcceptOperation(liquid, amount);
+    public bool TryReceiveOperation(string liquid, int amount, out LiquidGrant result) =>
+        Staging.TryReceiveExact(OrderId, liquid, amount, out result);
 }
