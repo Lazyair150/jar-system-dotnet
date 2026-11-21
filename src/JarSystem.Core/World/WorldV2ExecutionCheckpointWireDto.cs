@@ -98,29 +98,9 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             throw new InvalidOperationException("根级检查点包含空 Session 或重复 Session ID.");
     }
 
-    private static WorldResourceReservationBookWireDto Clone(WorldResourceReservationBookWireDto source)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-        var clone = new WorldResourceReservationBookWireDto();
-        clone.Leases = source.Leases.Select(item => new OrderResourceLeaseWireDto
-        {
-            DemandId = item.DemandId,
-            WorldVersion = item.WorldVersion,
-            LockedJarIds = item.LockedJarIds.ToList(),
-            InitialLiquidSupply = Copy(item.InitialLiquidSupply),
-            TransferLiquidAmounts = Copy(item.TransferLiquidAmounts),
-            MasterStagingPeakCapacity = item.MasterStagingPeakCapacity,
-            SlaveStagingPeakCapacity = item.SlaveStagingPeakCapacity,
-            UsesSlave = item.UsesSlave,
-            Stage = item.Stage,
-            SettlementStage = item.SettlementStage,
-            SettlementOperationId = item.SettlementOperationId,
-            SettlementRequested = item.SettlementRequested == null ? null : Copy(item.SettlementRequested),
-            SettlementAccepted = item.SettlementAccepted == null ? null : Copy(item.SettlementAccepted),
-            SettlementDiscarded = item.SettlementDiscarded == null ? null : Copy(item.SettlementDiscarded)
-        }).ToList();
-        return clone;
-    }
+    private static WorldResourceReservationBookWireDto Clone(WorldResourceReservationBookWireDto source) =>
+        source.DeepCopy();
+
 
     internal static Dictionary<string, int> Copy(IReadOnlyDictionary<string, int> source) =>
         source.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
