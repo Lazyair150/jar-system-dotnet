@@ -8,6 +8,7 @@ namespace JarSystem.Core.Domain;
 public sealed class ShipLiquidInventory
 {
     private readonly Dictionary<string, int> _balances = new(StringComparer.Ordinal);
+    private int _reservedReturnCapacity;
     private readonly IReadOnlyDictionary<string, int> _view;
 
     public ShipLiquidInventory(int capacity, IReadOnlyDictionary<string, int>? initialBalances = null)
@@ -34,7 +35,8 @@ public sealed class ShipLiquidInventory
 
     public int Capacity { get; }
     public int UsedCapacity => TotalAmount(_balances);
-    public int AvailableCapacity => Capacity - UsedCapacity;
+    public int ReservedReturnCapacity => _reservedReturnCapacity;
+    public int AvailableCapacity => Capacity - UsedCapacity - _reservedReturnCapacity;
     public IReadOnlyDictionary<string, int> Balances => _view;
     public int GetAmount(string liquid) => _balances.GetValueOrDefault(ValidateLiquid(liquid));
 
@@ -69,6 +71,49 @@ public sealed class ShipLiquidInventory
         return true;
     }
 
+    /// <summary>
+    /// 为可回滚的主台预置转移扣款，并同时预留等量回库容量。
+    /// 替换期间生产仍可继续，但不能占用这部分回滚所需的容量。
+    /// </summary>
+    internal bool TryWithdrawForTransfer(
+        IReadOnlyDictionary<string, int> amounts,
+        out ShipLiquidTransferReservation? reservation)
+    {
+        ValidateAmounts(amounts);
+        foreach (var pair in amounts)
+        {
+            if (GetAmount(pair.Key) < pair.Value)
+            {
+                reservation = null;
+                return false;
+            }
+        }
+
+        var total = TotalAmount(amounts);
+        foreach (var pair in amounts) AddUnchecked(pair.Key, -pair.Value);
+        _reservedReturnCapacity = checked(_reservedReturnCapacity + total);
+        reservation = new ShipLiquidTransferReservation(this,
+            new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(amounts, StringComparer.Ordinal)),
+            total);
+        return true;
+    }
+
+    internal void CommitTransferReservation(int amount)
+    {
+        if (amount < 0 || amount > _reservedReturnCapacity)
+            throw new InvalidOperationException("自机液库回滚容量预留内部状态无效。");
+        _reservedReturnCapacity -= amount;
+    }
+
+    internal void RollbackTransferReservation(IReadOnlyDictionary<string, int> amounts, int reservedAmount)
+    {
+        if (reservedAmount < 0 || reservedAmount > _reservedReturnCapacity ||
+            TotalAmount(amounts) != reservedAmount)
+            throw new InvalidOperationException("自机液库预置转移回滚预留不匹配。");
+        foreach (var item in amounts) AddUnchecked(item.Key, item.Value);
+        _reservedReturnCapacity -= reservedAmount;
+    }
+
     /// <summary>订单结算返还：允许部分接收，超出自机总容量的部分丢弃。</summary>
     public LiquidBatchReceipt Return(IReadOnlyDictionary<string, int> amounts)
     {
@@ -93,13 +138,19 @@ public sealed class ShipLiquidInventory
         return new LiquidBatchReceipt(requested, acceptedAmounts, discardedAmounts);
     }
 
-    public ShipLiquidInventorySnapshot Capture() =>
-        new(Capacity, new Dictionary<string, int>(_balances, StringComparer.Ordinal));
+    public ShipLiquidInventorySnapshot Capture()
+    {
+        if (_reservedReturnCapacity != 0)
+            throw new InvalidOperationException("自机液库存在尚未提交的预置转移事务，不能单独捕获库存快照。");
+        return new ShipLiquidInventorySnapshot(Capacity, new Dictionary<string, int>(_balances, StringComparer.Ordinal));
+    }
 
     /// <summary>将已验证的库存快照装入同容量液库；不会执行生产、扣款或返还语义。</summary>
     public void RestoreFrom(ShipLiquidInventorySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        if (_reservedReturnCapacity != 0)
+            throw new InvalidOperationException("自机液库存在尚未结束的预置转移事务，不能恢复库存快照。");
         if (snapshot.Capacity != Capacity)
             throw new DomainValidationException("自机液库快照容量与当前实例不一致。");
         ValidateAmounts(snapshot.Balances);
@@ -196,6 +247,80 @@ public sealed class ShipLiquidInventorySnapshot
     public int UsedCapacity => ShipLiquidInventory.TotalAmount(Balances);
 }
 
+
+/// <summary>自机液库到工作台预置账户的可回滚资源转移；提交后不可回滚。</summary>
+public sealed class WorkshopPrefillTransaction
+{
+    private readonly WorkshopLiquidStaging _staging;
+    private readonly ShipLiquidTransferReservation? _shipReservation;
+    private bool _completed;
+    private bool _committed;
+
+    internal WorkshopPrefillTransaction(
+        WorkshopLiquidStaging staging,
+        ShipLiquidTransferReservation? shipReservation,
+        LiquidBatchReceipt receipt)
+    {
+        _staging = staging;
+        _shipReservation = shipReservation;
+        Receipt = receipt;
+    }
+
+    public LiquidBatchReceipt Receipt { get; }
+    public bool IsCompleted => _completed;
+    public bool IsCommitted => _committed;
+
+    public void Commit()
+    {
+        if (_completed) return;
+        _shipReservation?.Commit();
+        _completed = true;
+        _committed = true;
+    }
+
+    public void Rollback()
+    {
+        if (_completed)
+        {
+            if (_committed) throw new InvalidOperationException("已提交的主台预置补液不能回滚。");
+            return;
+        }
+        _staging.RemovePrefillForRollback(Receipt.Accepted);
+        _shipReservation?.Rollback();
+        _completed = true;
+    }
+}
+
+internal sealed class ShipLiquidTransferReservation
+{
+    private readonly ShipLiquidInventory _inventory;
+    private readonly IReadOnlyDictionary<string, int> _amounts;
+    private readonly int _total;
+    private bool _completed;
+
+    public ShipLiquidTransferReservation(
+        ShipLiquidInventory inventory, IReadOnlyDictionary<string, int> amounts, int total)
+    {
+        _inventory = inventory;
+        _amounts = amounts;
+        _total = total;
+    }
+
+    public void Commit()
+    {
+        if (_completed) return;
+        _inventory.CommitTransferReservation(_total);
+        _completed = true;
+    }
+
+    public void Rollback()
+    {
+        if (_completed) throw new InvalidOperationException("自机液库预置转移预留已经结束。");
+        _inventory.RollbackTransferReservation(_amounts, _total);
+        _completed = true;
+    }
+}
+
 /// <summary>
 /// 单个工作台的液体暂存区。容量由该工作台所有订单子账共同占用。
 /// 本对象不执行 Jar 操作，只提供订单范围内的液体资源读写。
@@ -262,7 +387,8 @@ public sealed class WorkshopLiquidStaging
     /// 优先级列表必须由调用方提供确定顺序；剩余液种按名称排序，结果不依赖字典枚举顺序。
     /// 只补到工作台总暂存容量，库存不足时允许部分补入。
     /// </summary>
-    public LiquidBatchReceipt PrefillFromShip(ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
+    public WorkshopPrefillTransaction BeginPrefillFromShip(
+        ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
     {
         ArgumentNullException.ThrowIfNull(inventory);
         ArgumentNullException.ThrowIfNull(preferredLiquids);
@@ -279,12 +405,30 @@ public sealed class WorkshopLiquidStaging
             transfer.Add(liquid, amount);
             remaining -= amount;
         }
+
         if (transfer.Count == 0)
-            return new LiquidBatchReceipt(new Dictionary<string, int>(), new Dictionary<string, int>(), new Dictionary<string, int>());
-        if (!inventory.TryWithdraw(transfer, out _))
+            return new WorkshopPrefillTransaction(this, null,
+                new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>()));
+        if (!inventory.TryWithdrawForTransfer(transfer, out var reservation))
             throw new InvalidOperationException("自机液库在主台前置补液提交前发生变化。");
-        RestorePrefill(transfer);
-        return new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>());
+        try
+        {
+            RestorePrefill(transfer);
+            return new WorkshopPrefillTransaction(this, reservation,
+                new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>()));
+        }
+        catch
+        {
+            reservation!.Rollback();
+            throw;
+        }
+    }
+
+    public LiquidBatchReceipt PrefillFromShip(ShipLiquidInventory inventory, IEnumerable<string> preferredLiquids)
+    {
+        var transaction = BeginPrefillFromShip(inventory, preferredLiquids);
+        transaction.Commit();
+        return transaction.Receipt;
     }
 
     /// <summary>从空闲预置余额中为新订单取液；不足部分由订单准入再从自机液库扣除。</summary>
@@ -512,6 +656,17 @@ public sealed class WorkshopLiquidStaging
             return Math.Max(0, quota - used);
         }
         return AvailableCapacity;
+    }
+
+    internal void RemovePrefillForRollback(IReadOnlyDictionary<string, int> amounts)
+    {
+        ShipLiquidInventory.ValidateAmounts(amounts);
+        foreach (var item in amounts)
+        {
+            if (_prefillBalances.GetValueOrDefault(item.Key) < item.Value)
+                throw new InvalidOperationException("主台预置账户在回滚前已发生变化：" + item.Key);
+            AddPrefillUnchecked(item.Key, -item.Value);
+        }
     }
 
     private void AddPrefillUnchecked(string liquid, int delta)
