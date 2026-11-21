@@ -7,12 +7,12 @@ namespace JarSystem.Core.Production;
 /// <summary>
 /// World v2 第一阶段的资源生产区。
 ///
-/// 它组合现有罐子生产模块、液体产能与中央仓库：
-/// 生产先进入资源库存，再按逻辑时间吞吐额度向主工作台输送。
-/// 它不拥有 Jar / Liquid 的第二份库存，也不负责工作台加工。
+/// 它组合罐子生产模块、液体产能与资源库存：
+/// - 罐子进入中央仓库，再按逻辑时间吞吐额度流入主台。
+/// - 新 World v2 液体路径直接进入 ShipLiquidInventory，不自动流入任何工作台。
+/// - 未注入 ShipLiquidInventory 时保留旧版仓库液体与流入行为，仅用于迁移兼容。
 ///
-/// 流入速率由装配方显式提供，不擅自把旧版"每次宿主调用流入 3 罐、每种液体 2 份"
-/// 转换成新的"每逻辑时间"速率。这样旧 tick 契约与新世界时间语义不会混淆。
+/// 它不拥有 Jar / Liquid 的第二份库存，也不负责工作台加工。
 /// </summary>
 public sealed class ResourceArea
 {
@@ -55,6 +55,7 @@ public sealed class ResourceArea
     }
 
     public double JarFlowRate => _jarFlowRateMilli / (double)RateUnit;
+    /// <summary>旧仓库液体流入速率；新自机液库路径不会使用它。</summary>
     public double LiquidFlowRate => _liquidFlowRateMilli / (double)RateUnit;
 
     public void SetFlowRates(double jarFlowRate, double liquidFlowRate)
@@ -68,8 +69,8 @@ public sealed class ResourceArea
 
     /// <summary>
     /// 推进资源区一个逻辑时间片。
-    /// 生产结果先进入库存；若存在主台，再按本时间片的吞吐额度流入。
-    /// deltaLogicalTimeMilli 的 1000 表示 1 个逻辑时间单位。
+    /// 罐子经仓库流入主台；液体进入自机液库（新路径）或旧仓库（兼容路径）。
+    /// 新路径不会在此处向主台或从台泵送液体。deltaLogicalTimeMilli 的 1000 表示 1 个逻辑时间单位。
     /// </summary>
     public ResourceAreaAdvanceResult Advance(long deltaLogicalTimeMilli, Workshop? master)
     {
