@@ -250,6 +250,26 @@ public sealed class WorldV2ContextTests
         Assert.Equal(0, secondWorld.Reservations.Count);
         Assert.Empty(secondWorld.Runtime.ActiveExecutionSessions);
 
+        var capturedReservation = Assert.Single(checkpoint.Reservations.Reservations);
+        var mismatchedReservation = new WorldResourceReservation(
+            capturedReservation.DemandId,
+            capturedReservation.WorldVersion,
+            capturedReservation.LockedJarIds,
+            capturedReservation.MasterInitialLiquidAmounts,
+            capturedReservation.UsesSlave,
+            OrderResourceLeaseStage.TransferPending,
+            capturedReservation.TransferLiquidAmounts,
+            capturedReservation.MasterStagingPeakCapacity,
+            capturedReservation.SlaveStagingPeakCapacity);
+        var mismatchedCheckpoint = new WorldV2ExecutionResourceCheckpoint(
+            checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint,
+            checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
+            checkpoint.Admission,
+            new WorldResourceReservationBookSnapshot(new[] { mismatchedReservation }),
+            checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick, checkpoint.Sessions);
+        Assert.Throws<InvalidOperationException>(
+            () => secondWorld.RestoreExecutionResourceCheckpoint(mismatchedCheckpoint));
+
         secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
 
         var restoredLease = Assert.Single(secondWorld.Reservations.Capture().Reservations);
