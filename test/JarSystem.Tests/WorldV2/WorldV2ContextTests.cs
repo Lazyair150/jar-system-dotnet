@@ -185,10 +185,12 @@ public sealed class WorldV2ContextTests
         var firstMaster = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
         firstMaster.AddJar(new Jar("圆罐", id: 41, vocabulary: Words));
+        var firstSlave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
         var firstShip = new ShipLiquidInventory(4,
             new Dictionary<string, int> { ["酒"] = 2 });
         using var firstWorld = WorldV2Context.Create(
-            CreateResources(), new[] { firstMaster }, firstMaster, null,
+            CreateResources(), new[] { firstMaster, firstSlave }, firstMaster, firstSlave,
             CreateSolverRegistry(), logicalTimePerUnit: 1_000,
             passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
@@ -205,15 +207,19 @@ public sealed class WorldV2ContextTests
 
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
         Assert.Equal(1, checkpoint.ShipLiquidInventory.Balances["酒"]);
+        Assert.Null(checkpoint.Admission.SlaveStaging);
+        Assert.False(Assert.Single(checkpoint.Admission.ActiveOrders).UsesSlave);
         Assert.Equal(500, Assert.Single(checkpoint.Sessions).UnitElapsedLogicalMilli);
         Assert.Single(checkpoint.ResourceLedger.Entries, item => item.Cause == ResourceCauses.Flow);
 
         var secondMaster = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
         secondMaster.AddJar(new Jar("圆罐", id: 41, vocabulary: Words));
+        var secondSlave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
         var secondShip = new ShipLiquidInventory(4);
         using var secondWorld = WorldV2Context.Create(
-            CreateResources(), new[] { secondMaster }, secondMaster, null,
+            CreateResources(), new[] { secondMaster, secondSlave }, secondMaster, secondSlave,
             CreateSolverRegistry(), logicalTimePerUnit: 1_000,
             passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
