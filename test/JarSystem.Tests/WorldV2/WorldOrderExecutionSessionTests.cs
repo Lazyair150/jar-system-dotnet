@@ -798,7 +798,8 @@ public sealed class WorldOrderExecutionSessionTests
         ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
-        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var ledger = new ResourceLedger();
+        var runtime = CreateRuntime(setup.Board, setup.Roster, ledger);
 
         var started = runtime.TryStartExecutionSession(
             demand.Id, setup.Book, admission, 1_000);
@@ -827,6 +828,21 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(0, scopes.Value.Master.Staging.ReservedCapacity);
         Assert.Equal(0, scopes.Value.Slave!.Staging.ReservedCapacity);
         Assert.Contains(master.Jars, item => item.Id == jar.Id);
+
+        var funding = Assert.Single(ledger.For(ResourceCauses.Flow));
+        Assert.Equal("自机液库", funding.From);
+        Assert.Equal("主台", funding.To);
+        Assert.Equal(1, funding.Amount);
+        var transfer = Assert.Single(ledger.For(ResourceCauses.Transfer),
+            item => item.Kind == ResourceKinds.Liquid);
+        Assert.Equal("主台", transfer.From);
+        Assert.Equal("从台", transfer.To);
+        Assert.Equal(1, transfer.Amount);
+        var returned = Assert.Single(ledger.For(ResourceCauses.Return),
+            item => item.Kind == ResourceKinds.Liquid);
+        Assert.Equal("订单暂存", returned.From);
+        Assert.Equal("自机液库", returned.To);
+        Assert.Equal(1, returned.Amount);
     }
 
 
