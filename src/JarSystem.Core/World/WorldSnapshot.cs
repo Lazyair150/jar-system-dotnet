@@ -45,6 +45,8 @@ public sealed class WorkshopSolveSnapshot
     public string Name { get; }
     public int MaxJars { get; }
     public int MaxLiquids { get; }
+    /// <summary>新订单液体暂存模型的合计容量；过渡期暂映射旧 MaxLiquids 配置。</summary>
+    public int LiquidStagingCapacity { get; }
     public WorkshopCapability Capability { get; }
     public IReadOnlyList<WorldJarState> Jars => _jars;
     public IReadOnlyDictionary<string, int> Liquids => _liquids;
@@ -61,6 +63,7 @@ public sealed class WorkshopSolveSnapshot
         Name = workshop.Name;
         MaxJars = workshop.MaxJars;
         MaxLiquids = workshop.MaxLiquids;
+        LiquidStagingCapacity = workshop.MaxLiquids;
         Capability = workshop.Capability;
 
         _jars = Array.AsReadOnly(workshop.Jars
@@ -113,7 +116,8 @@ public sealed class WorkshopSolveSnapshot
     {
         Capability = Capability,
         MaxJars = MaxJars,
-        MaxLiquids = MaxLiquids
+        MaxLiquids = MaxLiquids,
+        MaxLiquidCapacity = LiquidStagingCapacity
     };
 }
 
@@ -226,6 +230,7 @@ public static class WorldSnapshotFactory
         writer.Write(workshop.Name);
         writer.Write(workshop.MaxJars);
         writer.Write(workshop.MaxLiquids);
+        writer.Write(workshop.LiquidStagingCapacity);
 
         WriteStrings(writer, workshop.Capability.BaseMarks);
         WriteStrings(writer, workshop.Capability.AdditionalMarks);
