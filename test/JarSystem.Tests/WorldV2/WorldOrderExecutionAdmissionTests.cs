@@ -302,4 +302,36 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Equal(0, setup.Reservations.Count);
     }
 
+
+    [Fact]
+    public void ConcurrentShipLiquidAdmissionsReserveAggregateStagingWithoutDoubleSubtractingInventory()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxLiquids: 4, vocabulary: Words);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        master.AddLiquid("酒", 2);
+        var ids = new SequentialIdGenerator();
+        var first = Demand("圆罐", "酒", ids);
+        var second = Demand("圆罐", "酒", ids);
+        var setup = Prepare(master, first, second);
+        var ship = new ShipLiquidInventory(4,
+            new Dictionary<string, int> { ["酒"] = 2 });
+        var admission = new WorldOrderExecutionAdmission(
+            setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
+
+        var firstAdmitted = admission.TryAdmit(first.Id);
+        var secondAdmitted = admission.TryAdmit(second.Id);
+
+        Assert.True(firstAdmitted.Success, firstAdmitted.Reason);
+        Assert.True(secondAdmitted.Success, secondAdmitted.Reason);
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(2, admission.GetLiquidScopes(first.Id)!.Value.Master.Staging.UsedCapacity);
+        Assert.Equal(2, admission.GetLiquidScopes(first.Id)!.Value.Master.Staging.ReservedCapacity);
+
+        Assert.True(admission.Release(first.Id));
+        Assert.True(admission.Release(second.Id));
+        Assert.Equal(2, ship.GetAmount("酒"));
+    }
+
 }
