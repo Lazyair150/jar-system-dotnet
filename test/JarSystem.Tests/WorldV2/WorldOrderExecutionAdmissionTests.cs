@@ -218,6 +218,116 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
+    public void BAdmissionSnapshotRestoresBothOrderScopesAndReservationsWithoutWithdrawingShipAgain()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 6);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 5);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        var ship = new ShipLiquidInventory(8, new Dictionary<string, int> { ["酒"] = 1 });
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        var solveSnapshot = WorldSnapshotFactory.Capture(roster, ship);
+        var solved = book.Evaluate(demand.Id, solveSnapshot, registry);
+        Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+        Assert.True(solved.Result.Plan!.IsPartitioned);
+
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
+        var admitted = admission.TryAdmit(demand.Id);
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(0, ship.GetAmount("酒"));
+        var beforeRestore = admission.GetLiquidScopes(demand.Id);
+        Assert.True(beforeRestore.HasValue);
+        Assert.Equal(1, beforeRestore.Value.Master.GetAmount("酒"));
+        Assert.NotNull(beforeRestore.Value.Slave);
+
+        var admissionSnapshot = admission.Capture();
+        var reservationSnapshot = reservations.Capture();
+        Assert.Equal(1, admissionSnapshot.ActiveOrders.Count);
+        Assert.True(admissionSnapshot.ActiveOrders[0].UsesSlave);
+        Assert.Equal(admitted.Manifest!.MasterStagingPeakCapacity,
+            admissionSnapshot.MasterStaging!.ReservedCapacityByOrder[demand.Id]);
+        Assert.Equal(admitted.Manifest.SlaveStagingPeakCapacity,
+            admissionSnapshot.SlaveStaging!.ReservedCapacityByOrder[demand.Id]);
+
+        var restoredReservations = WorldResourceReservationBook.Restore(reservationSnapshot);
+        var restoredAdmission = new WorldOrderExecutionAdmission(
+            board, book, roster, restoredReservations, ship);
+        restoredAdmission.Restore(admissionSnapshot);
+
+        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(1, restoredReservations.Count);
+        Assert.Equal(demand.Id, restoredReservations.Find(demand.Id)!.DemandId);
+        var restoredScopes = restoredAdmission.GetLiquidScopes(demand.Id);
+        Assert.True(restoredScopes.HasValue);
+        Assert.Equal(1, restoredScopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(0, restoredScopes.Value.Slave!.GetAmount("酒"));
+
+        Assert.True(OrderLiquidTransfer.TryExecute(demand.Id,
+            restoredScopes.Value.Master.Staging,
+            restoredScopes.Value.Slave.Staging,
+            new Dictionary<string, int> { ["酒"] = 1 }, out var transferReason), transferReason);
+        Assert.Equal(0, restoredScopes.Value.Master.GetAmount("酒"));
+        Assert.Equal(1, restoredScopes.Value.Slave.GetAmount("酒"));
+    }
+
+    [Fact]
+    public void AdmissionRestoreRejectsMismatchBetweenActiveScopesAndReservationOwnership()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 4);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 4);
+        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        book.Evaluate(demand.Id, WorldSnapshotFactory.Capture(roster, ship), registry);
+        var sourceReservations = new WorldResourceReservationBook();
+        var sourceAdmission = new WorldOrderExecutionAdmission(
+            board, book, roster, sourceReservations, ship);
+        Assert.True(sourceAdmission.TryAdmit(demand.Id).Success);
+        var captured = sourceAdmission.Capture();
+
+        var forged = new WorldOrderExecutionAdmissionSnapshot(
+            captured.MasterStaging, captured.SlaveStaging,
+            new[] { new WorldOrderExecutionScopeSnapshot(demand.Id, UsesSlave: false) });
+        var restored = new WorldOrderExecutionAdmission(
+            board, book, roster,
+            WorldResourceReservationBook.Restore(sourceReservations.Capture()), ship);
+
+        Assert.Throws<InvalidOperationException>(() => restored.Restore(forged));
+    }
+
+    [Fact]
     public void AdmissionRejectsSolveResultAfterWorldVersionChanges()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
