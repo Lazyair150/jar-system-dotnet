@@ -49,7 +49,7 @@ public sealed class WorkshopSolveSnapshot
     public string Name { get; }
     public int MaxJars { get; }
     public int MaxLiquids { get; }
-    /// <summary>新订单液体暂存模型的合计容量；过渡期暂映射旧 MaxLiquids 配置。</summary>
+    /// <summary>新订单液体暂存模型的合计容量，与旧版单液种 MaxLiquids 分开捕获。</summary>
     public int LiquidStagingCapacity { get; }
     public WorkshopCapability Capability { get; }
     public IReadOnlyList<WorldJarState> Jars => _jars;
