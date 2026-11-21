@@ -257,13 +257,13 @@ public sealed class LiquidResourceAccountsTests
         var staging = new WorkshopLiquidStaging(6);
         var receipt = staging.PrefillFromShip(ship, new[] { "蜜", "酒" });
         Assert.Equal(6, receipt.AcceptedTotal);
-        Assert.Equal(2, staging.PrefillBalances["蜜"]);
-        Assert.Equal(4, staging.PrefillBalances["酒"]);
+        Assert.Equal(4, staging.PrefillBalances["蜜"]);
+        Assert.Equal(2, staging.PrefillBalances["酒"]);
         Assert.False(staging.PrefillBalances.ContainsKey("水"));
         Assert.Equal(6, staging.UsedCapacity);
         Assert.Equal(0, staging.AvailableCapacity);
-        Assert.Equal(2, ship.GetAmount("蜜"));
-        Assert.Equal(0, ship.GetAmount("酒"));
+        Assert.Equal(0, ship.GetAmount("蜜"));
+        Assert.Equal(2, ship.GetAmount("酒"));
         Assert.Equal(4, ship.GetAmount("水"));
         var restored = WorkshopLiquidStaging.Restore(staging.Capture());
         Assert.Equal(staging.PrefillBalances, restored.PrefillBalances);
@@ -296,4 +296,27 @@ public sealed class LiquidResourceAccountsTests
         Assert.Equal(3, staging.UsedCapacity);
         Assert.Equal(0, staging.AvailableCapacity);
     }
+
+    [Fact]
+    public void ReversiblePrefillReservesShipReturnCapacityUntilCommitOrRollback()
+    {
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 3 });
+        var staging = new WorkshopLiquidStaging(3);
+        var transaction = staging.BeginPrefillFromShip(ship, new[] { "酒" });
+
+        Assert.Equal(3, staging.PrefillBalances["酒"]);
+        Assert.Equal(3, ship.ReservedReturnCapacity);
+        Assert.Equal(1, ship.AvailableCapacity);
+        var production = ship.Produce("蜜", 2);
+        Assert.Equal(new LiquidInventoryReceipt(2, 1, 1), production);
+
+        transaction.Rollback();
+
+        Assert.Empty(staging.PrefillBalances);
+        Assert.Equal(0, ship.ReservedReturnCapacity);
+        Assert.Equal(3, ship.GetAmount("酒"));
+        Assert.Equal(1, ship.GetAmount("蜜"));
+        Assert.Equal(0, ship.AvailableCapacity);
+    }
+
 }
