@@ -235,13 +235,15 @@ public static class WorkshopRulebook
                 var liquid = op.TargetLiquid;
                 if (liquid == null || jar.Liquid != null || !rules.IsBaseMarked(jar.Shape)) return false;
                 if (rules.SuppressionReason("POUR_IN", jar.Shape, liquid) != null) return false;
-                return liquidRules.CanPay(liquid, 1, Count(liquids, liquid)).Granted;
+                return liquidRules.CanPay(liquid, 1, Count(liquids, liquid)).Granted &&
+                    scope.CanConsume(liquid, 1).Granted;
             }
             case WorkshopOperationKind.PourOut:
             {
                 var liquid = jar.Liquid;
                 if (liquid == null) return false;
                 if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) != null) return false;
+                if (!liquidRules.Check(liquid).Granted) return false;
                 return scope.CanReceiveOperation(liquid, 1).Granted;
             }
             case WorkshopOperationKind.ReshapeEmpty:
@@ -251,7 +253,8 @@ public static class WorkshopRulebook
                 if (target == null || cost == null || jar.Liquid != null) return false;
                 if (!reshapeRules.CanTransform(jar.Shape, target)) return false;
                 if (rules.SuppressionReason("RESHAPE", jar.Shape, cost) != null) return false;
-                return reshapeRules.PayCost(cost, liquids).Granted;
+                return reshapeRules.PayCost(cost, liquids).Granted &&
+                    scope.CanConsume(cost, 1).Granted;
             }
             case WorkshopOperationKind.ReshapeFull:
             {
