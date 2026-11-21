@@ -17,11 +17,6 @@ public sealed class OrderDemand
     public long CooldownDurationLogicalMilli { get; }
     public long CooldownRemainingLogicalMilli => _cooldownRemainingLogicalMilli;
     public bool IsCoolingDown => _cooldownRemainingLogicalMilli > 0;
-
-    /// <summary>
-    /// 阶段四求解资格的订单自身条件。是否仍登记在区域中由 OrderDemandBoard 判断。
-    /// 这不代表已经求解，也不代表拥有方案。
-    /// </summary>
     public bool ReadyForSolve => !IsCoolingDown;
 
     public OrderDemand(
@@ -38,10 +33,31 @@ public sealed class OrderDemand
         CooldownDurationLogicalMilli = cooldownDurationLogicalMilli;
     }
 
-    /// <summary>
-    /// 显式进入本需求的 CD。已经处于 CD 的需求不能重复启动/重置 CD。
-    /// CD 时长为 0 时不产生等待，返回 false。
-    /// </summary>
+    private OrderDemand(
+        int id,
+        IOrderSpecification specification,
+        long cooldownDurationLogicalMilli,
+        long cooldownRemainingLogicalMilli)
+    {
+        if (id <= 0) throw new ArgumentOutOfRangeException(nameof(id));
+        Specification = specification ?? throw new ArgumentNullException(nameof(specification));
+        if (cooldownDurationLogicalMilli < 0 ||
+            cooldownRemainingLogicalMilli < 0 ||
+            cooldownRemainingLogicalMilli > cooldownDurationLogicalMilli)
+            throw new ArgumentOutOfRangeException(nameof(cooldownRemainingLogicalMilli));
+
+        Id = id;
+        CooldownDurationLogicalMilli = cooldownDurationLogicalMilli;
+        _cooldownRemainingLogicalMilli = cooldownRemainingLogicalMilli;
+    }
+
+    internal static OrderDemand Restore(
+        int id,
+        IOrderSpecification specification,
+        long cooldownDurationLogicalMilli,
+        long cooldownRemainingLogicalMilli) =>
+        new(id, specification, cooldownDurationLogicalMilli, cooldownRemainingLogicalMilli);
+
     internal bool EnterCooldown()
     {
         if (IsCoolingDown || CooldownDurationLogicalMilli == 0)
@@ -51,7 +67,6 @@ public sealed class OrderDemand
         return true;
     }
 
-    /// <summary>按逻辑时间推进 CD；返回值表示本次刚好结束 CD。</summary>
     internal bool AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
         if (deltaLogicalTimeMilli < 0)
