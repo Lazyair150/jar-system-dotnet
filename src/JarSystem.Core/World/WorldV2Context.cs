@@ -135,7 +135,8 @@ public sealed class WorldV2Context : IDisposable
     public WorldV2ExecutionResourceCheckpoint CaptureExecutionResourceCheckpoint()
     {
         if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
-        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null)
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement is { IsFinished: false } ||
+            Runtime.ActiveReplacement is { InterruptionOutcomeUncertain: true })
             throw new InvalidOperationException(
                 "世界故障或工作台替换状态尚未纳入执行资源检查点，拒绝生成不完整检查点。");
         if (ShipLiquidInventory == null)
@@ -166,7 +167,8 @@ public sealed class WorldV2Context : IDisposable
         if (_disposed) throw new ObjectDisposedException(nameof(WorldV2Context));
         if (ShipLiquidInventory == null)
             throw new InvalidOperationException("旧版兼容世界不能恢复新液体资源检查点。");
-        if (Runtime.IsFaulted || Runtime.ActiveReplacement != null ||
+        if (Runtime.IsFaulted || Runtime.ActiveReplacement is { IsFinished: false } ||
+            Runtime.ActiveReplacement is { InterruptionOutcomeUncertain: true } ||
             Runtime.ActiveExecutionSessions.Count != 0 || Reservations.Count != 0 ||
             Admission.Capture().ActiveOrders.Count != 0)
             throw new InvalidOperationException("只能向没有活动会话、预留或工作台替换的 Context 恢复检查点。");
