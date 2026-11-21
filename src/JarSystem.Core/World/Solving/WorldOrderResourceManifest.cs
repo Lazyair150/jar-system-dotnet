@@ -79,6 +79,39 @@ public sealed class WorldOrderResourceManifest
             masterPeak, slavePeak);
     }
 
+    internal static WorldOrderResourceManifest RestoreFromWire(
+        int demandId, string worldVersion, bool isPartitioned,
+        IEnumerable<int> masterJarIds, IEnumerable<int> transferJarIds,
+        IReadOnlyDictionary<string, int> masterInitialLiquids,
+        IReadOnlyDictionary<string, int> transferLiquids,
+        IReadOnlyDictionary<string, int> masterFinalLiquids,
+        int masterPeak, int slavePeak)
+    {
+        if (demandId <= 0 || string.IsNullOrWhiteSpace(worldVersion) ||
+            masterJarIds == null || transferJarIds == null ||
+            masterInitialLiquids == null || transferLiquids == null || masterFinalLiquids == null)
+            throw new InvalidOperationException("Wire manifest identity or collections are invalid.");
+        var masterIds = masterJarIds.ToArray();
+        var transferIds = transferJarIds.ToArray();
+        if (masterIds.Any(x => x <= 0) || transferIds.Any(x => x <= 0) ||
+            masterIds.Distinct().Count() != masterIds.Length ||
+            transferIds.Distinct().Count() != transferIds.Length ||
+            transferIds.Any(x => !masterIds.Contains(x)))
+            throw new InvalidOperationException("Wire manifest jar ownership is invalid.");
+        ValidateLiquidMap(masterInitialLiquids, "MasterInitialLiquidAmounts");
+        ValidateLiquidMap(transferLiquids, "TransferLiquids");
+        ValidateLiquidMap(masterFinalLiquids, "MasterFinalLiquidBalances");
+        if (masterPeak < 0 || slavePeak < 0 ||
+            (!isPartitioned && (transferIds.Length != 0 || transferLiquids.Count != 0 || slavePeak != 0)))
+            throw new InvalidOperationException("Wire manifest staging boundary is invalid.");
+        return new WorldOrderResourceManifest(
+            demandId, worldVersion, isPartitioned, masterIds, transferIds,
+            masterInitialLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
+            transferLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
+            masterFinalLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
+            masterPeak, slavePeak);
+    }
+
     public static WorldOrderResourceManifest Create(WorldOrderSolveResult result, WorldSnapshot snapshot)
     {
         if (result == null) throw new ArgumentNullException(nameof(result));
