@@ -115,7 +115,7 @@ public sealed class LiquidResourceAccountsTests
 
         Assert.False(OrderLiquidTransfer.TryExecute(101, master, slave,
             new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 }, out var reason));
-        Assert.Equal("从工作台液体暂存总容量不足。", reason);
+        Assert.Equal("从工作台订单液体暂存总容量不足或包含禁用液体。", reason);
         Assert.Equal(2, master.GetAmount(101, "酒"));
         Assert.Equal(2, master.GetAmount(101, "蜜"));
         Assert.Equal(0, slave.GetAmount(101, "酒"));
