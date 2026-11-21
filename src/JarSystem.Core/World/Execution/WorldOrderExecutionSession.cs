@@ -207,7 +207,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         string role)
     {
         var expectedById = expected
-            .Where(item => !excludedIds?.Contains(item.Id ?? 0) == true)
+            .Where(item => excludedIds == null || !excludedIds.Contains(item.Id ?? 0))
             .ToDictionary(item => item.Id ?? throw new InvalidOperationException("计划快照包含无 ID 罐子。"));
         var actualById = workshop.Jars.ToDictionary(item =>
             item.Id ?? throw new InvalidOperationException(role + "快照包含无 ID 罐子。"));
