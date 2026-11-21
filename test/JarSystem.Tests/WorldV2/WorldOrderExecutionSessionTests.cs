@@ -792,7 +792,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(slave.HasResources, "B 类应先完成主台到从台的资源泵送");
         Assert.Equal(0, scopes.Value.Master.GetAmount("酒"));
         Assert.Equal(1, scopes.Value.Slave!.GetAmount("酒"));
-        Assert.Equal(0, master.LiquidStorage["酒"]);
+        Assert.Equal(1, master.LiquidStorage["酒"]); // 兼容求解快照的旧池未参与新路径扣账
         Assert.Equal(0, slave.LiquidStorage["酒"]);
 
         var interrupted = started.Session!.InterruptForWorkshopReplacement();
