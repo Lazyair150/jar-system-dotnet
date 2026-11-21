@@ -28,6 +28,8 @@ public sealed class ResourceWorldRuntime
     /// <summary>导致世界进入故障状态的首次异常。</summary>
     public Exception? FaultException => _faultException;
     private Exception? _faultException;
+    internal bool BlocksOrderAdmission => IsFaulted || ReplacementBlocksWorld;
+
     private bool ReplacementBlocksWorld =>
         ActiveReplacement is { IsFinished: false } or
             { InterruptionOutcomeUncertain: true } or
