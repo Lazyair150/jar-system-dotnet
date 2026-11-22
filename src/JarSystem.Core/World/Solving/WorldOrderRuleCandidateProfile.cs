@@ -378,9 +378,13 @@ public sealed class WorldOrderRuleCandidateBook
     {
         if (profiles == null || profiles.Count == 0)
             throw new ArgumentException("至少需要一个规则候选 Profile", nameof(profiles));
+        if (maxSolutions <= 0) throw new ArgumentOutOfRangeException(nameof(maxSolutions));
+        if (maxNodes <= 0) throw new ArgumentOutOfRangeException(nameof(maxNodes));
+        if (profiles.Any(x => x == null))
+            throw new ArgumentException("规则候选 Profile 不能为 null", nameof(profiles));
         var ordered = profiles.OrderBy(x => x.Role, StringComparer.Ordinal).ToArray();
         var first = ordered[0];
-        var roleKey = string.Join(",", ordered.Select(x => x.Role));
+        var roleKey = string.Concat(ordered.Select(x => x.Role.Length + ":" + x.Role));
         var key = new SolutionCacheKey(
             roleKey,
             first.RuleSetVersion,
