@@ -45,7 +45,9 @@ internal class SolverState
 
     public bool Allows(JarState jar, SolverOperation operation)
     {
-        if (operation.Type == "MATCH") return true;
+        if (operation.Type == "MATCH")
+            return WorkshopRulebook.EvaluateMatch(
+                _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked)).IsAllowed;
         return WorkshopRulebook.IsAllowed(
             _rules, _perLiquidCapacity,
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
