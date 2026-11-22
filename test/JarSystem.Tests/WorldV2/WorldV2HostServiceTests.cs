@@ -110,6 +110,15 @@ public sealed class WorldV2HostServiceTests
         Assert.False(restored!.IsDisposed);
         Assert.Equal("主台", restored.Roster.Master!.Name);
 
+        var tamperedVocabulary = new WorldV2ExecutionResourceCheckpoint(
+            checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint,
+            checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
+            checkpoint.Admission, checkpoint.Reservations, checkpoint.ReservationLeases,
+            checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick,
+            new[] { "伪造形状", "方罐" }, checkpoint.Liquids, checkpoint.Sessions);
+        Assert.Throws<InvalidOperationException>(() =>
+            application.RestoreExecutionResourceCheckpoint(ValidOptions(), tamperedVocabulary));
+
         var incompatible = ValidOptions();
         incompatible.InitialLiquidStock = new Dictionary<string, int> { ["酒"] = 4 };
         Assert.Throws<InvalidOperationException>(() =>
