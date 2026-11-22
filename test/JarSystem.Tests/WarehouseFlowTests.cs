@@ -97,7 +97,7 @@ public class WarehouseFlowTests
 
         Assert.Equal(0, master.LiquidStorage["酒"]);
         Assert.Equal(5, wh.LiquidCount("酒"));
-        Assert.Equal(0, liquids["酒"]);
+        Assert.Equal(0, liquids.GetValueOrDefault("酒"));
         Assert.Equal(2, master.LiquidStorage["蜜"]);
         Assert.Equal(3, wh.LiquidCount("蜜"));
 
