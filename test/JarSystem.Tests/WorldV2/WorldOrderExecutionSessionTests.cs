@@ -822,6 +822,10 @@ public sealed class WorldOrderExecutionSessionTests
         var transferredProgress = started.Session.CaptureProgress();
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, transferredProgress.Stage);
         Assert.True(transferredProgress.SlaveTransferCommitted);
+        // A Jar already operated on the Master remains marked after handoff;
+        // the distinct Slave requirement Jar is still available for its one operation.
+        Assert.True(Assert.Single(slave.Jars, item => item.Id == sourceJar.Id).IsMarked);
+        Assert.False(Assert.Single(slave.Jars, item => item.Id == toolJar.Id).IsMarked);
         Assert.Equal(0, scopes.Value.Master.GetAmount("酒"));
         Assert.Equal(1, scopes.Value.Slave!.GetAmount("酒"));
         Assert.Equal(1, master.LiquidStorage["酒"]); // 兼容求解快照的旧池未参与新路径扣账
