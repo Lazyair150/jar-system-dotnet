@@ -41,7 +41,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
     {
         const string json = """
             {
-              "schemaVersion": 2,
+              "schemaVersion": 3,
               "kind": "world-v2-execution-checkpoint",
               "configurationFingerprint": null,
               "payload": {}
@@ -53,12 +53,12 @@ public sealed class WorldV2CheckpointJsonCodecTests
     }
 
     [Theory]
-    [InlineData("""{"schemaVersion":1,"kind":"wrong","configurationFingerprint":null,"payload":{}}""")]
-    [InlineData("""{"schemaVersion":1,"kind":"world-v2-execution-checkpoint","payload":{}}""")]
-    [InlineData("""{"schemaVersion":1,"kind":"world-v2-execution-checkpoint","configurationFingerprint":"bad","payload":{}}""")]
-    [InlineData("""{"schemaVersion":1,"kind":"world-v2-execution-checkpoint","configurationFingerprint":null,"payload":[]}""")]
-    [InlineData("""{"schemaVersion":1,"kind":"world-v2-execution-checkpoint","configurationFingerprint":null,"payload":{},"extra":true}""")]
-    [InlineData("""{"schemaVersion":1,"schemaVersion":1,"kind":"world-v2-execution-checkpoint","configurationFingerprint":null,"payload":{}}""")]
+    [InlineData("""{"schemaVersion":2,"kind":"wrong","configurationFingerprint":null,"payload":{}}""")]
+    [InlineData("""{"schemaVersion":2,"kind":"world-v2-execution-checkpoint","payload":{}}""")]
+    [InlineData("""{"schemaVersion":2,"kind":"world-v2-execution-checkpoint","configurationFingerprint":"bad","payload":{}}""")]
+    [InlineData("""{"schemaVersion":2,"kind":"world-v2-execution-checkpoint","configurationFingerprint":null,"payload":[]}""")]
+    [InlineData("""{"schemaVersion":2,"kind":"world-v2-execution-checkpoint","configurationFingerprint":null,"payload":{},"extra":true}""")]
+    [InlineData("""{"schemaVersion":2,"schemaVersion":2,"kind":"world-v2-execution-checkpoint","configurationFingerprint":null,"payload":{}}""")]
     public void DecodeRejectsInvalidEnvelope(string json)
     {
         Assert.Throws<JsonException>(
