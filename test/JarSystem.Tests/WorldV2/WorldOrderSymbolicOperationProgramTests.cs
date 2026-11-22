@@ -155,7 +155,7 @@ public sealed class WorldOrderSymbolicOperationProgramTests
     public void OneJarVersionCannotBeConsumedByTwoOperations()
     {
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", null);
-        var firstOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null);
+        var firstOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null, isMarked: true);
         var secondOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "三角罐", null, isMarked: true);
         var first = WorldOrderSymbolicOperationNode.Rule(
             "first", 0, "Master", 0,
@@ -264,7 +264,7 @@ public sealed class WorldOrderSymbolicOperationProgramTests
         var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
             "handoff", 0, "Master", "Slave", Array.Empty<WorldOrderSymbolicJarVersion>());
         var slaveInitial = new WorldOrderSymbolicJarVersion("jar-A", 0, "Slave", "圆罐", null);
-        var slaveOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Slave", "方罐", null);
+        var slaveOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Slave", "方罐", null, isMarked: true);
         var slaveFromInitial = WorldOrderSymbolicOperationNode.Rule(
             "slave-step", 1, "Slave", 0,
             Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "酒"),
