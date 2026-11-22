@@ -83,25 +83,38 @@ public class ReshapeRulesTests
     }
 
     [Fact]
-    public void SelfConsumeUsesJarInternalLiquidWithoutConsultingStagingBan()
+    public void SelfConsumeRequiresTheCurrentWorkshopToPermitTheJarInternalLiquid()
     {
         var rules = Rules();
 
         Assert.True(rules.SelfConsume("蜜").Granted);
-        Assert.True(rules.SelfConsume("酒").Granted);
+        Assert.False(rules.SelfConsume("酒").Granted);
+        Assert.Equal("banned", rules.SelfConsume("酒").Code);
         Assert.Equal("not-full", rules.SelfConsume(null).Code);
 
-        // 玄武台 ban 酒，但这份酒始终在 Jar 内部，没有进入工作台游离液体 staging。
+        // 玄武台 ban 酒：即使酒只在 Jar 内，也不能在玄武台操作这只 Jar。
         var w = Xuanwu();
         var jar = new Jar("圆罐", "酒", null, Vocab());
         w.AddJar(jar);
         var (execOk, execReason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
 
-        Assert.True(execOk, execReason);
-        Assert.Equal("方罐", jar.Shape);
-        Assert.Null(jar.Liquid);
-        Assert.True(jar.IsMarked);
+        Assert.False(execOk);
+        Assert.Contains("禁酒", execReason);
+        Assert.Equal("圆罐", jar.Shape);
+        Assert.Equal("酒", jar.Liquid);
+        Assert.False(jar.IsMarked);
         Assert.Equal(0, w.LiquidStorage["酒"]);
+
+        // 同一份 Jar 液体在不 ban 酒的工作台上可以自耗；没有发生游离液体扣账。
+        var permissive = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        var received = new Jar("圆罐", "酒", null, Vocab());
+        permissive.AddJar(received);
+        var (slaveOk, slaveReason) = permissive.TryReshape(received, "方罐", ReshapeMode.Full);
+        Assert.True(slaveOk, slaveReason);
+        Assert.Equal("方罐", received.Shape);
+        Assert.Null(received.Liquid);
+        Assert.True(received.IsMarked);
+        Assert.Equal(0, permissive.LiquidStorage["酒"]);
     }
 
     [Fact]
