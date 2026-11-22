@@ -69,6 +69,17 @@ public partial class WorldV2HostNode : Node
         RefreshSnapshot();
     }
 
+    /// <summary>导出完整活动执行检查点 JSON；返回值可交由宿主文件层保存。</summary>
+    public string CaptureExecutionCheckpointJson(bool indented = true) =>
+        RequireSession().CaptureExecutionCheckpointJson(indented);
+
+    /// <summary>从版本化 JSON 恢复并原子替换当前世界；配置必须与存档匹配。</summary>
+    public void RestoreExecutionCheckpointJson(string json)
+    {
+        RequireSession().RestoreExecutionCheckpointJson(CreateDemoOptions(), json);
+        RefreshSnapshot();
+    }
+
     public override void _ExitTree()
     {
         _session?.Dispose();
