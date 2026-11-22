@@ -85,6 +85,7 @@ public sealed class ResourceWorldRuntime
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
     private int _ledgerTick;
+    private long _masterPrefillReturnSequence;
 
     public ResourceWorldRuntime(
         ResourceArea resources,
@@ -278,6 +279,9 @@ public sealed class ResourceWorldRuntime
         Action<Workshop>? returnRetiredMasterPrefill = null;
         if (role == WorkshopRole.Master && _returnRetiredMasterPrefill != null)
         {
+            var returnOperationId = "master-prefill-return:" +
+                checked(++_masterPrefillReturnSequence).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
             returnRetiredMasterPrefill = retiredMaster =>
             {
                 // 先取 tick，再提交资源返还，避免 tick provider 失败发生在库存变更之后。
@@ -285,14 +289,20 @@ public sealed class ResourceWorldRuntime
                 var receipt = _returnRetiredMasterPrefill(retiredMaster);
                 if (_resourceLedger == null) return;
 
+                var mutations = new List<ResourceLedgerMutation>();
                 foreach (var item in receipt.Accepted)
-                    _resourceLedger.Record(tick, ResourceCauses.Return, ResourceKinds.Liquid,
-                        item.Key, item.Value, from: "主台预置", to: "自机液库",
-                        reason: "主工作台替换后返还未消费预置液体");
+                    mutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
+                        From: "主台预置", To: "自机液库",
+                        Reason: "主工作台替换后返还未消费预置液体"));
                 foreach (var item in receipt.Discarded)
-                    _resourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid,
-                        item.Key, item.Value, from: "主台预置", to: null,
-                        reason: "主工作台替换后返还自机液库时容量不足");
+                    mutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
+                        From: "主台预置", To: null,
+                        Reason: "主工作台替换后返还自机液库时容量不足"));
+
+                // 同一次岗位替换的多液种返还作为一个账本操作原子发布，防止部分记账。
+                _resourceLedger.RecordBatchOnce(returnOperationId, tick, mutations);
             };
         }
 
