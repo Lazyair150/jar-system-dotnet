@@ -131,7 +131,8 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
         int operationCount = 0,
         WorldOrderSolvePlan? plan = null,
         PartitionSearchReport? partitionReport = null) =>
-        new(demand.Id, snapshot.Version, status, method, reason, directCount, operationCount, plan, partitionReport);
+        new(demand.Id, snapshot.Version, status, method, reason, directCount, operationCount, plan, partitionReport,
+            snapshot.RuleSetVersion, snapshot.WorkshopProfileVersion, snapshot.ResourceVersion);
 
     /// <summary>
     /// 把快照中的静态修饰器投影到一次求解输入。
