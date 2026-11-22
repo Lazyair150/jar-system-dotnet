@@ -184,6 +184,29 @@ public class WorkshopRulebookTests
     }
 
     [Fact]
+    public void WorkshopExecutionRejectsFailedRequireWithoutCommittingResources()
+    {
+        var stack = new ModifierStack();
+        using var scope = stack.Push(new RequireModifier
+        {
+            Name = "gate",
+            Source = "test",
+            Text = "gate must be open",
+            Violation = () => "gate is closed"
+        });
+        var cfg = new Cfg { Name = "test", Base = new[] { "圆罐" } };
+        var workshop = Build(cfg, "圆罐", null, false, new[] { ("酒", 1) }, stack);
+        var jar = workshop.Jars[0];
+
+        var result = workshop.PourIn(jar, "酒");
+
+        Assert.False(result.Success);
+        Assert.Equal("gate is closed", result.Reason);
+        Assert.Null(jar.Liquid);
+        Assert.Equal(1, workshop.LiquidStorage["酒"]);
+    }
+
+    [Fact]
     public void RuleCatalogHasUniqueStableIdsAndVersionsForEveryWorkshopOperator()
     {
         var definitions = WorkshopRulebook.Definitions;
