@@ -133,22 +133,17 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     }
 
     [Fact]
-    public void PreparationCandidateMustMatchTheSelectedJarAndBePourOut()
+    public void PreparationCandidateMustBeCataloguedPourOut()
     {
         var requirement = Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "酒");
-        var wrongInput = Candidate(-1, "方罐", "酒", "PREPARE_POUR_OUT", "方罐", null, producedFree: "酒");
-        var wrongOperation = Candidate(-1, "圆罐", null, "RESHAPE_FULL", "方罐", null);
+        var unsupportedPreparation = Candidate(
+            -1, "圆罐", null, "PREPARE_POUR_IN", "圆罐", "酒", consumedFree: "酒");
 
         Assert.Throws<ArgumentException>(() =>
             WorldOrderPreparatoryProgramBuilder.Build(
                 Solution("Master", requirement),
-                new[] { new WorldOrderPreparatoryOperationAssignment("Master", "preparation-resource-0", wrongInput) },
-                false, "Master", "Slave"));
-
-        Assert.Throws<ArgumentException>(() =>
-            WorldOrderPreparatoryProgramBuilder.Build(
-                Solution("Master", requirement),
-                new[] { new WorldOrderPreparatoryOperationAssignment("Master", "other-jar", wrongOperation) },
+                new[] { new WorldOrderPreparatoryOperationAssignment(
+                    "Master", "preparation-resource-0", unsupportedPreparation) },
                 false, "Master", "Slave"));
     }
 
