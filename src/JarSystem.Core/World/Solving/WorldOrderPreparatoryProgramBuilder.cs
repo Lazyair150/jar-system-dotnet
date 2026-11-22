@@ -152,7 +152,11 @@ public static class WorldOrderPreparatoryProgramBuilder
         if (isBClass)
         {
             var slaveJarKeys = new SortedSet<string>(StringComparer.Ordinal);
-            foreach (var assigned in requirements.Where(x => x.WorkshopRole == slaveRole))
+            // B-class output is collected on the Slave: transfer every completed
+            // Master requirement Jar as well as every Jar the Slave must operate.
+            // A Master-operated Jar crosses with its order-level mark intact and is
+            // never scheduled for a second operation on the Slave.
+            foreach (var assigned in requirements)
                 slaveJarKeys.Add(requirementJarKeys[assigned.Candidate.RequirementIndex]);
             foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == slaveRole))
                 slaveJarKeys.Add(selectedPrep.JarKey);
