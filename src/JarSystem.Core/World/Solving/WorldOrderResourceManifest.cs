@@ -199,7 +199,7 @@ public sealed class WorldOrderResourceManifest
         }
 
         return new WorldOrderResourceManifest(
-            result.DemandId, result.WorldVersion, plan.IsPartitioned,
+            result.DemandId, allowResourceVersionChange ? snapshot.Version : result.WorldVersion, plan.IsPartitioned,
             masterPathIds, transferIds, masterInitial, transferLiquids,
             masterFinal, masterPeak, slavePeak);
     }
