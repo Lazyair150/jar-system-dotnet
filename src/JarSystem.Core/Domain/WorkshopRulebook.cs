@@ -129,10 +129,47 @@ public readonly record struct WorkshopRuleDecision(
         new(WorkshopRuleDecisionKind.Undetermined, code, reason);
 }
 
+public enum WorkshopRuleCategory
+{
+    Transform,
+    Lifecycle
+}
+
+/// <summary>可审计的稳定规则目录项；RuleId 不依赖 CLR 类型名或 UI 文案。</summary>
+public sealed record WorkshopRuleDefinition(
+    string RuleId,
+    int RuleVersion,
+    string Operator,
+    WorkshopRuleCategory Category);
+
 public static class WorkshopRulebook
 {
     /// <summary>基础工作台规则语义版本；改变规则含义时必须递增。</summary>
     public const int RuleContractVersion = 1;
+
+    /// <summary>
+    /// 当前工作台算子规则目录。新增算子必须先注册稳定身份/版本，再实现评估与转换；
+    /// 改变既有算子语义必须递增对应 RuleVersion。
+    /// </summary>
+    public static IReadOnlyList<WorkshopRuleDefinition> Definitions { get; } =
+        System.Array.AsReadOnly(new[]
+        {
+            new WorkshopRuleDefinition("jar.workshop.pour-in", 1, "POUR_IN", WorkshopRuleCategory.Transform),
+            new WorkshopRuleDefinition("jar.workshop.pour-out", 1, "POUR_OUT", WorkshopRuleCategory.Transform),
+            new WorkshopRuleDefinition("jar.workshop.reshape-empty", 1, "RESHAPE_EMPTY", WorkshopRuleCategory.Transform),
+            new WorkshopRuleDefinition("jar.workshop.reshape-full", 1, "RESHAPE_FULL", WorkshopRuleCategory.Transform),
+            new WorkshopRuleDefinition("jar.workshop.match", 1, "MATCH", WorkshopRuleCategory.Lifecycle)
+        });
+
+    private static WorkshopRuleDefinition DefinitionFor(WorkshopOperationKind kind) =>
+        kind switch
+        {
+            WorkshopOperationKind.PourIn => Definitions[0],
+            WorkshopOperationKind.PourOut => Definitions[1],
+            WorkshopOperationKind.ReshapeEmpty => Definitions[2],
+            WorkshopOperationKind.ReshapeFull => Definitions[3],
+            _ => throw new System.ArgumentOutOfRangeException(nameof(kind))
+        };
 
     /// <summary>订单直接匹配规则：MATCH 不改变 Jar 化学状态，但会占用并标记该 Jar。</summary>
     public static WorkshopRuleDecision EvaluateMatch(RuleContext rules, in JarFacts jar)
@@ -295,24 +332,29 @@ public static class WorkshopRulebook
         in JarFacts jar, in WorkshopOperation op) =>
         op.Kind switch
         {
-            WorkshopOperationKind.PourIn => new WorkshopOperationTransition(
-                "jar.workshop.pour-in", 1,
-                new JarFacts(jar.Shape, op.TargetLiquid, true),
-                op.TargetLiquid, null, null),
-            WorkshopOperationKind.PourOut => new WorkshopOperationTransition(
-                "jar.workshop.pour-out", 1,
-                new JarFacts(jar.Shape, null, true),
-                null, jar.Liquid, null),
-            WorkshopOperationKind.ReshapeEmpty => new WorkshopOperationTransition(
-                "jar.workshop.reshape-empty", 1,
-                new JarFacts(op.TargetShape!, null, true),
-                op.CostLiquid, null, null),
-            WorkshopOperationKind.ReshapeFull => new WorkshopOperationTransition(
-                "jar.workshop.reshape-full", 1,
-                new JarFacts(op.TargetShape!, null, true),
-                null, null, jar.Liquid),
+            WorkshopOperationKind.PourIn => Transition(WorkshopOperationKind.PourIn,
+                new JarFacts(jar.Shape, op.TargetLiquid, true), op.TargetLiquid, null, null),
+            WorkshopOperationKind.PourOut => Transition(WorkshopOperationKind.PourOut,
+                new JarFacts(jar.Shape, null, true), null, jar.Liquid, null),
+            WorkshopOperationKind.ReshapeEmpty => Transition(WorkshopOperationKind.ReshapeEmpty,
+                new JarFacts(op.TargetShape!, null, true), op.CostLiquid, null, null),
+            WorkshopOperationKind.ReshapeFull => Transition(WorkshopOperationKind.ReshapeFull,
+                new JarFacts(op.TargetShape!, null, true), null, null, jar.Liquid),
             _ => null
         };
+
+    private static WorkshopOperationTransition Transition(
+        WorkshopOperationKind kind,
+        JarFacts after,
+        string? consumedFreeLiquid,
+        string? producedFreeLiquid,
+        string? consumedJarLiquid)
+    {
+        var definition = DefinitionFor(kind);
+        return new WorkshopOperationTransition(
+            definition.RuleId, definition.RuleVersion, after,
+            consumedFreeLiquid, producedFreeLiquid, consumedJarLiquid);
+    }
 
     /// <summary>
     /// 列出现在**全部**合法操作（按固定顺序：倒出 → 灌入 → 空罐改形 → 满罐改形）。
