@@ -1,0 +1,120 @@
+using System.Collections.Generic;
+using System.Linq;
+using JarSystem.Core.Abstractions;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
+using JarSystem.Core.World;
+using JarSystem.Core.World.Solving;
+using Xunit;
+
+namespace JarSystem.Tests.WorldV2;
+
+public sealed class WorldOrderConcretePlanAssemblerTests
+{
+    [Fact]
+    public void AClassReturnsFeasibleOnlyAfterMaterializationReplayAndManifestAgree()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐", id: 1001));
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(new[] { master }, master));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐" } }, "A");
+        var profile = WorldOrderRuleCandidateCatalog.Build(world, world.Master!, "Master", specification);
+        var candidate = profile.Requirements.Single().Candidates.Single(x => x.Operation == "MATCH");
+        var input = new WorldOrderSymbolicJarVersion("a-jar", 0, "Master", "圆罐", null);
+        var output = new WorldOrderSymbolicJarVersion("a-jar", 1, "Master", "圆罐", null, true);
+        var node = WorldOrderSymbolicOperationNode.Rule(
+            "a-match", 0, "Master", 0, candidate, input, output);
+        var program = new WorldOrderSymbolicOperationProgram(
+            false, "Master", "Slave", new[] { node },
+            System.Array.Empty<WorldOrderSymbolicOperationDependency>());
+        var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
+
+        var result = WorldOrderConcretePlanAssembler.Assemble(
+            100, program, binding, world, profile);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.NotNull(result.SolveResult);
+        Assert.True(result.SolveResult!.IsFeasible);
+        Assert.NotNull(result.Manifest);
+        Assert.Single(result.CandidatePlan!.MasterSteps);
+    }
+
+    [Fact]
+    public void BClassJarInternalLiquidPassesMasterBanWithoutFreeLiquidTransfer()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" });
+        master.AddJar(new Jar("圆罐", "酒", id: 1011));
+        var slave = new Workshop("从台", new List<string> { "圆罐" });
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(
+            new[] { master, slave }, master, slave));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } }, "B");
+        var masterProfile = WorldOrderRuleCandidateCatalog.Build(
+            world, world.Master!, "Master", specification);
+        var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
+            world, world.Slave!, "Slave", specification);
+        var candidate = slaveProfile.Requirements.Single().Candidates.Single(x => x.Operation == "MATCH");
+        var input = new WorldOrderSymbolicJarVersion("delivery", 0, "Master", "圆罐", "酒");
+        var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff", 0, "Master", "Slave", new[] { input });
+        var received = handoff.OutputJars.Single();
+        var output = new WorldOrderSymbolicJarVersion("delivery", 2, "Slave", "圆罐", "酒", true);
+        var slaveNode = WorldOrderSymbolicOperationNode.Rule(
+            "slave-match", 1, "Slave", 0, candidate, received, output);
+        var program = new WorldOrderSymbolicOperationProgram(
+            true, "Master", "Slave", new[] { handoff, slaveNode },
+            new[] { WorldOrderSymbolicOperationDependency.JarState(
+                handoff.NodeId, slaveNode.NodeId, "delivery", 1) });
+        var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
+
+        var result = WorldOrderConcretePlanAssembler.Assemble(
+            101, program, binding, world, masterProfile, slaveProfile);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Empty(result.Manifest!.TransferLiquids);
+        Assert.Equal(new[] { 1011 }, result.Manifest.TransferJarIds);
+        Assert.Empty(result.ResourceReplay!.TransferLiquids);
+    }
+
+    [Fact]
+    public void ManifestMismatchOnRejectedSlaveOutputFailsClosedAsUndetermined()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐", "酒", id: 1021));
+        var slave = new Workshop("从台", new List<string> { "圆罐" });
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(
+            new[] { master, slave }, master, slave));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐" } }, "B");
+        var masterProfile = WorldOrderRuleCandidateCatalog.Build(
+            world, world.Master!, "Master", specification);
+        var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
+            world, world.Slave!, "Slave", specification);
+        var candidate = slaveProfile.PreparatoryOperations.Single(x =>
+            x.Operation == "PREPARE_POUR_OUT" && x.SourceShape == "圆罐" && x.SourceLiquid == "酒");
+        var input = new WorldOrderSymbolicJarVersion("tool", 0, "Master", "圆罐", "酒");
+        var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff", 0, "Master", "Slave", new[] { input });
+        var received = handoff.OutputJars.Single();
+        var output = new WorldOrderSymbolicJarVersion("tool", 2, "Slave", "圆罐", null, true);
+        var slaveNode = WorldOrderSymbolicOperationNode.Rule(
+            "slave-pour-out", 1, "Slave", null, candidate, received, output);
+        var program = new WorldOrderSymbolicOperationProgram(
+            true, "Master", "Slave", new[] { handoff, slaveNode },
+            new[] { WorldOrderSymbolicOperationDependency.JarState(
+                handoff.NodeId, slaveNode.NodeId, "tool", 1) });
+        var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
+
+        var result = WorldOrderConcretePlanAssembler.Assemble(
+            102, program, binding, world, masterProfile, slaveProfile,
+            slaveRejectedLiquids: new[] { "酒" });
+
+        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+        Assert.Null(result.SolveResult);
+        Assert.Contains("不一致", result.Reason);
+        Assert.Equal(0, result.ResourceReplay!.SlaveStagingPeakCapacity);
+        Assert.NotNull(result.CandidatePlan);
+    }
+}
