@@ -135,6 +135,14 @@ public class SolverOperation
     public string? CostLiquid { get; set; }
     public Dictionary<string, int>? Consumed { get; set; }
     public bool FullReshape { get; set; }
+
+    /// <summary>
+    /// Exact rule identity retained by World V2 symbolic materialization.
+    /// Legacy solver paths may leave these fields null; a materialized World V2
+    /// operation must carry both values together.
+    /// </summary>
+    public string? RuleId { get; set; }
+    public int? RuleVersion { get; set; }
 }
 
 public class JarState
