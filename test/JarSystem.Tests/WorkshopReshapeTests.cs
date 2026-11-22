@@ -81,7 +81,10 @@ public class WorkshopReshapeTests
     [Fact]
     public void AnEmptyJarNeedsSomeUsableCostLiquid()
     {
-        var w = Xuanwu();
+        var w = new Workshop("玄武台",
+            new List<string> { "圆罐", "方罐" },
+            new List<string> { "三角罐" },
+            maxJars: 6, maxLiquids: 5);
         var jar = new Jar("圆罐", null, null, Vocab());
         w.AddJar(jar);
 
@@ -90,14 +93,16 @@ public class WorkshopReshapeTests
         Assert.False(dry.Granted);
         Assert.Equal("no-cost-liquid", dry.Code);
 
-        // 只存着被禁的酒 ⇒ 依然是"没有可付的"（存得住、取不出）。
-        w.AddLiquid("酒", 2);
+        // 酒先合法存入；随后工作台启用禁酒。旧余额仍在，但不能再用。
+        Assert.True(w.AddLiquid("酒", 2));
+        w.ReplaceCapability(new WorkshopCapability(
+            new[] { "圆罐", "方罐" }, new[] { "三角罐" }, new[] { "酒" }));
         var bannedOnly = w.CanReshapeTo(jar, "方罐");
         Assert.False(bannedOnly.Granted);
         Assert.Equal("no-cost-liquid", bannedOnly.Code);
 
         // 有一份蜜 ⇒ 能付。
-        w.AddLiquid("蜜", 1);
+        Assert.True(w.AddLiquid("蜜", 1));
         Assert.True(w.CanReshapeTo(jar, "方罐").Granted);
     }
 
