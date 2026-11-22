@@ -275,6 +275,7 @@ public static class WorldOrderRuleCandidateCatalog
 /// </summary>
 public sealed class WorldOrderRuleCandidateBook
 {
+    private readonly object _gate = new();
     private readonly Dictionary<CacheKey, WorldOrderRuleCandidateProfile> _profiles = new();
     private const int MaxEntries = 512;
 
@@ -287,6 +288,9 @@ public sealed class WorldOrderRuleCandidateBook
         string role,
         JarOrderSpecification specification)
     {
+        if (world == null) throw new ArgumentNullException(nameof(world));
+        if (workshop == null) throw new ArgumentNullException(nameof(workshop));
+        if (specification == null) throw new ArgumentNullException(nameof(specification));
         var specificationVersion = WorldOrderRuleCandidateCatalog.Fingerprint(specification);
         var key = new CacheKey(
             role,
@@ -295,24 +299,30 @@ public sealed class WorldOrderRuleCandidateBook
             specificationVersion,
             workshop.Name);
 
-        if (_profiles.TryGetValue(key, out var cached))
+        lock (_gate)
         {
-            CacheHits++;
-            return cached;
-        }
+            if (_profiles.TryGetValue(key, out var cached))
+            {
+                CacheHits++;
+                return cached;
+            }
 
-        CacheMisses++;
-        var built = WorldOrderRuleCandidateCatalog.Build(world, workshop, role, specification);
-        if (_profiles.Count >= MaxEntries) _profiles.Clear();
-        _profiles[key] = built;
-        return built;
+            CacheMisses++;
+            var built = WorldOrderRuleCandidateCatalog.Build(world, workshop, role, specification);
+            if (_profiles.Count >= MaxEntries) _profiles.Clear();
+            _profiles[key] = built;
+            return built;
+        }
     }
 
     public void Clear()
     {
-        _profiles.Clear();
-        CacheHits = 0;
-        CacheMisses = 0;
+        lock (_gate)
+        {
+            _profiles.Clear();
+            CacheHits = 0;
+            CacheMisses = 0;
+        }
     }
 
     private readonly record struct CacheKey(
