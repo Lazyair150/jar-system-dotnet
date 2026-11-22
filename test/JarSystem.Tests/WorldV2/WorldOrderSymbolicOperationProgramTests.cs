@@ -282,7 +282,11 @@ public sealed class WorldOrderSymbolicOperationProgramTests
         Assert.Throws<ArgumentException>(() =>
             new WorldOrderSymbolicOperationProgram(
                 true, "Master", "Slave", new[] { secondHandoff, slaveAfterHandoff },
-                Array.Empty<WorldOrderSymbolicOperationDependency>()));
+                new[]
+                {
+                    WorldOrderSymbolicOperationDependency.JarState(
+                        "handoff-2", "slave-after-handoff", "jar-B", 1)
+                }));
     }
 
 }
