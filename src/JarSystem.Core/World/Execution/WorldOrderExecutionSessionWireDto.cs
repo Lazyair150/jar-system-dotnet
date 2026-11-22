@@ -76,9 +76,9 @@ public sealed class WorldOrderExecutionSessionWireDto
         Plan.Validate();
         var transferJarIdsMatch = Manifest.TransferJarIds.OrderBy(x => x)
             .SequenceEqual(Plan.TransferJarIds.OrderBy(x => x));
-        var transferLiquidsMatch = Manifest.TransferLiquids.Count == Plan.TransferLiquids.Count &&
-            Manifest.TransferLiquids.All(item =>
-                Plan.TransferLiquids.TryGetValue(item.Key, out var amount) && amount == item.Value);
+        // Manifest 以路径前缀峰值计算最低供给，可能保留值为 0 的液种键；
+        // Plan 的转移账本可以省略这些键。缺失键与显式 0 在资源语义上等价。
+        var transferLiquidsMatch = LiquidBalancesEqual(Manifest.TransferLiquids, Plan.TransferLiquids);
         if (Manifest.DemandId != DemandId || Manifest.IsPartitioned != Plan.IsPartitioned ||
             !transferJarIdsMatch || !transferLiquidsMatch)
             throw new InvalidOperationException(
@@ -96,6 +96,14 @@ public sealed class WorldOrderExecutionSessionWireDto
             Plan.IsPartitioned,
             SlaveTransferCommitted,
             Reason);
+    }
+
+    private static bool LiquidBalancesEqual(
+        IReadOnlyDictionary<string, int> left,
+        IReadOnlyDictionary<string, int> right)
+    {
+        var keys = left.Keys.Concat(right.Keys).Distinct(StringComparer.Ordinal);
+        return keys.All(key => left.GetValueOrDefault(key) == right.GetValueOrDefault(key));
     }
 }
 
