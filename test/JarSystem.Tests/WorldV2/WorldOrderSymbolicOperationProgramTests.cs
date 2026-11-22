@@ -249,4 +249,40 @@ public sealed class WorldOrderSymbolicOperationProgramTests
                 duplicate, true, "Master", "Slave"));
     }
 
+    [Fact]
+    public void SlaveCannotUseAnInitialJarOrUnfundedFreeLiquid()
+    {
+        var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff", 0, "Master", "Slave", Array.Empty<WorldOrderSymbolicJarVersion>());
+        var slaveInitial = new WorldOrderSymbolicJarVersion("jar-A", 0, "Slave", "圆罐", null);
+        var slaveOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Slave", "方罐", null);
+        var slaveFromInitial = WorldOrderSymbolicOperationNode.Rule(
+            "slave-step", 1, "Slave", 0,
+            Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "酒"),
+            slaveInitial, slaveOutput);
+
+        Assert.Throws<ArgumentException>(() =>
+            new WorldOrderSymbolicOperationProgram(
+                true, "Master", "Slave", new[] { handoff, slaveFromInitial },
+                new[]
+                {
+                    WorldOrderSymbolicOperationDependency.FreeLiquid("handoff", "slave-step", "酒")
+                }));
+
+        var masterJar = new WorldOrderSymbolicJarVersion("jar-B", 0, "Master", "圆罐", null);
+        var secondHandoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff-2", 0, "Master", "Slave", new[] { masterJar });
+        var receivedJar = secondHandoff.OutputJars[0];
+        var slaveAfterHandoff = WorldOrderSymbolicOperationNode.Rule(
+            "slave-after-handoff", 1, "Slave", 0,
+            Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "酒"),
+            receivedJar,
+            new WorldOrderSymbolicJarVersion("jar-B", 2, "Slave", "方罐", null));
+
+        Assert.Throws<ArgumentException>(() =>
+            new WorldOrderSymbolicOperationProgram(
+                true, "Master", "Slave", new[] { secondHandoff, slaveAfterHandoff },
+                Array.Empty<WorldOrderSymbolicOperationDependency>()));
+    }
+
 }
