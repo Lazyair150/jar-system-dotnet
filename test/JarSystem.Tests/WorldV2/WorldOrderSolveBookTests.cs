@@ -67,7 +67,10 @@ public sealed class WorldOrderSolveBookTests
         var demand = Demand();
         board.AddDemand(demand, DemandAreaKind.Passive);
         using var book = new WorldOrderSolveBook(board);
-        var firstSnapshot = Snapshot(new Jar("圆罐"));
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        var roster = new WorkshopRoster(new[] { master }, master);
+        var firstSnapshot = WorldSnapshotFactory.Capture(roster);
         var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
         var firstSymbolic = book.GetSymbolicSolutions(demand.Id, firstSnapshot);
         Assert.NotNull(firstSymbolic);
@@ -76,7 +79,8 @@ public sealed class WorldOrderSolveBookTests
         Assert.All(firstSymbolic.Solutions, solution =>
             Assert.All(solution.Steps, step => Assert.Equal("Master", step.WorkshopRole)));
 
-        var changedSnapshot = Snapshot(new Jar("圆罐"), new Jar("方罐"));
+        Assert.True(master.AddJar(new Jar("方罐")));
+        var changedSnapshot = WorldSnapshotFactory.Capture(roster);
 
         Assert.NotEqual(firstSnapshot.Version, changedSnapshot.Version);
         var rebound = book.GetCurrentResult(demand.Id, changedSnapshot);
