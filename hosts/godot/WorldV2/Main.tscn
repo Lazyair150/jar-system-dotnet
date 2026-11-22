@@ -62,6 +62,48 @@ text = "保存检查点"
 layout_mode = 2
 text = "恢复检查点"
 
+[node name="MasterReplacementControls" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="MasterReplacementLabel" type="Label" parent="Root/MasterReplacementControls"]
+layout_mode = 2
+text = "替换主台个体："
+
+[node name="MasterTargetOption" type="OptionButton" parent="Root/MasterReplacementControls"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ReplaceMasterButton" type="Button" parent="Root/MasterReplacementControls"]
+layout_mode = 2
+text = "开始主台替换"
+
+[node name="SlaveReplacementControls" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="SlaveReplacementLabel" type="Label" parent="Root/SlaveReplacementControls"]
+layout_mode = 2
+text = "替换从台个体："
+
+[node name="SlaveTargetOption" type="OptionButton" parent="Root/SlaveReplacementControls"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ReplaceSlaveButton" type="Button" parent="Root/SlaveReplacementControls"]
+layout_mode = 2
+text = "开始从台替换"
+
+[node name="ReplacementActions" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="CancelReplacementButton" type="Button" parent="Root/ReplacementActions"]
+layout_mode = 2
+text = "取消当前替换"
+
+[node name="ReplacementStatusLabel" type="Label" parent="Root"]
+layout_mode = 2
+autowrap_mode = 3
+text = "工作台替换状态"
+
 [node name="StatusLabel" type="Label" parent="Root"]
 layout_mode = 2
 text = "正在初始化..."
