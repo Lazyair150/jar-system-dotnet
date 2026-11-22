@@ -127,7 +127,10 @@ public sealed class WorldV2Context : IDisposable
             masterPrefill: shipLiquidInventory == null
                 ? null
                 : targetWorkshop => admission.BeginMasterWorkshopPrefill(
-                    targetWorkshop, resources.LiquidProductionPriority));
+                    targetWorkshop, resources.LiquidProductionPriority),
+            returnRetiredMasterPrefill: shipLiquidInventory == null
+                ? null
+                : retiredMaster => admission.ReturnRetiredMasterPrefill(retiredMaster));
         admission.BindOrderAdmissionGate(() => !runtime.BlocksOrderAdmission);
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
