@@ -185,6 +185,7 @@ public static class WorldOrderSymbolicResourceSimulator
         if (!program.IsBClass && request.HandoffFreeLiquid.Count != 0)
             throw new ArgumentException("A 类订单不能提供主从交接液体", nameof(request));
 
+        var masterBanned = new HashSet<string>(request.MasterBannedLiquids, StringComparer.Ordinal);
         var roles = new SortedDictionary<string, MutableRoleResourceState>(StringComparer.Ordinal)
         {
             [program.MasterRole] = new MutableRoleResourceState(
