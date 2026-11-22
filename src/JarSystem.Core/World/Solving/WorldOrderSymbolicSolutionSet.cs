@@ -43,14 +43,16 @@ public sealed record WorldOrderAssignedRuleCandidate(
 
 public enum WorldOrderSymbolicSolutionStatus
 {
-    Complete,
-    Infeasible,
+    EnumerationComplete,
+    NoDirectCandidate,
     Undetermined
 }
 
 /// <summary>
-/// 有限预算下枚举的规则级配方组合集合。
-/// Complete 才代表候选组合已穷举；Undetermined 可能含部分结果，不能用于宣告无解。
+/// 有限预算下枚举的规则级候选分配集合。
+/// EnumerationComplete 只代表本层单步候选组合已穷举，不代表实际 Jar/液体资源可绑定。
+/// NoDirectCandidate 只代表没有单步候选，不能据此宣告完整订单无解；
+/// Undetermined 可能含部分结果，也不能用于宣告无解。
 /// </summary>
 public sealed class WorldOrderSymbolicSolutionSet
 {
@@ -62,7 +64,8 @@ public sealed class WorldOrderSymbolicSolutionSet
     public int ExploredNodes { get; }
     public string? Reason { get; }
 
-    public bool IsComplete => Status == WorldOrderSymbolicSolutionStatus.Complete;
+    public bool IsEnumerationComplete => Status == WorldOrderSymbolicSolutionStatus.EnumerationComplete;
+    public bool IsResourceBound => false;
     public bool IsUndetermined => Status == WorldOrderSymbolicSolutionStatus.Undetermined;
 
     internal WorldOrderSymbolicSolutionSet(
@@ -100,9 +103,9 @@ public static class WorldOrderSymbolicSolutionBuilder
         if (maxSolutions <= 0) throw new ArgumentOutOfRangeException(nameof(maxSolutions));
         if (maxNodes <= 0) throw new ArgumentOutOfRangeException(nameof(maxNodes));
 
-        var first = profiles[0];
         if (profiles.Any(x => x == null))
             throw new ArgumentException("规则候选 Profile 不能为 null", nameof(profiles));
+        var first = profiles[0];
         if (profiles.Select(x => x.Role).Distinct(StringComparer.Ordinal).Count() != profiles.Count)
             throw new ArgumentException("工作台角色不能重复", nameof(profiles));
         if (profiles.Any(x =>
@@ -131,7 +134,7 @@ public static class WorldOrderSymbolicSolutionBuilder
             }
 
             if (requirementChoices.Count == 0)
-                return Result(WorldOrderSymbolicSolutionStatus.Infeasible,
+                return Result(WorldOrderSymbolicSolutionStatus.NoDirectCandidate,
                     profiles, Array.Empty<WorldOrderSymbolicSolution>(), 0,
                     "需求 " + (requirementIndex + 1) + " 在所有工作台规则下均无合法 Jar 算子候选");
             choices.Add(requirementChoices.AsReadOnly());
@@ -180,7 +183,7 @@ public static class WorldOrderSymbolicSolutionBuilder
         return Result(
             solutions.Count == 0
                 ? WorldOrderSymbolicSolutionStatus.Infeasible
-                : WorldOrderSymbolicSolutionStatus.Complete,
+                : WorldOrderSymbolicSolutionStatus.EnumerationComplete,
             profiles, solutions, exploredNodes, null);
     }
 
