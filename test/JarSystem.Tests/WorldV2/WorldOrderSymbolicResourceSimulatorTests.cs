@@ -229,7 +229,7 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
 
         Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Infeasible, result.Status);
         Assert.Equal("master-to-slave-handoff", result.FailureNodeId);
-        Assert.Contains("主台禁止向外传递", result.FailureReason);
+        Assert.Contains("主台禁止向外传递", result.Reason);
         Assert.False(result.HandoffApplied);
         Assert.Empty(result.HandoffTransferredFreeLiquid);
         Assert.Equal(1, result.Roles["Master"].FinalFreeLiquid["酒"]);
