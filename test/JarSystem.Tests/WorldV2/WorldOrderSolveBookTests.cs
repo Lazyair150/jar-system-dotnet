@@ -69,6 +69,12 @@ public sealed class WorldOrderSolveBookTests
         using var book = new WorldOrderSolveBook(board);
         var firstSnapshot = Snapshot(new Jar("圆罐"));
         var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
+        var firstSymbolic = book.GetSymbolicSolutions(demand.Id);
+        Assert.NotNull(firstSymbolic);
+        Assert.Equal(WorldOrderSymbolicSolutionStatus.Complete, firstSymbolic!.Status);
+        Assert.NotEmpty(firstSymbolic.Solutions);
+        Assert.All(firstSymbolic.Solutions, solution =>
+            Assert.All(solution.Steps, step => Assert.Equal("Master", step.WorkshopRole)));
 
         var changedSnapshot = Snapshot(new Jar("圆罐"), new Jar("方罐"));
 
@@ -83,6 +89,9 @@ public sealed class WorldOrderSolveBookTests
         // ResourceVersion 变化会重做资源绑定/当前求解，但规则候选 Profile 仍复用。
         Assert.Equal(1, book.RuleCandidates.CacheMisses);
         Assert.True(book.RuleCandidates.CacheHits >= 1);
+        Assert.Same(firstSymbolic, book.GetSymbolicSolutions(demand.Id));
+        Assert.Equal(1, book.RuleCandidates.SolutionCacheMisses);
+        Assert.True(book.RuleCandidates.SolutionCacheHits >= 1);
     }
 
     [Fact]
