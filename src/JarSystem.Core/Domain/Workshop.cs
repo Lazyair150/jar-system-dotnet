@@ -378,7 +378,7 @@ public class Workshop
         return (true, null);
     }
 
-    /// <summary>清除全部罐子的操作标记（订单开始/结束、阶段切换时使用）。</summary>
+    /// <summary>清除全部罐子的操作标记（仅用于订单生命周期边界，不得用于同一订单的主从交接）。</summary>
     public void ClearMarks()
     {
         foreach (var j in _jars) j.Unmark();
