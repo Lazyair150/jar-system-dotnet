@@ -303,15 +303,50 @@ public sealed class WorldOrderSymbolicOperationProgram
 
         foreach (var input in allInputs)
         {
+            var consumer = orderedNodes.First(n => n.InputJars.Contains(input));
             var producers = orderedNodes.Where(x =>
                 x.OutputJars.Any(y => y == input)).ToArray();
             if (producers.Length > 1) throw new ArgumentException("Jar 状态版本存在多个生产者", nameof(nodes));
+            if (isBClass && consumer.WorkshopRole == slaveRole && producers.Length == 0)
+                throw new ArgumentException("从台不能从自有初始库存取得订单 Jar；必须经由主台交接", nameof(nodes));
             if (producers.Length == 1 && !edges.Any(x =>
                 x.Kind == WorldOrderSymbolicDependencyKind.JarState &&
                 x.FromNodeId == producers[0].NodeId &&
-                x.ToNodeId == orderedNodes.First(n => n.InputJars.Contains(input)).NodeId &&
+                x.ToNodeId == consumer.NodeId &&
                 x.JarKey == input.JarKey && x.JarRevision == input.Revision))
                 throw new ArgumentException("Jar 状态版本被后续操作使用时必须显式声明依赖边", nameof(dependencies));
+        }
+
+        if (isBClass)
+        {
+            foreach (var slaveNode in orderedNodes.Where(x =>
+                x.Kind == WorldOrderSymbolicOperationKind.Rule && x.WorkshopRole == slaveRole))
+            {
+                var requiredLiquid = slaveNode.Candidate!.ConsumedFreeLiquid;
+                if (requiredLiquid == null) continue;
+
+                var hasHandoffSupply = edges.Any(x =>
+                    x.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid &&
+                    x.FromNodeId == handoff!.NodeId &&
+                    x.ToNodeId == slaveNode.NodeId &&
+                    x.Liquid == requiredLiquid);
+                var hasEarlierSlaveProduction = edges.Any(x =>
+                {
+                    if (x.Kind != WorldOrderSymbolicDependencyKind.FreeLiquid ||
+                        x.ToNodeId != slaveNode.NodeId || x.Liquid != requiredLiquid)
+                        return false;
+                    var source = byId[x.FromNodeId];
+                    return source.Kind == WorldOrderSymbolicOperationKind.Rule &&
+                        source.WorkshopRole == slaveRole &&
+                        source.Sequence < slaveNode.Sequence &&
+                        source.Candidate?.ProducedFreeLiquid == requiredLiquid;
+                });
+
+                if (!hasHandoffSupply && !hasEarlierSlaveProduction)
+                    throw new ArgumentException(
+                        "从台游离液体消耗必须依赖唯一交接，或依赖更早的从台产液操作",
+                        nameof(dependencies));
+            }
         }
 
         IsBClass = isBClass;
