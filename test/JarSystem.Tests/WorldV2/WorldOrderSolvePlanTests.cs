@@ -132,4 +132,69 @@ public sealed class WorldOrderSolvePlanTests
         Assert.Equal(new[] { 7, 9 }, plan.TransferJarIds);
         Assert.Equal(4, plan.TransferLiquids["酒"]);
     }
+
+    [Fact]
+    public void MaterializedPathsPreserveStageOrderAndFreezeTheTransferWitness()
+    {
+        static SolverStep Step(int number, int jarId, string type, bool masterOrigin) => new()
+        {
+            Step = number,
+            Operation = new SolverOperation
+            {
+                Type = type,
+                JarIndex = 0,
+                TargetShape = "圆罐",
+                Consumed = new Dictionary<string, int>()
+            },
+            Before = new List<JarState>
+            {
+                new() { Id = jarId, Shape = "圆罐", MasterOrigin = masterOrigin }
+            },
+            After = new List<JarState>
+            {
+                new() { Id = jarId, Shape = "圆罐", IsMarked = true, MasterOrigin = masterOrigin }
+            },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+
+        var master = new List<SolverStep>
+        {
+            Step(4, 71, "MATCH", false),
+            Step(5, 72, "POUR_OUT", false)
+        };
+        var slave = new List<SolverStep> { Step(0, 72, "MATCH", true) };
+        // This deliberately invalid cross-stage reuse must still be rejected.
+        Assert.Throws<System.ArgumentException>(() =>
+            WorldOrderSolvePlan.FromMaterializedPaths(
+                true, master, slave, new[] { 72 }, new Dictionary<string, int>()));
+
+        var valid = WorldOrderSolvePlan.FromMaterializedPaths(
+            true,
+            new[] { Step(4, 71, "MATCH", false) },
+            new[] { Step(0, 72, "MATCH", true) },
+            new[] { 72 },
+            new Dictionary<string, int> { ["酒"] = 1 });
+
+        Assert.True(valid.IsPartitioned);
+        Assert.Equal(4, Assert.Single(valid.MasterSteps).Step);
+        Assert.Equal(0, Assert.Single(valid.SlaveSteps).Step);
+        Assert.Equal(new[] { 72 }, valid.TransferJarIds);
+        Assert.Equal(1, valid.TransferLiquids["酒"]);
+    }
+
+    [Fact]
+    public void MaterializedAClassPlanRejectsAnySlaveOrTransferPayload()
+    {
+        var step = new SolverStep
+        {
+            Operation = new SolverOperation { Type = "MATCH", JarIndex = 0 },
+            Before = new List<JarState> { new() { Id = 81, Shape = "圆罐" } },
+            After = new List<JarState> { new() { Id = 81, Shape = "圆罐", IsMarked = true } },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+
+        Assert.Throws<System.ArgumentException>(() =>
+            WorldOrderSolvePlan.FromMaterializedPaths(
+                false, new[] { step }, transferJarIds: new[] { 81 }));
+    }
 }
