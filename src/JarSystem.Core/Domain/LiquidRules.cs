@@ -3,7 +3,8 @@ using System;
 namespace JarSystem.Core.Domain;
 
 /// <summary>
-/// 「动用液体」的回应（原则4：规则 = 概念体的能力）。
+/// 「动用工作台游离液体」的回应（原则4：规则 = 概念体的能力）。
+/// 本类型只评估工作台游离液体池；Jar 内部液体不属于该池，不得送入本规则检查。
 ///
 /// <see cref="Code"/> 是稳定码（给程序看），<see cref="Reason"/> 是给人看的一句话。
 /// 两者都不随调用方变化 —— 这正是把规则从"各处 if"收成"一个能力"的目的：
@@ -70,7 +71,7 @@ public readonly struct LiquidRules
     /// <summary>禁令门：这整种液体在本台是否不可用。</summary>
     public bool IsBanned(string liquid) => _capability?.IsBanned(liquid) ?? false;
 
-    /// <summary>能不能碰这种液体（只答禁令）。</summary>
+    /// <summary>工作台游离液体是否可取用（只答 staging ban）。</summary>
     public LiquidGrant Check(string liquid) =>
         IsBanned(liquid) ? LiquidGrant.Banned(liquid) : LiquidGrant.Yes();
 
