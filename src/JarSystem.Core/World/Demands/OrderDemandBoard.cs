@@ -19,6 +19,7 @@ public sealed class OrderDemandBoard
 
     public OrderDemandArea Passive { get; }
     public OrderDemandArea Active { get; }
+    public OrderCycleOutbox Outbox { get; private set; }
 
     public IReadOnlyList<OrderDemand> AllDemands =>
         Passive.Demands.Concat(Active.Demands).ToList().AsReadOnly();
@@ -27,10 +28,12 @@ public sealed class OrderDemandBoard
 
     public OrderDemandBoard(
         DemandAreaFulfillmentPolicy passiveFulfillmentPolicy,
-        DemandAreaFulfillmentPolicy activeFulfillmentPolicy)
+        DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
+        OrderCycleOutbox? outbox = null)
     {
         Passive = new OrderDemandArea(DemandAreaKind.Passive, passiveFulfillmentPolicy);
         Active = new OrderDemandArea(DemandAreaKind.Active, activeFulfillmentPolicy);
+        Outbox = outbox ?? new OrderCycleOutbox();
     }
 
     public void AddDemand(OrderDemand demand, DemandAreaKind area)
@@ -67,15 +70,22 @@ public sealed class OrderDemandBoard
         var area = AreaOf(demand);
         if (area.RemoveAfterSuccessfulFulfillment)
         {
-            area.Remove(demand);
+            if (!area.Remove(demand))
+                throw new InvalidOperationException("成功订单无法从所属区域移除。");
+            var cycleSequence = demand.RecordSuccessfulCycle();
+            if (demand.OrderDefinitionKey != null)
+                Outbox.Append(demand.Id, demand.OrderDefinitionKey, cycleSequence);
             Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.Removed, demand.Id,
                 area.Kind, null));
             return DemandFulfillmentResult.RemovedFromArea;
         }
 
-        // 持续订单成功代表一个执行周期结束。订单仍留在原区域，但必须等待
-        // 自己配置的逻辑 CD；CD 为 0 时 EnterCooldown 不制造等待。
+        // 持续订单成功代表一个执行周期结束。周期序号与事件写入同一需求板操作；
+        // Outbox append 是纯内存、确定性操作，不调用 Space/Godot 外部代码。
         demand.EnterCooldown();
+        var completedCycle = demand.RecordSuccessfulCycle();
+        if (demand.OrderDefinitionKey != null)
+            Outbox.Append(demand.Id, demand.OrderDefinitionKey, completedCycle);
         Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.FulfilledRetained, demand.Id,
             area.Kind, area.Kind));
         return DemandFulfillmentResult.RetainedInArea;
@@ -168,7 +178,8 @@ public sealed class OrderDemandBoard
             Passive.FulfillmentPolicy,
             Active.FulfillmentPolicy,
             CaptureArea(Passive),
-            CaptureArea(Active));
+            CaptureArea(Active),
+            Outbox.Capture());
     }
 
     /// <summary>
@@ -186,7 +197,8 @@ public sealed class OrderDemandBoard
 
         var board = new OrderDemandBoard(
             snapshot.PassiveFulfillmentPolicy,
-            snapshot.ActiveFulfillmentPolicy);
+            snapshot.ActiveFulfillmentPolicy,
+            OrderCycleOutbox.Restore(snapshot.Outbox));
         RestoreArea(board.Passive, snapshot.PassiveDemands, vocabulary);
         RestoreArea(board.Active, snapshot.ActiveDemands, vocabulary);
         demandIds.RestoreAtLeast(snapshot.DemandIdSequence);
@@ -234,6 +246,7 @@ public sealed class OrderDemandBoard
                 null, DemandAreaKind.Active));
         }
 
+        Outbox = OrderCycleOutbox.Restore(snapshot.Outbox);
         demandIds.RestoreAtLeast(snapshot.DemandIdSequence);
     }
 
@@ -250,7 +263,9 @@ public sealed class OrderDemandBoard
                 specification.Requirements.Select(item =>
                     new OrderRequirementSnapshot(item.Shape, item.Liquid)),
                 demand.CooldownDurationLogicalMilli,
-                demand.CooldownRemainingLogicalMilli);
+                demand.CooldownRemainingLogicalMilli,
+                demand.OrderDefinitionKey,
+                demand.CycleSequence);
         }).ToArray());
 
     private static void RestoreArea(
@@ -272,7 +287,9 @@ public sealed class OrderDemandBoard
                 item.Id,
                 specification,
                 item.CooldownDurationLogicalMilli,
-                item.CooldownRemainingLogicalMilli));
+                item.CooldownRemainingLogicalMilli,
+                item.OrderDefinitionKey,
+                item.CycleSequence));
         }
     }
 
