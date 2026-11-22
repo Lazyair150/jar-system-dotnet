@@ -11,7 +11,7 @@
 - 依赖边如何保证 Jar 状态和液体供给先于消费者；
 - B 类订单的资源交接必须是一个唯一事件，而不是按步骤重复调用。
 
-本切片新增 `WorldOrderSymbolicOperationProgram` 及节点、Jar 状态版本和依赖边模型，为这些约束提供不可变的结构承载。
+本切片新增 `WorldOrderSymbolicOperationProgram` 及节点、Jar 状态版本和依赖边模型，并增加 `BuildDirectCandidateProjection`，将现有每需求单步候选解投影为有序节点图，为这些约束提供不可变的结构承载。
 
 ## 核心领域不变量
 
@@ -44,13 +44,15 @@ A 类程序则完全不允许出现该节点，也不允许使用 Slave 岗位�
 - `FreeLiquid` 边指明某种游离液体的供给依赖；精确数量可以在后续资源模拟阶段绑定。
 - 依赖必须从较早序号指向较晚序号。
 - 同一液体的 Master / Slave 账户不会因边关系而合并；跨岗位只能通过唯一 handoff 节点。
-- 前置 PourOut 以普通规则节点表达，`RequirementIndex = null` 对应候选目录中的 `RequirementIndex = -1`，不伪装成满足一条订单需求。
+- 前置 PourOut 可以由节点模型以普通规则节点表达，`RequirementIndex = null` 对应候选目录中的 `RequirementIndex = -1`，不伪装成满足一条订单需求。当前直接候选投影器会拒绝把准备候选塞进需求解集，不会擅自挑选准备操作。
+
+直接候选投影器为 Master 需求节点、唯一 handoff、Slave 需求节点分配确定性序号，并为 Slave 候选创建“Master 初始 Jar → handoff → Slave 操作”的抽象状态链。若 Master 单步候选产出的游离液体与 Slave 单步候选消耗的液体相同，会显式建立 Master → handoff → Slave 依赖边。该序号只用于表达当前直接候选投影的阶段顺序，不是完整操作调度结论。
 
 ## 当前边界
 
-本切片建立的是**结构模型和结构校验器**，并不声称已经完成：
+本切片建立的是**直接候选投影 + 结构模型 + 结构校验器**，并不声称已经完成：
 
-- 从 `WorldOrderSymbolicSolutionSet` 自动生成全部候选操作程序；
+- 从 `WorldOrderSymbolicSolutionSet` 枚举完整、多步、包含准备操作的全部候选程序；
 - 选择真实或抽象 Jar 的完整分配路径；
 - 枚举准备操作并解决其与需求操作的组合；
 - 每一步的液体数量、初始账户余额、staging 峰值和拒收/丢弃模拟；
@@ -71,7 +73,10 @@ A 类程序则完全不允许出现该节点，也不允许使用 Slave 岗位�
 - Slave 操作不能提前到交接之前；
 - 游离液体不能绕过交接节点直接跨岗位流动；
 - 同一 Jar 状态版本不能被两个操作重复消费；
-- 候选规则与输入/输出 Jar 事实必须一致。
+- 候选规则与输入/输出 Jar 事实必须一致；
+- 直接候选投影生成唯一 handoff，并让 Slave 的游离液体依赖经过 handoff；
+- A 类投影不生成 handoff；
+- 准备操作和重复需求不能伪装成直接需求解。
 
 ## 下一步
 
