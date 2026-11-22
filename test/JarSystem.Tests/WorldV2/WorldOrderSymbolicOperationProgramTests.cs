@@ -289,4 +289,31 @@ public sealed class WorldOrderSymbolicOperationProgramTests
                 }));
     }
 
+    [Fact]
+    public void FreeLiquidDependencyMustMatchTheProducerAndConsumerEffects()
+    {
+        var producerInput = new WorldOrderSymbolicJarVersion("jar-producer", 0, "Master", "圆罐", "酒");
+        var producerOutput = new WorldOrderSymbolicJarVersion("jar-producer", 1, "Master", "圆罐", null);
+        var producer = WorldOrderSymbolicOperationNode.Rule(
+            "producer", 0, "Master", null,
+            Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null, producedFree: "酒"),
+            producerInput, producerOutput);
+
+        var consumerInput = new WorldOrderSymbolicJarVersion("jar-consumer", 0, "Master", "圆罐", null);
+        var consumerOutput = new WorldOrderSymbolicJarVersion("jar-consumer", 1, "Master", "方罐", null);
+        var consumer = WorldOrderSymbolicOperationNode.Rule(
+            "consumer", 1, "Master", 0,
+            Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "蜜"),
+            consumerInput, consumerOutput);
+
+        Assert.Throws<ArgumentException>(() =>
+            new WorldOrderSymbolicOperationProgram(
+                false, "Master", "Slave", new[] { producer, consumer },
+                new[]
+                {
+                    WorldOrderSymbolicOperationDependency.FreeLiquid(
+                        "producer", "consumer", "蜜")
+                }));
+    }
+
 }
