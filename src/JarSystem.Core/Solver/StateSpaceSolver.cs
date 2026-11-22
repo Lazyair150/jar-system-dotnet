@@ -38,18 +38,17 @@ internal class SolverState
     public bool Allows(JarState jar, SolverOperation operation)
     {
         if (operation.Type == "MATCH") return true;
-        var intent = ToWorkshopOperation(operation);
         return WorkshopRulebook.IsAllowed(
             _rules, _perLiquidCapacity,
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
-            intent, Liquids);
+            ToWorkshopOperation(operation), Liquids);
     }
 
-    public WorkshopOperationTransition? CreateTransition(JarState jar, WorkshopOperation operation) =>
+    public WorkshopOperationTransition? CreateTransition(JarState jar, SolverOperation operation) =>
         WorkshopRulebook.CreateTransition(
             _rules, _perLiquidCapacity,
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
-            operation, Liquids);
+            ToWorkshopOperation(operation), Liquids);
 
     public SolverState Clone() => new SolverState(Jars, Liquids, WorkshopInfo)
     {
@@ -403,7 +402,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         }
         else
         {
-            var transition = st.CreateTransition(st.Jars[i], ToWorkshopOperation(op));
+            var transition = st.CreateTransition(st.Jars[i], op);
             if (transition == null) return false;
 
             if (transition.Value.ConsumedFreeLiquid is { } consumed &&
