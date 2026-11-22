@@ -48,7 +48,7 @@ public class WorkshopRulebookTests
         var decision = WorkshopRulebook.EvaluateMatch(rules, facts);
 
         Assert.False(decision.IsAllowed);
-        Assert.Equal("liquid.banned", decision.Code);
+        Assert.Equal("liquid.banned", decision.ReasonCode);
         Assert.Contains("禁酒", decision.Reason);
     }
 
