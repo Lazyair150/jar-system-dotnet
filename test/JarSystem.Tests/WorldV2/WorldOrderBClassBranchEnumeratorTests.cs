@@ -67,6 +67,37 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void BClassMixedBranchKeepsMasterAndSlaveLedgersSeparate()
+    {
+        var master = new Workshop("禁酒主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        var slave = new Workshop("允许用酒的从台",
+            new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", id: 9151));
+        master.AddJar(new Jar("圆罐", "酒", id: 9152));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐" },
+            new Requirement { Shape = "方罐" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            915, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Single(plan.MasterSteps);
+        Assert.Single(plan.SlaveSteps);
+        Assert.Equal("MATCH", plan.MasterSteps[0].Operation!.Type);
+        Assert.Equal("RESHAPE", plan.SlaveSteps[0].Operation!.Type);
+        Assert.Equal(new[] { 9152 }, plan.TransferJarIds);
+        Assert.Equal(9151, plan.MasterSteps[0].Before![plan.MasterSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Equal(9152, plan.SlaveSteps[0].Before![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Empty(result.Assembly.ResourceReplay!.TransferLiquids);
+    }
+
+    [Fact]
     public void BClassCannotReuseOnePhysicalJarForTwoRequirementIdentities()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
