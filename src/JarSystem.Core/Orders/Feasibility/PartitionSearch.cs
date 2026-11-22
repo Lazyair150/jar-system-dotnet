@@ -168,7 +168,13 @@ public sealed class PartitionSearch
         var masterInfeasible = new bool[1 << reqs.Count];
         for (int mask = 0; mask < (1 << reqs.Count); mask++)
         {
-            if (ContainsInfeasibleSubset(masterInfeasible, mask)) continue;
+            masksVisited++;
+            if (ContainsInfeasibleSubset(masterInfeasible, mask))
+            {
+                monotonicityPrunedCount++;
+                Record("pruned-master-infeasible-subset", mask);
+                continue;
+            }
 
             var mReqs = new List<Requirement>();
             var sReqs = new List<Requirement>();
@@ -178,17 +184,35 @@ public sealed class PartitionSearch
                 else sReqs.Add(reqs[i]);
             }
 
-            var partitionKey = Signature(mReqs) + "" + Signature(sReqs);
-            if (!seenPartitions.Add(partitionKey)) continue;
+            var masterSignature = Signature(mReqs);
+            var slaveSignature = Signature(sReqs);
+            var partitionKey = masterSignature + "\u0001" + slaveSignature;
+            if (!seenPartitions.Add(partitionKey))
+            {
+                duplicatePartitionPrunedCount++;
+                Record("pruned-duplicate-partition", mask, masterSignature, slaveSignature);
+                continue;
+            }
 
+            uniquePartitions++;
+            masterSolveCount++;
+            Record("master-solve-started", mask, masterSignature, slaveSignature);
             var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
             if (_solver is IWorkBudgetedSolver mb && mb.BudgetExceeded)
             {
                 inconclusiveReason = mb.InconclusiveReason ?? "分析超出预算";
                 lastBlockage = inconclusiveReason;
+                Record("undetermined-master-budget", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
                 return null;
             }
-            if (!mr.Feasible || mr.Path == null) { masterInfeasible[mask] = true; continue; }
+            if (!mr.Feasible || mr.Path == null)
+            {
+                masterInfeasible[mask] = true;
+                Record("master-infeasible", mask, masterSignature, slaveSignature, mr.Blockage);
+                continue;
+            }
+            Record("master-feasible", mask, masterSignature, slaveSignature);
 
             // 契约检查：主台终态必须能拿到（FinalJars 或路径末步快照），否则从台池无从构造
             bool hasFinalState = mr.FinalJars != null
@@ -197,6 +221,8 @@ public sealed class PartitionSearch
             {
                 inconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
                 lastBlockage = inconclusiveReason;
+                Record("undetermined-master-final-state", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
                 return null;
             }
 
@@ -250,11 +276,15 @@ public sealed class PartitionSearch
             foreach (var l in Constants.LIQUIDS)
                 tLiquids[l] = Math.Min(masterFinalLiq.GetValueOrDefault(l, 0), sourceLimit);
 
+            slaveSolveCount++;
+            Record("slave-solve-started", mask, masterSignature, slaveSignature);
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
             if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
             {
                 inconclusiveReason = sb.InconclusiveReason ?? "分析超出预算";
                 lastBlockage = inconclusiveReason;
+                Record("undetermined-slave-budget", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
                 return null;
             }
             if (sr.Feasible && sr.Path != null)
