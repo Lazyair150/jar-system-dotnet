@@ -132,35 +132,93 @@ public static class WorldOrderSlaveRuleBranchEnumerator
 
                 void EmitBranch()
                 {
-                    if (exploredBranches >= maxBranches)
-                    {
-                        budgetExceeded = true;
-                        return;
-                    }
+                    var operations = new List<(string NodeId, WorldOrderRuleCandidate Candidate)>();
+                    operations.AddRange(selectedPreparations.Select(x =>
+                        ("prepare-" + x.JarKey, x.Candidate)));
+                    operations.AddRange(selected.Select(x =>
+                        ("requirement-" + x.RequirementIndex + "-slave", x)));
 
-                    exploredBranches++;
-                    try
+                    // Only operations that read or write staging liquid affect resource feasibility.
+                    // Jar-only/MATCH operations have no ordering interaction and keep a stable tail order.
+                    var resourceOperations = operations
+                        .Where(x => x.Candidate.ConsumedFreeLiquid != null ||
+                                    x.Candidate.ProducedFreeLiquid != null)
+                        .OrderBy(x => x.NodeId, StringComparer.Ordinal)
+                        .ToArray();
+                    var resourceOrder = new string[resourceOperations.Length];
+                    var used = new bool[resourceOperations.Length];
+                    var inertOrder = operations
+                        .Where(x => x.Candidate.ConsumedFreeLiquid == null &&
+                                    x.Candidate.ProducedFreeLiquid == null)
+                        .Select(x => x.NodeId)
+                        .OrderBy(x => x, StringComparer.Ordinal)
+                        .ToArray();
+
+                    void EmitOrderedBranch()
                     {
-                        var program = WorldOrderPreparatoryProgramBuilder.Build(
-                            solution, selectedPreparations.ToArray(), true, masterRole, slaveProfile.Role);
-                        var projection = WorldOrderSlaveBoundaryProjector.Project(
-                            program, "slave-branch-" + exploredBranches,
-                            slaveStagingCapacity, banned, rejected);
-                        if (projection.IsProjected)
-                            groups.Add(projection.Group!);
-                        else
+                        if (exploredBranches >= maxBranches)
+                        {
+                            budgetExceeded = true;
+                            return;
+                        }
+
+                        exploredBranches++;
+                        var completeOrder = resourceOrder.Concat(inertOrder).ToArray();
+                        try
+                        {
+                            var program = WorldOrderPreparatoryProgramBuilder.Build(
+                                solution,
+                                selectedPreparations.ToArray(),
+                                true,
+                                masterRole,
+                                slaveProfile.Role,
+                                completeOrder);
+                            var projection = WorldOrderSlaveBoundaryProjector.Project(
+                                program, "slave-branch-" + exploredBranches,
+                                slaveStagingCapacity, banned, rejected);
+                            if (projection.IsProjected)
+                                AddGroupIfNew(groups, projection.Group!);
+                            else
+                            {
+                                rejectedBranches++;
+                                lastInfeasibleReason = projection.Reason;
+                            }
+                        }
+                        catch (ArgumentException exception)
                         {
                             rejectedBranches++;
-                            lastInfeasibleReason = projection.Reason;
+                            lastInfeasibleReason = exception.Message;
                         }
                     }
-                    catch (ArgumentException exception)
-                    {
-                        rejectedBranches++;
-                        lastInfeasibleReason = exception.Message;
-                    }
-                }
 
+                    void VisitOperationOrder(int position)
+                    {
+                        if (budgetExceeded) return;
+                        if (exploredNodes >= maxNodes)
+                        {
+                            budgetExceeded = true;
+                            return;
+                        }
+                        exploredNodes++;
+                        if (position == resourceOperations.Length)
+                        {
+                            EmitOrderedBranch();
+                            return;
+                        }
+
+                        for (var i = 0; i < resourceOperations.Length; i++)
+                        {
+                            if (used[i]) continue;
+                            used[i] = true;
+                            resourceOrder[position] = resourceOperations[i].NodeId;
+                            VisitOperationOrder(position + 1);
+                            used[i] = false;
+                            if (budgetExceeded) return;
+                        }
+                    }
+
+                    VisitOperationOrder(0);
+                }
                 void VisitAuxiliaryPreparations(int position)
                 {
                     if (budgetExceeded) return;
@@ -254,6 +312,38 @@ public static class WorldOrderSlaveRuleBranchEnumerator
             groups,
             reason,
             banned);
+
+    private static void AddGroupIfNew(
+        ICollection<WorldOrderResourceRequirementGroup> groups,
+        WorldOrderResourceRequirementGroup candidate)
+    {
+        if (groups.Any(existing => SameGroup(existing, candidate))) return;
+        groups.Add(candidate);
+    }
+
+    private static bool SameGroup(
+        WorldOrderResourceRequirementGroup left,
+        WorldOrderResourceRequirementGroup right)
+    {
+        if (left.ProviderRole != right.ProviderRole ||
+            left.ConsumerRole != right.ConsumerRole ||
+            left.Requirements.Count != right.Requirements.Count)
+            return false;
+
+        static string Key(WorldOrderBoundaryRequirement item) =>
+            string.Join("\u001f",
+                (int)item.Kind,
+                item.Liquid ?? string.Empty,
+                item.Amount,
+                item.JarShape ?? string.Empty,
+                item.JarLiquid ?? string.Empty,
+                item.SourceOperationId,
+                item.SourceRequirementIndex?.ToString() ?? string.Empty);
+
+        var leftKeys = left.Requirements.Select(Key).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        var rightKeys = right.Requirements.Select(Key).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        return leftKeys.SequenceEqual(rightKeys, StringComparer.Ordinal);
+    }
 
     private static WorldOrderSlaveRuleBranchEnumerationResult Result(
         WorldOrderSlaveRuleBranchEnumerationStatus status,
