@@ -128,6 +128,9 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
         var group = Assert.Single(result.Alternatives!.Groups);
         Assert.Empty(group.RequiredFreeLiquid);
         Assert.Equal(2, group.RequiredJarStates.Values.Sum());
+        Assert.Equal(
+            new[] { "requirement-1-slave", "requirement-0-slave" },
+            group.SlaveOperationOrder);
     }
 
     [Fact]
@@ -149,6 +152,8 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
         Assert.Equal(2, result.Alternatives!.Groups.Count);
         Assert.Contains(result.Alternatives.Groups, group => group.RequiredFreeLiquid.Count == 0);
         Assert.Contains(result.Alternatives.Groups, group => group.RequiredFreeLiquid.GetValueOrDefault("X") == 1);
+        Assert.All(result.Alternatives.Groups, group =>
+            Assert.Equal(2, group.SlaveOperationOrder.Count));
     }
 
     [Fact]
