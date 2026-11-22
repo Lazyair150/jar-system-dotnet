@@ -264,18 +264,29 @@ public static class WorkshopRulebook
         string? ProducedFreeLiquid,
         string? ConsumedJarLiquid);
 
+    public readonly record struct WorkshopOperationEvaluation(
+        WorkshopRuleDecision Decision,
+        WorkshopOperationTransition? Transition);
+
     /// <summary>
     /// 在当前规则上下文中评估并生成一次确定性状态转换。
     /// null 表示规则拒绝；非 null 表示可执行的纯值转换证明。
     /// 资源账户的实际扣除/接收仍由调用方在所属事务边界内完成。
     /// </summary>
-    public static WorkshopOperationTransition? CreateTransition(
+    public static WorkshopOperationEvaluation EvaluateTransition(
         RuleContext rules, int maxLiquids, in JarFacts jar,
         in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids)
     {
-        if (!Evaluate(rules, maxLiquids, jar, op, liquids).IsAllowed) return null;
-        return CreateTransitionCore(jar, op);
+        var decision = Evaluate(rules, maxLiquids, jar, op, liquids);
+        return new WorkshopOperationEvaluation(
+            decision,
+            decision.IsAllowed ? CreateTransitionCore(jar, op) : null);
     }
+
+    public static WorkshopOperationTransition? CreateTransition(
+        RuleContext rules, int maxLiquids, in JarFacts jar,
+        in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids) =>
+        EvaluateTransition(rules, maxLiquids, jar, op, liquids).Transition;
 
     private static WorkshopOperationTransition? CreateTransitionCore(
         in JarFacts jar, in WorkshopOperation op) =>
@@ -450,12 +461,18 @@ public static class WorkshopRulebook
     /// 订单子账转换证明。与普通库存版本共享 RuleId / After / 罐内自耗语义，
     /// 但资源扣除/接收由 OrderLiquidScope 完成。
     /// </summary>
-    public static WorkshopOperationTransition? CreateTransition(
+    public static WorkshopOperationEvaluation EvaluateTransition(
         RuleContext rules, OrderLiquidScope scope, in JarFacts jar, in WorkshopOperation op)
     {
-        if (!Evaluate(rules, scope, jar, op).IsAllowed) return null;
-        return CreateTransitionCore(jar, op);
+        var decision = Evaluate(rules, scope, jar, op);
+        return new WorkshopOperationEvaluation(
+            decision,
+            decision.IsAllowed ? CreateTransitionCore(jar, op) : null);
     }
+
+    public static WorkshopOperationTransition? CreateTransition(
+        RuleContext rules, OrderLiquidScope scope, in JarFacts jar, in WorkshopOperation op) =>
+        EvaluateTransition(rules, scope, jar, op).Transition;
 
         /// <summary>列出订单暂存上下文下全部合法操作，顺序与旧 Available 保持一致。</summary>
     public static List<WorkshopOperation> Available(RuleContext rules, OrderLiquidScope scope,
