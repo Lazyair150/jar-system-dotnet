@@ -7,6 +7,7 @@ using System.Text;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.World;
 
 namespace JarSystem.Core.World.Solving;
 
@@ -228,7 +229,7 @@ public static class WorldOrderRuleCandidateCatalog
     {
         var facts = new JarFacts(sourceShape, sourceLiquid, false);
         if (!WorkshopRulebook.EvaluateMatch(rules, facts).IsAllowed) return;
-        var definition = WorkshopRulebook.Definitions[4];
+        var definition = WorkshopRulebook.Definitions.First(x => x.Operator == "MATCH");
         candidates.Add(new WorldOrderRuleCandidate(
             requirementIndex, sourceShape, sourceLiquid, "MATCH",
             definition.RuleId, definition.RuleVersion,
