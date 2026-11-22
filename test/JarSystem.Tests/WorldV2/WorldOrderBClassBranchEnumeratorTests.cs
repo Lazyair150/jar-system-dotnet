@@ -109,9 +109,9 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
         var plan = result.Assembly!.CandidatePlan!;
-        Assert.Single(plan.MasterSteps);
+        Assert.Equal(1, plan.DirectCount);
+        Assert.Empty(plan.MasterSteps);
         Assert.Single(plan.SlaveSteps);
-        Assert.Equal("MATCH", plan.MasterSteps[0].Operation!.Type);
         Assert.Equal("RESHAPE", plan.SlaveSteps[0].Operation!.Type);
         Assert.Equal(new[] { 9151, 9152 }, plan.TransferJarIds.OrderBy(x => x));
         Assert.Equal(9151, plan.MasterSteps[0].Before![plan.MasterSteps[0].Operation!.JarIndex!.Value].Id);
