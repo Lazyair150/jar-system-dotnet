@@ -8,11 +8,11 @@ This slice adds `WorldOrderBClassBranchEnumerator` as a concrete branch/material
 
 For each final requirement, the combined Master/Slave rule profiles contribute OR candidates. A complete symbolic solution chooses exactly one candidate and one role per requirement. The enumerator then considers independent `PREPARE_POUR_OUT` Jars on both roles and bounded schedules for all staging-affecting operations on each role.
 
-The Master schedule runs before handoff. The single handoff then moves every physical Jar that the Slave will operate. The Slave schedule runs after that handoff. Jar-only operations are placed in a stable tail because they do not alter staging feasibility.
+The Master schedule runs before handoff. The single handoff moves every physical Jar that the Slave will operate **and every completed Master requirement Jar** so the B-class output is collected on the Slave. Master-operated output Jars cross with their order-level mark intact and are never scheduled for a second operation. The Slave schedule runs after that handoff. Jar-only operations are placed in a stable tail because they do not alter staging feasibility.
 
 ## Physical ownership and operation mark
 
-All symbolic root Jars are bound to distinct, unmarked physical IDs in the initial Master inventory. Slave profiles describe Slave rules, not a second inventory source. The binder rejects missing IDs, marked Jars, duplicate IDs, state mismatches, and insufficient distinct physical Jars.
+All symbolic root Jars are bound to distinct, unmarked physical IDs in the initial Master inventory. Slave profiles describe Slave rules, not a second inventory source. The one handoff includes Master-completed output Jars as well as Slave operation/preparation Jars. The binder rejects missing IDs, marked Jars, duplicate IDs, state mismatches, and insufficient distinct physical Jars.
 
 Each physical Jar can be operated at most once across the whole order. A revision change or handoff does not clear its order-level mark. The handoff is a single Master→Slave batch and cannot be repeated or reversed.
 
