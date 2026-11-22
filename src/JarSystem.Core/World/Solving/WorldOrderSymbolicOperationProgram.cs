@@ -272,8 +272,10 @@ public sealed class WorldOrderSymbolicOperationProgram
             {
                 var produced = from.OutputJars.Any(x => x.JarKey == edge.JarKey && x.Revision == edge.JarRevision);
                 var consumed = to.InputJars.Any(x => x.JarKey == edge.JarKey && x.Revision == edge.JarRevision);
-                if (!produced || !consumed)
-                    throw new ArgumentException("Jar 依赖边必须连接同一 Jar 的精确输出/输入版本", nameof(dependencies));
+                var exactOutput = from.OutputJars.FirstOrDefault(x => x.JarKey == edge.JarKey && x.Revision == edge.JarRevision);
+                var exactInput = to.InputJars.FirstOrDefault(x => x.JarKey == edge.JarKey && x.Revision == edge.JarRevision);
+                if (!produced || !consumed || exactOutput != exactInput)
+                    throw new ArgumentException("Jar 依赖边必须连接完全一致的 Jar 输出/输入状态版本", nameof(dependencies));
             }
             else if (edge.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid)
             {
@@ -302,7 +304,7 @@ public sealed class WorldOrderSymbolicOperationProgram
         foreach (var input in allInputs)
         {
             var producers = orderedNodes.Where(x =>
-                x.OutputJars.Any(y => y.JarKey == input.JarKey && y.Revision == input.Revision)).ToArray();
+                x.OutputJars.Any(y => y == input)).ToArray();
             if (producers.Length > 1) throw new ArgumentException("Jar 状态版本存在多个生产者", nameof(nodes));
             if (producers.Length == 1 && !edges.Any(x =>
                 x.Kind == WorldOrderSymbolicDependencyKind.JarState &&
