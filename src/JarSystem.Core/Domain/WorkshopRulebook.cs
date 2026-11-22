@@ -86,16 +86,14 @@ public readonly struct JarFacts
 /// 里那几道判定按同样的顺序重述一遍，输入是纯事实（形状、液体、是否已被操作、各液体库存、上限）。
 /// 也就是说：它是这些规则的**可调用形态**，而不是另一套规则。</para>
 ///
-/// <para><b>为什么执行器与求解器"不必"调它</b>（这是刻意的）：
-/// 求解器（<c>Solver/StateSpaceSolver</c>）跑的是几十万节点的热路径，让它每节点调这张表会把
-/// 描述符分配压进搜索预算；而它本来就知道规则（<c>IsBanned</c>/<c>IsBaseMarked</c>/<c>CanTransform</c>
-/// 三个判定 + 库存与转移预算）。所以这里<b>不强制</b>任何一方调用本表。</para>
+/// <para><b>当前接入边界</b>：StateSpaceSolver 的候选操作枚举与 Apply 已调用本表；
+/// Apply 消费 <see cref="CreateTransition"/> 返回的纯值转换描述，再由 SolverState 更新搜索副本。
+/// Workshop 的真实执行门面仍保留原有资源事务与状态变更逻辑，下一阶段再迁移到同一转换契约。
+/// 搜索热路径不得为了统一规则而引入不必要的堆分配。</para>
 ///
-/// <para><b>那它存在的意义</b>：把"两边都知道同一套规则"从<b>口头约定</b>变成<b>可执行断言</b>。
-/// 只要有一条测试对每个 (罐子, 工作台, 候选操作) 断言
+/// <para><b>一致性基线</b>：测试对每个 (罐子, 工作台, 候选操作) 断言
 /// 「<c>WorkshopRulebook.IsAllowed</c> 与 <c>Workshop.xxx</c> 的执行结果一致」，
-/// 那么任何一方单独改动规则都会被立刻抓住——这正是过去三次同类错误的形状
-/// （原型漏了"形状必须是基础标记"、前置检查把禁令挡在 MATCH 前、以及最初那 105 例错杀）。
+/// 并验证纯转换描述的 Jar 终态与资源效果。任何一方改动规则都必须同步通过该对拍。
 /// 见 <c>test/JarSystem.Tests/WorkshopRulebookTests.cs</c>。</para>
 ///
 /// <para><b>与修饰器的关系</b>：判定走 <see cref="RuleContext"/>，因此抑制类修饰器
