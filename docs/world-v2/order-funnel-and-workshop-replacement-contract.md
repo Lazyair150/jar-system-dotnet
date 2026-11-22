@@ -184,11 +184,12 @@ A first resource-independent rule-candidate layer is now present:
 
 The next work is ordered by semantic dependency. A trace is useful, but it must explain one authoritative rule engine rather than make the current duplicated rules more observable.
 
-1. Finish the shared rule decision/transition contract by making the operator registry authoritative rather than metadata-only. Built-in MATCH and four Jar transformations now share stable identity/version, decision, pure Jar after-state and resource effects across live Workshop and solver execution. A future new operator must register its stable identity/version and supply one evaluator/transition implementation; it must not add parallel switches to Workshop, solver and candidate projection.
-2. Expand the resource-independent layer from one-step candidates to explicit symbolic operation programs, including bounded preparation sequences and their liquid-flow/capacity constraints. Do not call the current candidate combinations complete order solutions.
-3. Add version-aware access to symbolic profiles: rule/profile/specification changes rebuild them; resource-only changes retain them while the concrete binding/feasibility solve is refreshed.
-4. Generalize the funnel search kernel without folding A/B allocation policy into rule definitions. Preserve exact B-class partition/backtracking and one-way Master-to-Slave transfer semantics.
-5. Add deterministic, read-only funnel trace and adversarial tests for backtracking, capacity, resource-source proof, and complete-vs-undetermined outcomes.
-6. Connect Master replacement as a forward resource-transformation problem using the same rule contract, then expose a compact diagnostic projection to Space.
+1. Finish the rule authority boundary. The operator catalog currently supplies stable metadata, while evaluation/transition dispatch remains built-in code. Separate stable Jar operators from runtime rule constraints (Suppress/Grant/Require and future declarative predicates); runtime constraints must participate in `RuleSetVersion`, and an opaque predicate must remain `Undetermined`.
+2. Expand the resource-independent layer from one-step candidates to explicit symbolic operation programs. Include preparation Jar selection, operation order, per-role resource flow and staging peaks. The current `EnumerationComplete` status is deliberately limited to one-step candidate combinations; it must not be promoted to a complete-order proof.
+3. Complete the guarded resource-only rebind path with adversarial coverage for same-ID Jar state mutation, Jar removal/replacement, liquid depletion, capacity changes and B-class transfer Jar state. Reuse is allowed only when the old immutable plan is still physically valid.
+4. Generalize the funnel result from first-feasible partition to a bounded set of complete alternatives where useful, without folding A/B allocation policy into rule definitions. Preserve exact B-class partition/backtracking, the one-way Master-to-Slave dependency and explicit budget/Undetermined semantics.
+5. Keep the deterministic read-only trace and extend it to the complete symbolic-program and resource-binding stages; trace must never change branch ordering, Jar locks, liquid balances or snapshot contents.
+6. Connect Master replacement as a forward resource-transformation problem using the same rule contract and a migration plan/manifest, then expose a compact diagnostic projection to Space.
+7. Audit snapshot/checkpoint responsibilities after the new cache boundary is established. Persist authoritative world state and active execution leases; do not persist/reconstruct compiled solver caches as if they were world state.
 
 No production balance values are implied by this contract.
