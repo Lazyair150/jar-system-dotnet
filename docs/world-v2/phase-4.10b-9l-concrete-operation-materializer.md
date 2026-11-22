@@ -57,3 +57,17 @@ This is an accounting witness only. It does not simulate the workshop staging po
 - A Jar operated on the Master and then handed off remains marked and cannot be operated again.
 - A candidate not present in the captured profile is rejected.
 - Immutable plan copying retains exact rule identity.
+
+## Ordered resource replay
+
+`WorldOrderOrderedResourceReplay` now provides the next proof layer:
+
+- It replays Master rule nodes in symbolic sequence order.
+- Each operation consumes its free-liquid input before attempting to place its output in Master staging.
+- A Master-banned output is discarded; a staging-capacity overflow is discarded.
+- Missing initial Master staging supply is increased only when a replay proves a prefix shortage or the final Slave boundary is not funded; the path is then replayed from its beginning.
+- The minimum initial vector is checked against the current ship liquid inventory (when present) plus Master prefill, or the legacy Master liquid source plus prefill.
+- For B orders it invokes `WorldOrderSlaveBoundaryProjector` with the Master ban and an explicit Slave rejected-liquid policy. The returned AND group retains JarState and FreeLiquid conditions separately, and its Slave operation-order witness remains attached.
+- Jar-internal liquid never enters the Master free-liquid ban test. Only a Slave operation's `ConsumedFreeLiquid` can create a free-liquid boundary demand.
+
+The replay returns a resource witness, not a reservation. It still does not rewrite the plan or certify execution. The next integration step must make the concrete plan, this replay witness, and Manifest validation agree on the same snapshot and accepted-output decisions.
