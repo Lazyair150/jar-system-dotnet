@@ -144,7 +144,11 @@ public static class WorldOrderSlaveBoundaryProjector
                 continue;
 
             var group = new WorldOrderResourceRequirementGroup(
-                groupId, requirements, program.MasterRole, program.SlaveRole);
+                groupId,
+                requirements,
+                program.MasterRole,
+                program.SlaveRole,
+                slaveOperations.Select(x => x.NodeId));
             return new WorldOrderSlaveBoundaryProjectionResult(
                 WorldOrderSlaveBoundaryProjectionStatus.Projected,
                 group, null, replayCount);
