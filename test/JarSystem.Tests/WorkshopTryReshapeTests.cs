@@ -38,7 +38,7 @@ public class WorkshopTryReshapeTests
         var w = Xuanwu();
         var jar = new Jar("圆罐", null, null, Vocab());
         w.AddJar(jar);
-        w.AddLiquid("酒", 1);      // 被禁 ⇒ 不能当成本
+        Assert.False(w.AddLiquid("酒", 1)); // 被禁液体不能进入游离液体池
         w.AddLiquid("蜜", 2);
 
         var (ok, reason) = w.TryReshape(jar, "方罐");
@@ -56,9 +56,8 @@ public class WorkshopTryReshapeTests
         var w = Xuanwu();
         var jar = new Jar("圆罐", null, null, Vocab());
         w.AddJar(jar);
-        w.AddLiquid("酒", 1);      // 池里有，但被禁 ⇒ 付不了
+        Assert.False(w.AddLiquid("酒", 1)); // 被禁液体不能进入游离液体池
         w.AddLiquid("蜜", 2);      // 明明还有别的可付，但调用方点名要酒
-        BanWine(w);
 
         var (ok, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Empty, "酒");
 
@@ -67,7 +66,7 @@ public class WorkshopTryReshapeTests
         Assert.Equal("圆罐", jar.Shape);                            // 世界没变
         Assert.False(jar.IsMarked);
         Assert.Equal(2, w.LiquidStorage["蜜"]);                     // **没有**偷偷换用蜜
-        Assert.Equal(1, w.LiquidStorage["酒"]);
+        Assert.Equal(0, w.LiquidStorage["酒"]);
     }
 
     [Fact]
@@ -126,7 +125,6 @@ public class WorkshopTryReshapeTests
             ask.AddJar(probe);
             ask.AddLiquid("酒", 1);
             ask.AddLiquid("蜜", 1);
-            BanWine(ask);
             var granted = ask.CanReshapeTo(probe, to).Granted;
 
             // 动手
@@ -135,7 +133,6 @@ public class WorkshopTryReshapeTests
             act.AddJar(jar);
             act.AddLiquid("酒", 1);
             act.AddLiquid("蜜", 1);
-            BanWine(act);
             var (ok, _) = act.TryReshape(jar, to);
 
             cases++;
