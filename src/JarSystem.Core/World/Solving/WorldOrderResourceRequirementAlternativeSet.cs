@@ -176,6 +176,8 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
     public string RuleSetVersion { get; }
     public string WorkshopProfileVersion { get; }
     public string SpecificationVersion { get; }
+    public string ProviderRole { get; }
+    public string ConsumerRole { get; }
     public IReadOnlyList<WorldOrderResourceRequirementGroup> Groups { get; }
     public string? Reason { get; }
 
@@ -187,6 +189,8 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
         string ruleSetVersion,
         string workshopProfileVersion,
         string specificationVersion,
+        string providerRole,
+        string consumerRole,
         IEnumerable<WorldOrderResourceRequirementGroup> groups,
         string? reason = null)
     {
@@ -197,6 +201,12 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
             throw new ArgumentException("工作台属性版本不能为空", nameof(workshopProfileVersion));
         if (string.IsNullOrWhiteSpace(specificationVersion))
             throw new ArgumentException("订单规格版本不能为空", nameof(specificationVersion));
+        if (string.IsNullOrWhiteSpace(providerRole))
+            throw new ArgumentException("边界提供岗位不能为空", nameof(providerRole));
+        if (string.IsNullOrWhiteSpace(consumerRole))
+            throw new ArgumentException("边界使用岗位不能为空", nameof(consumerRole));
+        if (providerRole == consumerRole)
+            throw new ArgumentException("边界提供岗位与使用岗位必须不同");
         if (groups == null) throw new ArgumentNullException(nameof(groups));
 
         var copied = groups.ToArray();
@@ -204,8 +214,8 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
             throw new ArgumentException("资源组集合不能包含 null", nameof(groups));
         if (copied.Select(x => x.GroupId).Distinct(StringComparer.Ordinal).Count() != copied.Length)
             throw new ArgumentException("资源组身份不能重复", nameof(groups));
-        if (copied.Select(x => (x.ProviderRole, x.ConsumerRole)).Distinct().Count() > 1)
-            throw new ArgumentException("替代资源组必须来自相同的主从边界", nameof(groups));
+        if (copied.Any(x => x.ProviderRole != providerRole || x.ConsumerRole != consumerRole))
+            throw new ArgumentException("资源组必须匹配集合声明的提供/使用岗位", nameof(groups));
         if (status == WorldOrderResourceRequirementSetStatus.Complete && copied.Length == 0)
             throw new ArgumentException("完整的可行替代集合至少包含一个资源组；无解应使用 Infeasible", nameof(groups));
         if (status == WorldOrderResourceRequirementSetStatus.Infeasible && copied.Length != 0)
@@ -215,6 +225,8 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
         RuleSetVersion = ruleSetVersion;
         WorkshopProfileVersion = workshopProfileVersion;
         SpecificationVersion = specificationVersion;
+        ProviderRole = providerRole;
+        ConsumerRole = consumerRole;
         Groups = Array.AsReadOnly(copied);
         Reason = reason;
     }
