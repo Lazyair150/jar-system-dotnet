@@ -11,6 +11,30 @@ The funnel metaphor is the domain model for order solving:
 
 The order does **not** prescribe a workshop assignment. It declares the required Jar outcomes. The solver discovers where and how those outcomes can be produced.
 
+## 0. Canonical rule/world/funnel boundary
+
+The solver is only meaningful when its vocabulary and world are explicit. The intended dependency direction is:
+
+1. **Rule definitions** describe stable operators and constraints: applicability, preconditions, pure Jar after-state, free-liquid effects, Jar-liquid effects, and stable rule identity/version. A rule definition does not own a Workshop, Jar instance, inventory, or order.
+2. **Rule context** is the effective rule set at one world instant: immutable workshop capability plus active modifiers. Runtime Suppress/Grant changes create a new rule fingerprint. Opaque external predicates are not guessed; detached solving reports Undetermined.
+3. **World/profile** supplies the environment in which rules run: workshop role, marks, bans, capacities and resource-container boundaries. A Workshop owns these properties and its live Jar/liquid containers; it is not the authority that redefines operator semantics.
+4. **Order specification** states only terminal Jar facts and multiplicity. It does not carry precomputed Master/Slave assignments, estimated liquid costs, Jar IDs or execution steps.
+5. **Funnel solver** applies rule operators to derive candidate paths and placements. It does not mutate the world. A resource binder then matches those paths to current Jar identities and liquid accounts; admission creates the resource lease only after the complete proof succeeds.
+
+Order solving and workshop replacement share the rule vocabulary but run in opposite directions:
+
+- **Order solving is goal-directed/reverse:** begin with the required final Jar facts, enumerate rule operations that can produce them, then filter backwards to legal source Jar facts and required resource flows. The B-class role partition and one-way transfer constraints are part of this search, not fields supplied by the order.
+- **Workshop replacement is resource-directed/forward:** begin with the old workshop's actual Jar/liquid resources and the target workshop's properties, then apply permitted transformations to obtain the best valid target state. It is not an order solve and does not create an order allocation.
+
+The cache boundary follows these inputs:
+
+- Compiled rule candidates are keyed by `RuleSetVersion + WorkshopProfileVersion + SpecificationVersion`; resource-only changes retain them.
+- Concrete resource binding is keyed by `ResourceVersion` and produces a plan containing actual Jar identities and liquid requirements.
+- Execution admission is bound to the complete `WorldVersion`; the resource manifest is revalidated before any lock, reservation or mutation.
+- Snapshots capture authoritative world facts and version fingerprints, not compiled solver caches. A cache miss must be reproducible from the same snapshot inputs.
+
+This separation is the intended simplification target: changing a Jar balance should not rebuild rule definitions or the order's rule candidate space; changing a rule or workshop profile must rebuild the affected candidate space; changing the active resource arrangement must only rebind/revalidate concrete plans. It does **not** mean that a cached Jar-ID plan can be executed after its resource version changes.
+
 ## 1. Funnel input: requirements, not a pre-authored allocation
 
 The input is the immutable order specification:
