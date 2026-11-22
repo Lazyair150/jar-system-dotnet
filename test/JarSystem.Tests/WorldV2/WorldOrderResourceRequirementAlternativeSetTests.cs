@@ -75,7 +75,7 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
 
         Assert.Throws<ArgumentException>(() => new WorldOrderResourceRequirementAlternativeSet(
             WorldOrderResourceRequirementSetStatus.Complete,
-            "rules-v1", "workshops-v1", "spec-v1",
+            "rules-v1", "workshops-v1", "spec-v1", "Master", "Slave",
             new[] { masterToSlave, otherDirection }));
     }
 
@@ -84,7 +84,7 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
     {
         Assert.Throws<ArgumentException>(() => new WorldOrderResourceRequirementAlternativeSet(
             WorldOrderResourceRequirementSetStatus.Complete,
-            "rules-v1", "workshops-v1", "spec-v1",
+            "rules-v1", "workshops-v1", "spec-v1", "Master", "Slave",
             Array.Empty<WorldOrderResourceRequirementGroup>()));
     }
 
