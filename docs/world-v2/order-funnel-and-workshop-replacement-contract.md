@@ -29,11 +29,11 @@ Order solving and workshop replacement share the rule vocabulary but run in oppo
 The cache boundary follows these inputs:
 
 - Compiled rule candidates are keyed by `RuleSetVersion + WorkshopProfileVersion + SpecificationVersion`; resource-only changes retain them.
-- Concrete resource binding is keyed by `ResourceVersion` and produces a plan containing actual Jar identities and liquid requirements.
+- Concrete resource binding is keyed by `ResourceVersion` and produces a plan containing actual Jar identities and liquid requirements. If only `ResourceVersion` changes, `WorldOrderSolveBook` may rebind the same immutable plan to the new WorldVersion only after checking every referenced Jar's initial facts, exact liquid supply, and staging/role capacities. If any used Jar changed/disappeared or supply is insufficient, it falls back to the full solver. It never reuses a plan across rule, workshop-profile or specification changes.
 - Execution admission is bound to the complete `WorldVersion`; the resource manifest is revalidated before any lock, reservation or mutation.
 - Snapshots capture authoritative world facts and version fingerprints, not compiled solver caches. A cache miss must be reproducible from the same snapshot inputs.
 
-This separation is the intended simplification target: changing a Jar balance should not rebuild rule definitions or the order's rule candidate space; changing a rule or workshop profile must rebuild the affected candidate space; changing the active resource arrangement must only rebind/revalidate concrete plans. It does **not** mean that a cached Jar-ID plan can be executed after its resource version changes.
+This separation is the intended simplification target: changing a Jar balance should not rebuild rule definitions or the order's rule candidate space; changing a rule or workshop profile must rebuild the affected candidate space; changing the active resource arrangement first attempts a guarded plan rebind, and only a failed rebind invokes the full solver. A cached Jar-ID plan is never treated as executable merely because its rule/profile fingerprint still matches.
 
 ## 1. Funnel input: requirements, not a pre-authored allocation
 
