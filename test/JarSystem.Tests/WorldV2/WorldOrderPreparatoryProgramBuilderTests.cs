@@ -66,6 +66,9 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     [Fact]
     public void ExplicitSlaveOperationOrderIsIndependentOfRequirementIndex()
     {
+        var consumer = Candidate(
+            0, "consumer-jar", null, "RESHAPE_EMPTY", "consumer-finished", null,
+            consumedFree: "X");
         var producer = Candidate(
             1, "producer-jar", null, "RESHAPE_EMPTY", "producer-finished", null,
             producedFree: "X");
@@ -163,9 +166,6 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     [Fact]
     public void ExplicitMasterOperationOrderIsIndependentOfRequirementIndex()
     {
-        var consumer = Candidate(
-            0, "consumer-jar", null, "RESHAPE_EMPTY", "consumer-finished", null,
-            consumedFree: "X");
         var solution = new WorldOrderSymbolicSolution(new[]
         {
             new WorldOrderAssignedRuleCandidate("Master",
