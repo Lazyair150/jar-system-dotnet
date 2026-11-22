@@ -23,6 +23,7 @@ public sealed class WorldOrderSymbolicResourceSimulationRequest
     public IReadOnlyDictionary<string, int> MasterInitialFreeLiquid { get; }
     public IReadOnlyDictionary<string, int> HandoffFreeLiquid { get; }
     public IReadOnlyCollection<string> MasterRejectedLiquids { get; }
+    public IReadOnlyCollection<string> MasterBannedLiquids { get; }
     public IReadOnlyCollection<string> SlaveRejectedLiquids { get; }
 
     public WorldOrderSymbolicResourceSimulationRequest(
@@ -31,7 +32,8 @@ public sealed class WorldOrderSymbolicResourceSimulationRequest
         IReadOnlyDictionary<string, int> masterInitialFreeLiquid,
         IReadOnlyDictionary<string, int> handoffFreeLiquid,
         IReadOnlyCollection<string>? masterRejectedLiquids = null,
-        IReadOnlyCollection<string>? slaveRejectedLiquids = null)
+        IReadOnlyCollection<string>? slaveRejectedLiquids = null,
+        IReadOnlyCollection<string>? masterBannedLiquids = null)
     {
         if (masterStagingCapacity < 0) throw new ArgumentOutOfRangeException(nameof(masterStagingCapacity));
         if (slaveStagingCapacity < 0) throw new ArgumentOutOfRangeException(nameof(slaveStagingCapacity));
@@ -43,6 +45,7 @@ public sealed class WorldOrderSymbolicResourceSimulationRequest
         MasterInitialFreeLiquid = CopyAmounts(masterInitialFreeLiquid, nameof(masterInitialFreeLiquid));
         HandoffFreeLiquid = CopyAmounts(handoffFreeLiquid, nameof(handoffFreeLiquid));
         MasterRejectedLiquids = CopyNames(masterRejectedLiquids, nameof(masterRejectedLiquids));
+        MasterBannedLiquids = CopyNames(masterBannedLiquids, nameof(masterBannedLiquids));
         SlaveRejectedLiquids = CopyNames(slaveRejectedLiquids, nameof(slaveRejectedLiquids));
         if (Total(MasterInitialFreeLiquid) > MasterStagingCapacity)
             throw new ArgumentException("主台初始订单液体余额超过暂存容量", nameof(masterInitialFreeLiquid));
@@ -211,6 +214,8 @@ public static class WorldOrderSymbolicResourceSimulator
 
                 foreach (var item in request.HandoffFreeLiquid)
                 {
+                    if (masterBanned.Contains(item.Key))
+                        return Failure(node.NodeId, "主台禁止向外传递该液体：" + item.Key);
                     if (slave.Rejects(item.Key))
                         return Failure(node.NodeId, "从台拒收交接液体：" + item.Key);
                     if (master.Balance(item.Key) < item.Value)
