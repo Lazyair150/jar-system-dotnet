@@ -42,14 +42,16 @@ public sealed class WorldOrderSlaveRuleBranchEnumerationResult
 }
 
 /// <summary>
-/// Enumerates direct Slave rule candidates together with compatible same-Jar
-/// PREPARE_POUR_OUT assignments. Every resulting program is projected independently;
+/// Enumerates direct Slave rule candidates, compatible same-Jar preparations, and
+/// independent preparation Jars that produce free liquids needed by the branch.
+/// Every resulting program is projected independently;
 /// no candidate is sent to a Master rule solver.
 /// </summary>
 /// <remarks>
-/// This slice supports at most one catalogued PourOut preparation on the same Jar
-/// immediately before its direct requirement rule. It does not yet synthesize arbitrary
-/// multi-Jar preparation chains or recursively expand intermediate requirement states.
+/// Each requirement Jar can have one immediately preceding PourOut preparation.
+/// Independent preparation Jars can each perform one PourOut, with at most the number
+/// of matching free-liquid consumers selected for each liquid. This is still not an
+/// arbitrary multi-step transformation-chain solver.
 /// A profile that cannot describe a rule statically, or a budget-exhausted enumeration,
 /// is never reported as complete.
 /// </remarks>
@@ -123,43 +125,103 @@ public static class WorldOrderSlaveRuleBranchEnumerator
                         .ThenBy(prep => prep.RuleId, StringComparer.Ordinal)
                         .ToArray()).ToArray();
                 var selectedPreparations = new List<WorldOrderPreparatoryOperationAssignment>();
+                var selectedAuxiliaryPreparations = new List<WorldOrderPreparatoryOperationAssignment>();
+                var requiredLiquids = selected
+                    .Where(x => x.ConsumedFreeLiquid != null)
+                    .GroupBy(x => x.ConsumedFreeLiquid!, StringComparer.Ordinal)
+                    .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
+                var auxiliaryChoices = slaveProfile.PreparatoryOperations
+                    .Where(x => x.ProducedFreeLiquid != null &&
+                                requiredLiquids.ContainsKey(x.ProducedFreeLiquid))
+                    .OrderBy(x => x.ProducedFreeLiquid, StringComparer.Ordinal)
+                    .ThenBy(x => x.SourceShape, StringComparer.Ordinal)
+                    .ThenBy(x => x.SourceLiquid, StringComparer.Ordinal)
+                    .ThenBy(x => x.RuleId, StringComparer.Ordinal)
+                    .ToArray();
+
+                void EmitBranch()
+                {
+                    if (exploredBranches >= maxBranches)
+                    {
+                        budgetExceeded = true;
+                        return;
+                    }
+
+                    exploredBranches++;
+                    try
+                    {
+                        var allPreparations = selectedPreparations
+                            .Concat(selectedAuxiliaryPreparations).ToArray();
+                        var program = WorldOrderPreparatoryProgramBuilder.Build(
+                            solution, allPreparations, true, masterRole, slaveProfile.Role);
+                        var projection = WorldOrderSlaveBoundaryProjector.Project(
+                            program, "slave-branch-" + exploredBranches,
+                            slaveStagingCapacity, banned, rejected);
+                        if (projection.IsProjected)
+                            groups.Add(projection.Group!);
+                        else
+                        {
+                            rejectedBranches++;
+                            lastInfeasibleReason = projection.Reason;
+                        }
+                    }
+                    catch (ArgumentException exception)
+                    {
+                        rejectedBranches++;
+                        lastInfeasibleReason = exception.Message;
+                    }
+                }
+
+                void VisitAuxiliaryPreparations(int position)
+                {
+                    if (budgetExceeded) return;
+                    if (exploredNodes >= maxNodes)
+                    {
+                        budgetExceeded = true;
+                        return;
+                    }
+                    exploredNodes++;
+                    if (position == auxiliaryChoices.Length)
+                    {
+                        EmitBranch();
+                        return;
+                    }
+
+                    // Omit this auxiliary Jar preparation.
+                    VisitAuxiliaryPreparations(position + 1);
+                    if (budgetExceeded) return;
+
+                    var candidate = auxiliaryChoices[position];
+                    var liquid = candidate.ProducedFreeLiquid!;
+                    var alreadySelected = selectedAuxiliaryPreparations.Count(
+                        x => x.Candidate.ProducedFreeLiquid == liquid);
+                    if (alreadySelected >= requiredLiquids[liquid]) return;
+
+                    selectedAuxiliaryPreparations.Add(new WorldOrderPreparatoryOperationAssignment(
+                        slaveProfile.Role,
+                        "preparation-resource-" + position,
+                        candidate));
+                    VisitAuxiliaryPreparations(position + 1);
+                    selectedAuxiliaryPreparations.RemoveAt(selectedAuxiliaryPreparations.Count - 1);
+                }
 
                 void VisitPreparations(int position)
                 {
                     if (budgetExceeded) return;
                     if (position == prepChoices.Length)
                     {
-                        if (exploredBranches >= maxBranches)
-                        {
-                            budgetExceeded = true;
-                            return;
-                        }
-
-                        exploredBranches++;
-                        try
-                        {
-                            var program = WorldOrderPreparatoryProgramBuilder.Build(
-                                solution, selectedPreparations, true, masterRole, slaveProfile.Role);
-                            var projection = WorldOrderSlaveBoundaryProjector.Project(
-                                program, "slave-branch-" + exploredBranches,
-                                slaveStagingCapacity, banned, rejected);
-                            if (projection.IsProjected)
-                                groups.Add(projection.Group!);
-                            else
-                            {
-                                rejectedBranches++;
-                                lastInfeasibleReason = projection.Reason;
-                            }
-                        }
-                        catch (ArgumentException exception)
-                        {
-                            rejectedBranches++;
-                            lastInfeasibleReason = exception.Message;
-                        }
+                        VisitAuxiliaryPreparations(0);
                         return;
                     }
 
-                    // First enumerate the direct branch without a preparation.
+                    if (exploredNodes >= maxNodes)
+                    {
+                        budgetExceeded = true;
+                        return;
+                    }
+                    exploredNodes++;
+
+                    // First enumerate the direct branch without a same-Jar preparation.
                     VisitPreparations(position + 1);
                     foreach (var preparation in prepChoices[position])
                     {
