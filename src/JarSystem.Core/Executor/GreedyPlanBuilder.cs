@@ -46,11 +46,13 @@ internal sealed class GreedyPlanBuilder
     {
         var s = req.Shape; var lq = req.Liquid!;
         var ex = FindJar(w.Jars, j => j.Shape == s && j.Liquid == lq && !j.IsMarked);
+        string? directMatchFailure = null;
         if (ex != null)
         {
             var matched = w.MarkJar(ex);
-            if (!matched.Success) return (false, null, matched.Reason);
-            return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+            if (matched.Success)
+                return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+            directMatchFailure = matched.Reason;
         }
 
         var emp = FindJar(w.Jars, j => j.Shape == s && j.IsEmpty() && !j.IsMarked);
@@ -74,18 +76,20 @@ internal sealed class GreedyPlanBuilder
             }
         }
 
-        return (false, null, "无法创建满罐(" + s + "," + lq + ")");
+        return (false, null, directMatchFailure ?? "无法创建满罐(" + s + "," + lq + ")");
     }
 
     private (bool, ExecutionLogEntry?, string?) TryEmpty(Requirement req, Workshop w, string loc, OrderEvent ev)
     {
         var s = req.Shape;
         var ex = FindJar(w.Jars, j => j.Shape == s && j.IsEmpty() && !j.IsMarked);
+        string? directMatchFailure = null;
         if (ex != null)
         {
             var matched = w.MarkJar(ex);
-            if (!matched.Success) return (false, null, matched.Reason);
-            return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+            if (matched.Success)
+                return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+            directMatchFailure = matched.Reason;
         }
 
         var sr = FindJar(w.Jars, j => j.IsEmpty() && !j.IsMarked && w.CanTransform(j.Shape, s));
@@ -129,7 +133,7 @@ internal sealed class GreedyPlanBuilder
             }
         }
 
-        return (false, null, "无法获得空罐(" + s + ")");
+        return (false, null, directMatchFailure ?? "无法获得空罐(" + s + ")");
     }
 
     /// <summary>工作台是否有可用（未禁且有库存）的游离液体。</summary>
