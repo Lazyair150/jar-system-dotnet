@@ -27,7 +27,7 @@ public sealed class WorldOrderSolvePlanTests
                 TargetShape = "方罐",
                 Consumed = consumed
             },
-            Before = new List<JarState> { new() { Id = 7, Shape = "圆罐" } },
+            Before = new List<JarState> { new() { Id = 7, Shape = "圆罐", IsMarked = false } },
             After = after,
             AfterLiquids = new Dictionary<string, int> { ["酒"] = 3 }
         };
@@ -47,6 +47,59 @@ public sealed class WorldOrderSolvePlanTests
             ((IList<WorldPlanStep>)plan.MasterSteps).Add(step));
         Assert.Throws<NotSupportedException>(() =>
             ((IDictionary<string, int>)step.Operation.Consumed)["酒"] = 100);
+    }
+
+    [Fact]
+    public void SinglePhasePlanRejectsTwoOperationsOnTheSameJar()
+    {
+        static SolverStep Step(int number, string targetShape) => new()
+        {
+            Step = number,
+            Operation = new SolverOperation
+            {
+                Type = "RESHAPE",
+                JarIndex = 0,
+                TargetShape = targetShape,
+                Consumed = new Dictionary<string, int> { ["酒"] = 1 }
+            },
+            Before = new List<JarState> { new() { Id = 7, Shape = "圆罐" } },
+            After = new List<JarState> { new() { Id = 7, Shape = targetShape, IsMarked = true } },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+
+        Assert.Throws<System.ArgumentException>(() =>
+            WorldOrderSolvePlan.SinglePhase(new[] { Step(0, "方罐"), Step(1, "三角罐") }));
+    }
+
+    [Fact]
+    public void PartitionedPlanRejectsReusingAMasterOperatedJarOnSlave()
+    {
+        static SolverStep Step(string operation, string beforeShape, string afterShape) => new()
+        {
+            Operation = new SolverOperation
+            {
+                Type = operation,
+                JarIndex = 0,
+                TargetShape = afterShape,
+                TargetLiquid = operation == "POUR_IN" ? "酒" : null,
+                Consumed = operation == "POUR_IN"
+                    ? new Dictionary<string, int> { ["酒"] = 1 }
+                    : new Dictionary<string, int>()
+            },
+            Before = new List<JarState> { new() { Id = 7, Shape = beforeShape } },
+            After = new List<JarState> { new() { Id = 7, Shape = afterShape, Liquid = operation == "POUR_IN" ? "酒" : null, IsMarked = true } },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+
+        var outcome = new PartitionSearchOutcome
+        {
+            MasterPath = new List<SolverStep> { Step("POUR_OUT", "圆罐", "圆罐") },
+            SlavePath = new List<SolverStep> { Step("POUR_IN", "圆罐", "圆罐") },
+            TransferJarIds = new List<int> { 7 },
+            TransferLiquids = new Dictionary<string, int>()
+        };
+
+        Assert.Throws<System.ArgumentException>(() => WorldOrderSolvePlan.Partitioned(outcome));
     }
 
     [Fact]
