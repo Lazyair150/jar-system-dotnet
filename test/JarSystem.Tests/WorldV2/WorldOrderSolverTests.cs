@@ -102,7 +102,7 @@ public sealed class WorldOrderSolverTests
         var options = Assert.Single(first.Requirements).Candidates;
         Assert.Contains(options, candidate => candidate.Operation == "MATCH");
         Assert.Contains(options, candidate => candidate.Operation == "POUR_IN");
-        Assert.True(first.CanStructurallyCoverEveryRequirement);
+        Assert.True(first.HasDirectCandidateForEveryRequirement);
 
         master.AddLiquid("蜜", 1);
         var resourceChangedSnapshot = WorldSnapshotFactory.Capture(roster);
@@ -223,7 +223,7 @@ public sealed class WorldOrderSolverTests
             snapshot, snapshot.Master!, "Master", specification);
 
         Assert.True(profile.IsUndetermined);
-        Assert.False(profile.CanStructurallyCoverEveryRequirement);
+        Assert.False(profile.HasDirectCandidateForEveryRequirement);
         Assert.Contains("无法静态重建", profile.Reason ?? string.Empty);
     }
 
