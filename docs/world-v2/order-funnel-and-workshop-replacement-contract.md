@@ -6,7 +6,7 @@ The funnel metaphor is the domain model for order solving:
 
 - The order enters as a set of Jar resource requirements.
 - The solver finds a complete placement and operation path for every requirement.
-- A B-class order must pass the Slave-side constraints and then the Master-side constraints, including the liquid dependency between them.
+- A B-class order must satisfy the Slave-side constraints and the Master-side constraints, including the one-way liquid dependency between them. This is a domain constraint priority, not a claim about the current implementation's call order.
 - A result is feasible only when every requirement has a valid physical Jar, operation path, capacity scope, and liquid supply path.
 
 The order does **not** prescribe a workshop assignment. It declares the required Jar outcomes. The solver discovers where and how those outcomes can be produced.
@@ -25,9 +25,11 @@ Each requirement must eventually be assigned to one concrete Jar identity. A Jar
 
 ## 2. B-class funnel stages
 
-### Stage S — Slave filter
+### Stage S — Slave feasibility constraints
 
-For a B-class order, search candidate placements that can be completed on the Slave side after transfer from Master.
+For a B-class order, the final partition must prove that the requirements assigned to Slave can be completed after transfer from Master. Slave constraints are a required part of the funnel; they are not an irreversible greedy pre-assignment.
+
+The current implementation enumerates requirement partitions. For each not-yet-pruned partition it solves the Master subset first, obtains the Master's actual terminal Jar/liquid state, then solves the Slave subset against the transferable resources. Therefore the current algorithm is not literally Slave-first. The domain model may use Slave constraints to describe the restrictive funnel, but implementation order and domain priority must remain separately documented.
 
 The candidate must satisfy:
 
@@ -132,7 +134,7 @@ The existing replacement process already expresses the major commit ordering and
 | One-way Slave handoff | `OrderTransferService` |
 | Master replacement lifecycle | `WorkshopReplacementProcess`, `WorkshopSwitchEvent`, prefill transaction |
 
-The current implementation has these layers, but does not yet expose one unified funnel trace explaining candidate counts, rejection reasons, selected assignments, and final resource proof.
+The current implementation has these layers, but does not yet expose one unified funnel trace explaining candidate counts, rejection reasons, selected assignments, and final resource proof. In particular, PartitionSearch returns the first feasible partition rather than enumerating the complete solution set. Its current master-subset monotonicity pruning and duplicate-multiset partition elimination are search optimizations, not a general rule engine.
 
 ## 7. Next implementation slice
 
