@@ -331,6 +331,10 @@ public sealed class WorldOrderResourceManifest
                 {
                     if (source.Liquid == null || op.CostLiquid != source.Liquid)
                         throw new InvalidOperationException("满罐改形必须消耗罐内原液体");
+                    // Consumed is the operation's full material-consumption witness.
+                    // This amount is Jar-internal and must not enter the free-liquid
+                    // staging ledger (SimulatePath deliberately does not debit it).
+                    expected[source.Liquid] = 1;
                 }
                 else
                 {
