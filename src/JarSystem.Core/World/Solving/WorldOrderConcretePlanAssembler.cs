@@ -86,7 +86,7 @@ public static class WorldOrderConcretePlanAssembler
                 materialization: identityMaterialization, replay: replay);
         }
 
-        var materialization = WorldOrderConcreteOperationMaterializer.Materialize(
+        var materialization = WorldOrderConcreteOperationMaterializer.MaterializeWithReplay(
             program, binding, world, masterProfile, slaveProfile, replay);
         if (!materialization.IsComplete)
         {
