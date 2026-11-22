@@ -187,7 +187,8 @@ public static class WorldOrderRuleCandidateCatalog
                     };
                     AddTransition(rules, candidates, requirementIndex,
                         sourceShape, null, targetShape, targetLiquid,
-                        WorkshopOperation.PourIn(targetLiquid), "POUR_IN", syntheticSupply);
+                        WorkshopOperation.PourIn(targetLiquid), "POUR_IN",
+                        syntheticSupply, stagingCapacity, bannedLiquids);
                 }
 
                 // Empty target can be made by pouring out any usable liquid from a same-shape Jar.
