@@ -88,7 +88,7 @@ public sealed class WorldOrderResourceManifest
     /// 在规则与工作台 Profile 未变化时，尝试将旧计划绑定到新的资源快照。
     /// 只有计划实际使用的 Jar 初态仍一致、液体供给与容量仍足够时才成功。
     /// </summary>
-    public static WorldOrderResourceManifest CreateForResourceRebind(
+    internal static WorldOrderResourceManifest CreateForResourceRebind(
         WorldOrderSolveResult result, WorldSnapshot snapshot)
     {
         if (result == null) throw new ArgumentNullException(nameof(result));
