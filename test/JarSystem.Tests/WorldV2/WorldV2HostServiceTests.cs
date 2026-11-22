@@ -143,7 +143,7 @@ public sealed class WorldV2HostServiceTests
         host.Replace(options);
         var application = new WorldV2ApplicationService(host);
 
-        // 通过真实生产区→仓库→主台链路准备一只罐子，避免测试绕过资源所有权路径。
+        // 通过真实生产区→仓库→主台链路准备两种岗位各自需要的罐子。
         application.AdvanceWorld(1_000);
         host.ExecuteExclusive(context => Assert.Equal(2, context.Roster.Master!.Jars.Count));
 
