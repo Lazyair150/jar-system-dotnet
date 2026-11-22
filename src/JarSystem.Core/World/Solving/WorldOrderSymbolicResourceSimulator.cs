@@ -185,10 +185,13 @@ public static class WorldOrderSymbolicResourceSimulator
         var roles = new SortedDictionary<string, MutableRoleResourceState>(StringComparer.Ordinal)
         {
             [program.MasterRole] = new MutableRoleResourceState(
-                request.MasterStagingCapacity, request.MasterInitialFreeLiquid)
+                request.MasterStagingCapacity, request.MasterInitialFreeLiquid,
+                request.MasterRejectedLiquids)
         };
         if (program.IsBClass)
-            roles.Add(program.SlaveRole, new MutableRoleResourceState(request.SlaveStagingCapacity));
+            roles.Add(program.SlaveRole, new MutableRoleResourceState(
+                request.SlaveStagingCapacity, new Dictionary<string, int>(),
+                request.SlaveRejectedLiquids));
 
         var transferred = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var handoffApplied = false;
