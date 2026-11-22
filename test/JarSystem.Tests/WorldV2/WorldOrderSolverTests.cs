@@ -261,6 +261,48 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BPartitionBacktracksWhenAllSlaveAssignmentViolatesSlaveRule()
+    {
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "从台不能匹配圆罐"
+        });
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台", new List<string> { "方罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐"));
+        master.AddJar(new Jar("方罐"));
+        var snapshot = Snapshot(master, slave);
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐" },
+                    new Requirement { Shape = "方罐" }
+                },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, snapshot);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.NotNull(result.PartitionReport);
+        Assert.Contains(result.PartitionReport!.Events,
+            item => item.Stage == "slave-infeasible" && item.Mask == 0);
+        Assert.Contains(result.PartitionReport.Events,
+            item => item.Stage == "partition-selected" && item.Mask == 1);
+        Assert.NotNull(result.Plan);
+        Assert.Contains(result.Plan!.MasterSteps,
+            step => step.Operation?.Type == "MATCH" &&
+                    step.Before![step.Operation.JarIndex!.Value].Shape == "圆罐");
+        Assert.Contains(result.Plan.SlaveSteps,
+            step => step.Operation?.Type == "MATCH" &&
+                    step.Before![step.Operation.JarIndex!.Value].Shape == "方罐");
+    }
+
+    [Fact]
     public void BPartitionDoesNotTreatFeasibleSolverWithoutPathAsInfeasible()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
