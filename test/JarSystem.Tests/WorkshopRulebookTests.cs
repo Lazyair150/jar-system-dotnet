@@ -22,6 +22,17 @@ namespace JarSystem.Tests;
 /// </summary>
 public class WorkshopRulebookTests
 {
+
+    [Fact]
+    public void FullReshapeRuleVersionTracksTheJarInternalBanScopeCorrection()
+    {
+        var full = WorkshopRulebook.Definitions.Single(x => x.Operator == "RESHAPE_FULL");
+
+        Assert.Equal(2, WorkshopRulebook.RuleContractVersion);
+        Assert.Equal("jar.workshop.reshape-full", full.RuleId);
+        Assert.Equal(2, full.RuleVersion);
+    }
+
     private sealed class Cfg
     {
         public string Name = "";
