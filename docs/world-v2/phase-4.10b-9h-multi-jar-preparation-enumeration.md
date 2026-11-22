@@ -40,6 +40,9 @@ resource-producing Jars, not a general-purpose planning search.
 Added tests cover:
 - an independent Jar's PourOut satisfying another requirement Jar's free-liquid
   demand without requiring banned Master staging liquid;
+- two independent Jars jointly satisfying aggregated same-liquid demand, without
+  reusing one Jar's output twice;
+- node-budget exhaustion remaining Undetermined;
 - same-Jar preparation and independent-Jar preparation remain distinct alternatives,
   with their different initial JarState boundary counts;
 - the preparation Jar remaining an explicit JarState boundary condition;
