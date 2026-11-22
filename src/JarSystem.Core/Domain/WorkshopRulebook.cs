@@ -188,6 +188,28 @@ public static class WorkshopRulebook
     }
 
     /// <summary>
+    /// MATCH 的纯值转换证明。它不改变 Jar 的化学状态，只把 IsMarked 置为 true。
+    /// 让直接匹配也使用与四种化学操作相同的 RuleId/Version/After 契约。
+    /// </summary>
+    public static WorkshopOperationEvaluation EvaluateMatchTransition(
+        RuleContext rules,
+        in JarFacts jar)
+    {
+        var decision = EvaluateMatch(rules, jar);
+        if (!decision.IsAllowed)
+            return new WorkshopOperationEvaluation(decision, null);
+
+        var definition = Definitions.First(x => x.Operator == "MATCH");
+        return new WorkshopOperationEvaluation(
+            decision,
+            new WorkshopOperationTransition(
+                definition.RuleId,
+                definition.RuleVersion,
+                new JarFacts(jar.Shape, jar.Liquid, true),
+                null, null, null));
+    }
+
+    /// <summary>
     /// 这一操作**现在**是否合法。判定顺序与 <see cref="Workshop"/> 的四个执行方法逐条对齐，
     /// 因此"合法性"与"执行会不会成功"是同一个谓词的两面（由测试钉住）。
     /// </summary>
