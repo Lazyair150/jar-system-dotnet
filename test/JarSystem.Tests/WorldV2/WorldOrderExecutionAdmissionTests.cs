@@ -647,4 +647,47 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.Same(scopes.Master, admission.GetLiquidScopes(demand.Id)!.Value.Master);
     }
 
+
+    [Fact]
+    public void OrderConsumesOnlyItsRequiredShareOfMasterPrefillBeforeUsingShipInventory()
+    {
+        var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" }, vocabulary: Words);
+        var target = new Workshop("目标主台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 3);
+        target.AddJar(new Jar("圆罐", vocabulary: Words));
+        var roster = new WorkshopRoster(new[] { oldMaster, target }, oldMaster);
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        var demand = Demand("圆罐", "酒", new SequentialIdGenerator());
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var book = new WorldOrderSolveBook(board);
+        var reservations = new WorldResourceReservationBook();
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 4 });
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+
+        var prefill = admission.PrefillMasterWorkshop(target, new[] { "酒" });
+        Assert.Equal(3, prefill.Accepted["酒"]);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        roster.CommitMasterReplacement(oldMaster, target);
+
+        var solveSnapshot = admission.CaptureWorldSnapshot();
+        Assert.Equal(3, solveSnapshot.MasterPrefillLiquidBalances["酒"]);
+        var solved = book.Evaluate(demand.Id, solveSnapshot, registry);
+        Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        Assert.Equal(2, admission.GetPrefillBalances(target)["酒"]);
+        var scopes = admission.GetLiquidScopes(demand.Id)
+            ?? throw new System.InvalidOperationException("准入后租约缺少主台液体范围。");
+        Assert.Equal(1, scopes.Master.GetAmount("酒"));
+        Assert.Null(scopes.Slave);
+    }
+
 }
