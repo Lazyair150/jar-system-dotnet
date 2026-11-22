@@ -70,6 +70,24 @@ public partial class WorldV2HostNode : Node
         RefreshSnapshot();
     }
 
+    /// <summary>请求将指定备用工作台个体接任主台或从台岗位。</summary>
+    public WorldV2WorkshopReplacementResultDto BeginWorkshopReplacement(
+        WorkshopRole role, string targetWorkshopName, long phaseDurationLogicalMilli)
+    {
+        var result = RequireSession().BeginWorkshopReplacement(
+            role, targetWorkshopName, phaseDurationLogicalMilli);
+        RefreshSnapshot();
+        return result;
+    }
+
+    /// <summary>取消当前尚未完成的工作台个体替换。</summary>
+    public WorldV2WorkshopReplacementResultDto CancelWorkshopReplacement(string reason = "Godot 宿主取消替换")
+    {
+        var result = RequireSession().CancelWorkshopReplacement(reason);
+        RefreshSnapshot();
+        return result;
+    }
+
     /// <summary>导出完整活动执行检查点 JSON；返回值可交由宿主文件层保存。</summary>
     public string CaptureExecutionCheckpointJson(bool indented = true) =>
         RequireSession().CaptureExecutionCheckpointJson(indented);
@@ -129,6 +147,20 @@ public partial class WorldV2HostNode : Node
             new WorldV2WorkshopOptions
             {
                 Name = "从台",
+                BaseMarks = new() { "圆罐", "方罐" },
+                MaxJars = 10,
+                MaxLiquids = 10
+            },
+            new WorldV2WorkshopOptions
+            {
+                Name = "备用台 A",
+                BaseMarks = new() { "圆罐", "方罐" },
+                MaxJars = 10,
+                MaxLiquids = 10
+            },
+            new WorldV2WorkshopOptions
+            {
+                Name = "备用台 B",
                 BaseMarks = new() { "圆罐", "方罐" },
                 MaxJars = 10,
                 MaxLiquids = 10
