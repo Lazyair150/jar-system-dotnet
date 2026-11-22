@@ -968,7 +968,22 @@ public sealed class WorkshopReplacementTests
         Assert.Empty(secondMaster.Jars);
         Assert.Equal("酒", deliveredJar.Liquid);
 
-        // 再次换主台：新主台先从自机液库获得剩余 1 份；旧主台剩余 2 份随后返还。
+        // 第二张订单继续消费同一主台预置余额，验证订单之间不重复扣自机液库。
+        var secondDeliveredJar = new Jar("圆罐", vocabulary: vocabulary);
+        secondMaster.AddJar(secondDeliveredJar);
+        var secondDemand = new OrderDemand(new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.A, vocabulary), 0, world.DemandIdGenerator);
+        world.DemandBoard.AddDemand(secondDemand, DemandAreaKind.Active);
+        var secondStarted = world.Scheduler.TryStartActiveDemand(secondDemand.Id);
+        Assert.True(secondStarted.Success, secondStarted.Reason);
+        world.Runtime.AdvanceWorldTime(1_000);
+        Assert.True(secondStarted.Session!.Succeeded, secondStarted.Session.Reason);
+        Assert.Equal("酒", secondDeliveredJar.Liquid);
+        Assert.Equal(1, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
+        Assert.Equal(1, ship.GetAmount("酒"));
+
+        // 再次换主台：新主台先从自机液库获得剩余 1 份；旧主台剩余 1 份随后返还。
         var secondSwitch = world.Runtime.BeginReplacement(
             WorkshopRole.Master, firstMaster, new NoOrderInterruption(), 1_000);
         Assert.True(secondSwitch.Success, secondSwitch.Error);
@@ -978,15 +993,16 @@ public sealed class WorkshopReplacementTests
         Assert.Same(firstMaster, world.Roster.Master);
         Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
         Assert.Equal(1, world.Admission.GetPrefillBalances(firstMaster)["酒"]);
-        Assert.Equal(2, ship.GetAmount("酒"));
+        Assert.Equal(1, ship.GetAmount("酒"));
         Assert.Equal(4, ship.GetAmount("酒") +
             world.Admission.GetPrefillBalances(firstMaster)["酒"] +
-            (deliveredJar.Liquid == "酒" ? 1 : 0));
+            (deliveredJar.Liquid == "酒" ? 1 : 0) +
+            (secondDeliveredJar.Liquid == "酒" ? 1 : 0));
 
         var prefillReturn = Assert.Single(world.ResourceLedger.For(ResourceCauses.Return),
             item => item.From == "主台预置");
         Assert.Equal("酒", prefillReturn.Name);
-        Assert.Equal(2, prefillReturn.Amount);
+        Assert.Equal(1, prefillReturn.Amount);
         Assert.Equal("自机液库", prefillReturn.To);
 
         // 连续换台、订单执行和返还后，检查点捕获不应再看到退役工作台的残留 staging。
