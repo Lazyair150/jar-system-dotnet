@@ -41,6 +41,30 @@ public sealed class WorldOrderSolveBook : IDisposable
     }
 
     /// <summary>
+    /// 只在规则集、工作台 Profile 与订单规格均匹配时返回符号候选集。
+    /// ResourceVersion 不参与此检查：资源变化不会使规则候选失效。
+    /// </summary>
+    public WorldOrderSymbolicSolutionSet? GetSymbolicSolutions(
+        int demandId,
+        WorldSnapshot snapshot)
+    {
+        ThrowIfDisposed();
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        var demand = _board.Find(demandId);
+        if (demand?.Specification is not JarOrderSpecification specification)
+            return null;
+        if (!_symbolicSolutions.TryGetValue(demandId, out var candidates))
+            return null;
+
+        var specificationVersion = WorldOrderRuleCandidateCatalog.Fingerprint(specification);
+        return string.Equals(candidates.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) &&
+               string.Equals(candidates.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal) &&
+               string.Equals(candidates.SpecificationVersion, specificationVersion, StringComparison.Ordinal)
+            ? candidates
+            : null;
+    }
+
+    /// <summary>
     /// 仅当订单仍登记、CD 已结束且求解结论匹配当前快照版本时返回结论。
     /// 若版本变化，会将记录转为 Dirty 并返回 null。
     /// </summary>
