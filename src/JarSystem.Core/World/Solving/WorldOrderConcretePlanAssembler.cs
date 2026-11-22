@@ -147,7 +147,7 @@ public static class WorldOrderConcretePlanAssembler
         WorldOrderResourceManifest manifest;
         try
         {
-            manifest = WorldOrderResourceManifest.Create(provisional, world);
+            manifest = WorldOrderResourceManifest.CreateWithReplay(provisional, world, replay);
         }
         catch (Exception exception) when (
             exception is InvalidOperationException or ArgumentException or OverflowException)
