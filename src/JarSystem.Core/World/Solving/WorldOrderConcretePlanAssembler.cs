@@ -82,19 +82,37 @@ public static class WorldOrderConcretePlanAssembler
                 materialization: materialization, replay: replay);
         }
 
-        if (program.IsBClass &&
-            replay.SlaveBoundaryGroup!.Requirements.Count(x =>
-                x.Kind == WorldOrderBoundaryResourceKind.JarState) != materialization.TransferJarIds.Count)
-            return Failure(WorldOrderSolveStatus.Undetermined,
-                "资源边界组中的 JarState 数量与物理交接批次不一致",
-                materialization: materialization, replay: replay);
+        if (program.IsBClass)
+        {
+            var expectedSlaveOrder = program.Nodes
+                .Where(x => x.Kind == WorldOrderSymbolicOperationKind.Rule &&
+                            x.WorkshopRole == program.SlaveRole)
+                .OrderBy(x => x.Sequence)
+                .Select(x => x.NodeId);
+            if (replay.SlaveBoundaryGroup!.Requirements.Count(x =>
+                    x.Kind == WorldOrderBoundaryResourceKind.JarState) != materialization.TransferJarIds.Count ||
+                !replay.SlaveBoundaryGroup.SlaveOperationOrder.SequenceEqual(expectedSlaveOrder))
+                return Failure(WorldOrderSolveStatus.Undetermined,
+                    "资源边界组的 JarState 或从台顺序 witness 与具体交接/操作路径不一致",
+                    materialization: materialization, replay: replay);
+        }
 
-        var plan = WorldOrderSolvePlan.FromMaterializedPaths(
-            program.IsBClass,
-            materialization.MasterPath,
-            materialization.SlavePath,
-            materialization.TransferJarIds,
-            replay.TransferLiquids);
+        WorldOrderSolvePlan plan;
+        try
+        {
+            plan = WorldOrderSolvePlan.FromMaterializedPaths(
+                program.IsBClass,
+                materialization.MasterPath,
+                materialization.SlavePath,
+                materialization.TransferJarIds,
+                replay.TransferLiquids);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            return Failure(WorldOrderSolveStatus.Undetermined,
+                "具体操作路径无法冻结为合法订单计划：" + exception.Message,
+                materialization: materialization, replay: replay);
+        }
         var allSteps = materialization.MasterPath.Concat(materialization.SlavePath).ToArray();
         var directCount = allSteps.Count(x => x.Operation?.Type == "MATCH");
         var operationCount = allSteps.Length - directCount;
