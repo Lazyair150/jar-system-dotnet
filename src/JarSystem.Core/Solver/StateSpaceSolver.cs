@@ -46,8 +46,8 @@ internal class SolverState
     public bool Allows(JarState jar, SolverOperation operation)
     {
         if (operation.Type == "MATCH")
-            return WorkshopRulebook.EvaluateMatch(
-                _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked)).IsAllowed;
+            return WorkshopRulebook.EvaluateMatchTransition(
+                _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked)).Decision.IsAllowed;
         return WorkshopRulebook.IsAllowed(
             _rules, _perLiquidCapacity,
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
@@ -59,6 +59,10 @@ internal class SolverState
             _rules, _perLiquidCapacity,
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
             ToWorkshopOperation(operation), Liquids);
+
+    public WorkshopRulebook.WorkshopOperationTransition? CreateMatchTransition(JarState jar) =>
+        WorkshopRulebook.EvaluateMatchTransition(
+            _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked)).Transition;
 
     private static WorkshopOperation ToWorkshopOperation(SolverOperation operation) =>
         operation.Type switch
@@ -434,27 +438,22 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         if (st.Jars[i].MasterOrigin && st.TransferUsed >= st.TransferBudget) return false;
         foreach (var kv in op.Consumed ?? new())
             if (!st.HasLiquid(kv.Key, kv.Value)) return false;
-        if (op.Type == "MATCH")
-        {
-            st.MarkJar(i);
-        }
-        else
-        {
-            var transition = st.CreateTransition(st.Jars[i], op);
-            if (transition == null) return false;
+        var transition = op.Type == "MATCH"
+            ? st.CreateMatchTransition(st.Jars[i])
+            : st.CreateTransition(st.Jars[i], op);
+        if (transition == null) return false;
 
-            if (transition.Value.ConsumedFreeLiquid is { } consumed &&
-                !st.ConsumeLiquid(consumed, 1)) return false;
-            if (transition.Value.ConsumedJarLiquid is { } jarLiquid &&
-                !string.Equals(st.Jars[i].Liquid, jarLiquid, StringComparison.Ordinal)) return false;
-            if (transition.Value.ProducedFreeLiquid is { } produced)
-                st.AddLiquid(produced, 1);
+        if (transition.Value.ConsumedFreeLiquid is { } consumed &&
+            !st.ConsumeLiquid(consumed, 1)) return false;
+        if (transition.Value.ConsumedJarLiquid is { } jarLiquid &&
+            !string.Equals(st.Jars[i].Liquid, jarLiquid, StringComparison.Ordinal)) return false;
+        if (transition.Value.ProducedFreeLiquid is { } produced)
+            st.AddLiquid(produced, 1);
 
-            st.SetShape(i, transition.Value.After.Shape);
-            st.SetLiquid(i, transition.Value.After.Liquid);
-            st.Jars[i].IsMarked = transition.Value.After.IsMarked;
-            if (op.Type == "POUR_OUT") Stats.PourOuts++;
-        }
+        st.SetShape(i, transition.Value.After.Shape);
+        st.SetLiquid(i, transition.Value.After.Liquid);
+        st.Jars[i].IsMarked = transition.Value.After.IsMarked;
+        if (op.Type == "POUR_OUT") Stats.PourOuts++;
         if (st.Jars[i].MasterOrigin) st.TransferUsed++;
         return true;
     }
