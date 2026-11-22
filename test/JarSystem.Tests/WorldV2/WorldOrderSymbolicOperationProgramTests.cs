@@ -179,4 +179,74 @@ public sealed class WorldOrderSymbolicOperationProgramTests
             WorldOrderSymbolicOperationNode.Rule(
                 "bad", 1, "Master", 0, candidate, input, output));
     }
+    [Fact]
+    public void DirectCandidateBuilderCreatesExactlyOneBClassHandoffAndRoutesSlaveLiquidThroughIt()
+    {
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate(
+                "Master", Candidate(0, "圆罐", null, "MASTER_RULE", "方罐", null, producedFree: "酒")),
+            new WorldOrderAssignedRuleCandidate(
+                "Slave", Candidate(1, "圆罐", null, "SLAVE_RULE", "三角罐", null, consumedFree: "酒"))
+        });
+
+        var program = WorldOrderSymbolicOperationProgramBuilder.BuildDirectCandidateProjection(
+            solution, true, "Master", "Slave");
+
+        Assert.Equal(
+            new[] { "requirement-0-master", "master-to-slave-handoff", "requirement-1-slave" },
+            System.Linq.Enumerable.Select(program.Nodes, x => x.NodeId));
+        Assert.Single(program.Nodes, x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
+        Assert.Contains(program.Dependencies, x =>
+            x.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid &&
+            x.FromNodeId == "requirement-0-master" &&
+            x.ToNodeId == "master-to-slave-handoff" && x.Liquid == "酒");
+        Assert.Contains(program.Dependencies, x =>
+            x.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid &&
+            x.FromNodeId == "master-to-slave-handoff" &&
+            x.ToNodeId == "requirement-1-slave" && x.Liquid == "酒");
+    }
+
+    [Fact]
+    public void DirectCandidateBuilderKeepsAClassOnMasterWithoutHandoff()
+    {
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate(
+                "Master", Candidate(0, "圆罐", null, "MASTER_RULE", "方罐", null))
+        });
+
+        var program = WorldOrderSymbolicOperationProgramBuilder.BuildDirectCandidateProjection(
+            solution, false, "Master", "Slave");
+
+        Assert.Single(program.Nodes);
+        Assert.Empty(program.Dependencies);
+        Assert.DoesNotContain(program.Nodes, x =>
+            x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
+    }
+
+    [Fact]
+    public void DirectCandidateBuilderRejectsPreparationCandidatesAndDuplicateRequirements()
+    {
+        var preparation = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate(
+                "Master", Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null, producedFree: "酒"))
+        });
+        Assert.Throws<ArgumentException>(() =>
+            WorldOrderSymbolicOperationProgramBuilder.BuildDirectCandidateProjection(
+                preparation, false, "Master", "Slave"));
+
+        var duplicate = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate(
+                "Master", Candidate(0, "圆罐", null, "MASTER_RULE", "方罐", null)),
+            new WorldOrderAssignedRuleCandidate(
+                "Slave", Candidate(0, "圆罐", null, "SLAVE_RULE", "三角罐", null))
+        });
+        Assert.Throws<ArgumentException>(() =>
+            WorldOrderSymbolicOperationProgramBuilder.BuildDirectCandidateProjection(
+                duplicate, true, "Master", "Slave"));
+    }
+
 }
