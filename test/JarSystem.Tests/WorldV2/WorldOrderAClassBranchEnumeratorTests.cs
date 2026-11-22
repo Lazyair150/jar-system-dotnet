@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
+using JarSystem.Core.Domain;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Solving;
 using Xunit;
@@ -44,8 +45,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
         var steps = result.Assembly.CandidatePlan!.MasterSteps;
         Assert.Equal(new[] { "POUR_OUT", "POUR_IN" },
             steps.Select(x => x.Operation!.Type));
-        Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("酒"));
-        Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("酒"));
+        Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("蜜"));
+        Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("蜜"));
         Assert.Empty(result.Assembly.Manifest.TransferLiquids);
         Assert.Equal(7102, steps[0].Before![steps[0].Operation!.JarIndex!.Value].Id);
         Assert.Equal(7101, steps[1].Before![steps[1].Operation!.JarIndex!.Value].Id);
@@ -54,10 +55,16 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
     [Fact]
     public void IndependentPreparationJarCanFundARequirementJar()
     {
+        var modifiers = new ModifierStack();
+        modifiers.Push(new SuppressModifier
+        {
+            Operation = "RESHAPE_FULL",
+            Reason = "测试：禁止直接满罐改形"
+        });
         var master = new Workshop("主台",
-            new List<string> { "圆罐", "方罐" });
+            new List<string> { "圆罐", "方罐" }, modifiers: modifiers);
         master.AddJar(new Jar("圆罐", id: 7201));
-        master.AddJar(new Jar("圆罐", "酒", id: 7202));
+        master.AddJar(new Jar("圆罐", "蜜", id: 7202));
 
         var result = Solve(master, new[]
         {
@@ -71,8 +78,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
             steps.Select(x => x.Operation!.Type));
         Assert.Equal(7202, steps[0].Before![steps[0].Operation!.JarIndex!.Value].Id);
         Assert.Equal(7201, steps[1].Before![steps[1].Operation!.JarIndex!.Value].Id);
-        Assert.Equal(1, steps[0].AfterLiquids.GetValueOrDefault("酒"));
-        Assert.Equal(0, steps[1].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(1, steps[0].AfterLiquids.GetValueOrDefault("蜜"));
+        Assert.Equal(0, steps[1].AfterLiquids.GetValueOrDefault("蜜"));
         Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("酒"));
         Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("酒"));
     }
