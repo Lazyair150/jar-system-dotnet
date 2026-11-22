@@ -103,18 +103,21 @@ public class WorkshopReshapeTests
     }
 
     [Fact]
-    public void AFictionFullJarCarryingABannedLiquidCannotBeReshapedBySelfConsumption()
+    public void FullJarCanReshapeByConsumingItsInternalLiquidEvenWhenThatLiquidIsBannedInStaging()
     {
-        // 读法 B（用户 m01174 定案）：满罐改形自耗罐内液体也算"使用" ⇒ 禁液满罐不能改形。
         var w = Xuanwu();
         var jar = new Jar("圆罐", "酒", null, Vocab());
         w.AddJar(jar);
 
         var grant = w.CanReshapeTo(jar, "方罐");
 
-        Assert.False(grant.Granted);
-        Assert.Equal("banned", grant.Code);
-        Assert.Contains("禁酒", grant.Reason);
+        Assert.True(grant.Granted, grant.Reason);
+        var (success, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
+        Assert.True(success, reason);
+        Assert.Equal("方罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
+        Assert.Equal(0, w.LiquidStorage["酒"]);
     }
 
     [Fact]
