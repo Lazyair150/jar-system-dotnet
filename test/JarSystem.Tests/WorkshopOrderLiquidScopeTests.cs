@@ -140,6 +140,51 @@ public sealed class WorkshopOrderLiquidScopeTests
     }
 
     [Fact]
+    public void OrdinaryAndOrderScopesProduceIdenticalJarRuleTransitions()
+    {
+        AssertTransitionParity(
+            new JarFacts("圆罐", null, false),
+            WorkshopOperation.PourIn("酒"),
+            new Dictionary<string, int> { ["酒"] = 1 },
+            staging => staging.Receive(101, "酒", 1));
+        AssertTransitionParity(
+            new JarFacts("圆罐", "酒", false),
+            WorkshopOperation.PourOut(),
+            new Dictionary<string, int>(),
+            _ => { });
+        AssertTransitionParity(
+            new JarFacts("圆罐", null, false),
+            WorkshopOperation.ReshapeEmpty("尖罐", "酒"),
+            new Dictionary<string, int> { ["酒"] = 1 },
+            staging => staging.Receive(101, "酒", 1));
+        AssertTransitionParity(
+            new JarFacts("圆罐", "酒", false),
+            WorkshopOperation.ReshapeFull("尖罐"),
+            new Dictionary<string, int>(),
+            _ => { });
+    }
+
+    private static void AssertTransitionParity(
+        JarFacts facts,
+        WorkshopOperation operation,
+        Dictionary<string, int> ordinaryLiquids,
+        System.Action<WorkshopLiquidStaging> seedOrderScope)
+    {
+        var workshop = CreateWorkshop();
+        var ordinary = WorkshopRulebook.EvaluateTransition(
+            workshop.Rules, workshop.MaxLiquids, facts, operation, ordinaryLiquids);
+
+        var staging = new WorkshopLiquidStaging(8);
+        seedOrderScope(staging);
+        var orderScope = new OrderLiquidScope(101, staging);
+        var order = WorkshopRulebook.EvaluateTransition(
+            workshop.Rules, orderScope, facts, operation);
+
+        Assert.Equal(ordinary.Decision, order.Decision);
+        Assert.Equal(ordinary.Transition, order.Transition);
+    }
+
+    [Fact]
     public void OrderScopedRulebookUsesAggregateCapacityAndBanForPourOut()
     {
         var workshop = CreateWorkshop();
