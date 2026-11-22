@@ -318,11 +318,11 @@ public sealed class WorldOrderExecutionAdmissionTests
 
         var second = admission.TryAdmit(secondDemand.Id);
 
-        Assert.True(second.Success, second.Reason);
-        var scopes = admission.GetLiquidScopes(secondDemand.Id);
-        Assert.True(scopes.HasValue);
-        Assert.Contains("酒", scopes.Value.Master.Staging.BannedLiquids);
-        Assert.True(admission.Release(secondDemand.Id));
+        // The Jar still contains 酒. A newly captured Master ban must reject operating it;
+        // an empty staging account does not make the prefilled Jar exempt from the workshop rule.
+        Assert.False(second.Success);
+        Assert.Contains("禁酒", second.Reason);
+        Assert.False(admission.GetLiquidScopes(secondDemand.Id).HasValue);
     }
 
     [Fact]
