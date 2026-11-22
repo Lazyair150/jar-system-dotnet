@@ -392,7 +392,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         if (transition.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
             return (false, "液体" + consumed + "不足或不可用");
-        ApplyJarTransition(j, operation, transition);
+        ApplyJarTransition(j, transition);
         return (true, null);
     }
 
@@ -405,7 +405,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         if (transition.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
             return (false, "液体" + consumed + "不足");
-        ApplyJarTransition(j, operation, transition);
+        ApplyJarTransition(j, transition);
         return (true, null);
     }
 
@@ -420,7 +420,7 @@ public class Workshop
         var liquid = transition.ProducedFreeLiquid!;
         if (!scope.TryReceiveOperation(liquid, 1, out var receive))
             return (false, receive.Reason, null);
-        ApplyJarTransition(j, operation, transition);
+        ApplyJarTransition(j, transition);
         return (true, null, liquid);
     }
 
@@ -433,35 +433,17 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         var liquid = transition.ProducedFreeLiquid!;
         AddLiquid(liquid);
-        ApplyJarTransition(j, operation, transition);
+        ApplyJarTransition(j, transition);
         return (true, null, liquid);
     }
 
     private static void ApplyJarTransition(
         Jar jar,
-        WorkshopOperation operation,
-        WorkshopRulebook.WorkshopOperationTransition transition)
-    {
-        switch (operation.Kind)
-        {
-            case WorkshopOperationKind.PourIn:
-                jar.PourIn(transition.After.Liquid!);
-                break;
-            case WorkshopOperationKind.PourOut:
-                jar.ClearLiquid();
-                break;
-            case WorkshopOperationKind.ReshapeEmpty:
-                jar.Reshape(transition.After.Shape);
-                break;
-            case WorkshopOperationKind.ReshapeFull:
-                jar.ClearLiquid();
-                jar.Reshape(transition.After.Shape);
-                break;
-            default:
-                throw new System.InvalidOperationException("未知工作台转换算子");
-        }
-        if (transition.After.IsMarked) jar.Mark();
-    }
+        WorkshopRulebook.WorkshopOperationTransition transition) =>
+        jar.ApplyRuleTransition(
+            transition.After.Shape,
+            transition.After.Liquid,
+            transition.After.IsMarked);
 
     // ============================================================
     // 「这只罐子现在能改形成什么」的唯一说法（原则4 的第二笔欠账）
@@ -584,7 +566,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         if (transition.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
             return (false, "无法支付液体" + consumed);
-        ApplyJarTransition(j, operation, transition);
+        ApplyJarTransition(j, transition);
         return (true, null);
     }
 
@@ -617,7 +599,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         if (transition.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
             return (false, "无法支付液体" + consumed);
-        ApplyJarTransition(j, operation, transition);
+        ApplyJarTransition(j, transition);
         return (true, null);
     }
 
