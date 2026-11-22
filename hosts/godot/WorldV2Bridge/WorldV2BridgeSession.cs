@@ -73,6 +73,20 @@ public sealed class WorldV2BridgeSession : IDisposable
         return _application.AddJarDemand(request);
     }
 
+    /// <summary>读取未确认的订单成功周期事件；重复读取不会消费事件。</summary>
+    public IReadOnlyList<OrderCycleCompletedEvent> GetPendingOrderCycleEvents()
+    {
+        ThrowIfDisposed();
+        return _application.GetPendingOrderCycleEvents();
+    }
+
+    /// <summary>Space 完成效果应用和处理身份持久化后确认事件。</summary>
+    public bool AcknowledgeOrderCycleEvent(string eventId)
+    {
+        ThrowIfDisposed();
+        return _application.AcknowledgeOrderCycleEvent(eventId);
+    }
+
     public bool MoveDemand(int demandId, DemandAreaKind targetArea)
     {
         ThrowIfDisposed();
