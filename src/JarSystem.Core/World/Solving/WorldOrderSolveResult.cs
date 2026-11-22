@@ -101,6 +101,18 @@ public interface IWorldOrderSpecificationSolver
 }
 
 /// <summary>
+/// Optional solver contract for reusing the solve book's immutable rule-candidate cache.
+/// The candidate book contains derived rule/profile data only; it never supplies live resources.
+/// </summary>
+public interface IWorldOrderCandidateBookAwareSolver : IWorldOrderSpecificationSolver
+{
+    WorldOrderSolveResult Solve(
+        OrderDemand demand,
+        WorldSnapshot snapshot,
+        WorldOrderRuleCandidateBook candidateBook);
+}
+
+/// <summary>
 /// 订单规格求解器注册表。按规格的精确运行时类型分派，不让通用订单板解释玩法字段。
 /// 不做基类/接口模糊匹配，避免注册顺序改变分派结果。
 /// </summary>
@@ -125,7 +137,13 @@ public sealed class WorldOrderSolverRegistry
             throw new InvalidOperationException("订单规格求解器重复注册: " + solver.SpecificationType.FullName);
     }
 
-    public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot)
+    public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot) =>
+        Solve(demand, snapshot, null);
+
+    public WorldOrderSolveResult Solve(
+        OrderDemand demand,
+        WorldSnapshot snapshot,
+        WorldOrderRuleCandidateBook? candidateBook)
     {
         if (demand == null) throw new ArgumentNullException(nameof(demand));
         if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
@@ -140,7 +158,9 @@ public sealed class WorldOrderSolverRegistry
                 demand.Id, snapshot.Version, WorldOrderSolveStatus.UnsupportedSpecification,
                 reason: "没有为订单规格注册求解器: " + demand.Specification.GetType().FullName);
 
-        var result = solver.Solve(demand, snapshot);
+        var result = candidateBook != null && solver is IWorldOrderCandidateBookAwareSolver cacheAware
+            ? cacheAware.Solve(demand, snapshot, candidateBook)
+            : solver.Solve(demand, snapshot);
         if (result == null)
             throw new InvalidOperationException("订单求解器返回了 null 结果");
         if (result.DemandId != demand.Id)
