@@ -210,8 +210,8 @@ public sealed class WorldOrderConcretePlanAssemblerTests
         var step = Assert.Single(result.CandidatePlan!.SlaveSteps);
         Assert.Contains(step.Before!, x => x.Id == 1042);
         Assert.False(step.Before!.Single(x => x.Id == 1042).IsMarked);
-        Assert.Equal("酒", step.Operation.CostLiquid);
-        Assert.Equal(1, step.Operation.Consumed["酒"]);
+        Assert.Equal("酒", step.Operation!.CostLiquid);
+        Assert.Equal(1, step.Operation!.Consumed!["酒"]);
         Assert.Equal("方罐", step.After!.Single(x => x.Id == 1042).Shape);
         Assert.Null(step.After.Single(x => x.Id == 1042).Liquid);
     }
