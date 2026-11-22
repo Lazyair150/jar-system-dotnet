@@ -108,24 +108,45 @@ public sealed class WorldOrderResourceRequirementGroup
 {
     public string GroupId { get; }
     public IReadOnlyList<WorldOrderBoundaryRequirement> Requirements { get; }
+    public string ProviderRole { get; }
+    public string ConsumerRole { get; }
 
     public WorldOrderResourceRequirementGroup(
         string groupId,
-        IEnumerable<WorldOrderBoundaryRequirement> requirements)
+        IEnumerable<WorldOrderBoundaryRequirement> requirements,
+        string? providerRole = null,
+        string? consumerRole = null)
     {
         if (string.IsNullOrWhiteSpace(groupId))
             throw new ArgumentException("资源组身份不能为空", nameof(groupId));
         if (requirements == null) throw new ArgumentNullException(nameof(requirements));
 
         var copied = requirements.ToArray();
-        if (copied.Length == 0)
-            throw new ArgumentException("资源组至少需要一个边界条件", nameof(requirements));
         if (copied.Any(x => x == null))
             throw new ArgumentException("资源组不能包含 null 条件", nameof(requirements));
 
-        var rolePairs = copied.Select(x => (x.ProviderRole, x.ConsumerRole)).Distinct().ToArray();
-        if (rolePairs.Length != 1)
-            throw new ArgumentException("同一资源组必须具有一致的提供岗位和使用岗位", nameof(requirements));
+        if (copied.Length == 0)
+        {
+            if (string.IsNullOrWhiteSpace(providerRole))
+                throw new ArgumentException("空资源组必须明确提供岗位", nameof(providerRole));
+            if (string.IsNullOrWhiteSpace(consumerRole))
+                throw new ArgumentException("空资源组必须明确使用岗位", nameof(consumerRole));
+            if (providerRole == consumerRole)
+                throw new ArgumentException("边界资源的提供岗位与使用岗位必须不同");
+            ProviderRole = providerRole;
+            ConsumerRole = consumerRole;
+        }
+        else
+        {
+            var rolePairs = copied.Select(x => (x.ProviderRole, x.ConsumerRole)).Distinct().ToArray();
+            if (rolePairs.Length != 1)
+                throw new ArgumentException("同一资源组必须具有一致的提供岗位和使用岗位", nameof(requirements));
+            ProviderRole = rolePairs[0].ProviderRole;
+            ConsumerRole = rolePairs[0].ConsumerRole;
+            if ((providerRole != null && providerRole != ProviderRole) ||
+                (consumerRole != null && consumerRole != ConsumerRole))
+                throw new ArgumentException("显式岗位方向必须匹配资源条件", nameof(requirements));
+        }
 
         Requirements = Array.AsReadOnly(copied);
         GroupId = groupId;
@@ -140,9 +161,6 @@ public sealed class WorldOrderResourceRequirementGroup
             .ToDictionary(x => x.Key, x => x.Count());
         RequiredJarStates = new ReadOnlyDictionary<WorldOrderJarStateKey, int>(jarStates);
     }
-
-    public string ProviderRole => Requirements[0].ProviderRole;
-    public string ConsumerRole => Requirements[0].ConsumerRole;
 
     /// <summary>
     /// Aggregate same-kind free-liquid conditions within this AND group.
