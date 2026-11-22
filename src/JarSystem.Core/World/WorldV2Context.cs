@@ -37,6 +37,10 @@ public sealed class WorldV2Context : IDisposable
     public IReadOnlyList<string> Shapes { get; }
     public IReadOnlyList<string> Liquids { get; }
     public WorldOrderSolveBook SolveBook { get; }
+    /// <summary>
+    /// 可跨资源库存变化复用的规则候选缓存。它是派生数据，不进入执行检查点；Restore 后可重建。
+    /// </summary>
+    public WorldOrderRuleCandidateBook RuleCandidates { get; } = new();
     public WorldResourceReservationBook Reservations { get; }
     public WorldOrderExecutionAdmission Admission { get; }
     public ResourceWorldRuntime Runtime { get; }
