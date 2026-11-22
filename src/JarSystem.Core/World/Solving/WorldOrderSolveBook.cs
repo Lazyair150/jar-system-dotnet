@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using JarSystem.Core.Config;
 using JarSystem.Core.World.Demands;
 using JarSystem.Core.Orders;
 
@@ -184,7 +185,7 @@ public sealed class WorldOrderSolveBook : IDisposable
     {
         if (demand.Specification is not JarOrderSpecification specification ||
             snapshot.Master == null ||
-            (specification.Type == JarSystem.Core.Config.Constants.OrderType.B && snapshot.Slave == null))
+            (specification.Type == Constants.OrderType.B && snapshot.Slave == null))
         {
             _symbolicSolutions.Remove(demand.Id);
             return;
@@ -194,7 +195,7 @@ public sealed class WorldOrderSolveBook : IDisposable
         {
             RuleCandidates.GetOrBuild(snapshot, snapshot.Master, "Master", specification)
         };
-        if (specification.Type == JarSystem.Core.Config.Constants.OrderType.B)
+        if (specification.Type == Constants.OrderType.B)
             profiles.Add(RuleCandidates.GetOrBuild(snapshot, snapshot.Slave!, "Slave", specification));
 
         _symbolicSolutions[demand.Id] = RuleCandidates.GetOrBuildSolutions(profiles);
