@@ -56,7 +56,8 @@ public static class WorldOrderAClassBranchEnumerator
         WorldOrderRuleCandidateProfile masterProfile,
         WorldSnapshot world,
         int maxBranches = 256,
-        int maxNodes = 100_000)
+        int maxNodes = 100_000,
+        WorldOrderSymbolicSolutionSet? precomputedSolutions = null)
     {
         if (demandId <= 0) throw new ArgumentOutOfRangeException(nameof(demandId));
         if (masterProfile == null) throw new ArgumentNullException(nameof(masterProfile));
@@ -79,8 +80,15 @@ public static class WorldOrderAClassBranchEnumerator
             return Result(WorldOrderAClassBranchEnumerationStatus.Infeasible,
                 null, 0, 0, 0, "至少一项订单需求在主台没有合法规则候选");
 
-        var symbolic = WorldOrderSymbolicSolutionBuilder.Build(
+        var symbolic = precomputedSolutions ?? WorldOrderSymbolicSolutionBuilder.Build(
             new[] { masterProfile }, maxBranches, maxNodes);
+        if (symbolic.RuleSetVersion != masterProfile.RuleSetVersion ||
+            symbolic.WorkshopProfileVersion != masterProfile.WorkshopProfileVersion ||
+            symbolic.SpecificationVersion != masterProfile.SpecificationVersion ||
+            symbolic.Solutions.Any(solution => solution.Steps.Any(step => step.WorkshopRole != "Master")))
+            return Result(WorldOrderAClassBranchEnumerationStatus.Undetermined,
+                null, 0, symbolic.ExploredNodes, 0,
+                "预计算符号解集与主台 Profile/订单规格不一致");
         if (symbolic.Status == WorldOrderSymbolicSolutionStatus.Undetermined)
             return Result(WorldOrderAClassBranchEnumerationStatus.Undetermined,
                 null, 0, symbolic.ExploredNodes, 0,
