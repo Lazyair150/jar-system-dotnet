@@ -662,3 +662,15 @@ Envelope 建议：
 这修正的是存档静态词表与动态资源余额之间的概念边界。词表属于世界定义，余额/累加器属于运行时状态，两者必须独立保存。
 
 验证状态：本节对应提交后的 GitHub Actions 正在执行；在最新 HEAD 的 Release build、xUnit、Solver Differential、Session Replay 与 Quality Gate 全部完成前，不标记为通过。
+
+
+## 23. Godot Host 检查点入口与手动验收准备（2026-11-22）
+
+为进入宿主运行测试，本轮把根级 JSON 检查点能力接入新 Godot Host：
+- WorldV2BridgeSession 暴露 JSON 捕获、JSON 解码恢复，以及携带新 WorldV2Options 的 Host 原子替换入口。
+- WorldV2HostNode 暴露 CaptureExecutionCheckpointJson / RestoreExecutionCheckpointJson；节点只负责转发，不接触领域对象。
+- Godot 示例 UI 增加“保存检查点”和“恢复检查点”两个按钮。保存时将版本化 JSON 暂存在当前进程内存；恢复时创建完整新 Context 并由 Host 原子替换，再刷新 UI 快照。
+- BridgeSession 增加 JSON 编码/解码与 Host 替换测试；B 类订单跨 Context 恢复与不重复泵送仍由 WorldV2HostService 的端到端用例覆盖。
+- hosts/godot/WorldV2/VALIDATION.md 更新为当前 PR 分支，并补充 Godot 4.7.1 .NET 手动验收步骤。
+
+此 UI 暂存不是磁盘存档；它只用于验证 Host 的 JSON→Prepare→Context Swap→Snapshot 更新链路。磁盘写入、原子文件替换、跨进程崩溃恢复和自定义 Solver Registry/Profile 指纹不在本阶段完成边界内。
