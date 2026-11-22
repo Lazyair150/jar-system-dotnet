@@ -11,6 +11,10 @@ public enum WorldOrderSlaveRuleBranchEnumerationStatus
     Undetermined
 }
 
+public sealed record WorldOrderSlaveRuleBranchWitness(
+    WorldOrderSymbolicOperationProgram Program,
+    WorldOrderResourceRequirementGroup BoundaryGroup);
+
 /// <summary>
 /// Result of enumerating Slave-only direct rule-candidate branches and projecting
 /// each branch to one independent Master-to-Slave boundary AND group.
@@ -21,6 +25,8 @@ public sealed class WorldOrderSlaveRuleBranchEnumerationResult
     public WorldOrderResourceRequirementAlternativeSet? Alternatives { get; }
     public int ExploredBranches { get; }
     public int RejectedBranches { get; }
+    /// <summary>Concrete symbolic programs aligned with deduplicated resource alternatives.</summary>
+    public IReadOnlyList<WorldOrderSlaveRuleBranchWitness> Branches { get; }
     public string? Reason { get; }
 
     public bool IsComplete => Status == WorldOrderSlaveRuleBranchEnumerationStatus.Complete;
@@ -31,12 +37,14 @@ public sealed class WorldOrderSlaveRuleBranchEnumerationResult
         WorldOrderResourceRequirementAlternativeSet? alternatives,
         int exploredBranches,
         int rejectedBranches,
-        string? reason)
+        string? reason,
+        IEnumerable<WorldOrderSlaveRuleBranchWitness>? branches = null)
     {
         Status = status;
         Alternatives = alternatives;
         ExploredBranches = exploredBranches;
         RejectedBranches = rejectedBranches;
+        Branches = Array.AsReadOnly((branches ?? Array.Empty<WorldOrderSlaveRuleBranchWitness>()).ToArray());
         Reason = reason;
     }
 }
@@ -96,6 +104,7 @@ public static class WorldOrderSlaveRuleBranchEnumerator
 
         var selected = new WorldOrderRuleCandidate[choices.Length];
         var groups = new List<WorldOrderResourceRequirementGroup>();
+        var branchWitnesses = new List<WorldOrderSlaveRuleBranchWitness>();
         var exploredNodes = 0;
         var exploredBranches = 0;
         var rejectedBranches = 0;
@@ -176,8 +185,9 @@ public static class WorldOrderSlaveRuleBranchEnumerator
                             var projection = WorldOrderSlaveBoundaryProjector.Project(
                                 program, "slave-branch-" + exploredBranches,
                                 slaveStagingCapacity, banned, rejected);
-                            if (projection.IsProjected)
-                                AddGroupIfNew(groups, projection.Group!);
+                            if (projection.IsProjected && AddGroupIfNew(groups, projection.Group!))
+                                branchWitnesses.Add(new WorldOrderSlaveRuleBranchWitness(
+                                    program, projection.Group!));
                             else
                             {
                                 rejectedBranches++;
@@ -278,7 +288,8 @@ public static class WorldOrderSlaveRuleBranchEnumerator
                     slaveProfile, masterRole, groups, banned,
                     "从台规则分支枚举达到预算上限，当前资源组只是部分结果"),
                 exploredBranches, rejectedBranches,
-                "从台规则分支枚举达到节点或分支预算上限；不得将部分资源组视为完整 OR 集合");
+                "从台规则分支枚举达到节点或分支预算上限；不得将部分资源组视为完整 OR 集合",
+                branchWitnesses);
 
         if (groups.Count == 0)
             return Result(WorldOrderSlaveRuleBranchEnumerationStatus.Infeasible,
@@ -287,13 +298,14 @@ public static class WorldOrderSlaveRuleBranchEnumerator
                     slaveProfile, masterRole, Array.Empty<WorldOrderResourceRequirementGroup>(),
                     banned, lastInfeasibleReason ?? "所有从台候选分支均不可行"),
                 exploredBranches, rejectedBranches,
-                lastInfeasibleReason ?? "所有从台候选分支均不可行");
+                lastInfeasibleReason ?? "所有从台候选分支均不可行",
+                branchWitnesses);
 
         var alternatives = CreateAlternatives(
             WorldOrderResourceRequirementSetStatus.Complete,
             slaveProfile, masterRole, groups, banned, null);
         return Result(WorldOrderSlaveRuleBranchEnumerationStatus.Complete,
-            alternatives, exploredBranches, rejectedBranches, null);
+            alternatives, exploredBranches, rejectedBranches, null, branchWitnesses);
     }
 
     private static WorldOrderResourceRequirementAlternativeSet CreateAlternatives(
@@ -313,12 +325,13 @@ public static class WorldOrderSlaveRuleBranchEnumerator
             reason,
             banned);
 
-    private static void AddGroupIfNew(
+    private static bool AddGroupIfNew(
         ICollection<WorldOrderResourceRequirementGroup> groups,
         WorldOrderResourceRequirementGroup candidate)
     {
-        if (groups.Any(existing => SameGroup(existing, candidate))) return;
+        if (groups.Any(existing => SameGroup(existing, candidate))) return false;
         groups.Add(candidate);
+        return true;
     }
 
     private static bool SameGroup(
@@ -350,8 +363,9 @@ public static class WorldOrderSlaveRuleBranchEnumerator
         WorldOrderResourceRequirementAlternativeSet? alternatives,
         int exploredBranches,
         int rejectedBranches,
-        string? reason) =>
-        new(status, alternatives, exploredBranches, rejectedBranches, reason);
+        string? reason,
+        IEnumerable<WorldOrderSlaveRuleBranchWitness>? branches = null) =>
+        new(status, alternatives, exploredBranches, rejectedBranches, reason, branches);
 
     private static string[] CopyNames(IEnumerable<string>? names, string parameterName)
     {
