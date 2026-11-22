@@ -12,13 +12,14 @@ namespace JarSystem.Core.World.Solving;
 public sealed record WorldOrderPreparatoryOperationAssignment(
     string WorkshopRole,
     string JarKey,
-    WorldOrderRuleCandidate Candidate);
+    WorldOrderRuleCandidate Candidate,
+    int Order = 0);
 
 /// <summary>
-/// Expands a direct requirement solution with explicitly selected PourOut preparation
-/// operations. This binds preparation candidates to abstract Jar identities and places
-/// them on the correct side of the single B-class handoff.
-/// It does not enumerate preparation combinations or bind physical inventory.
+/// Expands a direct requirement solution with explicitly selected, ordered preparation
+/// chains. Multiple operations may transform one Jar identity; each transition advances
+/// its revision and must consume the immediately preceding state.
+/// This does not enumerate preparation combinations or bind physical inventory.
 /// </summary>
 public static class WorldOrderPreparatoryProgramBuilder
 {
@@ -53,13 +54,32 @@ public static class WorldOrderPreparatoryProgramBuilder
         if (!isBClass && prep.Any(x => x.WorkshopRole != masterRole))
             throw new ArgumentException("A 类订单不能在从台执行准备操作", nameof(preparations));
         if (prep.Any(x => x.Candidate.RequirementIndex != -1 ||
-                          x.Candidate.Operation != "PREPARE_POUR_OUT" ||
-                          x.Candidate.SourceShape != x.Candidate.TargetShape ||
-                          x.Candidate.TargetLiquid != null ||
-                          x.Candidate.ProducedFreeLiquid == null))
-            throw new ArgumentException("当前准备操作切片只接受目录生成的 PREPARE_POUR_OUT 候选", nameof(preparations));
-        if (prep.Select(x => x.JarKey).Distinct(StringComparer.Ordinal).Count() != prep.Length)
-            throw new ArgumentException("一个 Jar 身份在本切片只能分配一次准备操作", nameof(preparations));
+                          !x.Candidate.Operation.StartsWith("PREPARE_", StringComparison.Ordinal)))
+            throw new ArgumentException("准备操作必须是目录生成的 PREPARE_* 转换候选", nameof(preparations));
+        if (prep.Any(x => x.Order < 0))
+            throw new ArgumentOutOfRangeException(nameof(preparations), "准备操作顺序不能为负数");
+
+        var prepGroups = prep.GroupBy(x => x.JarKey, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(x => x.Order).ToArray(),
+                StringComparer.Ordinal);
+        foreach (var group in prepGroups.Values)
+        {
+            if (group.Select(x => x.Order).Distinct().Count() != group.Length)
+                throw new ArgumentException("同一 Jar 的准备操作顺序不能重复", nameof(preparations));
+            if (group.Select(x => x.WorkshopRole).Distinct(StringComparer.Ordinal).Count() != 1)
+                throw new ArgumentException("同一 Jar 的准备操作链不能跨工作台执行", nameof(preparations));
+            for (var i = 1; i < group.Length; i++)
+            {
+                var previous = group[i - 1].Candidate;
+                var next = group[i].Candidate;
+                if (previous.TargetShape != next.SourceShape ||
+                    previous.TargetLiquid != next.SourceLiquid)
+                    throw new ArgumentException("同一 Jar 的准备操作链状态不连续：" + group[i].JarKey,
+                        nameof(preparations));
+            }
+        }
 
         foreach (var selectedPrep in prep)
         {
@@ -78,7 +98,7 @@ public static class WorldOrderPreparatoryProgramBuilder
                 throw new ArgumentException("准备操作不能在 Jar 已归属的主从阶段之后回到主台", nameof(preparations));
         }
 
-        var prepByJar = prep.ToDictionary(x => x.JarKey, StringComparer.Ordinal);
+        var prepByJar = prepGroups;
         var requirementJarKeys = requirements.ToDictionary(
             x => x.Candidate.RequirementIndex,
             x => "requirement-" + x.Candidate.RequirementIndex);
@@ -88,30 +108,30 @@ public static class WorldOrderPreparatoryProgramBuilder
         {
             var key = requirementJarKeys[assigned.Candidate.RequirementIndex];
             var candidate = assigned.Candidate;
-            var hasPreparation = prepByJar.TryGetValue(key, out var selectedPrep);
+            var hasPreparation = prepByJar.TryGetValue(key, out var selectedChain);
             var initial = hasPreparation
                 ? new WorldOrderSymbolicJarVersion(
                     key, 0, masterRole,
-                    selectedPrep!.Candidate.SourceShape,
-                    selectedPrep.Candidate.SourceLiquid)
+                    selectedChain![0].Candidate.SourceShape,
+                    selectedChain[0].Candidate.SourceLiquid)
                 : new WorldOrderSymbolicJarVersion(
                     key, 0, masterRole, candidate.SourceShape, candidate.SourceLiquid);
             if (hasPreparation)
             {
-                var preparedShape = selectedPrep!.Candidate.TargetShape;
-                var preparedLiquid = selectedPrep.Candidate.TargetLiquid;
-                if (candidate.SourceShape != preparedShape || candidate.SourceLiquid != preparedLiquid)
-                    throw new ArgumentException("准备操作输出 Jar 状态与需求候选输入不匹配：" + key);
+                var finalPrep = selectedChain![^1].Candidate;
+                if (candidate.SourceShape != finalPrep.TargetShape ||
+                    candidate.SourceLiquid != finalPrep.TargetLiquid)
+                    throw new ArgumentException("准备操作链输出 Jar 状态与需求候选输入不匹配：" + key);
             }
             allInitial.Add(key, initial);
         }
 
-        foreach (var selectedPrep in prep)
+        foreach (var chain in prepGroups)
         {
-            if (allInitial.ContainsKey(selectedPrep.JarKey)) continue;
-            var candidate = selectedPrep.Candidate;
-            allInitial.Add(selectedPrep.JarKey, new WorldOrderSymbolicJarVersion(
-                selectedPrep.JarKey, 0, masterRole, candidate.SourceShape, candidate.SourceLiquid));
+            if (allInitial.ContainsKey(chain.Key)) continue;
+            var first = chain.Value[0].Candidate;
+            allInitial.Add(chain.Key, new WorldOrderSymbolicJarVersion(
+                chain.Key, 0, masterRole, first.SourceShape, first.SourceLiquid));
         }
 
         var nodes = new List<WorldOrderSymbolicOperationNode>();
@@ -122,17 +142,25 @@ public static class WorldOrderPreparatoryProgramBuilder
 
         // Master-side preparations happen before every Master requirement operation
         // and before the one batch handoff.
-        foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == masterRole)
-                     .OrderBy(x => x.JarKey, StringComparer.Ordinal))
+        foreach (var chain in prepGroups.Values
+                     .Where(x => x[0].WorkshopRole == masterRole)
+                     .OrderBy(x => x[0].JarKey, StringComparer.Ordinal))
         {
-            var input = current[selectedPrep.JarKey];
-            var output = NextVersion(input, masterRole, selectedPrep.Candidate);
-            var node = WorldOrderSymbolicOperationNode.Rule(
-                "prepare-" + selectedPrep.JarKey, sequence++, masterRole, null,
-                selectedPrep.Candidate, input, output);
-            nodes.Add(node);
-            prepNodeByJar.Add(selectedPrep.JarKey, node);
-            current[selectedPrep.JarKey] = output;
+            foreach (var selectedPrep in chain)
+            {
+                var input = current[selectedPrep.JarKey];
+                EnsureCandidateInput(selectedPrep.Candidate, input);
+                var output = NextVersion(input, masterRole, selectedPrep.Candidate);
+                var node = WorldOrderSymbolicOperationNode.Rule(
+                    "prepare-" + selectedPrep.JarKey + "-" + selectedPrep.Order,
+                    sequence++, masterRole, null, selectedPrep.Candidate, input, output);
+                nodes.Add(node);
+                if (prepNodeByJar.TryGetValue(selectedPrep.JarKey, out var previous))
+                    edges.Add(WorldOrderSymbolicOperationDependency.JarState(
+                        previous.NodeId, node.NodeId, selectedPrep.JarKey, input.Revision));
+                prepNodeByJar[selectedPrep.JarKey] = node;
+                current[selectedPrep.JarKey] = output;
+            }
         }
 
         foreach (var assigned in requirements.Where(x => x.WorkshopRole == masterRole))
@@ -158,8 +186,8 @@ public static class WorldOrderPreparatoryProgramBuilder
         var slaveJarKeys = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var assigned in requirements.Where(x => x.WorkshopRole == slaveRole))
             slaveJarKeys.Add(requirementJarKeys[assigned.Candidate.RequirementIndex]);
-        foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == slaveRole))
-            slaveJarKeys.Add(selectedPrep.JarKey);
+        foreach (var chain in prepGroups.Values.Where(x => x[0].WorkshopRole == slaveRole))
+            slaveJarKeys.Add(chain[0].JarKey);
 
         if (isBClass)
         {
@@ -178,20 +206,28 @@ public static class WorldOrderPreparatoryProgramBuilder
             }
         }
 
-        foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == slaveRole)
-                     .OrderBy(x => x.JarKey, StringComparer.Ordinal))
+        foreach (var chain in prepGroups.Values
+                     .Where(x => x[0].WorkshopRole == slaveRole)
+                     .OrderBy(x => x[0].JarKey, StringComparer.Ordinal))
         {
-            var input = current[selectedPrep.JarKey];
-            EnsureCandidateInput(selectedPrep.Candidate, input);
-            var output = NextVersion(input, slaveRole, selectedPrep.Candidate);
-            var node = WorldOrderSymbolicOperationNode.Rule(
-                "prepare-" + selectedPrep.JarKey, sequence++, slaveRole, null,
-                selectedPrep.Candidate, input, output);
-            nodes.Add(node);
-            prepNodeByJar[selectedPrep.JarKey] = node;
-            edges.Add(WorldOrderSymbolicOperationDependency.JarState(
-                handoff!.NodeId, node.NodeId, selectedPrep.JarKey, input.Revision));
-            current[selectedPrep.JarKey] = output;
+            foreach (var selectedPrep in chain)
+            {
+                var input = current[selectedPrep.JarKey];
+                EnsureCandidateInput(selectedPrep.Candidate, input);
+                var output = NextVersion(input, slaveRole, selectedPrep.Candidate);
+                var node = WorldOrderSymbolicOperationNode.Rule(
+                    "prepare-" + selectedPrep.JarKey + "-" + selectedPrep.Order,
+                    sequence++, slaveRole, null, selectedPrep.Candidate, input, output);
+                nodes.Add(node);
+                var producer = prepNodeByJar.GetValueOrDefault(selectedPrep.JarKey);
+                var producerId = producer?.WorkshopRole == slaveRole
+                    ? producer.NodeId
+                    : handoff!.NodeId;
+                edges.Add(WorldOrderSymbolicOperationDependency.JarState(
+                    producerId, node.NodeId, selectedPrep.JarKey, input.Revision));
+                prepNodeByJar[selectedPrep.JarKey] = node;
+                current[selectedPrep.JarKey] = output;
+            }
         }
 
         foreach (var assigned in requirements.Where(x => x.WorkshopRole == slaveRole))
