@@ -118,7 +118,7 @@ public sealed class WorldOrderResourceManifest
         ValidateUsedMasterJarInputs(plan.MasterSteps, snapshot.Master);
         var masterFinalJars = plan.MasterSteps.Count == 0
             ? snapshot.Master.CreateSolverJars()
-            : plan.MasterSteps[^1].After.Select(jar => JarState.Copy(jar)).ToList();
+            : plan.MasterSteps[^1].After!.Select(jar => JarState.Copy(jar)).ToList();
         var masterIds = snapshot.Master.Jars.Select(x => RequireId(x.Id, "主台快照")).ToHashSet();
         var masterPathIds = ReadPathJarIds(plan.MasterSteps, masterIds, expectMasterOrigin: false, "主台路径");
         var transferIds = plan.TransferJarIds.ToArray();
