@@ -243,7 +243,7 @@ public sealed class WorldV2ContextTests
             new WorldClockSnapshot(-1, checkpoint.Clock.LogicalTimeMilli,
                 checkpoint.Clock.SpeedRatioMilli, checkpoint.Clock.IsPaused,
                 checkpoint.Clock.ConversionRemainder),
-            checkpoint.RuntimeLedgerTick, checkpoint.Sessions);
+            checkpoint.RuntimeLedgerTick, checkpoint.Shapes, checkpoint.Liquids, checkpoint.Sessions);
         Assert.Throws<System.ArgumentOutOfRangeException>(() =>
             secondWorld.RestoreExecutionResourceCheckpoint(invalidClockCheckpoint));
         Assert.Equal(0, secondShip.GetAmount("酒"));
@@ -281,7 +281,8 @@ public sealed class WorldV2ContextTests
             checkpoint.Admission,
             checkpoint.Reservations,
             new WorldResourceReservationBookWireDto(new[] { mismatchedLeaseWire }),
-            checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick, checkpoint.Sessions);
+            checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick,
+            checkpoint.Shapes, checkpoint.Liquids, checkpoint.Sessions);
         Assert.Throws<InvalidOperationException>(
             () => secondWorld.RestoreExecutionResourceCheckpoint(mismatchedCheckpoint));
 
