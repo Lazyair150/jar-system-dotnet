@@ -61,7 +61,23 @@ public static class WorldOrderPreparatoryProgramBuilder
         if (prep.Select(x => x.JarKey).Distinct(StringComparer.Ordinal).Count() != prep.Length)
             throw new ArgumentException("一个 Jar 身份在本切片只能分配一次准备操作", nameof(preparations));
 
-        var requirementByIndex = requirements.ToDictionary(x => x.Candidate.RequirementIndex);
+        foreach (var selectedPrep in prep)
+        {
+            var prefix = "requirement-";
+            if (!selectedPrep.JarKey.StartsWith(prefix, StringComparison.Ordinal) ||
+                !int.TryParse(selectedPrep.JarKey.Substring(prefix.Length), out var requirementIndex))
+                continue;
+            var matchingRequirement = requirements.FirstOrDefault(
+                x => x.Candidate.RequirementIndex == requirementIndex);
+            if (matchingRequirement == null) continue;
+            var requirementRole = matchingRequirement.WorkshopRole;
+            var allowedRole = requirementRole == slaveRole
+                ? selectedPrep.WorkshopRole == masterRole || selectedPrep.WorkshopRole == slaveRole
+                : selectedPrep.WorkshopRole == masterRole;
+            if (!allowedRole)
+                throw new ArgumentException("准备操作不能在 Jar 已归属的主从阶段之后回到主台", nameof(preparations));
+        }
+
         var prepByJar = prep.ToDictionary(x => x.JarKey, StringComparer.Ordinal);
         var requirementJarKeys = requirements.ToDictionary(
             x => x.Candidate.RequirementIndex,
@@ -102,7 +118,6 @@ public static class WorldOrderPreparatoryProgramBuilder
         var edges = new List<WorldOrderSymbolicOperationDependency>();
         var current = new Dictionary<string, WorldOrderSymbolicJarVersion>(allInitial, StringComparer.Ordinal);
         var prepNodeByJar = new Dictionary<string, WorldOrderSymbolicOperationNode>(StringComparer.Ordinal);
-        var requirementNodeByIndex = new Dictionary<int, WorldOrderSymbolicOperationNode>();
         var sequence = 0;
 
         // Master-side preparations happen before every Master requirement operation
@@ -133,7 +148,6 @@ public static class WorldOrderPreparatoryProgramBuilder
                 "requirement-" + candidate.RequirementIndex + "-master",
                 sequence++, masterRole, candidate.RequirementIndex, candidate, input, output);
             nodes.Add(node);
-            requirementNodeByIndex.Add(candidate.RequirementIndex, node);
             if (prepNodeByJar.TryGetValue(key, out var producer))
                 edges.Add(WorldOrderSymbolicOperationDependency.JarState(
                     producer.NodeId, node.NodeId, key, input.Revision));
