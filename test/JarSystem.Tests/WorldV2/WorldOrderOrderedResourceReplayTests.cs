@@ -148,27 +148,34 @@ public sealed class WorldOrderOrderedResourceReplayTests
     }
 
     [Fact]
-    public void MasterBanDoesNotBlockFullReshapeUsingJarInternalLiquid()
+    public void MasterBanDoesNotConvertTransferredJarLiquidIntoAFreeLiquidBoundaryRequirement()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             ban: new List<string> { "酒" });
         master.AddJar(new Jar("方罐", "酒", id: 951));
-        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(new[] { master }, master));
+        var slave = new Workshop("从台", new List<string> { "圆罐" });
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(
+            new[] { master, slave }, master, slave));
         var candidate = new WorldOrderRuleCandidate(
             0, "方罐", "酒", "RESHAPE_FULL", "reshape.full", 1,
             "圆罐", null, null, null, null, "酒");
         var input = new WorldOrderSymbolicJarVersion("full-jar", 0, "Master", "方罐", "酒");
-        var output = new WorldOrderSymbolicJarVersion("full-jar", 1, "Master", "圆罐", null, true);
+        var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff-full-jar", 0, "Master", "Slave", new[] { input });
+        var output = new WorldOrderSymbolicJarVersion("full-jar", 2, "Slave", "圆罐", null, true);
         var node = WorldOrderSymbolicOperationNode.Rule(
-            "full-reshape", 0, "Master", 0, candidate, input, output);
+            "full-reshape", 1, "Slave", 0, candidate, handoff.OutputJars.Single(), output);
         var program = new WorldOrderSymbolicOperationProgram(
-            false, "Master", "Slave", new[] { node },
-            System.Array.Empty<WorldOrderSymbolicOperationDependency>());
+            true, "Master", "Slave", new[] { handoff, node },
+            new[] { WorldOrderSymbolicOperationDependency.JarState(
+                handoff.NodeId, node.NodeId, "full-jar", 1) });
 
         var result = WorldOrderOrderedResourceReplay.Replay(program, world);
 
         Assert.Equal(WorldOrderOrderedResourceReplayStatus.Complete, result.Status);
-        Assert.Empty(result.MasterInitialLiquids);
-        Assert.Empty(result.MasterFinalLiquids);
+        Assert.Empty(result.TransferLiquids);
+        Assert.Single(result.SlaveBoundaryGroup!.Requirements);
+        Assert.Equal(WorldOrderBoundaryResourceKind.JarState,
+            result.SlaveBoundaryGroup.Requirements[0].Kind);
     }
 }
