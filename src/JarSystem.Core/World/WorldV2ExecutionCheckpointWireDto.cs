@@ -37,7 +37,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         var wire = new WorldV2ExecutionCheckpointWireDto
         {
             Shapes = CollectShapes(checkpoint),
-            Liquids = checkpoint.ShipLiquidInventory.Balances.Keys.ToList(),
+            Liquids = CollectLiquids(checkpoint),
             ResourceArea = ResourceAreaWireDto.FromSnapshot(checkpoint.ResourceArea),
             DemandBoard = DemandBoardWireDto.FromSnapshot(checkpoint.DemandBoard),
             ShipLiquidInventory = ShipLiquidInventoryWireDto.FromSnapshot(checkpoint.ShipLiquidInventory),
@@ -118,6 +118,24 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             .Where(shape => !string.IsNullOrWhiteSpace(shape))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(shape => shape, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static List<string> CollectLiquids(WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        // The ship inventory may contain only non-zero starting balances. The production
+        // rate map is initialized for every configured liquid and is the complete domain
+        // vocabulary source for a WorldV2Factory-created context.
+        return checkpoint.ResourceArea.LiquidProduction.Rates.Keys
+            .Concat(checkpoint.ShipLiquidInventory.Balances.Keys)
+            .Concat(checkpoint.ResourceArea.Warehouse.LiquidWarehouse.Keys)
+            .Concat(checkpoint.MasterWorkshop.BannedLiquids)
+            .Concat(checkpoint.MasterWorkshop.LiquidStorage.Keys)
+            .Concat(checkpoint.SlaveWorkshop?.BannedLiquids ?? Array.Empty<string>())
+            .Concat(checkpoint.SlaveWorkshop?.LiquidStorage.Keys ?? Array.Empty<string>())
+            .Where(liquid => !string.IsNullOrWhiteSpace(liquid))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(liquid => liquid, StringComparer.Ordinal)
             .ToList();
     }
 
