@@ -47,11 +47,45 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(demand.Id, result.DemandId);
         Assert.Equal(snapshot.Version, result.WorldVersion);
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
-        Assert.Equal("single_phase", result.CheckMethod);
+        Assert.Equal("9l_concrete_plan", result.CheckMethod);
         Assert.Equal(1, result.DirectCount);
         Assert.NotNull(result.Plan);
         Assert.False(result.Plan!.IsPartitioned);
         Assert.NotEmpty(result.Plan!.MasterSteps);
+    }
+
+    [Fact]
+    public void AClassEntryPointMaterializesVersionedRuleIdentityAndPhysicalJar()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐", id: 8101));
+        var snapshot = Snapshot(master);
+        var result = Registry().Solve(Demand(), snapshot);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        var step = Assert.Single(result.Plan!.MasterSteps);
+        Assert.Equal(8101, step.Before![step.Operation!.JarIndex!.Value].Id);
+        Assert.False(string.IsNullOrWhiteSpace(step.Operation.RuleId));
+        Assert.True(step.Operation.RuleVersion > 0);
+    }
+
+    [Fact]
+    public void AClassEntryPointDoesNotSelfConsumeJarLiquidBannedByMaster()
+    {
+        var master = new Workshop("禁酒主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        master.AddJar(new Jar("圆罐", "酒", id: 8102));
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "方罐" } },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, Snapshot(master));
+
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
+        Assert.Null(result.Plan);
     }
 
     [Fact]
