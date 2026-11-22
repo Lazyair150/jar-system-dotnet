@@ -674,3 +674,15 @@ Envelope 建议：
 - hosts/godot/WorldV2/VALIDATION.md 更新为当前 PR 分支，并补充 Godot 4.7.1 .NET 手动验收步骤。
 
 此 UI 暂存不是磁盘存档；它只用于验证 Host 的 JSON→Prepare→Context Swap→Snapshot 更新链路。磁盘写入、原子文件替换、跨进程崩溃恢复和自定义 Solver Registry/Profile 指纹不在本阶段完成边界内。
+
+
+## 24. B 类根级 Wire 往返中的两项语义边界修正（2026-11-22）
+
+端到端 B 类 JSON 恢复测试推进后，暴露出两个此前未被单独 DTO 测试覆盖的语义问题：
+
+1. Manifest 与 Plan 的液体字典可能对同一种液体采用“显式 0”与“省略键”两种表达。最低供给计算会保留路径上出现过、但净需求为 0 的液种键；Plan 转移账本可以省略它。Wire 一致性校验现在按逐液种数值比较，缺失键按 0 解释，不再错误地要求字典键集合完全相同。
+2. Manifest.MasterJarIds 表示主台路径实际使用的罐子；TransferJarIds 表示从主台转移给从台路径的罐子。两者是同一初始主台库存的两个不相交子集，并非 TransferJarIds 必须是 MasterJarIds 的子集。领域 Wire 重建和 DTO 校验现在共同要求两个集合互斥，并通过 LockedJarIds 表示它们的并集。
+
+这两项修正没有放宽业务约束：主台路径和从台路径不能重复占用同一只罐子；转移液体仍按数值精确核对，只有零值键的省略差异被规范化。
+
+当前验证以 PR 最新 HEAD 对应的 GitHub Actions 为准；本节提交后的完整 CI 尚待结束。
