@@ -185,4 +185,49 @@ public sealed class WorldOrderResourceManifestTests
         Assert.Equal(2, manifest.MasterStagingPeakCapacity);
         Assert.Equal(1, manifest.SlaveStagingPeakCapacity);
     }
+
+    [Fact]
+    public void FullReshapeConsumesJarInternalLiquidWithoutChargingStaging()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" }, vocabulary: Words);
+        var jar = new Jar("方罐", "酒", vocabulary: Words);
+        master.AddJar(jar);
+        var snapshot = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { master }, master));
+        var step = new SolverStep
+        {
+            Step = 0,
+            Requirement = new Requirement { Shape = "圆罐" },
+            Operation = new SolverOperation
+            {
+                Type = "RESHAPE",
+                JarIndex = 0,
+                TargetShape = "圆罐",
+                CostLiquid = "酒",
+                Consumed = new Dictionary<string, int> { ["酒"] = 1 },
+                FullReshape = true
+            },
+            Before = new List<JarState>
+            {
+                new() { Id = jar.Id, Shape = "方罐", Liquid = "酒" }
+            },
+            After = new List<JarState>
+            {
+                new() { Id = jar.Id, Shape = "圆罐", IsMarked = true }
+            },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+        var plan = WorldOrderSolvePlan.SinglePhase(new[] { step });
+        var result = new WorldOrderSolveResult(
+            1, snapshot.Version, WorldOrderSolveStatus.Feasible,
+            plan: plan,
+            ruleSetVersion: snapshot.RuleSetVersion,
+            workshopProfileVersion: snapshot.WorkshopProfileVersion,
+            resourceVersion: snapshot.ResourceVersion);
+
+        var manifest = WorldOrderResourceManifest.Create(result, snapshot);
+
+        Assert.Empty(manifest.MasterInitialLiquidAmounts);
+        Assert.Equal(0, manifest.MasterStagingPeakCapacity);
+    }
 }
