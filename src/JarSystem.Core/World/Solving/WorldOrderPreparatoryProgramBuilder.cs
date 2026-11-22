@@ -51,8 +51,9 @@ public static class WorldOrderPreparatoryProgramBuilder
         if (!isBClass && prep.Any(x => x.WorkshopRole != masterRole))
             throw new ArgumentException("A 类订单不能在从台执行准备操作", nameof(preparations));
         if (prep.Any(x => x.Candidate.RequirementIndex != -1 ||
-                          !x.Candidate.Operation.StartsWith("PREPARE_", StringComparison.Ordinal)))
-            throw new ArgumentException("准备操作必须是目录生成的 PREPARE_* 转换候选", nameof(preparations));
+                          x.Candidate.Operation != "PREPARE_POUR_OUT"))
+            throw new ArgumentException(
+                "当前准备操作目录只接受目录生成的 PREPARE_POUR_OUT 候选", nameof(preparations));
         if (prep.Any(x => string.IsNullOrWhiteSpace(x.JarKey)))
             throw new ArgumentException("准备操作必须指定独立 Jar 身份", nameof(preparations));
         if (prep.Select(x => x.JarKey).Distinct(StringComparer.Ordinal).Count() != prep.Length)
