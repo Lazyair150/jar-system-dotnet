@@ -132,7 +132,10 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
         WorldOrderSolvePlan? plan = null,
         PartitionSearchReport? partitionReport = null) =>
         new(demand.Id, snapshot.Version, status, method, reason, directCount, operationCount, plan, partitionReport,
-            snapshot.RuleSetVersion, snapshot.WorkshopProfileVersion, snapshot.ResourceVersion);
+            snapshot.RuleSetVersion, snapshot.WorkshopProfileVersion, snapshot.ResourceVersion,
+            demand.Specification is JarOrderSpecification specification
+                ? WorldOrderRuleCandidateCatalog.Fingerprint(specification)
+                : string.Empty);
 
     /// <summary>
     /// 把快照中的静态修饰器投影到一次求解输入。
