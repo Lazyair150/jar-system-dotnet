@@ -286,6 +286,14 @@ public static class WorldSnapshotFactory
         var ruleSet = Fingerprint("JarSystem.RuleSet.v1", writer =>
         {
             writer.Write(WorkshopRulebook.RuleContractVersion);
+            writer.Write(WorkshopRulebook.Definitions.Count);
+            foreach (var definition in WorkshopRulebook.Definitions)
+            {
+                writer.Write(definition.RuleId);
+                writer.Write(definition.RuleVersion);
+                writer.Write(definition.Operator);
+                writer.Write((int)definition.Category);
+            }
             WriteWorkshopRules(writer, master);
             WriteWorkshopRules(writer, slave);
         });
