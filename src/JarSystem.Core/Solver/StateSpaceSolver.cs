@@ -23,16 +23,24 @@ internal class SolverState
     public int TransferUsed { get; set; }
 
     public SolverState(List<JarState> jars, Dictionary<string, int> liquids, WorkshopInfo workshopInfo)
+        : this(
+            jars, liquids, workshopInfo,
+            RuleContext.From(workshopInfo.Capability),
+            workshopInfo.MaxLiquidCapacity == int.MaxValue
+                ? workshopInfo.MaxLiquids
+                : int.MaxValue)
+    {
+    }
+
+    private SolverState(
+        List<JarState> jars, Dictionary<string, int> liquids, WorkshopInfo workshopInfo,
+        RuleContext rules, int perLiquidCapacity)
     {
         Jars = jars.Select(j => JarState.Copy(j)).ToList();
         Liquids = new Dictionary<string, int>(liquids);
         WorkshopInfo = workshopInfo;
-        _rules = RuleContext.From(workshopInfo.Capability);
-        // World V2 的订单暂存使用合计容量，旧求解入口使用每液种容量。
-        // Rulebook 的单液容量参数只在旧模型中生效；合计峰值由搜索路径的独立约束检查。
-        _perLiquidCapacity = workshopInfo.MaxLiquidCapacity == int.MaxValue
-            ? workshopInfo.MaxLiquids
-            : int.MaxValue;
+        _rules = rules;
+        _perLiquidCapacity = perLiquidCapacity;
     }
 
     public bool Allows(JarState jar, SolverOperation operation)
@@ -63,7 +71,10 @@ internal class SolverState
             _ => throw new InvalidOperationException("未知或不完整的 Workshop 算子")
         };
 
-    public SolverState Clone() => new SolverState(Jars, Liquids, WorkshopInfo)
+    // RuleContext 与规则 Profile 都是只读值/只读栈，搜索分支共享同一实例；
+    // Clone 只复制可变 Jar 与液体工作态，不为每个 DFS 节点重新构造规则上下文。
+    public SolverState Clone() => new SolverState(
+        Jars, Liquids, WorkshopInfo, _rules, _perLiquidCapacity)
     {
         TransferBudget = TransferBudget,
         TransferUsed = TransferUsed
