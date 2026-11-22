@@ -19,8 +19,12 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
             1, targetShape, targetLiquid, null, consumedFree, producedFree, null);
 
     private static WorldOrderRuleCandidateProfile Profile(
+        params (string Shape, string? Liquid, WorldOrderRuleCandidate[] Candidates)[] requirements) =>
+        Profile(requirements, null);
+
+    private static WorldOrderRuleCandidateProfile Profile(
         (string Shape, string? Liquid, WorldOrderRuleCandidate[] Candidates)[] requirements,
-        WorldOrderRuleCandidate[]? preparations = null)
+        WorldOrderRuleCandidate[]? preparations)
     {
         var entries = requirements.Select((item, index) =>
             new WorldOrderRequirementCandidates(
