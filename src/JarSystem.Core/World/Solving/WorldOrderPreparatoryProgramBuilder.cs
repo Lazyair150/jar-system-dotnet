@@ -207,7 +207,6 @@ public static class WorldOrderPreparatoryProgramBuilder
                 "requirement-" + candidate.RequirementIndex + "-slave",
                 sequence++, slaveRole, candidate.RequirementIndex, candidate, input, output);
             nodes.Add(node);
-            requirementNodeByIndex.Add(candidate.RequirementIndex, node);
             var producer = prepNodeByJar.GetValueOrDefault(key);
             edges.Add(WorldOrderSymbolicOperationDependency.JarState(
                 producer?.NodeId ?? handoff!.NodeId, node.NodeId, key, input.Revision));
