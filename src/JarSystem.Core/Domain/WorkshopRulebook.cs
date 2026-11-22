@@ -155,8 +155,8 @@ public static class WorkshopRulebook
             new WorkshopRuleDefinition("jar.workshop.pour-in", 1, "POUR_IN", WorkshopRuleCategory.Transform),
             new WorkshopRuleDefinition("jar.workshop.pour-out", 1, "POUR_OUT", WorkshopRuleCategory.Transform),
             new WorkshopRuleDefinition("jar.workshop.reshape-empty", 1, "RESHAPE_EMPTY", WorkshopRuleCategory.Transform),
-            new WorkshopRuleDefinition("jar.workshop.reshape-full", 2, "RESHAPE_FULL", WorkshopRuleCategory.Transform),
-            new WorkshopRuleDefinition("jar.workshop.match", 1, "MATCH", WorkshopRuleCategory.Lifecycle)
+            new WorkshopRuleDefinition("jar.workshop.reshape-full", 1, "RESHAPE_FULL", WorkshopRuleCategory.Transform),
+            new WorkshopRuleDefinition("jar.workshop.match", 2, "MATCH", WorkshopRuleCategory.Lifecycle)
         });
 
     private static WorkshopRuleDefinition DefinitionFor(WorkshopOperationKind kind) =>
@@ -180,6 +180,9 @@ public static class WorkshopRulebook
             return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
         if (jar.IsMarked)
             return WorkshopRuleDecision.Reject("jar.already-operated", "罐子已被操作");
+        if (jar.Liquid is { } liquid && !new LiquidRules(rules.Capability, 0)
+                .CheckJarOperation(liquid).Granted)
+            return WorkshopRuleDecision.Reject("liquid.banned", "工作台禁" + liquid);
         if (rules.SuppressionReason("MATCH", jar.Shape, jar.Liquid) is { } suppressed)
             return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
         return WorkshopRuleDecision.Allow();
@@ -283,9 +286,9 @@ public static class WorkshopRulebook
                 if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) is { } suppressed)
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
 
-                var usable = liquidRules.Check(liquid);
+                var usable = liquidRules.CheckJarOperation(liquid);
                 if (!usable.Granted)
-                    return WorkshopRuleDecision.Reject("liquid.banned", usable.Reason ?? "液体不可取用");
+                    return WorkshopRuleDecision.Reject("liquid.banned", usable.Reason ?? "当前工作台禁止操作含该液体的 Jar");
                 if (scope != null)
                 {
                     var receive = scope.CanReceiveOperation(liquid, 1);
