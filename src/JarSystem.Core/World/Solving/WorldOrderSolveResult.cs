@@ -14,6 +14,12 @@ public sealed class WorldOrderSolveResult
 {
     public int DemandId { get; }
     public string WorldVersion { get; }
+    /// <summary>编译规则候选所依赖的规则指纹；不含 Jar/液体余额。</summary>
+    public string RuleSetVersion { get; }
+    /// <summary>编译规则候选所依赖的工作台属性/容量指纹。</summary>
+    public string WorkshopProfileVersion { get; }
+    /// <summary>本次具体资源绑定所依赖的资源指纹。</summary>
+    public string ResourceVersion { get; }
     public WorldOrderSolveStatus Status { get; }
     public string? CheckMethod { get; }
     public string? Reason { get; }
@@ -35,7 +41,10 @@ public sealed class WorldOrderSolveResult
         int directCount = 0,
         int operationCount = 0,
         WorldOrderSolvePlan? plan = null,
-        PartitionSearchReport? partitionReport = null)
+        PartitionSearchReport? partitionReport = null,
+        string? ruleSetVersion = null,
+        string? workshopProfileVersion = null,
+        string? resourceVersion = null)
     {
         if (demandId <= 0) throw new ArgumentOutOfRangeException(nameof(demandId));
         if (string.IsNullOrWhiteSpace(worldVersion))
@@ -46,6 +55,9 @@ public sealed class WorldOrderSolveResult
 
         DemandId = demandId;
         WorldVersion = worldVersion;
+        RuleSetVersion = ruleSetVersion ?? string.Empty;
+        WorkshopProfileVersion = workshopProfileVersion ?? string.Empty;
+        ResourceVersion = resourceVersion ?? string.Empty;
         Status = status;
         CheckMethod = checkMethod;
         Reason = reason;
