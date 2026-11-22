@@ -58,7 +58,12 @@ public sealed class OrderCycleOutbox
 
         var eventId = WorldInstanceId + ":" + demandId + ":" + cycleSequence;
         var existing = _pending.FirstOrDefault(item => item.EventId == eventId);
-        if (existing != null) return existing;
+        if (existing != null)
+        {
+            if (!string.Equals(existing.OrderDefinitionKey, orderDefinitionKey, StringComparison.Ordinal))
+                throw new InvalidOperationException("相同订单周期身份不能绑定不同的 orderDefinitionKey。");
+            return existing;
+        }
         var completed = new OrderCycleCompletedEvent(
             eventId, WorldInstanceId, demandId, orderDefinitionKey, cycleSequence);
         _pending.Add(completed);
