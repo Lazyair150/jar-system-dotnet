@@ -42,7 +42,12 @@ public sealed class WorldOrderSolvePlan
         var operatedJarIds = new HashSet<int>();
         foreach (var step in steps)
         {
-            if (step.Operation?.JarIndex is not int jarIndex) continue;
+            if (step.Operation is not { } operation) continue;
+            if ((operation.RuleId == null) != (operation.RuleVersion == null) ||
+                (operation.RuleId != null &&
+                 (string.IsNullOrWhiteSpace(operation.RuleId) || operation.RuleVersion is not > 0)))
+                throw new ArgumentException("规则身份必须同时包含非空 RuleId 和正数 RuleVersion");
+            if (operation.JarIndex is not int jarIndex) continue;
             if (jarIndex < 0 || jarIndex >= step.Before.Count ||
                 step.Before.Count != step.After.Count)
                 throw new ArgumentException("订单步骤的 JarIndex 或 Before/After 快照无效");
