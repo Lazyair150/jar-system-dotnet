@@ -59,8 +59,26 @@ public static class WorldOrderConcreteOperationMaterializer
         WorldOrderPhysicalJarBindingResult binding,
         WorldSnapshot world,
         WorldOrderRuleCandidateProfile masterProfile,
-        WorldOrderRuleCandidateProfile? slaveProfile = null,
-        WorldOrderOrderedResourceReplayResult? resourceReplay = null)
+        WorldOrderRuleCandidateProfile? slaveProfile = null) =>
+        MaterializeCore(program, binding, world, masterProfile, slaveProfile, null);
+
+    internal static WorldOrderConcreteMaterializationResult MaterializeWithReplay(
+        WorldOrderSymbolicOperationProgram program,
+        WorldOrderPhysicalJarBindingResult binding,
+        WorldSnapshot world,
+        WorldOrderRuleCandidateProfile masterProfile,
+        WorldOrderRuleCandidateProfile? slaveProfile,
+        WorldOrderOrderedResourceReplayResult resourceReplay) =>
+        MaterializeCore(program, binding, world, masterProfile, slaveProfile,
+            resourceReplay ?? throw new ArgumentNullException(nameof(resourceReplay)));
+
+    private static WorldOrderConcreteMaterializationResult MaterializeCore(
+        WorldOrderSymbolicOperationProgram program,
+        WorldOrderPhysicalJarBindingResult binding,
+        WorldSnapshot world,
+        WorldOrderRuleCandidateProfile masterProfile,
+        WorldOrderRuleCandidateProfile? slaveProfile,
+        WorldOrderOrderedResourceReplayResult? resourceReplay)
     {
         if (program == null) throw new ArgumentNullException(nameof(program));
         if (binding == null) throw new ArgumentNullException(nameof(binding));
