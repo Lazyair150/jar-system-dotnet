@@ -127,6 +127,45 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void SlavePreparationJarCanProduceLiquidForLaterSlaveRequirement()
+    {
+        var master = new Workshop("禁酒主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "RESHAPE",
+            Shape = "圆罐",
+            Liquid = "酒",
+            Reason = "强制从台先倒出游离液体再改形"
+        });
+        var slave = new Workshop("允许用酒的从台",
+            new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", id: 9701));
+        master.AddJar(new Jar("圆罐", "酒", id: 9702));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "方罐" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            970, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Empty(plan.MasterSteps);
+        Assert.Equal(new[] { 9701, 9702 }, plan.TransferJarIds.OrderBy(x => x));
+        Assert.Equal(new[] { "POUR_OUT", "RESHAPE" },
+            plan.SlaveSteps.Select(x => x.Operation!.Type));
+        Assert.Equal(9702, plan.SlaveSteps[0].Before![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Equal(9701, plan.SlaveSteps[1].Before![plan.SlaveSteps[1].Operation!.JarIndex!.Value].Id);
+        Assert.Equal(1, plan.SlaveSteps[0].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(0, plan.SlaveSteps[1].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.DoesNotContain(plan.TransferLiquids, item => item.Value > 0);
+    }
+
+    [Fact]
     public void BClassCannotReuseOnePhysicalJarForTwoRequirementIdentities()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
