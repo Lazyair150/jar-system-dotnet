@@ -288,6 +288,10 @@ public sealed class WorldOrderResourceManifest
         if (step == null || step.Operation == null || !step.Operation.JarIndex.HasValue)
             throw new InvalidOperationException(pathName + "存在缺少操作或 JarIndex 的步骤");
         var op = step.Operation;
+        if ((op.RuleId is null) != (op.RuleVersion is null) ||
+            (op.RuleId != null && string.IsNullOrWhiteSpace(op.RuleId)) ||
+            op.RuleVersion is <= 0)
+            throw new InvalidOperationException(pathName + "的 RuleId/RuleVersion 必须成对且有效");
         var before = step.Before;
         var after = step.After;
         var index = op.JarIndex.Value;
