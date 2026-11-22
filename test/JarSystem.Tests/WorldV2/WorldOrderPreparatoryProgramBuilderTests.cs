@@ -64,6 +64,37 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     }
 
     [Fact]
+    public void ExplicitSlaveOperationOrderIsIndependentOfRequirementIndex()
+    {
+        var consumer = Candidate(
+            0, "consumer-jar", null, "RESHAPE_EMPTY", "consumer-finished", null,
+            consumedFree: "X");
+        var producer = Candidate(
+            1, "producer-jar", null, "RESHAPE_EMPTY", "producer-finished", null,
+            producedFree: "X");
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate("Slave", consumer),
+            new WorldOrderAssignedRuleCandidate("Slave", producer)
+        });
+
+        var program = WorldOrderPreparatoryProgramBuilder.Build(
+            solution,
+            Array.Empty<WorldOrderPreparatoryOperationAssignment>(),
+            true, "Master", "Slave",
+            new[] { "requirement-1-slave", "requirement-0-slave" });
+
+        Assert.Equal(
+            new[] { "master-to-slave-handoff", "requirement-1-slave", "requirement-0-slave" },
+            program.Nodes.Select(x => x.NodeId));
+        Assert.Contains(program.Dependencies, edge =>
+            edge.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid &&
+            edge.FromNodeId == "requirement-1-slave" &&
+            edge.ToNodeId == "requirement-0-slave" &&
+            edge.Liquid == "X");
+    }
+
+    [Fact]
     public void MasterPreparationCanProduceLiquidForTheOneTimeSlaveHandoff()
     {
         var requirement = Candidate(
