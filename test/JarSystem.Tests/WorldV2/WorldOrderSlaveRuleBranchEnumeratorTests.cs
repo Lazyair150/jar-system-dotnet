@@ -110,6 +110,48 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
     }
 
     [Fact]
+    public void HigherRequirementIndexProducerCanRunBeforeLowerIndexConsumer()
+    {
+        var consumer = Candidate(
+            0, "consumer-jar", null, "consumer-finished", null, consumedFree: "X");
+        var producer = Candidate(
+            1, "producer-jar", null, "producer-finished", null, producedFree: "X");
+        var profile = Profile(
+            ("consumer-finished", (string?)null, new[] { consumer }),
+            ("producer-finished", (string?)null, new[] { producer }));
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 1, masterBannedLiquids: new[] { "X" });
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
+        Assert.Equal(2, result.ExploredBranches);
+        var group = Assert.Single(result.Alternatives!.Groups);
+        Assert.Empty(group.RequiredFreeLiquid);
+        Assert.Equal(2, group.RequiredJarStates.Values.Sum());
+    }
+
+    [Fact]
+    public void ConsumerFirstAndProducerFirstSchedulesRemainDistinctOrAlternatives()
+    {
+        var consumer = Candidate(
+            0, "consumer-jar", null, "consumer-finished", null, consumedFree: "X");
+        var producer = Candidate(
+            1, "producer-jar", null, "producer-finished", null, producedFree: "X");
+        var profile = Profile(
+            ("consumer-finished", (string?)null, new[] { consumer }),
+            ("producer-finished", (string?)null, new[] { producer }));
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 2);
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
+        Assert.Equal(2, result.ExploredBranches);
+        Assert.Equal(2, result.Alternatives!.Groups.Count);
+        Assert.Contains(result.Alternatives.Groups, group => group.RequiredFreeLiquid.Count == 0);
+        Assert.Contains(result.Alternatives.Groups, group => group.RequiredFreeLiquid.GetValueOrDefault("X") == 1);
+    }
+
+    [Fact]
     public void BudgetExhaustionNeverClaimsCompleteAlternatives()
     {
         var profile = Profile((
@@ -145,7 +187,7 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
             profile, "Master", 2, masterBannedLiquids: new[] { "X" });
 
         Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
-        Assert.Equal(2, result.ExploredBranches);
+        Assert.Equal(3, result.ExploredBranches);
         var group = Assert.Single(result.Alternatives!.Groups);
         Assert.Empty(group.RequiredFreeLiquid);
         // The output-producing Jar and the requirement Jar are distinct boundary inputs.
@@ -188,7 +230,7 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
             profile, "Master", 2, masterBannedLiquids: new[] { "X" });
 
         Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
-        Assert.Equal(2, result.ExploredBranches);
+        Assert.Equal(3, result.ExploredBranches);
         var group = Assert.Single(result.Alternatives!.Groups);
         Assert.Empty(group.RequiredFreeLiquid);
         Assert.Equal(2, group.RequiredJarStates.Values.Sum());
@@ -246,7 +288,7 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
             profile, "Master", 2, masterBannedLiquids: new[] { "X" });
 
         Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
-        Assert.Equal(4, result.ExploredBranches);
+        Assert.Equal(38, result.ExploredBranches);
         var group = Assert.Single(result.Alternatives!.Groups);
         Assert.Empty(group.RequiredFreeLiquid);
         // Two requirement Jars plus two distinct resource-producing Jars cross the handoff.
