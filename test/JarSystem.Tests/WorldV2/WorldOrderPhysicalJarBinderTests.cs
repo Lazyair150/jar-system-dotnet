@@ -102,7 +102,8 @@ public sealed class WorldOrderPhysicalJarBinderTests
     [Fact]
     public void MarkedPhysicalJarCannotBeBoundForAnotherOperation()
     {
-        var jar = new Jar("圆罐", id: 301);\n        jar.Mark();
+        var jar = new Jar("圆罐", id: 301);
+        jar.Mark();
         var result = WorldOrderPhysicalJarBinder.Bind(
             SingleRuleProgram(), Snapshot(jar));
 
