@@ -498,6 +498,10 @@ public sealed class WorldOrderSolverTests
 
         Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
         Assert.Contains("主台订单液体路径及从台交接预留", result.Reason ?? string.Empty);
+        Assert.NotNull(result.PartitionReport);
+        Assert.True(result.PartitionReport!.IsInfeasible);
+        Assert.Contains(result.PartitionReport.Events,
+            item => item.Stage == "master-staging-capacity-rejected");
     }
 
 }
