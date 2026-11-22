@@ -14,6 +14,9 @@ public sealed class OrderDemand
 
     public int Id { get; }
     public IOrderSpecification Specification { get; }
+    /// <summary>Opaque identity supplied by the owning game; Jar never interprets its meaning.</summary>
+    public string? OrderDefinitionKey { get; }
+    public long CycleSequence { get; private set; }
     public long CooldownDurationLogicalMilli { get; }
     public long CooldownRemainingLogicalMilli => _cooldownRemainingLogicalMilli;
     public bool IsCoolingDown => _cooldownRemainingLogicalMilli > 0;
@@ -23,8 +26,20 @@ public sealed class OrderDemand
         IOrderSpecification specification,
         long cooldownDurationLogicalMilli,
         IIdGenerator? ids = null)
+        : this(specification, cooldownDurationLogicalMilli, null, ids)
+    {
+    }
+
+    public OrderDemand(
+        IOrderSpecification specification,
+        long cooldownDurationLogicalMilli,
+        string? orderDefinitionKey,
+        IIdGenerator? ids = null)
     {
         Specification = specification ?? throw new ArgumentNullException(nameof(specification));
+        if (orderDefinitionKey != null && string.IsNullOrWhiteSpace(orderDefinitionKey))
+            throw new ArgumentException("订单定义 key 不能是空白字符串。", nameof(orderDefinitionKey));
+        OrderDefinitionKey = orderDefinitionKey;
         if (cooldownDurationLogicalMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(cooldownDurationLogicalMilli));
 
@@ -37,7 +52,9 @@ public sealed class OrderDemand
         int id,
         IOrderSpecification specification,
         long cooldownDurationLogicalMilli,
-        long cooldownRemainingLogicalMilli)
+        long cooldownRemainingLogicalMilli,
+        string? orderDefinitionKey,
+        long cycleSequence)
     {
         if (id <= 0) throw new ArgumentOutOfRangeException(nameof(id));
         Specification = specification ?? throw new ArgumentNullException(nameof(specification));
@@ -46,7 +63,12 @@ public sealed class OrderDemand
             cooldownRemainingLogicalMilli > cooldownDurationLogicalMilli)
             throw new ArgumentOutOfRangeException(nameof(cooldownRemainingLogicalMilli));
 
+        if (orderDefinitionKey != null && string.IsNullOrWhiteSpace(orderDefinitionKey))
+            throw new ArgumentException("订单定义 key 不能是空白字符串。", nameof(orderDefinitionKey));
+        if (cycleSequence < 0) throw new ArgumentOutOfRangeException(nameof(cycleSequence));
         Id = id;
+        OrderDefinitionKey = orderDefinitionKey;
+        CycleSequence = cycleSequence;
         CooldownDurationLogicalMilli = cooldownDurationLogicalMilli;
         _cooldownRemainingLogicalMilli = cooldownRemainingLogicalMilli;
     }
@@ -55,8 +77,13 @@ public sealed class OrderDemand
         int id,
         IOrderSpecification specification,
         long cooldownDurationLogicalMilli,
-        long cooldownRemainingLogicalMilli) =>
-        new(id, specification, cooldownDurationLogicalMilli, cooldownRemainingLogicalMilli);
+        long cooldownRemainingLogicalMilli,
+        string? orderDefinitionKey,
+        long cycleSequence) =>
+        new(id, specification, cooldownDurationLogicalMilli, cooldownRemainingLogicalMilli,
+            orderDefinitionKey, cycleSequence);
+
+    internal long RecordSuccessfulCycle() => CycleSequence = checked(CycleSequence + 1);
 
     internal bool EnterCooldown()
     {
