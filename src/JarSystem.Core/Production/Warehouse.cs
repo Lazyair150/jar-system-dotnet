@@ -180,7 +180,7 @@ public sealed class Warehouse
             }
         }
 
-        // 2. 液体转移（容量由工作台的意图方法裁决；禁令只约束取用，不约束存储）
+        // 2. 游离液体转移（工作台禁液或容量不足时拒收；未接收部分留在仓库）
         var transferredLiquids = new Dictionary<string, int>();
         foreach (var kv in _liquidWarehouse.ToList())
         {
