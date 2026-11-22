@@ -421,8 +421,11 @@ public static class WorkshopRulebook
     /// <para>顺序固定是为了可复现：同一状态永远给出同一个序列，测试可以逐项比对。</para>
     /// </summary>
     public static List<WorkshopOperation> Available(RuleContext rules, int maxLiquids, in JarFacts jar,
-        IReadOnlyDictionary<string, int> liquids) =>
-        AvailableCore(rules, jar, op => IsAllowed(rules, maxLiquids, jar, op, liquids));
+        IReadOnlyDictionary<string, int> liquids)
+    {
+        var facts = jar;
+        return AvailableCore(rules, facts, op => IsAllowed(rules, maxLiquids, facts, op, liquids));
+    }
 
     /// <summary>
     /// 订单暂存版本的规则判定。容量使用工作台所有订单子账的合计剩余空间，
@@ -461,7 +464,8 @@ public static class WorkshopRulebook
         in JarFacts jar)
     {
         if (scope == null) throw new System.ArgumentNullException(nameof(scope));
-        return AvailableCore(rules, jar, op => IsAllowed(rules, scope, jar, op));
+        var facts = jar;
+        return AvailableCore(rules, facts, op => IsAllowed(rules, scope, facts, op));
     }
 
     private static List<WorkshopOperation> AvailableCore(
