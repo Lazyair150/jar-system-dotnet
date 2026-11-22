@@ -53,7 +53,7 @@ public static class WorldOrderSymbolicOperationProgramBuilder
             var input = new WorldOrderSymbolicJarVersion(
                 jarKey, 0, masterRole, candidate.SourceShape, candidate.SourceLiquid);
             var output = new WorldOrderSymbolicJarVersion(
-                jarKey, 1, masterRole, candidate.TargetShape, candidate.TargetLiquid);
+                jarKey, 1, masterRole, candidate.TargetShape, candidate.TargetLiquid, isMarked: true);
             nodes.Add(WorldOrderSymbolicOperationNode.Rule(
                 "requirement-" + candidate.RequirementIndex + "-master",
                 sequence++, masterRole, candidate.RequirementIndex, candidate, input, output));
@@ -86,7 +86,7 @@ public static class WorldOrderSymbolicOperationProgramBuilder
             var input = handoffOutputByJar[jarKey];
             var output = new WorldOrderSymbolicJarVersion(
                 jarKey, checked(input.Revision + 1), slaveRole,
-                candidate.TargetShape, candidate.TargetLiquid);
+                candidate.TargetShape, candidate.TargetLiquid, isMarked: true);
             var nodeId = "requirement-" + candidate.RequirementIndex + "-slave";
             nodes.Add(WorldOrderSymbolicOperationNode.Rule(
                 nodeId, sequence++, slaveRole, candidate.RequirementIndex, candidate, input, output));
