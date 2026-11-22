@@ -51,10 +51,6 @@ public static class WorldOrderPhysicalJarBinder
         if (program == null) throw new ArgumentNullException(nameof(program));
         if (masterSnapshot == null) throw new ArgumentNullException(nameof(masterSnapshot));
 
-        if (masterSnapshot.HasOpaqueSolverRules)
-            return Result(WorldOrderPhysicalJarBindingStatus.Undetermined,
-                null, "主台存在无法静态投影的规则，不能确认物理 Jar 绑定合法性");
-
         var allVersions = program.Nodes
             .SelectMany(node => node.InputJars.Concat(node.OutputJars))
             .GroupBy(version => version.JarKey, StringComparer.Ordinal)
