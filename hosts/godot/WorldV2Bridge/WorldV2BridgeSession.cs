@@ -116,11 +116,37 @@ public sealed class WorldV2BridgeSession : IDisposable
         return _application.CaptureExecutionResourceCheckpoint();
     }
 
-    /// <summary>将执行检查点恢复到已创建的兼容世界。</summary>
+    /// <summary>将执行检查点恢复到已创建的兼容世界（旧兼容入口）。</summary>
     public void RestoreExecutionCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
     {
         ThrowIfDisposed();
         _application.RestoreExecutionResourceCheckpoint(checkpoint);
+    }
+
+    /// <summary>以新配置准备并原子替换 Host 当前世界。</summary>
+    public void RestoreExecutionCheckpoint(
+        WorldV2Options options,
+        WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        ThrowIfDisposed();
+        _application.RestoreExecutionResourceCheckpoint(options, checkpoint);
+    }
+
+    /// <summary>捕获完整根级检查点并编码为版本化 JSON。</summary>
+    public string CaptureExecutionCheckpointJson(bool indented = false)
+    {
+        ThrowIfDisposed();
+        return WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(
+            _application.CaptureExecutionResourceCheckpoint(), indented);
+    }
+
+    /// <summary>解码根级 JSON 检查点并通过新 Context 原子替换当前世界。</summary>
+    public void RestoreExecutionCheckpointJson(WorldV2Options options, string json)
+    {
+        ThrowIfDisposed();
+        if (options == null) throw new ArgumentNullException(nameof(options));
+        var checkpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(json);
+        _application.RestoreExecutionResourceCheckpoint(options, checkpoint);
     }
 
     /// <summary>
