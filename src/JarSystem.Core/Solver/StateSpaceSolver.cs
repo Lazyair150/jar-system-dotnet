@@ -96,14 +96,6 @@ internal class SolverState
 
     // ---- 规则查询 ----
     public bool IsBanned(string l) => WorkshopInfo.Capability.IsBanned(l);
-    public bool CanTransform(string f, string t) => WorkshopInfo.Capability.CanTransform(f, t);
-
-    /// <summary>可用成本液体（未被禁 + 有库存 + 不在排除列表）。</summary>
-    public List<string> AvailableCostLiquids(List<string>? exclude = null)
-    {
-        exclude ??= new();
-        return Constants.LIQUIDS.Where(l => !IsBanned(l) && HasLiquid(l, 1) && !exclude.Contains(l)).ToList();
-    }
 }
 
 public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
