@@ -85,6 +85,9 @@ public static class WorldOrderBClassBranchEnumerator
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
                 null, 0, 0, 0,
                 masterProfile.Reason ?? slaveProfile.Reason ?? "主从规则候选 Profile 未能确定");
+        if (world.Slave.Jars.Count != 0 || world.Slave.Liquids.Values.Any(amount => amount > 0))
+            return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
+                null, 0, 0, 0, "B 类从台初始库存必须为空；从台不能用自有 Jar 或游离液体补订单");
 
         // All physical Jars begin on Master. Slave candidate profiles describe Slave
         // rules, not a second source inventory. Filter both profiles against Master IDs.
