@@ -310,7 +310,6 @@ public static class WorkshopRulebook
                 null, null, jar.Liquid),
             _ => null
         };
-    }
 
     /// <summary>
     /// 列出现在**全部**合法操作（按固定顺序：倒出 → 灌入 → 空罐改形 → 满罐改形）。
@@ -474,7 +473,7 @@ public static class WorkshopRulebook
         RuleContext rules, OrderLiquidScope scope, in JarFacts jar, in WorkshopOperation op) =>
         EvaluateTransition(rules, scope, jar, op).Transition;
 
-        /// <summary>列出订单暂存上下文下全部合法操作，顺序与旧 Available 保持一致。</summary>
+    /// <summary>列出订单暂存上下文下全部合法操作，顺序与旧 Available 保持一致。</summary>
     public static List<WorkshopOperation> Available(RuleContext rules, OrderLiquidScope scope,
         in JarFacts jar)
     {
