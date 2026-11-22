@@ -155,7 +155,7 @@ public sealed class WorldOrderSolveBook : IDisposable
             _records[demandId] = record;
         }
 
-        var result = registry.Solve(demand, snapshot);
+        var result = registry.Solve(demand, snapshot, RuleCandidates);
         var state = result.Status == WorldOrderSolveStatus.NotReady
             ? WorldOrderSolveState.NotReady
             : WorldOrderSolveState.Current;
