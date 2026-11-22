@@ -69,7 +69,7 @@ public sealed class WorldOrderSolveBookTests
         using var book = new WorldOrderSolveBook(board);
         var firstSnapshot = Snapshot(new Jar("圆罐"));
         var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
-        var firstSymbolic = book.GetSymbolicSolutions(demand.Id);
+        var firstSymbolic = book.GetSymbolicSolutions(demand.Id, firstSnapshot);
         Assert.NotNull(firstSymbolic);
         Assert.Equal(WorldOrderSymbolicSolutionStatus.EnumerationComplete, firstSymbolic!.Status);
         Assert.NotEmpty(firstSymbolic.Solutions);
@@ -89,9 +89,42 @@ public sealed class WorldOrderSolveBookTests
         // ResourceVersion 变化会重做资源绑定/当前求解，但规则候选 Profile 仍复用。
         Assert.Equal(1, book.RuleCandidates.CacheMisses);
         Assert.True(book.RuleCandidates.CacheHits >= 1);
-        Assert.Same(firstSymbolic, book.GetSymbolicSolutions(demand.Id));
+        Assert.Same(firstSymbolic, book.GetSymbolicSolutions(demand.Id, changedSnapshot));
         Assert.Equal(1, book.RuleCandidates.SolutionCacheMisses);
         Assert.True(book.RuleCandidates.SolutionCacheHits >= 1);
+    }
+
+    [Fact]
+    public void SymbolicCandidatesInvalidateOnWorkshopProfileChangeButNotOnResourceChange()
+    {
+        var board = Board();
+        var demand = Demand();
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        var roster = new WorkshopRoster(new[] { master }, master);
+
+        var firstSnapshot = WorldSnapshotFactory.Capture(roster);
+        book.Evaluate(demand.Id, firstSnapshot, Registry());
+        var first = book.GetSymbolicSolutions(demand.Id, firstSnapshot);
+        Assert.NotNull(first);
+
+        master.AddLiquid("酒", 1);
+        var resourceChanged = WorldSnapshotFactory.Capture(roster);
+        Assert.NotEqual(firstSnapshot.ResourceVersion, resourceChanged.ResourceVersion);
+        Assert.Same(first, book.GetSymbolicSolutions(demand.Id, resourceChanged));
+
+        master.ReplaceCapability(new WorkshopCapability(
+            new[] { "方罐" }, System.Array.Empty<string>(), System.Array.Empty<string>()));
+        var profileChanged = WorldSnapshotFactory.Capture(roster);
+        Assert.NotEqual(resourceChanged.WorkshopProfileVersion, profileChanged.WorkshopProfileVersion);
+        Assert.Null(book.GetSymbolicSolutions(demand.Id, profileChanged));
+
+        book.Evaluate(demand.Id, profileChanged, Registry());
+        var rebuilt = book.GetSymbolicSolutions(demand.Id, profileChanged);
+        Assert.NotNull(rebuilt);
+        Assert.NotSame(first, rebuilt);
     }
 
     [Fact]
