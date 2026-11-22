@@ -79,4 +79,4 @@ The demo keeps the JSON string in process memory only. It is an interactive Host
 
 ## 8. Acceptance boundary
 
-A passing CI build and .NET test suite do not replace this Godot runtime test. The stage is ready for Host testing only after the latest PR HEAD passes CI and the above checklist is completed in Godot 4.7.1 .NET.
+A passing CI build and .NET test suite prepare the code for Host testing; they do not replace this Godot runtime test. Enter the Host testing stage when the latest PR HEAD passes CI. Mark Host acceptance complete only after the above checklist is run in Godot 4.7.1 .NET.
