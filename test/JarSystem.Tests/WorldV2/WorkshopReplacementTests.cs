@@ -784,8 +784,8 @@ public sealed class WorkshopReplacementTests
         var producers = new ProducerModule(vocabulary);
         var production = new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
         {
-            ["酒"] = 0,
-            ["蜜"] = 0
+            ["酒"] = 0.001,
+            ["蜜"] = 0.0005
         });
         var resources = new ResourceArea(producers, production, 0, 0, ship);
         Workshop CreateWorkshop(string name) => new(name, new List<string> { "圆罐" },
