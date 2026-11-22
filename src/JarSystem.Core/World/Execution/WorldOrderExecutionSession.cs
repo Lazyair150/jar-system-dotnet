@@ -195,9 +195,27 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             }
             case WorldOrderExecutionStage.SlaveSteps:
             {
-                var expectedSlave = snapshot.CompletedSlaveSteps == 0
+                var expectedSlave = (snapshot.CompletedSlaveSteps == 0
                     ? plan.SlaveSteps[0].Before
-                    : plan.SlaveSteps[snapshot.CompletedSlaveSteps - 1].After;
+                    : plan.SlaveSteps[snapshot.CompletedSlaveSteps - 1].After).ToArray();
+
+                // B 类完成路径由从台统一交付。部分罐子可能已经在主台阶段完成需求，
+                // 之后仍会随 TransferJarIds 移交给从台用于最终交付；这些罐子不会出现在
+                // SlaveSteps 的 Before/After 中，但必须纳入从台检查点的预期状态。
+                if (plan.MasterSteps.Count > 0)
+                {
+                    var transferIds = snapshot.Manifest.TransferJarIds.ToHashSet();
+                    var expectedIds = expectedSlave
+                        .Where(item => item.Id.HasValue && transferIds.Contains(item.Id.Value))
+                        .Select(item => item.Id!.Value)
+                        .ToHashSet();
+                    var masterCompletedDeliveryJars = plan.MasterSteps[^1].After
+                        .Where(item => item.Id.HasValue &&
+                            transferIds.Contains(item.Id.Value) &&
+                            !expectedIds.Contains(item.Id.Value));
+                    expectedSlave = expectedSlave.Concat(masterCompletedDeliveryJars).ToArray();
+                }
+
                 EnsureWorkshopMatches(slave!, expectedSlave,
                     snapshot.Manifest.TransferJarIds.ToHashSet(), null, "从台");
                 if (plan.MasterSteps.Count > 0)
