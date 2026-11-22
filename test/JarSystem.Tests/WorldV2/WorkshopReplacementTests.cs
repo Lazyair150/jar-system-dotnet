@@ -932,7 +932,8 @@ public sealed class WorkshopReplacementTests
         var firstMaster = CreateWorkshop("主台 A");
         var secondMaster = CreateWorkshop("主台 B");
         var slave = CreateWorkshop("从台");
-        secondMaster.AddJar(new Jar("圆罐", vocabulary: vocabulary));
+        var deliveredJar = new Jar("圆罐", vocabulary: vocabulary);
+        secondMaster.AddJar(deliveredJar);
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
         {
             new JarOrderSpecificationSolver(new StateSpaceSolver())
@@ -965,6 +966,7 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(2, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
         Assert.Equal(1, ship.GetAmount("酒"));
         Assert.Empty(secondMaster.Jars);
+        Assert.Equal("酒", deliveredJar.Liquid);
 
         // 再次换主台：新主台先从自机液库获得剩余 1 份；旧主台剩余 2 份随后返还。
         var secondSwitch = world.Runtime.BeginReplacement(
@@ -977,8 +979,9 @@ public sealed class WorkshopReplacementTests
         Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
         Assert.Equal(1, world.Admission.GetPrefillBalances(firstMaster)["酒"]);
         Assert.Equal(2, ship.GetAmount("酒"));
-        Assert.Equal(3, ship.GetAmount("酒") +
-            world.Admission.GetPrefillBalances(firstMaster)["酒"]);
+        Assert.Equal(4, ship.GetAmount("酒") +
+            world.Admission.GetPrefillBalances(firstMaster)["酒"] +
+            (deliveredJar.Liquid == "酒" ? 1 : 0));
 
         var prefillReturn = Assert.Single(world.ResourceLedger.For(ResourceCauses.Return),
             item => item.From == "主台预置");
