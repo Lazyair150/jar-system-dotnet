@@ -92,13 +92,13 @@ public sealed class WorldOrderSymbolicOperationNode
         string nodeId,
         int sequence,
         string workshopRole,
-        int requirementIndex,
+        int? requirementIndex,
         WorldOrderRuleCandidate candidate,
         WorldOrderSymbolicJarVersion input,
         WorldOrderSymbolicJarVersion output)
     {
         if (string.IsNullOrWhiteSpace(workshopRole)) throw new ArgumentException("工作台角色不能为空", nameof(workshopRole));
-        if (requirementIndex < 0) throw new ArgumentOutOfRangeException(nameof(requirementIndex));
+        if (requirementIndex is < 0) throw new ArgumentOutOfRangeException(nameof(requirementIndex));
         if (candidate == null) throw new ArgumentNullException(nameof(candidate));
         if (input == null) throw new ArgumentNullException(nameof(input));
         if (output == null) throw new ArgumentNullException(nameof(output));
@@ -106,7 +106,7 @@ public sealed class WorldOrderSymbolicOperationNode
             throw new ArgumentException("规则操作的输入和输出 Jar 必须属于执行岗位");
         if (input.JarKey != output.JarKey || output.Revision != checked(input.Revision + 1))
             throw new ArgumentException("规则操作必须推进同一 Jar 身份的一个状态版本");
-        if (candidate.RequirementIndex != requirementIndex ||
+        if (candidate.RequirementIndex != (requirementIndex ?? -1) ||
             candidate.SourceShape != input.Shape || candidate.SourceLiquid != input.Liquid ||
             candidate.TargetShape != output.Shape || candidate.TargetLiquid != output.Liquid)
             throw new ArgumentException("规则候选与输入/输出 Jar 事实不一致");
@@ -217,8 +217,9 @@ public sealed class WorldOrderSymbolicOperationProgram
         if (nodes == null) throw new ArgumentNullException(nameof(nodes));
         if (dependencies == null) throw new ArgumentNullException(nameof(dependencies));
 
-        var orderedNodes = nodes.OrderBy(x => x.Sequence).ToArray();
-        if (orderedNodes.Any(x => x == null)) throw new ArgumentException("操作节点不能包含 null", nameof(nodes));
+        var suppliedNodes = nodes.ToArray();
+        if (suppliedNodes.Any(x => x == null)) throw new ArgumentException("操作节点不能包含 null", nameof(nodes));
+        var orderedNodes = suppliedNodes.OrderBy(x => x.Sequence).ToArray();
         if (orderedNodes.Select(x => x.NodeId).Distinct(StringComparer.Ordinal).Count() != orderedNodes.Length)
             throw new ArgumentException("操作节点身份不能重复", nameof(nodes));
         if (orderedNodes.Select(x => x.Sequence).Distinct().Count() != orderedNodes.Length)
@@ -274,10 +275,19 @@ public sealed class WorldOrderSymbolicOperationProgram
                 if (!produced || !consumed)
                     throw new ArgumentException("Jar 依赖边必须连接同一 Jar 的精确输出/输入版本", nameof(dependencies));
             }
-            else if (edge.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid &&
-                     string.IsNullOrWhiteSpace(edge.Liquid))
+            else if (edge.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid)
             {
-                throw new ArgumentException("游离液体依赖必须指定液体种类", nameof(dependencies));
+                if (string.IsNullOrWhiteSpace(edge.Liquid))
+                    throw new ArgumentException("游离液体依赖必须指定液体种类", nameof(dependencies));
+
+                var sourceRole = from.Kind == WorldOrderSymbolicOperationKind.Rule
+                    ? from.WorkshopRole : from.ToRole;
+                var targetRole = to.Kind == WorldOrderSymbolicOperationKind.Rule
+                    ? to.WorkshopRole : to.FromRole;
+                if (sourceRole != targetRole)
+                    throw new ArgumentException(
+                        "游离液体不能跨岗位直接流动；主从之间必须经过唯一交接节点",
+                        nameof(dependencies));
             }
         }
 
