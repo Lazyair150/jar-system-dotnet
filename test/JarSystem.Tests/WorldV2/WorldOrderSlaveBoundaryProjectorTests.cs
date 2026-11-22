@@ -76,7 +76,8 @@ public sealed class WorldOrderSlaveBoundaryProjectorTests
     {
         var result = WorldOrderSlaveBoundaryProjector.Project(
             Program(new StepSpec(null, "X"), new StepSpec("X", null)),
-            "local-production", 1);
+            "local-production", 1,
+            masterBannedLiquids: new[] { "X" });
 
         Assert.True(result.IsProjected);
         Assert.Empty(result.Group!.RequiredFreeLiquid);
