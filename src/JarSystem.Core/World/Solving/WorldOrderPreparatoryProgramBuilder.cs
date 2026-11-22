@@ -72,12 +72,17 @@ public static class WorldOrderPreparatoryProgramBuilder
         {
             var key = requirementJarKeys[assigned.Candidate.RequirementIndex];
             var candidate = assigned.Candidate;
-            var initial = new WorldOrderSymbolicJarVersion(
-                key, 0, masterRole, candidate.SourceShape, candidate.SourceLiquid);
-            if (prepByJar.TryGetValue(key, out var selectedPrep))
+            var hasPreparation = prepByJar.TryGetValue(key, out var selectedPrep);
+            var initial = hasPreparation
+                ? new WorldOrderSymbolicJarVersion(
+                    key, 0, masterRole,
+                    selectedPrep!.Candidate.SourceShape,
+                    selectedPrep.Candidate.SourceLiquid)
+                : new WorldOrderSymbolicJarVersion(
+                    key, 0, masterRole, candidate.SourceShape, candidate.SourceLiquid);
+            if (hasPreparation)
             {
-                ValidatePreparationInput(selectedPrep, initial);
-                var preparedShape = selectedPrep.Candidate.TargetShape;
+                var preparedShape = selectedPrep!.Candidate.TargetShape;
                 var preparedLiquid = selectedPrep.Candidate.TargetLiquid;
                 if (candidate.SourceShape != preparedShape || candidate.SourceLiquid != preparedLiquid)
                     throw new ArgumentException("准备操作输出 Jar 状态与需求候选输入不匹配：" + key);
