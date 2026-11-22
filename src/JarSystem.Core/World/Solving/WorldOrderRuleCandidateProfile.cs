@@ -64,6 +64,11 @@ public sealed class WorldOrderRuleCandidateProfile
     public bool IsUndetermined { get; }
     public string? Reason { get; }
     public IReadOnlyList<WorldOrderRequirementCandidates> Requirements { get; }
+    /// <summary>
+    /// 可作为订单内前置资源转换的通用倒液操作。它们不直接满足某一需求，
+    /// 但可为后续 PourIn / ReshapeEmpty 产生订单游离液体。
+    /// </summary>
+    public IReadOnlyList<WorldOrderRuleCandidate> PreparatoryOperations { get; }
 
     /// <summary>
     /// 若某条需求没有任何合法的单 Jar 输入/算子候选，则该工作台 Profile 无法独立满足它。
@@ -79,6 +84,7 @@ public sealed class WorldOrderRuleCandidateProfile
         string workshopProfileVersion,
         string specificationVersion,
         IEnumerable<WorldOrderRequirementCandidates> requirements,
+        IEnumerable<WorldOrderRuleCandidate>? preparatoryOperations = null,
         bool isUndetermined = false,
         string? reason = null)
     {
@@ -88,6 +94,7 @@ public sealed class WorldOrderRuleCandidateProfile
         WorkshopProfileVersion = workshopProfileVersion;
         SpecificationVersion = specificationVersion;
         Requirements = Array.AsReadOnly(requirements.ToArray());
+        PreparatoryOperations = Array.AsReadOnly((preparatoryOperations ?? Array.Empty<WorldOrderRuleCandidate>()).ToArray());
         IsUndetermined = isUndetermined;
         Reason = reason;
     }
@@ -137,15 +144,19 @@ public static class WorldOrderRuleCandidateCatalog
                 isUndetermined: true, reason: "工作台包含无法静态重建的规则");
 
         var rules = workshop.CreateRuleContext();
+        var sourceShapes = new SortedSet<string>(Constants.SHAPES, StringComparer.Ordinal);
+        sourceShapes.UnionWith(rules.Capability.BaseMarks);
+        sourceShapes.UnionWith(rules.Capability.AdditionalMarks);
+        sourceShapes.UnionWith(rules.Stack.GrantedShapes());
+        foreach (var requirement in specification.Requirements)
+            sourceShapes.Add(requirement.Shape);
+
+        var preparatoryOperations = BuildPreparatoryOperations(
+            rules, workshop.LiquidStagingCapacity, workshop.Capability.Ban, sourceShapes);
         var results = new List<WorldOrderRequirementCandidates>(specification.Requirements.Count);
         for (var requirementIndex = 0; requirementIndex < specification.Requirements.Count; requirementIndex++)
         {
             var requirement = specification.Requirements[requirementIndex];
-            var sourceShapes = new SortedSet<string>(Constants.SHAPES, StringComparer.Ordinal);
-            sourceShapes.UnionWith(rules.Capability.BaseMarks);
-            sourceShapes.UnionWith(rules.Capability.AdditionalMarks);
-            sourceShapes.UnionWith(rules.Stack.GrantedShapes());
-            sourceShapes.Add(requirement.Shape);
             var candidates = BuildRequirementCandidates(
                 rules, workshop.LiquidStagingCapacity, workshop.Capability.Ban,
                 sourceShapes, requirementIndex, requirement.Shape, requirement.Liquid);
@@ -155,7 +166,28 @@ public static class WorldOrderRuleCandidateCatalog
 
         return new WorldOrderRuleCandidateProfile(
             workshop.Name, role, world.RuleSetVersion, world.WorkshopProfileVersion,
-            specificationVersion, results);
+            specificationVersion, results, preparatoryOperations);
+    }
+
+    private static List<WorldOrderRuleCandidate> BuildPreparatoryOperations(
+        RuleContext rules,
+        int stagingCapacity,
+        IReadOnlyCollection<string> bannedLiquids,
+        IEnumerable<string> sourceShapes)
+    {
+        var operations = new List<WorldOrderRuleCandidate>();
+        foreach (var sourceShape in sourceShapes)
+        {
+            foreach (var sourceLiquid in Constants.LIQUIDS)
+            {
+                AddTransition(rules, operations, -1,
+                    sourceShape, sourceLiquid, sourceShape, null,
+                    WorkshopOperation.PourOut(), "PREPARE_POUR_OUT",
+                    new Dictionary<string, int>(StringComparer.Ordinal),
+                    stagingCapacity, bannedLiquids);
+            }
+        }
+        return operations;
     }
 
     private static List<WorldOrderRuleCandidate> BuildRequirementCandidates(
