@@ -318,7 +318,10 @@ public static class WorldOrderSymbolicResourceSimulator
             return total;
         }
 
-        private static void Add(IDictionary<string, int> amounts, string liquid, int amount) =>
-            amounts[liquid] = checked(amounts.GetValueOrDefault(liquid) + amount);
+        private static void Add(IDictionary<string, int> amounts, string liquid, int amount)
+        {
+            var current = amounts.TryGetValue(liquid, out var value) ? value : 0;
+            amounts[liquid] = checked(current + amount);
+        }
     }
 }
