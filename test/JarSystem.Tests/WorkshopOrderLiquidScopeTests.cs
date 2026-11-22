@@ -286,6 +286,31 @@ public sealed class WorkshopOrderLiquidScopeTests
         Assert.False(jar.IsMarked);
     }
 
+    [Fact]
+    public void OrderScopedFullReshapeUsesTheCurrentWorkshopsBanAfterHandoff()
+    {
+        var master = CreateWorkshop(ban: new[] { "酒" });
+        var slave = CreateWorkshop();
+        var jar = new Jar("圆罐", "酒");
+        Assert.True(master.AddJar(jar));
+
+        var masterScope = new OrderLiquidScope(101, new WorkshopLiquidStaging(8));
+        var masterResult = master.TryReshape(jar, "尖罐", masterScope, ReshapeMode.Full);
+        Assert.False(masterResult.Success);
+        Assert.False(master.CanReshapeTo(jar, "尖罐", masterScope).Granted);
+
+        Assert.Same(jar, master.TransferOut(jar));
+        Assert.True(slave.TransferIn(jar));
+
+        var slaveScope = new OrderLiquidScope(101, new WorkshopLiquidStaging(8));
+        var slaveResult = slave.TryReshape(jar, "尖罐", slaveScope, ReshapeMode.Full);
+        Assert.True(slaveResult.Success, slaveResult.Reason);
+        Assert.Equal("尖罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
+        Assert.Equal(0, slaveScope.Staging.UsedCapacity);
+    }
+
     private static void AssertParity(
         Jar initialJar,
         WorkshopOperation operation,
