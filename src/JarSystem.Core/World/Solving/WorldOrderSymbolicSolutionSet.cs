@@ -6,20 +6,102 @@ using System.Linq;
 namespace JarSystem.Core.World.Solving;
 
 /// <summary>
+/// Resource effects for one workshop role. Master and Slave balances are never netted.
+/// </summary>
+public sealed class WorldOrderRoleResourceEffect
+{
+    public string WorkshopRole { get; }
+    public int StepCount { get; }
+    public IReadOnlyDictionary<string, int> GrossFreeLiquidConsumption { get; }
+    public IReadOnlyDictionary<string, int> GrossFreeLiquidProduction { get; }
+    public IReadOnlyDictionary<string, int> GrossJarLiquidConsumption { get; }
+
+    private WorldOrderRoleResourceEffect(
+        string workshopRole,
+        IReadOnlyList<WorldOrderAssignedRuleCandidate> steps)
+    {
+        WorkshopRole = workshopRole;
+        StepCount = steps.Count;
+        GrossFreeLiquidConsumption = Sum(steps.Select(x => x.Candidate.ConsumedFreeLiquid));
+        GrossFreeLiquidProduction = Sum(steps.Select(x => x.Candidate.ProducedFreeLiquid));
+        GrossJarLiquidConsumption = Sum(steps.Select(x => x.Candidate.ConsumedJarLiquid));
+    }
+
+    /// <summary>
+    /// Builds independent ledgers by role. This does not infer operation order,
+    /// transfer, staging peaks, or resource sufficiency.
+    /// </summary>
+    public static IReadOnlyDictionary<string, WorldOrderRoleResourceEffect> AggregateByRole(
+        IEnumerable<WorldOrderAssignedRuleCandidate> steps)
+    {
+        if (steps == null) throw new ArgumentNullException(nameof(steps));
+
+        var grouped = new SortedDictionary<string, List<WorldOrderAssignedRuleCandidate>>(
+            StringComparer.Ordinal);
+        foreach (var step in steps)
+        {
+            if (step == null)
+                throw new ArgumentException("规则候选分配不能包含 null", nameof(steps));
+            if (string.IsNullOrWhiteSpace(step.WorkshopRole))
+                throw new ArgumentException("工作台角色不能为空", nameof(steps));
+            if (step.Candidate == null)
+                throw new ArgumentException("规则候选不能为 null", nameof(steps));
+
+            if (!grouped.TryGetValue(step.WorkshopRole, out var roleSteps))
+            {
+                roleSteps = new List<WorldOrderAssignedRuleCandidate>();
+                grouped.Add(step.WorkshopRole, roleSteps);
+            }
+            roleSteps.Add(step);
+        }
+
+        var result = new SortedDictionary<string, WorldOrderRoleResourceEffect>(
+            StringComparer.Ordinal);
+        foreach (var item in grouped)
+            result.Add(item.Key, new WorldOrderRoleResourceEffect(item.Key, item.Value));
+
+        return new ReadOnlyDictionary<string, WorldOrderRoleResourceEffect>(result);
+    }
+
+    private static IReadOnlyDictionary<string, int> Sum(IEnumerable<string?> liquids)
+    {
+        var amounts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var liquid in liquids)
+        {
+            if (liquid == null) continue;
+            amounts[liquid] = checked(amounts.GetValueOrDefault(liquid) + 1);
+        }
+        return new ReadOnlyDictionary<string, int>(amounts);
+    }
+}
+
+/// <summary>
 /// 一个规则级订单配方组合。每项需求选择一个规则候选及其工作台角色；不包含实际 Jar ID。
 /// 它是资源绑定的输入，不是已经预留资源或可直接提交执行的 BoundExecutionPlan。
 /// </summary>
 public sealed class WorldOrderSymbolicSolution
 {
     public IReadOnlyList<WorldOrderAssignedRuleCandidate> Steps { get; }
+    /// <summary>岗位独立的资源账本；不得跨 Master/Slave 合并。</summary>
+    public IReadOnlyDictionary<string, WorldOrderRoleResourceEffect> ResourceEffectsByRole { get; }
+
+    /// <summary>
+    /// Aggregate informational totals retained for compatibility only.
+    /// They must not prove per-workshop availability or Master-to-Slave transfer.
+    /// </summary>
     public IReadOnlyDictionary<string, int> GrossFreeLiquidConsumption { get; }
     public IReadOnlyDictionary<string, int> GrossFreeLiquidProduction { get; }
     public IReadOnlyDictionary<string, int> GrossJarLiquidConsumption { get; }
 
     internal WorldOrderSymbolicSolution(IEnumerable<WorldOrderAssignedRuleCandidate> steps)
     {
+        if (steps == null) throw new ArgumentNullException(nameof(steps));
         var copied = steps.ToArray();
+        if (copied.Any(x => x == null))
+            throw new ArgumentException("规则候选分配不能包含 null", nameof(steps));
+
         Steps = Array.AsReadOnly(copied);
+        ResourceEffectsByRole = WorldOrderRoleResourceEffect.AggregateByRole(copied);
         GrossFreeLiquidConsumption = Sum(copied.Select(x => x.Candidate.ConsumedFreeLiquid));
         GrossFreeLiquidProduction = Sum(copied.Select(x => x.Candidate.ProducedFreeLiquid));
         GrossJarLiquidConsumption = Sum(copied.Select(x => x.Candidate.ConsumedJarLiquid));
