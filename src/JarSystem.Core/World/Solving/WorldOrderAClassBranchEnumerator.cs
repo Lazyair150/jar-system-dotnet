@@ -96,6 +96,7 @@ public static class WorldOrderAClassBranchEnumerator
         var budgetExceeded = false;
         var sawUndetermined = false;
         string? lastReason = null;
+        WorldOrderConcretePlanAssemblyResult? foundAssembly = null;
 
         foreach (var solution in symbolic.Solutions)
         {
@@ -186,7 +187,7 @@ public static class WorldOrderAClassBranchEnumerator
                             demandId, program, binding, world, masterProfile);
                         if (assembly.IsFeasible)
                         {
-                            FoundAssembly = assembly;
+                            foundAssembly = assembly;
                             return;
                         }
 
@@ -204,7 +205,7 @@ public static class WorldOrderAClassBranchEnumerator
                         order[position] = resourceOperations[index];
                         VisitSchedule(position + 1);
                         used[index] = false;
-                        if (budgetExceeded || FoundAssembly != null) return;
+                        if (budgetExceeded || foundAssembly != null) return;
                     }
                 }
 
@@ -248,7 +249,7 @@ public static class WorldOrderAClassBranchEnumerator
 
         if (FoundAssembly != null)
             return Result(WorldOrderAClassBranchEnumerationStatus.Feasible,
-                FoundAssembly, exploredBranches, exploredNodes, rejectedBranches, null);
+                foundAssembly, exploredBranches, exploredNodes, rejectedBranches, null);
         if (budgetExceeded || sawUndetermined)
             return Result(WorldOrderAClassBranchEnumerationStatus.Undetermined,
                 null, exploredBranches, exploredNodes, rejectedBranches,
@@ -259,7 +260,6 @@ public static class WorldOrderAClassBranchEnumerator
             null, exploredBranches, exploredNodes, rejectedBranches,
             lastReason ?? "所有 A 类规则候选、准备资源和主台顺序均不可行");
 
-        WorldOrderConcretePlanAssemblyResult? FoundAssembly = null;
     }
 
     private static WorldOrderAClassBranchEnumerationResult Result(
