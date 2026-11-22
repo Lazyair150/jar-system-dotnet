@@ -42,15 +42,16 @@ public sealed class WorldOrderSlaveRuleBranchEnumerationResult
 }
 
 /// <summary>
-/// Enumerates the Cartesian product of one-step rule candidates in a Slave profile.
-/// Each complete assignment becomes its own ordered B-class program and is projected
-/// independently. No candidate is sent to a Master rule solver.
+/// Enumerates direct Slave rule candidates together with compatible same-Jar
+/// PREPARE_POUR_OUT assignments. Every resulting program is projected independently;
+/// no candidate is sent to a Master rule solver.
 /// </summary>
 /// <remarks>
-/// This first enumerator covers direct single-rule completion per final requirement.
-/// It does not yet recursively synthesize intermediate Jar transformations or enumerate
-/// preparatory-operation sequences. A profile that cannot describe a rule statically,
-/// or a budget-exhausted enumeration, is never reported as complete.
+/// This slice supports at most one catalogued PourOut preparation on the same Jar
+/// immediately before its direct requirement rule. It does not yet synthesize arbitrary
+/// multi-Jar preparation chains or recursively expand intermediate requirement states.
+/// A profile that cannot describe a rule statically, or a budget-exhausted enumeration,
+/// is never reported as complete.
 /// </remarks>
 public static class WorldOrderSlaveRuleBranchEnumerator
 {
@@ -112,36 +113,67 @@ public static class WorldOrderSlaveRuleBranchEnumerator
                     return;
                 }
 
-                exploredBranches++;
-                try
-                {
-                    var assignments = selected.Select(candidate =>
-                        new WorldOrderAssignedRuleCandidate(slaveProfile.Role, candidate));
-                    var solution = new WorldOrderSymbolicSolution(assignments);
-                    var program = WorldOrderSymbolicOperationProgramBuilder.BuildDirectCandidateProjection(
-                        solution, isBClass: true, masterRole, slaveProfile.Role);
-                    var projection = WorldOrderSlaveBoundaryProjector.Project(
-                        program,
-                        "slave-branch-" + exploredBranches,
-                        slaveStagingCapacity,
-                        banned,
-                        rejected);
+                var assignments = selected.Select(candidate =>
+                    new WorldOrderAssignedRuleCandidate(slaveProfile.Role, candidate)).ToArray();
+                var solution = new WorldOrderSymbolicSolution(assignments);
+                var prepChoices = selected.Select(candidate =>
+                    slaveProfile.PreparatoryOperations
+                        .Where(prep => IsCompatiblePreparation(candidate, prep))
+                        .OrderBy(prep => prep.SourceLiquid, StringComparer.Ordinal)
+                        .ThenBy(prep => prep.RuleId, StringComparer.Ordinal)
+                        .ToArray()).ToArray();
+                var selectedPreparations = new List<WorldOrderPreparatoryOperationAssignment>();
 
-                    if (projection.IsProjected)
-                        groups.Add(projection.Group!);
-                    else
+                void VisitPreparations(int position)
+                {
+                    if (budgetExceeded) return;
+                    if (position == prepChoices.Length)
                     {
-                        rejectedBranches++;
-                        lastInfeasibleReason = projection.Reason;
+                        if (exploredBranches >= maxBranches)
+                        {
+                            budgetExceeded = true;
+                            return;
+                        }
+
+                        exploredBranches++;
+                        try
+                        {
+                            var program = WorldOrderPreparatoryProgramBuilder.Build(
+                                solution, selectedPreparations, true, masterRole, slaveProfile.Role);
+                            var projection = WorldOrderSlaveBoundaryProjector.Project(
+                                program, "slave-branch-" + exploredBranches,
+                                slaveStagingCapacity, banned, rejected);
+                            if (projection.IsProjected)
+                                groups.Add(projection.Group!);
+                            else
+                            {
+                                rejectedBranches++;
+                                lastInfeasibleReason = projection.Reason;
+                            }
+                        }
+                        catch (ArgumentException exception)
+                        {
+                            rejectedBranches++;
+                            lastInfeasibleReason = exception.Message;
+                        }
+                        return;
+                    }
+
+                    // First enumerate the direct branch without a preparation.
+                    VisitPreparations(position + 1);
+                    foreach (var preparation in prepChoices[position])
+                    {
+                        if (budgetExceeded) return;
+                        selectedPreparations.Add(new WorldOrderPreparatoryOperationAssignment(
+                            slaveProfile.Role,
+                            "requirement-" + selected[position].RequirementIndex,
+                            preparation));
+                        VisitPreparations(position + 1);
+                        selectedPreparations.RemoveAt(selectedPreparations.Count - 1);
                     }
                 }
-                catch (ArgumentException exception)
-                {
-                    // A structurally invalid candidate assignment is a rejected branch,
-                    // not evidence that every possible branch has been enumerated.
-                    rejectedBranches++;
-                    lastInfeasibleReason = exception.Message;
-                }
+
+                VisitPreparations(0);
                 return;
             }
 
@@ -184,6 +216,17 @@ public static class WorldOrderSlaveRuleBranchEnumerator
         return Result(WorldOrderSlaveRuleBranchEnumerationStatus.Complete,
             alternatives, exploredBranches, rejectedBranches, null);
     }
+
+    private static bool IsCompatiblePreparation(
+        WorldOrderRuleCandidate requirement,
+        WorldOrderRuleCandidate preparation) =>
+        requirement.SourceLiquid == null &&
+        preparation.RequirementIndex == -1 &&
+        preparation.Operation == "PREPARE_POUR_OUT" &&
+        preparation.SourceShape == requirement.SourceShape &&
+        preparation.TargetShape == requirement.SourceShape &&
+        preparation.TargetLiquid == null &&
+        preparation.ProducedFreeLiquid != null;
 
     private static WorldOrderResourceRequirementAlternativeSet CreateAlternatives(
         WorldOrderResourceRequirementSetStatus status,
