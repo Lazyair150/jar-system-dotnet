@@ -165,6 +165,12 @@ public sealed record WorldPlanOperation(
     IReadOnlyDictionary<string, int> Consumed,
     bool FullReshape)
 {
+    /// <summary>产生此操作的领域规则身份。可为空以兼容历史旧路径。</summary>
+    public string? RuleId { get; init; }
+
+    /// <summary>产生此操作的领域规则版本；必须与 RuleId 同时存在。</summary>
+    public int? RuleVersion { get; init; }
+
     internal static WorldPlanOperation CopyFrom(SolverOperation source) => new(
         source.Type,
         source.Description,
@@ -176,7 +182,11 @@ public sealed record WorldPlanOperation(
             source.Consumed == null
                 ? new Dictionary<string, int>(StringComparer.Ordinal)
                 : new Dictionary<string, int>(source.Consumed, StringComparer.Ordinal)),
-        source.FullReshape);
+        source.FullReshape)
+    {
+        RuleId = source.RuleId,
+        RuleVersion = source.RuleVersion
+    };
 }
 
 public sealed record WorldPlanJarState(
