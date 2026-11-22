@@ -176,6 +176,7 @@ public static class WorldOrderPreparatoryProgramBuilder
                 handoff!.NodeId, node.NodeId, operation.JarKey, input.Revision));
             current[operation.JarKey] = output;
         }
+        }
 
         AddLiquidDependencies(nodes, edges, handoff, masterRole, slaveRole);
         return new WorldOrderSymbolicOperationProgram(isBClass, masterRole, slaveRole, nodes, edges);
