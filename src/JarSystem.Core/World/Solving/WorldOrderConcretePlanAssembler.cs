@@ -157,9 +157,8 @@ public static class WorldOrderConcretePlanAssembler
                 plan, materialization, replay);
         }
 
-        // Manifest's generic path simulation is intentionally cross-checked against
-        // the policy-aware replay. If rejected/overflowed outputs were treated as
-        // accepted by Manifest, the disagreement fails closed instead of returning Feasible.
+        // Manifest replays the immutable path using the accepted-output witness, then
+        // independently checks every AfterLiquids snapshot and the final resource totals.
         if (!DictionaryEqual(manifest.MasterInitialLiquidAmounts, replay.MasterInitialLiquids) ||
             !DictionaryEqual(manifest.MasterFinalLiquidBalances, replay.MasterFinalLiquids) ||
             !DictionaryEqual(manifest.TransferLiquids, replay.TransferLiquids) ||
