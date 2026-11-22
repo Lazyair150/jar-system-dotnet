@@ -192,6 +192,13 @@ public sealed class ModifierStack : IIntensitySource
         return null;
     }
 
+    /// <summary>
+    /// 是否存在当前生效但没有可执行谓词的 Require。此时不能把规则当作通过，
+    /// 也不能假造拒绝；静态/运行时调用方应保守报告 Undetermined。
+    /// </summary>
+    public bool HasUnresolvableRequirements() =>
+        _active.Any(m => m is RequireModifier require && IsLive(m) && require.Violation == null);
+
     /// <summary>摘除（只供 <see cref="ModifierScope"/> 调用）。</summary>
     internal void Remove(IRuleModifier modifier)
     {
