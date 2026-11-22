@@ -131,6 +131,9 @@ public readonly record struct WorkshopRuleDecision(
 
 public static class WorkshopRulebook
 {
+    /// <summary>基础工作台规则语义版本；改变规则含义时必须递增。</summary>
+    public const int RuleContractVersion = 1;
+
     /// <summary>订单直接匹配规则：MATCH 不改变 Jar 化学状态，但会占用并标记该 Jar。</summary>
     public static WorkshopRuleDecision EvaluateMatch(RuleContext rules, in JarFacts jar)
     {
