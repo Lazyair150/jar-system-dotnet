@@ -73,10 +73,9 @@ internal sealed class WorkshopService
     /// 只换规则参数，**不动**罐子与游离液体：资源搬迁是 `SetMaster` 切换事件的职责。
     /// 换完允许存在"形状不在新标记里"的罐子 —— 标记约束的是操作合法性，不是存储合法性。
     ///
-    /// <para>2026-11 起<b>也不再拒绝</b>「池里正存着要禁的液体」：禁令从"存储 + 取用"收窄成
-    /// 只约束<b>取用</b>（倒入罐子、改形成本、满罐自耗），所以"池里有 2 份蜜、现在禁用蜜"
-    /// 是一个**合法且有意义的局面**（那 2 份蜜留在那一格里，只是取不出来；解开禁令就又能用）。
-    /// 旧守卫依据的 `BANNED-LIQUID-STORED` 不变量已经连同这个语义一起删除。</para>
+    /// <para>禁令同时约束游离液体的使用与存储。若目标禁令会使当前池中已有游离液体变成禁液，
+    /// 则必须拒绝这次能力替换；不能留下不符合本台存储规则的余额。Jar 内部液体不属于游离液体池，
+    /// 不参与这项检查，也不会阻止 Jar 本身随资源迁移。</para>
     /// </summary>
     public void SetWorkshopCapability(int index, List<string>? baseMarks, List<string>? additionalMarks, List<string>? ban)
     {
