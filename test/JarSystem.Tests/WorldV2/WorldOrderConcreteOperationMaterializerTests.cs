@@ -174,10 +174,11 @@ public sealed class WorldOrderConcreteOperationMaterializerTests
 
         Assert.Equal(WorldOrderConcreteMaterializationStatus.Complete, result.Status);
         var slaveStep = Assert.Single(result.SlavePath);
-        Assert.Equal(new[] { 911, 912 }, slaveStep.Before!.Select(x => x.Id));
-        Assert.True(slaveStep.Before[0].IsMarked);
-        Assert.True(slaveStep.Before[0].MasterOrigin);
-        Assert.False(slaveStep.Before[1].IsMarked);
-        Assert.True(slaveStep.Before[1].MasterOrigin);
+        var slaveBefore = slaveStep.Before!;
+        Assert.Equal(new[] { 911, 912 }, slaveBefore.Select(x => x.Id!.Value));
+        Assert.True(slaveBefore[0].IsMarked);
+        Assert.True(slaveBefore[0].MasterOrigin);
+        Assert.False(slaveBefore[1].IsMarked);
+        Assert.True(slaveBefore[1].MasterOrigin);
     }
 }
