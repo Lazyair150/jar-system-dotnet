@@ -162,13 +162,11 @@ public static class WorldOrderConcreteOperationMaterializer
             : handoff.InputJars.Select(x => physicalByKey[x.JarKey]).ToArray();
         if (slaveIds.Distinct().Count() != slaveIds.Length)
             return Failure(WorldOrderConcreteMaterializationStatus.Undetermined, "交接批次包含重复物理 Jar");
-        var slaveStates = slaveIds.Select(id =>
-        {
-            var state = JarState.Copy(masterStates[masterIndex[id]], masterOrigin: true);
-            return state;
-        }).ToList();
-        var slaveIndex = slaveStates.Select((jar, index) => (jar, index))
-            .ToDictionary(x => x.jar.Id!.Value, x => x.index);
+        // The Slave inventory is projected only at the handoff point, after every
+        // Master operation has been replayed. This matters for a transferred Jar that
+        // was operated on the Master: its mark and final state must cross the boundary.
+        var slaveStates = new List<JarState>();
+        var slaveIndex = new Dictionary<int, int>();
 
         var operatedPhysicalIds = new HashSet<int>();
         var masterPath = new List<SolverStep>();
@@ -188,6 +186,10 @@ public static class WorldOrderConcreteOperationMaterializer
                             "交接节点输入与主台实际 Jar 状态不一致：" + version.JarKey);
                     currentSymbolic[version.JarKey] = node.OutputJars.Single(x => x.JarKey == version.JarKey);
                 }
+                slaveStates = slaveIds.Select(id =>
+                    JarState.Copy(masterStates[masterIndex[id]], masterOrigin: true)).ToList();
+                slaveIndex = slaveStates.Select((jar, index) => (jar, index))
+                    .ToDictionary(x => x.jar.Id!.Value, x => x.index);
                 continue;
             }
 
