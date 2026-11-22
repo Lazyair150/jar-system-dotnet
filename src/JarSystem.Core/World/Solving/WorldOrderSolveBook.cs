@@ -13,6 +13,7 @@ public sealed class WorldOrderSolveBook : IDisposable
 {
     private readonly OrderDemandBoard _board;
     private readonly Dictionary<int, WorldOrderSolveRecord> _records = new();
+    private readonly Dictionary<int, WorldOrderSymbolicSolutionSet> _symbolicSolutions = new();
     public WorldOrderRuleCandidateBook RuleCandidates { get; } = new();
     private bool _disposed;
 
@@ -27,6 +28,16 @@ public sealed class WorldOrderSolveBook : IDisposable
     /// <summary>返回指定订单的当前记录；未登记过时返回 null。</summary>
     public WorldOrderSolveRecord? Find(int demandId) =>
         _records.TryGetValue(demandId, out var record) ? record : null;
+
+    /// <summary>
+    /// 返回最近一次求解输入对应的资源无关规则级解集。
+    /// 它是派生缓存，不代表 Jar 已绑定或资源已预留；在 Evaluate 后可供战前构筑/诊断读取。
+    /// </summary>
+    public WorldOrderSymbolicSolutionSet? GetSymbolicSolutions(int demandId)
+    {
+        ThrowIfDisposed();
+        return _symbolicSolutions.GetValueOrDefault(demandId);
+    }
 
     /// <summary>
     /// 仅当订单仍登记、CD 已结束且求解结论匹配当前快照版本时返回结论。
@@ -165,19 +176,28 @@ public sealed class WorldOrderSolveBook : IDisposable
         if (_disposed) return;
         _board.Changed -= OnBoardChanged;
         RuleCandidates.Clear();
+        _symbolicSolutions.Clear();
         _disposed = true;
     }
 
     private void CacheRuleCandidates(OrderDemand demand, WorldSnapshot snapshot)
     {
-        if (demand.Specification is not JarOrderSpecification specification) return;
+        if (demand.Specification is not JarOrderSpecification specification ||
+            snapshot.Master == null ||
+            (specification.Type == JarSystem.Core.Config.Constants.OrderType.B && snapshot.Slave == null))
+        {
+            _symbolicSolutions.Remove(demand.Id);
+            return;
+        }
 
-        if (snapshot.Master != null)
-            RuleCandidates.GetOrBuild(snapshot, snapshot.Master, "Master", specification);
+        var profiles = new List<WorldOrderRuleCandidateProfile>
+        {
+            RuleCandidates.GetOrBuild(snapshot, snapshot.Master, "Master", specification)
+        };
+        if (specification.Type == JarSystem.Core.Config.Constants.OrderType.B)
+            profiles.Add(RuleCandidates.GetOrBuild(snapshot, snapshot.Slave!, "Slave", specification));
 
-        if (specification.Type == JarSystem.Core.Config.Constants.OrderType.B &&
-            snapshot.Slave != null)
-            RuleCandidates.GetOrBuild(snapshot, snapshot.Slave, "Slave", specification);
+        _symbolicSolutions[demand.Id] = RuleCandidates.GetOrBuildSolutions(profiles);
     }
 
     private void OnBoardChanged(OrderDemandBoardChange change)
@@ -185,11 +205,13 @@ public sealed class WorldOrderSolveBook : IDisposable
         switch (change.Kind)
         {
             case OrderDemandBoardChangeKind.Added:
+                _symbolicSolutions.Remove(change.DemandId);
                 _records[change.DemandId] =
                     WorldOrderSolveRecord.Dirty(change.DemandId, "订单加入需求区域");
                 break;
 
             case OrderDemandBoardChangeKind.Removed:
+                _symbolicSolutions.Remove(change.DemandId);
                 SetDetached(change.DemandId);
                 break;
 
