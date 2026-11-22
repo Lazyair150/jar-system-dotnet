@@ -60,7 +60,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
                 ?? WorldOrderRuleCandidateCatalog.Build(
                     snapshot, snapshot.Master, "Master", specification);
             var symbolicSolutions = candidateBook?.GetOrBuildSolutions(
-                new[] { masterProfile }, maxSolutions: 256, maxNodes: Math.Max(1, NodeBudget));
+                new[] { masterProfile }, maxSolutions: 256, maxNodes: 100_000);
             var enumeration = WorldOrderAClassBranchEnumerator.Enumerate(
                 demand.Id, masterProfile, snapshot,
                 maxBranches: 256,
