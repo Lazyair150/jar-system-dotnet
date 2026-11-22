@@ -79,6 +79,10 @@ public sealed class WorldOrderSolveBookTests
         var second = book.Evaluate(demand.Id, changedSnapshot, Registry());
         Assert.Equal(changedSnapshot.Version, second.Result!.WorldVersion);
         Assert.NotSame(first.Result, second.Result);
+
+        // ResourceVersion 变化会重做资源绑定/当前求解，但规则候选 Profile 仍复用。
+        Assert.Equal(1, book.RuleCandidates.CacheMisses);
+        Assert.True(book.RuleCandidates.CacheHits >= 1);
     }
 
     [Fact]
