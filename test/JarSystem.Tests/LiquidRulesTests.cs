@@ -102,4 +102,19 @@ public class LiquidRulesTests
         }
         _ = vocab;
     }
+
+    [Fact]
+    public void WorkshopRejectsBannedFreeLiquidOnBothFullAndPartialReceivePaths()
+    {
+        var w = new Workshop("主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" },
+            maxLiquids: 2);
+
+        Assert.False(w.AddLiquid("酒", 1));
+        Assert.Equal(0, w.TryReceiveLiquid("酒", 3));
+        Assert.Equal(2, w.TryReceiveLiquid("蜜", 3));
+        Assert.Equal(2, w.LiquidStorage["蜜"]);
+        Assert.Equal(0, w.LiquidStorage["酒"]);
+    }
 }
