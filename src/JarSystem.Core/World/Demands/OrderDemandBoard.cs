@@ -72,9 +72,7 @@ public sealed class OrderDemandBoard
         {
             if (!area.Remove(demand))
                 throw new InvalidOperationException("成功订单无法从所属区域移除。");
-            var cycleSequence = demand.RecordSuccessfulCycle();
-            if (demand.OrderDefinitionKey != null)
-                Outbox.Append(demand.Id, demand.OrderDefinitionKey, cycleSequence);
+            demand.RecordSuccessfulCycle();
             Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.Removed, demand.Id,
                 area.Kind, null));
             return DemandFulfillmentResult.RemovedFromArea;
@@ -83,12 +81,23 @@ public sealed class OrderDemandBoard
         // 持续订单成功代表一个执行周期结束。周期序号与事件写入同一需求板操作；
         // Outbox append 是纯内存、确定性操作，不调用 Space/Godot 外部代码。
         demand.EnterCooldown();
-        var completedCycle = demand.RecordSuccessfulCycle();
-        if (demand.OrderDefinitionKey != null)
-            Outbox.Append(demand.Id, demand.OrderDefinitionKey, completedCycle);
+        demand.RecordSuccessfulCycle();
         Changed?.Invoke(new OrderDemandBoardChange(OrderDemandBoardChangeKind.FulfilledRetained, demand.Id,
             area.Kind, area.Kind));
         return DemandFulfillmentResult.RetainedInArea;
+    }
+
+    /// <summary>
+    /// 在完整执行成功提交后写入成功周期事件。调用方必须先完成资源结算和预留释放；
+    /// demand 可以已按 OneShot 策略从区域移除，但仍是本次成功提交持有的稳定对象。
+    /// </summary>
+    internal void AppendSuccessfulCycleEvent(OrderDemand demand)
+    {
+        ArgumentNullException.ThrowIfNull(demand);
+        if (demand.CycleSequence <= 0)
+            throw new InvalidOperationException("订单尚无成功周期，不能写入完成事件。");
+        if (demand.OrderDefinitionKey != null)
+            Outbox.Append(demand.Id, demand.OrderDefinitionKey, demand.CycleSequence);
     }
 
     /// <summary>
