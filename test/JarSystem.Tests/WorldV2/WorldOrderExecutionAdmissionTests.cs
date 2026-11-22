@@ -366,7 +366,7 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
-    public void AdmissionRejectsSolveResultAfterWorldVersionChanges()
+    public void AdmissionRebindsSolveResultAfterResourceOnlyWorldVersionChanges()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             vocabulary: Words);
@@ -379,10 +379,10 @@ public sealed class WorldOrderExecutionAdmissionTests
 
         var result = setup.Admission.TryAdmit(demand.Id);
 
-        Assert.False(result.Success);
-        Assert.Contains("版本", result.Reason);
-        Assert.Equal(WorldOrderSolveState.Dirty, setup.Book.Find(demand.Id)!.State);
-        Assert.Equal(0, setup.Reservations.Count);
+        Assert.True(result.Success, result.Reason);
+        Assert.NotNull(result.Manifest);
+        Assert.Equal(WorldOrderSolveState.Current, setup.Book.Find(demand.Id)!.State);
+        Assert.Equal(1, setup.Reservations.Count);
     }
 
     [Fact]
