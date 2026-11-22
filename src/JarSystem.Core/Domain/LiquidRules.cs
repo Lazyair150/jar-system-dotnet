@@ -4,7 +4,8 @@ namespace JarSystem.Core.Domain;
 
 /// <summary>
 /// 「动用工作台游离液体」的回应（原则4：规则 = 概念体的能力）。
-/// 本类型只评估工作台游离液体池；Jar 内部液体不属于该池，不得送入本规则检查。
+/// 本类型提供两种明确的禁液检查：工作台游离液体的取用/存入，以及工作台对含液 Jar 的操作许可。
+/// Jar 内部液体不计入游离液体库存，但其液体种类仍受当前工作台的 Jar 操作禁令约束。
 ///
 /// <see cref="Code"/> 是稳定码（给程序看），<see cref="Reason"/> 是给人看的一句话。
 /// 两者都不随调用方变化 —— 这正是把规则从"各处 if"收成"一个能力"的目的：
@@ -49,8 +50,9 @@ public readonly struct LiquidGrant
 /// 现在三分：<b>规则</b>在 <see cref="LiquidRules"/>（纯函数），<b>库存</b>由调用方给（<c>have</c>），
 /// <b>有状态的门面</b>是 <see cref="Workshop"/> 上的三个能力（它把自己的库存喂进来）。
 ///
-/// <para><b>存储与取用是两条规则</b>（2026-11 定案）：禁令只约束工作台游离液体的<b>取用</b>（倒入罐子、支付空罐改形成本），<b>不</b>约束<b>存储</b> —— 被禁的液体可以流进工作台、留在池子里（那一格仍然存在），
-/// 只是取不出来。于是 <see cref="CanStore"/> 不再问禁令，<see cref="CanPay"/>/<see cref="Check"/> 仍然问。</para>
+/// <para><b>工作台禁液作用域</b>：游离液体不能被该台取用或存入；
+/// 已在 Jar 内部的液体不属于游离液体账目，但只要 Jar 留在该台，该台也不能对这只 Jar 执行操作。
+/// 资源迁移本身不是 Jar 操作，迁移后由接收工作台的禁令重新决定能否操作。</para>
 /// </summary>
 public readonly struct LiquidRules
 {
@@ -71,8 +73,15 @@ public readonly struct LiquidRules
     /// <summary>禁令门：这整种液体在本台是否不可用。</summary>
     public bool IsBanned(string liquid) => _capability?.IsBanned(liquid) ?? false;
 
-    /// <summary>工作台游离液体是否可取用（只答 staging ban）。</summary>
+    /// <summary>工作台游离液体是否可取用。</summary>
     public LiquidGrant Check(string liquid) =>
+        IsBanned(liquid) ? LiquidGrant.Banned(liquid) : LiquidGrant.Yes();
+
+    /// <summary>
+    /// 当前工作台是否允许对内部装有该液体的 Jar 执行操作。
+    /// 这是 Jar 操作许可，不是从游离液体池扣账；Jar 的主从/工作台迁移不调用此检查。
+    /// </summary>
+    public LiquidGrant CheckJarOperation(string liquid) =>
         IsBanned(liquid) ? LiquidGrant.Banned(liquid) : LiquidGrant.Yes();
 
     /// <summary>能不能取出 <paramref name="amount"/> 份（禁令 + 库存）。</summary>
@@ -84,9 +93,11 @@ public readonly struct LiquidRules
         return have >= amount ? LiquidGrant.Yes() : LiquidGrant.Insufficient(liquid);
     }
 
-    /// <summary>能不能放进 <paramref name="amount"/> 份（**只问容量**：禁液也能存进来，只是取不出来）。</summary>
+    /// <summary>能不能存入工作台游离液体池（禁令 + 容量）。</summary>
     public LiquidGrant CanStore(string liquid, int amount, int have)
     {
+        var policy = Check(liquid);
+        if (!policy.Granted) return policy;
         if (amount <= 0) return LiquidGrant.Yes();
         if (_capacity <= 0) return LiquidGrant.Yes();
         return have + amount <= _capacity ? LiquidGrant.Yes() : LiquidGrant.OverCapacity(liquid);
