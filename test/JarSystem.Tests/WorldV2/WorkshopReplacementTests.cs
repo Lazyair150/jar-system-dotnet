@@ -933,7 +933,6 @@ public sealed class WorkshopReplacementTests
         var secondMaster = CreateWorkshop("主台 B");
         var slave = CreateWorkshop("从台");
         var deliveredJar = new Jar("圆罐", vocabulary: vocabulary);
-        secondMaster.AddJar(deliveredJar);
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
         {
             new JarOrderSpecificationSolver(new StateSpaceSolver())
@@ -953,6 +952,7 @@ public sealed class WorkshopReplacementTests
         Assert.Same(secondMaster, world.Roster.Master);
         Assert.Equal(3, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
         Assert.Equal(1, ship.GetAmount("酒"));
+        secondMaster.AddJar(deliveredJar);
 
         // A 类订单只在主台执行，优先消耗预置余额；未消耗的 2 份仍属于主台预置账户。
         var demand = new OrderDemand(new JarOrderSpecification(
