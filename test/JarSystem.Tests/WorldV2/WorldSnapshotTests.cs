@@ -204,12 +204,9 @@ public sealed class WorldSnapshotTests
         Assert.Equal(resourceChanged.WorkshopProfileVersion, ruleChanged.WorkshopProfileVersion);
         Assert.Equal(resourceChanged.ResourceVersion, ruleChanged.ResourceVersion);
 
-        var otherProfile = new Workshop("主台", new List<string> { "方罐" });
-        otherProfile.AddJar(new Jar("圆罐", id: 700));
-        otherProfile.AddLiquid("酒", 1);
-        otherProfile.AddLiquid("蜜", 1);
-        var profileChanged = WorldSnapshotFactory.Capture(
-            new WorkshopRoster(new[] { otherProfile }, otherProfile));
+        master.ReplaceCapability(new WorkshopCapability(
+            new[] { "方罐" }, System.Array.Empty<string>(), System.Array.Empty<string>()));
+        var profileChanged = WorldSnapshotFactory.Capture(roster);
         Assert.Equal(baseline.RuleSetVersion, profileChanged.RuleSetVersion);
         Assert.NotEqual(baseline.WorkshopProfileVersion, profileChanged.WorkshopProfileVersion);
         Assert.Equal(baseline.ResourceVersion, profileChanged.ResourceVersion);
