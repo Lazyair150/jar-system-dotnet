@@ -791,7 +791,7 @@ public sealed class WorkshopReplacementTests
         var resources = new ResourceArea(producers, production, 0, 0, ship);
         Workshop CreateWorkshop(string name, int stagingCapacity = 4) => new(name, new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: stagingCapacity);
-        var firstMaster = CreateWorkshop("主台 A", stagingCapacity: 2);
+        var firstMaster = CreateWorkshop("主台 A");
         var secondMaster = CreateWorkshop("备用台 B");
         var slave = CreateWorkshop("从台");
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
@@ -868,9 +868,9 @@ public sealed class WorkshopReplacementTests
             ["蜜"] = 2
         });
         var resources = new ResourceArea(new ProducerModule(vocabulary), production, 0, 0, ship);
-        Workshop CreateWorkshop(string name) => new(name, new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
-        var firstMaster = CreateWorkshop("主台 A");
+        Workshop CreateWorkshop(string name, int stagingCapacity = 4) => new(name, new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: stagingCapacity);
+        var firstMaster = CreateWorkshop("主台 A", stagingCapacity: 2);
         var secondMaster = CreateWorkshop("备用台 B");
         var slave = CreateWorkshop("从台");
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
