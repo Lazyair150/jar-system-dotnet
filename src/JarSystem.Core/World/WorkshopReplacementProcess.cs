@@ -31,6 +31,7 @@ public sealed class WorkshopReplacementProcess
     private readonly WorkshopSwitchEvent? _masterSwitch;
     private readonly Func<Workshop, WorkshopPrefillTransaction>? _masterPrefill;
     private readonly Action<WorkshopPrefillTransaction>? _rollbackMasterPrefill;
+    private readonly Action<Workshop>? _returnRetiredMasterPrefill;
     private WorkshopPrefillTransaction? _prefillTransaction;
 
     private long _phaseElapsedMilli;
@@ -66,7 +67,8 @@ public sealed class WorkshopReplacementProcess
         long phaseDurationMilli,
         Func<Workshop, Workshop, WorkshopSwitchEvent>? masterSwitchFactory = null,
         Func<Workshop, WorkshopPrefillTransaction>? masterPrefill = null,
-        Action<WorkshopPrefillTransaction>? rollbackMasterPrefill = null)
+        Action<WorkshopPrefillTransaction>? rollbackMasterPrefill = null,
+        Action<Workshop>? returnRetiredMasterPrefill = null)
     {
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _role = role;
@@ -77,6 +79,7 @@ public sealed class WorkshopReplacementProcess
         _phaseDurationMilli = phaseDurationMilli;
         _masterPrefill = role == WorkshopRole.Master ? masterPrefill : null;
         _rollbackMasterPrefill = role == WorkshopRole.Master ? rollbackMasterPrefill : null;
+        _returnRetiredMasterPrefill = role == WorkshopRole.Master ? returnRetiredMasterPrefill : null;
 
         _oldWorkshop = role switch
         {
@@ -204,6 +207,20 @@ public sealed class WorkshopReplacementProcess
                     {
                         Fail(ex.Message);
                         return;
+                    }
+
+                    try
+                    {
+                        // 旧主台已正式退出岗位；其未消费的预置余额现在才允许返还自机液库。
+                        // 取消/迁徙失败路径不会触达此回调，因此旧主台预置余额保持原样。
+                        _returnRetiredMasterPrefill?.Invoke(_oldWorkshop);
+                    }
+                    catch (Exception returnError)
+                    {
+                        // 岗位已提交，返还结果不确定时冻结世界；不得回滚迁徙或自动重试返还。
+                        FailureReason = "岗位已提交，但旧主台预置液体返还失败，资源结果不确定: " + returnError.Message;
+                        _finished = true;
+                        throw;
                     }
 
                     try
