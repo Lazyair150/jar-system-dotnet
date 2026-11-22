@@ -36,8 +36,8 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         ArgumentNullException.ThrowIfNull(checkpoint);
         var wire = new WorldV2ExecutionCheckpointWireDto
         {
-            Shapes = CollectShapes(checkpoint),
-            Liquids = CollectLiquids(checkpoint),
+            Shapes = checkpoint.Shapes.ToList(),
+            Liquids = checkpoint.Liquids.ToList(),
             ResourceArea = ResourceAreaWireDto.FromSnapshot(checkpoint.ResourceArea),
             DemandBoard = DemandBoardWireDto.FromSnapshot(checkpoint.DemandBoard),
             ShipLiquidInventory = ShipLiquidInventoryWireDto.FromSnapshot(checkpoint.ShipLiquidInventory),
@@ -74,7 +74,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         return new WorldV2ExecutionResourceCheckpoint(
             resourceArea, demandBoard, configurationFingerprint, ship,
             master, slave, admission, reservations, leases, ledger, clock,
-            RuntimeLedgerTick, sessions);
+            RuntimeLedgerTick, Shapes, Liquids, sessions);
     }
 
     public void Validate()
@@ -96,47 +96,6 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         if (Sessions.Any(item => item == null) ||
             Sessions.Select(item => item.DemandId).Distinct().Count() != Sessions.Count)
             throw new InvalidOperationException("根级检查点包含空 Session 或重复 Session ID.");
-    }
-
-    private static List<string> CollectShapes(WorldV2ExecutionResourceCheckpoint checkpoint)
-    {
-        // Vocabulary is configuration data, not runtime accumulator state. An accumulator
-        // may be empty (or a producer may currently have no remainder), so it cannot be
-        // used as the authoritative list of supported shapes.
-        return checkpoint.ResourceArea.Producers.Producers
-            .SelectMany(item => item.Value.Keys)
-            .Concat(checkpoint.ResourceArea.Producers.GeneratorAccumulatedMicro.Keys)
-            .Concat(checkpoint.ResourceArea.Warehouse.Jars.Select(jar => jar.Shape))
-            .Concat(checkpoint.MasterWorkshop.BaseMarks)
-            .Concat(checkpoint.MasterWorkshop.AdditionalMarks)
-            .Concat(checkpoint.MasterWorkshop.Jars.Select(jar => jar.Shape))
-            .Concat(checkpoint.SlaveWorkshop?.BaseMarks ?? Array.Empty<string>())
-            .Concat(checkpoint.SlaveWorkshop?.AdditionalMarks ?? Array.Empty<string>())
-            .Concat(checkpoint.SlaveWorkshop?.Jars.Select(jar => jar.Shape) ?? Array.Empty<string>())
-            .Concat(checkpoint.DemandBoard.PassiveDemands.Concat(checkpoint.DemandBoard.ActiveDemands)
-                .SelectMany(demand => demand.Requirements).Select(requirement => requirement.Shape))
-            .Where(shape => !string.IsNullOrWhiteSpace(shape))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(shape => shape, StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static List<string> CollectLiquids(WorldV2ExecutionResourceCheckpoint checkpoint)
-    {
-        // The ship inventory may contain only non-zero starting balances. The production
-        // rate map is initialized for every configured liquid and is the complete domain
-        // vocabulary source for a WorldV2Factory-created context.
-        return checkpoint.ResourceArea.LiquidProduction.Rates.Keys
-            .Concat(checkpoint.ShipLiquidInventory.Balances.Keys)
-            .Concat(checkpoint.ResourceArea.Warehouse.LiquidWarehouse.Keys)
-            .Concat(checkpoint.MasterWorkshop.BannedLiquids)
-            .Concat(checkpoint.MasterWorkshop.LiquidStorage.Keys)
-            .Concat(checkpoint.SlaveWorkshop?.BannedLiquids ?? Array.Empty<string>())
-            .Concat(checkpoint.SlaveWorkshop?.LiquidStorage.Keys ?? Array.Empty<string>())
-            .Where(liquid => !string.IsNullOrWhiteSpace(liquid))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(liquid => liquid, StringComparer.Ordinal)
-            .ToList();
     }
 
     private static WorldResourceReservationBookWireDto Clone(WorldResourceReservationBookWireDto source) =>
