@@ -25,7 +25,7 @@ internal class SolverState
     public SolverState(List<JarState> jars, Dictionary<string, int> liquids, WorkshopInfo workshopInfo)
         : this(
             jars, liquids, workshopInfo,
-            RuleContext.From(workshopInfo.Capability),
+            workshopInfo.Rules ?? RuleContext.From(workshopInfo.Capability),
             workshopInfo.MaxLiquidCapacity == int.MaxValue
                 ? workshopInfo.MaxLiquids
                 : int.MaxValue)
