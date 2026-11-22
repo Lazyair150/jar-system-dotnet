@@ -227,6 +227,57 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
     }
 
     [Fact]
+    public void TwoIndependentPreparationJarsMustCoverAggregatedSameLiquidDemand()
+    {
+        var requirementA = Candidate(
+            0, "requirement-a", null, "finished-a", null, consumedFree: "X");
+        var requirementB = Candidate(
+            1, "requirement-b", null, "finished-b", null, consumedFree: "X");
+        var preparationA = new WorldOrderRuleCandidate(
+            -1, "source-a", "X", "PREPARE_POUR_OUT", "prepare-a",
+            1, "source-a", null, null, null, "X", null);
+        var preparationB = new WorldOrderRuleCandidate(
+            -1, "source-b", "X", "PREPARE_POUR_OUT", "prepare-b",
+            1, "source-b", null, null, null, "X", null);
+        var profile = Profile(
+            new[]
+            {
+                ("finished-a", (string?)null, new[] { requirementA }),
+                ("finished-b", (string?)null, new[] { requirementB })
+            },
+            new[] { preparationA, preparationB });
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 2, masterBannedLiquids: new[] { "X" });
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
+        Assert.Equal(4, result.ExploredBranches);
+        var group = Assert.Single(result.Alternatives!.Groups);
+        Assert.Empty(group.RequiredFreeLiquid);
+        // Two requirement Jars plus two distinct resource-producing Jars cross the handoff.
+        Assert.Equal(4, group.RequiredJarStates.Values.Sum());
+    }
+
+    [Fact]
+    public void NodeBudgetExhaustionNeverClaimsCompleteAlternatives()
+    {
+        var requirement = Candidate(
+            0, "target-jar", null, "finished", null, consumedFree: "X");
+        var preparation = new WorldOrderRuleCandidate(
+            -1, "liquid-source-jar", "X", "PREPARE_POUR_OUT", "prepare-source-X",
+            1, "liquid-source-jar", null, null, null, "X", null);
+        var profile = Profile(
+            new[] { ("finished", (string?)null, new[] { requirement }) },
+            new[] { preparation });
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 2, maxNodes: 1);
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Undetermined, result.Status);
+        Assert.False(result.Alternatives?.IsComplete ?? false);
+    }
+
+    [Fact]
     public void OpaqueProfileRemainsUndetermined()
     {
         var profile = new WorldOrderRuleCandidateProfile(
