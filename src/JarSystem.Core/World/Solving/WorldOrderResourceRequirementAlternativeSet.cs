@@ -129,11 +129,33 @@ public sealed class WorldOrderResourceRequirementGroup
 
         Requirements = Array.AsReadOnly(copied);
         GroupId = groupId;
+
+        var freeLiquid = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in copied.Where(x => x.Kind == WorldOrderBoundaryResourceKind.FreeLiquid))
+            freeLiquid[item.Liquid!] = checked(freeLiquid.GetValueOrDefault(item.Liquid!) + item.Amount);
+        RequiredFreeLiquid = new ReadOnlyDictionary<string, int>(freeLiquid);
+
+        var jarStates = copied.Where(x => x.Kind == WorldOrderBoundaryResourceKind.JarState)
+            .GroupBy(x => new WorldOrderJarStateKey(x.JarShape!, x.JarLiquid))
+            .ToDictionary(x => x.Key, x => x.Count());
+        RequiredJarStates = new ReadOnlyDictionary<WorldOrderJarStateKey, int>(jarStates);
     }
 
     public string ProviderRole => Requirements[0].ProviderRole;
     public string ConsumerRole => Requirements[0].ConsumerRole;
+
+    /// <summary>
+    /// Aggregate same-kind free-liquid conditions within this AND group.
+    /// The source requirements remain available for provenance, but a monitor must
+    /// compare the sum against one live staging balance, not test each atom separately.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> RequiredFreeLiquid { get; }
+
+    /// <summary>Required Jar counts by exact shape/internal-liquid state.</summary>
+    public IReadOnlyDictionary<WorldOrderJarStateKey, int> RequiredJarStates { get; }
 }
+
+public sealed record WorldOrderJarStateKey(string Shape, string? Liquid);
 
 public enum WorldOrderResourceRequirementSetStatus
 {
