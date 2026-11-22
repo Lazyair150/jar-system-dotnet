@@ -167,7 +167,7 @@ public sealed class WorldOrderSolveBookTests
         var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
         Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
 
-        Assert.True(master.RemoveJar(original));
+        Assert.Same(original, master.RemoveJar(original));
         var replacement = new Jar("圆罐");
         Assert.True(master.AddJar(replacement));
         var changedSnapshot = WorldSnapshotFactory.Capture(roster);
