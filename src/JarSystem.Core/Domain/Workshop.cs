@@ -499,7 +499,7 @@ public class Workshop
             return ReshapeGrant.No("direction", "无法从" + jar.Shape + "转化为" + to);
 
         // 规则都在 ReshapeRules 里（与规则表同一份实现），这里只负责"按执行者的顺序问一遍"。
-        var reshape = new ReshapeRules(_capability, Liquid);
+        var reshape = new ReshapeRules(_rules, Liquid);
 
         if (jar.IsEmpty()) return reshape.PayCost(null, _liquidStorage);
 
@@ -523,7 +523,7 @@ public class Workshop
         if (!CanTransform(jar.Shape, to))
             return ReshapeGrant.No("direction", "无法从" + jar.Shape + "转化为" + to);
 
-        var reshape = new ReshapeRules(_capability, Liquid);
+        var reshape = new ReshapeRules(_rules, Liquid);
         if (jar.IsEmpty())
         {
             foreach (var pair in scope.Balance)
