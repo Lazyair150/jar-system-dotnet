@@ -13,6 +13,7 @@ Godot Main scene / UI
 WorldV2HostNode
   - Godot delta -> world-time milliseconds
   - pause / speed controls
+  - master/slave workshop-individual replacement commands and cancellation
   - snapshot-changed notification
         |
         v
@@ -36,7 +37,7 @@ Godot 的 `_Process(delta)` 提供墙钟秒数。HostNode 只把秒转换为世�
 
 ## UI 边界
 
-UI 只订阅无参数的 `SnapshotChanged` 通知，然后调用 HostNode 暴露的 DTO 快照刷新显示。不会把 DTO 或 Core 对象塞进 Godot Signal，也不会直接访问 Host、Context 或领域实体。
+UI 只订阅无参数的 `SnapshotChanged` 通知，然后调用 HostNode 暴露的 DTO 快照刷新显示。工作台替换通过 HostNode -> Bridge -> ApplicationService -> Core 命令链路执行；候选工作台来自快照中的备用个体列表。从台候选只显示无资源的备用个体。UI 不会把 DTO 或 Core 对象塞进 Godot Signal，也不会直接访问 Host、Context 或领域实体。
 
 ## 打开与运行
 
@@ -53,6 +54,6 @@ dotnet build hosts/godot/WorldV2/JarWorldV2.csproj -c Release
 
 ## 当前范围
 
-本阶段只验证最小端到端链路：Godot 启动 -> 创建 World v2 -> 按墙钟增量推进 -> Core 应用暂停/倍速 -> DTO 快照 -> UI 显示与检查点 JSON 保存/恢复 -> 节点退出释放会话。
+当前宿主链路覆盖：Godot 启动 -> 创建 World v2 -> 按墙钟增量推进 -> Core 应用暂停/倍速 -> DTO 快照 -> 主/从工作台个体替换与取消 -> 检查点 JSON 保存/恢复 -> 节点退出释放会话。
 
-订单编辑、工作台交互、动画和正式游戏玩法属于后续阶段，不在这个最小宿主里提前实现。
+订单编辑、工作台动画和正式游戏玩法仍属于后续阶段。替换规则本身由 Core 决定；Godot 只提供候选选择、命令发送和结果展示。
