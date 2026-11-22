@@ -66,9 +66,6 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     [Fact]
     public void ExplicitSlaveOperationOrderIsIndependentOfRequirementIndex()
     {
-        var consumer = Candidate(
-            0, "consumer-jar", null, "RESHAPE_EMPTY", "consumer-finished", null,
-            consumedFree: "X");
         var producer = Candidate(
             1, "producer-jar", null, "RESHAPE_EMPTY", "producer-finished", null,
             producedFree: "X");
