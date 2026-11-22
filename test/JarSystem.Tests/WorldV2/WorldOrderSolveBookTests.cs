@@ -125,6 +125,24 @@ public sealed class WorldOrderSolveBookTests
         var rebuilt = book.GetSymbolicSolutions(demand.Id, profileChanged);
         Assert.NotNull(rebuilt);
         Assert.NotSame(first, rebuilt);
+
+        master.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "运行时规则禁止匹配圆罐"
+        });
+        var ruleChanged = WorldSnapshotFactory.Capture(roster);
+        Assert.NotEqual(profileChanged.RuleSetVersion, ruleChanged.RuleSetVersion);
+        Assert.Null(book.GetSymbolicSolutions(demand.Id, ruleChanged));
+
+        book.Evaluate(demand.Id, ruleChanged, Registry());
+        var ruleRebuilt = book.GetSymbolicSolutions(demand.Id, ruleChanged);
+        Assert.NotNull(ruleRebuilt);
+        Assert.NotSame(rebuilt, ruleRebuilt);
+        Assert.DoesNotContain(
+            ruleRebuilt!.Solutions.SelectMany(solution => solution.Steps),
+            step => step.Candidate.Operation == "MATCH");
     }
 
     [Fact]
