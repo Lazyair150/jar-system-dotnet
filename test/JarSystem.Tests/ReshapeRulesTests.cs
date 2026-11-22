@@ -83,24 +83,25 @@ public class ReshapeRulesTests
     }
 
     [Fact]
-    public void SelfConsumeRefusesABannedLiquidWithTheExecutorsWording()
+    public void SelfConsumeUsesJarInternalLiquidWithoutConsultingStagingBan()
     {
         var rules = Rules();
 
-        var ok = rules.SelfConsume("蜜");
-        Assert.True(ok.Granted);
+        Assert.True(rules.SelfConsume("蜜").Granted);
+        Assert.True(rules.SelfConsume("酒").Granted);
+        Assert.Equal("not-full", rules.SelfConsume(null).Code);
 
-        var banned = rules.SelfConsume("酒");
-        Assert.False(banned.Granted);
-        Assert.Equal("banned", banned.Code);
-
-        // 文案必须与"真的去执行"逐字一致，否则同一个"不行"会有两种说法。
+        // 玄武台 ban 酒，但这份酒始终在 Jar 内部，没有进入工作台游离液体 staging。
         var w = Xuanwu();
         var jar = new Jar("圆罐", "酒", null, Vocab());
         w.AddJar(jar);
         var (execOk, execReason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
-        Assert.False(execOk);
-        Assert.Equal(execReason, banned.Reason);
+
+        Assert.True(execOk, execReason);
+        Assert.Equal("方罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
+        Assert.Equal(0, w.LiquidStorage["酒"]);
     }
 
     [Fact]
