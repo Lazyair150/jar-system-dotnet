@@ -160,6 +160,7 @@ public sealed class WorldV2HostServiceTests
         var beforePump = application.CaptureExecutionResourceCheckpoint();
         var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
         Assert.Contains("方罐", beforePumpWire.Shapes);
+        Assert.Contains("蜜", beforePumpWire.Liquids);
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
             beforePumpWire, beforePump.ConfigurationFingerprint);
         var decodedWire = WorldV2CheckpointJsonCodec
