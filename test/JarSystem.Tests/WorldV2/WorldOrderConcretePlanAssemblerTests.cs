@@ -117,4 +117,36 @@ public sealed class WorldOrderConcretePlanAssemblerTests
         Assert.Equal(0, result.ResourceReplay!.SlaveStagingPeakCapacity);
         Assert.NotNull(result.CandidatePlan);
     }
+
+    [Fact]
+    public void ForgedCandidateCannotTurnProfileMismatchIntoAnInfeasibleResourceVerdict()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" });
+        master.AddJar(new Jar("圆罐", id: 1031));
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(new[] { master }, master));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } }, "A");
+        var profile = WorldOrderRuleCandidateCatalog.Build(
+            world, world.Master!, "Master", specification);
+        var forged = new WorldOrderRuleCandidate(
+            0, "圆罐", null, "POUR_IN", "forged.pour-in", 1,
+            "圆罐", "酒", null, "酒", null, null);
+        var input = new WorldOrderSymbolicJarVersion("forged-jar", 0, "Master", "圆罐", null);
+        var output = new WorldOrderSymbolicJarVersion(
+            "forged-jar", 1, "Master", "圆罐", "酒", true);
+        var node = WorldOrderSymbolicOperationNode.Rule(
+            "forged-pour-in", 0, "Master", 0, forged, input, output);
+        var program = new WorldOrderSymbolicOperationProgram(
+            false, "Master", "Slave", new[] { node },
+            System.Array.Empty<WorldOrderSymbolicOperationDependency>());
+        var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
+
+        var result = WorldOrderConcretePlanAssembler.Assemble(
+            103, program, binding, world, profile);
+
+        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+        Assert.Contains("不属于当前规则 Profile", result.Reason);
+        Assert.Null(result.ResourceReplay);
+    }
 }
