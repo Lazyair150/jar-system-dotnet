@@ -89,6 +89,28 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
     }
 
     [Fact]
+    public void MasterBannedLiquidCannotAppearAsFreeLiquidOrInsideTransferredJar()
+    {
+        var freeLiquidGroup = new WorldOrderResourceRequirementGroup("free", new[]
+        {
+            WorldOrderBoundaryRequirement.FreeLiquid("Master", "Slave", "forbidden", 1, "slave-op")
+        });
+        Assert.Throws<ArgumentException>(() => new WorldOrderResourceRequirementAlternativeSet(
+            WorldOrderResourceRequirementSetStatus.Complete,
+            "rules-v1", "workshops-v1", "spec-v1", "Master", "Slave",
+            new[] { freeLiquidGroup }, providerBannedLiquids: new[] { "forbidden" }));
+
+        var jarGroup = new WorldOrderResourceRequirementGroup("jar", new[]
+        {
+            WorldOrderBoundaryRequirement.JarState("Master", "Slave", "wide", "forbidden", "slave-op")
+        });
+        Assert.Throws<ArgumentException>(() => new WorldOrderResourceRequirementAlternativeSet(
+            WorldOrderResourceRequirementSetStatus.Complete,
+            "rules-v1", "workshops-v1", "spec-v1", "Master", "Slave",
+            new[] { jarGroup }, providerBannedLiquids: new[] { "forbidden" }));
+    }
+
+    [Fact]
     public void UndeterminedMayCarryPartialGroups_ButDoesNotClaimCompleteness()
     {
         var partial = new WorldOrderResourceRequirementGroup("partial", new[]
