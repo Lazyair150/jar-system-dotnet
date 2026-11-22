@@ -302,6 +302,9 @@ public sealed class WorldV2ApplicationService
                 CopyList(sessions),
                 context.Reservations.Count,
                 ToReplacementDto(context.Runtime.ActiveReplacement),
+                CopyList(context.Roster.Workshops
+                    .Where(context.Roster.IsSpare)
+                    .Select(workshop => new WorldV2ReplacementTargetDto(workshop.Name, workshop.HasResources))),
                 ToShipLiquidInventoryDto(context.ShipLiquidInventory));
         });
         return snapshot!;
@@ -453,6 +456,9 @@ public sealed record WorldV2WorkshopReplacementDto(
     string? FailureReason,
     string? CommitWarning);
 
+/// <summary>当前不占据主/从岗位的工作台候选；只暴露 UI 选择所需的脱离式状态。</summary>
+public sealed record WorldV2ReplacementTargetDto(string Name, bool HasResources);
+
 public sealed record WorldV2SnapshotDto(
     long WorldTimeMilli,
     long LogicalTimeMilli,
@@ -468,4 +474,5 @@ public sealed record WorldV2SnapshotDto(
     IReadOnlyList<WorldV2ExecutionSessionDto> ActiveSessions,
     int ReservationCount,
     WorldV2WorkshopReplacementDto? Replacement,
+    IReadOnlyList<WorldV2ReplacementTargetDto> SpareWorkshops,
     WorldV2ShipLiquidInventoryDto? ShipLiquidInventory);
