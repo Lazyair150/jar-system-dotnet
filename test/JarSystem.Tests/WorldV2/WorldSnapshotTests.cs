@@ -186,7 +186,7 @@ public sealed class WorldSnapshotTests
     {
         var stack = new ModifierStack();
         var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
-        master.AddJar(new Jar("圆罐"));
+        master.AddJar(new Jar("圆罐", id: 700));
         master.AddLiquid("酒", 1);
         var roster = new WorkshopRoster(new[] { master }, master);
 
@@ -205,7 +205,7 @@ public sealed class WorldSnapshotTests
         Assert.Equal(resourceChanged.ResourceVersion, ruleChanged.ResourceVersion);
 
         var otherProfile = new Workshop("主台", new List<string> { "方罐" });
-        otherProfile.AddJar(new Jar("圆罐"));
+        otherProfile.AddJar(new Jar("圆罐", id: 700));
         otherProfile.AddLiquid("酒", 1);
         otherProfile.AddLiquid("蜜", 1);
         var profileChanged = WorldSnapshotFactory.Capture(
