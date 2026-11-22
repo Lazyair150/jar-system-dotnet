@@ -22,14 +22,17 @@ public sealed class WorldOrderSymbolicOperationProgramTests
             null, consumedFree, producedFree, null);
 
     [Fact]
-    public void BClassProgramHasOneHandoffBetweenMasterAndSlaveOperations()
+    public void BClassProgramUsesDistinctJarsForMasterAndSlaveOperations()
     {
-        var masterInput = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", "酒");
-        var masterOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "圆罐", null);
+        var masterInput = new WorldOrderSymbolicJarVersion("jar-master-resource", 0, "Master", "圆罐", "酒");
+        var masterOutput = new WorldOrderSymbolicJarVersion(
+            "jar-master-resource", 1, "Master", "圆罐", null, isMarked: true);
+        var slaveInitial = new WorldOrderSymbolicJarVersion("jar-slave-requirement", 0, "Master", "圆罐", null);
         var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
-            "handoff", 1, "Master", "Slave", new[] { masterOutput });
+            "handoff", 1, "Master", "Slave", new[] { slaveInitial });
         var slaveInput = handoff.OutputJars[0];
-        var slaveOutput = new WorldOrderSymbolicJarVersion("jar-A", 3, "Slave", "方罐", null);
+        var slaveOutput = new WorldOrderSymbolicJarVersion(
+            "jar-slave-requirement", 2, "Slave", "方罐", null, isMarked: true);
 
         var master = WorldOrderSymbolicOperationNode.Rule(
             "master-pour-out", 0, "Master", null,
@@ -45,24 +48,27 @@ public sealed class WorldOrderSymbolicOperationProgramTests
             new[] { slave, handoff, master },
             new[]
             {
-                WorldOrderSymbolicOperationDependency.JarState("master-pour-out", "handoff", "jar-A", 1),
-                WorldOrderSymbolicOperationDependency.JarState("handoff", "slave-reshape", "jar-A", 2),
                 WorldOrderSymbolicOperationDependency.FreeLiquid("master-pour-out", "handoff", "酒"),
-                WorldOrderSymbolicOperationDependency.FreeLiquid("handoff", "slave-reshape", "酒")
+                WorldOrderSymbolicOperationDependency.FreeLiquid("handoff", "slave-reshape", "酒"),
+                WorldOrderSymbolicOperationDependency.JarState(
+                    "handoff", "slave-reshape", "jar-slave-requirement", 1)
             });
 
         Assert.Equal(new[] { "master-pour-out", "handoff", "slave-reshape" },
             new List<string>(System.Linq.Enumerable.Select(program.Nodes, x => x.NodeId)));
         Assert.Single(program.Nodes, x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
-        Assert.Equal("jar-A", handoff.InputJars[0].JarKey);
+        Assert.Equal("jar-slave-requirement", handoff.InputJars[0].JarKey);
         Assert.Equal("Slave", handoff.OutputJars[0].WorkshopRole);
+        Assert.True(masterOutput.IsMarked);
+        Assert.False(handoff.OutputJars[0].IsMarked);
+        Assert.True(slaveOutput.IsMarked);
     }
 
     [Fact]
     public void AClassProgramDoesNotContainHandoff()
     {
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", null);
-        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null);
+        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null, isMarked: true);
         var node = WorldOrderSymbolicOperationNode.Rule(
             "master-step", 0, "Master", 0,
             Candidate(0, "圆罐", null, "RESHAPE_FULL", "方罐", null),
@@ -101,7 +107,7 @@ public sealed class WorldOrderSymbolicOperationProgramTests
         var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
             "handoff", 1, "Master", "Slave", Array.Empty<WorldOrderSymbolicJarVersion>());
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Slave", "圆罐", null);
-        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Slave", "方罐", null);
+        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Slave", "方罐", null, isMarked: true);
         var slave = WorldOrderSymbolicOperationNode.Rule(
             "slave-step", 0, "Slave", 0,
             Candidate(0, "圆罐", null, "RESHAPE_FULL", "方罐", null),
@@ -116,16 +122,19 @@ public sealed class WorldOrderSymbolicOperationProgramTests
     [Fact]
     public void FreeLiquidCannotBypassTheSingleHandoff()
     {
-        var masterInput = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", "酒");
-        var masterOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "圆罐", null);
+        var masterInput = new WorldOrderSymbolicJarVersion("jar-master-resource", 0, "Master", "圆罐", "酒");
+        var masterOutput = new WorldOrderSymbolicJarVersion(
+            "jar-master-resource", 1, "Master", "圆罐", null, isMarked: true);
         var master = WorldOrderSymbolicOperationNode.Rule(
             "master-step", 0, "Master", null,
             Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null, producedFree: "酒"),
             masterInput, masterOutput);
+        var slaveInitial = new WorldOrderSymbolicJarVersion("jar-slave-resource", 0, "Master", "圆罐", null);
         var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
-            "handoff", 1, "Master", "Slave", new[] { masterOutput });
+            "handoff", 1, "Master", "Slave", new[] { slaveInitial });
         var slaveInput = handoff.OutputJars[0];
-        var slaveOutput = new WorldOrderSymbolicJarVersion("jar-A", 3, "Slave", "方罐", null);
+        var slaveOutput = new WorldOrderSymbolicJarVersion(
+            "jar-slave-resource", 2, "Slave", "方罐", null, isMarked: true);
         var slave = WorldOrderSymbolicOperationNode.Rule(
             "slave-step", 2, "Slave", 0,
             Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "酒"),
@@ -136,9 +145,9 @@ public sealed class WorldOrderSymbolicOperationProgramTests
                 true, "Master", "Slave", new[] { master, handoff, slave },
                 new[]
                 {
-                    WorldOrderSymbolicOperationDependency.JarState("master-step", "handoff", "jar-A", 1),
-                    WorldOrderSymbolicOperationDependency.JarState("handoff", "slave-step", "jar-A", 2),
-                    WorldOrderSymbolicOperationDependency.FreeLiquid("master-step", "slave-step", "酒")
+                    WorldOrderSymbolicOperationDependency.FreeLiquid("master-step", "slave-step", "酒"),
+                    WorldOrderSymbolicOperationDependency.JarState(
+                        "handoff", "slave-step", "jar-slave-resource", 1)
                 }));
     }
 
@@ -147,7 +156,7 @@ public sealed class WorldOrderSymbolicOperationProgramTests
     {
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", null);
         var firstOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null);
-        var secondOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "三角罐", null);
+        var secondOutput = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "三角罐", null, isMarked: true);
         var first = WorldOrderSymbolicOperationNode.Rule(
             "first", 0, "Master", 0,
             Candidate(0, "圆罐", null, "RESHAPE_FULL", "方罐", null),
@@ -167,7 +176,7 @@ public sealed class WorldOrderSymbolicOperationProgramTests
     public void RuleCandidateMustMatchItsJarFactsAndPreparationUsesNoRequirementIndex()
     {
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", "酒");
-        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "圆罐", null);
+        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "圆罐", null, isMarked: true);
         var candidate = Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null, producedFree: "酒");
 
         var node = WorldOrderSymbolicOperationNode.Rule(
@@ -277,7 +286,7 @@ public sealed class WorldOrderSymbolicOperationProgramTests
             "slave-after-handoff", 1, "Slave", 0,
             Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "酒"),
             receivedJar,
-            new WorldOrderSymbolicJarVersion("jar-B", 2, "Slave", "方罐", null));
+            new WorldOrderSymbolicJarVersion("jar-B", 2, "Slave", "方罐", null, isMarked: true));
 
         Assert.Throws<ArgumentException>(() =>
             new WorldOrderSymbolicOperationProgram(
@@ -293,14 +302,14 @@ public sealed class WorldOrderSymbolicOperationProgramTests
     public void FreeLiquidDependencyMustMatchTheProducerAndConsumerEffects()
     {
         var producerInput = new WorldOrderSymbolicJarVersion("jar-producer", 0, "Master", "圆罐", "酒");
-        var producerOutput = new WorldOrderSymbolicJarVersion("jar-producer", 1, "Master", "圆罐", null);
+        var producerOutput = new WorldOrderSymbolicJarVersion("jar-producer", 1, "Master", "圆罐", null, isMarked: true);
         var producer = WorldOrderSymbolicOperationNode.Rule(
             "producer", 0, "Master", null,
             Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null, producedFree: "酒"),
             producerInput, producerOutput);
 
         var consumerInput = new WorldOrderSymbolicJarVersion("jar-consumer", 0, "Master", "圆罐", null);
-        var consumerOutput = new WorldOrderSymbolicJarVersion("jar-consumer", 1, "Master", "方罐", null);
+        var consumerOutput = new WorldOrderSymbolicJarVersion("jar-consumer", 1, "Master", "方罐", null, isMarked: true);
         var consumer = WorldOrderSymbolicOperationNode.Rule(
             "consumer", 1, "Master", 0,
             Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "蜜"),
