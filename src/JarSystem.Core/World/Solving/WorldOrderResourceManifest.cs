@@ -1,5 +1,4 @@
 using System;
-using JarSystem.Core.Abstractions;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -117,8 +116,9 @@ public sealed class WorldOrderResourceManifest
         var plan = result.Plan;
         ValidateUsedMasterJarInputs(plan.MasterSteps, snapshot.Master);
         var masterFinalJars = plan.MasterSteps.Count == 0
-            ? snapshot.Master.CreateSolverJars()
-            : plan.MasterSteps[^1].After!.Select(jar => JarState.Copy(jar)).ToList();
+            ? snapshot.Master.Jars.Select(jar =>
+                new WorldPlanJarState(jar.Id, jar.Shape, jar.Liquid, jar.IsMarked, false)).ToList()
+            : plan.MasterSteps[^1].After!.ToList();
         var masterIds = snapshot.Master.Jars.Select(x => RequireId(x.Id, "主台快照")).ToHashSet();
         var masterPathIds = ReadPathJarIds(plan.MasterSteps, masterIds, expectMasterOrigin: false, "主台路径");
         var transferIds = plan.TransferJarIds.ToArray();
@@ -236,7 +236,7 @@ public sealed class WorldOrderResourceManifest
     }
 
     private static void ValidateUsedSlaveJarInputs(
-        IReadOnlyList<WorldPlanStep> steps, IReadOnlyList<JarState> masterFinal)
+        IReadOnlyList<WorldPlanStep> steps, IReadOnlyList<WorldPlanJarState> masterFinal)
     {
         if (steps.Count == 0) return;
         var plannedInitial = steps[0].Before.ToDictionary(
