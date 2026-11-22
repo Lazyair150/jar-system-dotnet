@@ -198,4 +198,40 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
                 new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 },
                 new Dictionary<string, int>()));
     }
+    [Fact]
+    public void RejectedProductionIsDiscardedAndCannotFundTheHandoff()
+    {
+        var result = WorldOrderSymbolicResourceSimulator.Simulate(
+            BProgram(),
+            new WorldOrderSymbolicResourceSimulationRequest(
+                1, 1,
+                new Dictionary<string, int>(),
+                new Dictionary<string, int> { ["酒"] = 1 },
+                masterRejectedLiquids: new[] { "酒" }));
+
+        Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Infeasible, result.Status);
+        Assert.Equal(1, result.Roles["Master"].RejectedFreeLiquidProduction["酒"]);
+        Assert.Equal(1, result.Roles["Master"].DiscardedFreeLiquidProduction["酒"]);
+        Assert.Empty(result.Roles["Master"].FinalFreeLiquid);
+        Assert.False(result.HandoffApplied);
+    }
+
+    [Fact]
+    public void SlaveRejectingTheTransferredLiquidFailsTheWholeHandoffAtomically()
+    {
+        var result = WorldOrderSymbolicResourceSimulator.Simulate(
+            EmptyBProgram(),
+            new WorldOrderSymbolicResourceSimulationRequest(
+                1, 1,
+                new Dictionary<string, int> { ["酒"] = 1 },
+                new Dictionary<string, int> { ["酒"] = 1 },
+                slaveRejectedLiquids: new[] { "酒" }));
+
+        Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Infeasible, result.Status);
+        Assert.False(result.HandoffApplied);
+        Assert.Empty(result.HandoffTransferredFreeLiquid);
+        Assert.Equal(1, result.Roles["Master"].FinalFreeLiquid["酒"]);
+        Assert.Empty(result.Roles["Slave"].FinalFreeLiquid);
+    }
+
 }
