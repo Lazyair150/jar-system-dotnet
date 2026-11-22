@@ -165,6 +165,16 @@ public static class WorldOrderPreparatoryProgramBuilder
             handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
                 "master-to-slave-handoff", sequence++, masterRole, slaveRole, handoffInputs);
             nodes.Add(handoff);
+            foreach (var assigned in requirements.Where(x => x.WorkshopRole == masterRole))
+            {
+                var requirementIndex = assigned.Candidate.RequirementIndex;
+                var jarKey = requirementJarKeys[requirementIndex];
+                edges.Add(WorldOrderSymbolicOperationDependency.JarState(
+                    "requirement-" + requirementIndex + "-master",
+                    handoff.NodeId,
+                    jarKey,
+                    current[jarKey].Revision));
+            }
             foreach (var output in handoff.OutputJars)
                 current[output.JarKey] = output;
 
