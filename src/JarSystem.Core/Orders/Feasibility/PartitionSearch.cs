@@ -126,6 +126,7 @@ public sealed class PartitionSearch
     {
         if (request == null) throw new ArgumentNullException(nameof(request));
         inconclusiveReason = null;
+        string? diagnosticInconclusiveReason = null;
         var reqs = request.Requirements;
         var masterJars = request.MasterJars;
         var masterLiquids = request.MasterLiquids;
@@ -145,7 +146,7 @@ public sealed class PartitionSearch
         PartitionSearchReport BuildReport(bool outcomeFound) => new(
             masksVisited, uniquePartitions, masterSolveCount, slaveSolveCount,
             monotonicityPrunedCount, duplicatePartitionPrunedCount, outcomeFound,
-            blockage, inconclusiveReason, trace);
+            blockage, diagnosticInconclusiveReason, trace);
 
         // #1（2026-09）主台侧**单调性剪枝**：可行性对"需求集合"单调 ——
         // 若子集 X 在主台上不可行，则任何 X ⊆ Y 的 Y 在主台上也不可行（Y 必须同时满足 X 的要求）。
@@ -200,7 +201,8 @@ public sealed class PartitionSearch
             var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
             if (_solver is IWorkBudgetedSolver mb && mb.BudgetExceeded)
             {
-                inconclusiveReason = mb.InconclusiveReason ?? "分析超出预算";
+                diagnosticInconclusiveReason = mb.InconclusiveReason ?? "分析超出预算";
+                inconclusiveReason = diagnosticInconclusiveReason;
                 lastBlockage = inconclusiveReason;
                 Record("undetermined-master-budget", mask, masterSignature, slaveSignature, inconclusiveReason);
                 report = BuildReport(false);
@@ -219,7 +221,8 @@ public sealed class PartitionSearch
                 || (mr.Path.Count > 0 && mr.Path[^1].After != null);
             if (!hasFinalState)
             {
-                inconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
+                diagnosticInconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
+                inconclusiveReason = diagnosticInconclusiveReason;
                 lastBlockage = inconclusiveReason;
                 Record("undetermined-master-final-state", mask, masterSignature, slaveSignature, inconclusiveReason);
                 report = BuildReport(false);
@@ -281,7 +284,8 @@ public sealed class PartitionSearch
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
             if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
             {
-                inconclusiveReason = sb.InconclusiveReason ?? "分析超出预算";
+                diagnosticInconclusiveReason = sb.InconclusiveReason ?? "分析超出预算";
+                inconclusiveReason = diagnosticInconclusiveReason;
                 lastBlockage = inconclusiveReason;
                 Record("undetermined-slave-budget", mask, masterSignature, slaveSignature, inconclusiveReason);
                 report = BuildReport(false);
