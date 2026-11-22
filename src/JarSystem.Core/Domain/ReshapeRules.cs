@@ -56,11 +56,13 @@ public readonly struct ReshapeRules
     }
 
     /// <summary>
-    /// 满罐自耗：只要求 Jar 内确实有液体。该液体属于 Jar 自身资源，不是工作台
-    /// staging 中的游离液体，因此不经过 LiquidRules.Check，也不受工作台 staging ban 约束。
+    /// 满罐自耗：Jar 内液体不从工作台游离液体池扣账，但当前工作台仍必须允许
+    /// 操作含有该液体的 Jar。资源迁移不调用此规则，迁移后由新工作台重新判定。
     /// </summary>
-    public ReshapeGrant SelfConsume(string? liquidInJar) =>
-        liquidInJar == null
-            ? ReshapeGrant.No("not-full", "必须为满罐")
-            : ReshapeGrant.Yes();
+    public ReshapeGrant SelfConsume(string? liquidInJar)
+    {
+        if (liquidInJar == null) return ReshapeGrant.No("not-full", "必须为满罐");
+        var grant = _liquid.CheckJarOperation(liquidInJar);
+        return grant.Granted ? ReshapeGrant.Yes() : ReshapeGrant.No("banned", grant.Reason);
+    }
 }
