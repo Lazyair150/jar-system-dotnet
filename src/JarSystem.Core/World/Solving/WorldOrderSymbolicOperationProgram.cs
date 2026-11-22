@@ -102,6 +102,8 @@ public sealed class WorldOrderSymbolicOperationNode
         if (string.IsNullOrWhiteSpace(workshopRole)) throw new ArgumentException("工作台角色不能为空", nameof(workshopRole));
         if (requirementIndex is < 0) throw new ArgumentOutOfRangeException(nameof(requirementIndex));
         if (candidate == null) throw new ArgumentNullException(nameof(candidate));
+        if (string.IsNullOrWhiteSpace(candidate.RuleId) || candidate.RuleVersion <= 0)
+            throw new ArgumentException("规则候选必须携带有效的 RuleId/RuleVersion", nameof(candidate));
         if (input == null) throw new ArgumentNullException(nameof(input));
         if (output == null) throw new ArgumentNullException(nameof(output));
         if (input.WorkshopRole != workshopRole || output.WorkshopRole != workshopRole)
