@@ -128,6 +128,46 @@ public class WorkshopCapabilityTests
     }
 
     [Fact]
+    public void BanningLiquidInsideAnExistingJarIsAllowedWhenTheFreePoolIsEmpty()
+    {
+        var sys = NewSystem();
+        var bench = sys.Workshops[0];
+        sys.SetWorkshopCapability(0, ban: new List<string>());
+        var jar = new Jar("圆罐", "酒", id: 9901);
+        Assert.True(bench.AddJar(jar));
+
+        // The ban governs operations by this workshop, not ownership of Jar contents.
+        sys.SetWorkshopCapability(0, ban: new List<string> { "酒" });
+
+        Assert.True(bench.IsBanned("酒"));
+        Assert.Same(jar, Assert.Single(bench.Jars));
+        Assert.Equal("酒", jar.Liquid);
+        Assert.Empty(WorldInvariants.Check(sys));
+    }
+
+    [Fact]
+    public void AFullJarContainingABannedLiquidCanBeTransferredToAnotherWorkshop()
+    {
+        var sys = NewSystem();
+        var source = sys.Workshops[0];
+        var receiver = new Workshop("接收台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        sys.AddWorkshop(receiver);
+        var jar = new Jar("圆罐", "酒", id: 9902);
+        Assert.True(source.AddJar(jar));
+
+        var removed = source.TransferOut(jar);
+        Assert.Same(jar, removed);
+        Assert.True(receiver.TransferIn(removed));
+
+        Assert.Empty(source.Jars);
+        Assert.Same(jar, Assert.Single(receiver.Jars));
+        Assert.Equal("酒", receiver.Jars[0].Liquid);
+        Assert.Empty(WorldInvariants.Check(sys));
+    }
+
+    [Fact]
     public void ASuccessfulChangeIsRecordedAndKeepsTheWorldConsistent()
     {
         var sys = NewSystem();
