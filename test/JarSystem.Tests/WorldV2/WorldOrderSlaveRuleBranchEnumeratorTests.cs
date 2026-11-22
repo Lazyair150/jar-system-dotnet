@@ -152,6 +152,26 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
     }
 
     [Fact]
+    public void OperationOrderBudgetExhaustionRemainsUndetermined()
+    {
+        var consumer = Candidate(
+            0, "consumer-jar", null, "consumer-finished", null, consumedFree: "X");
+        var producer = Candidate(
+            1, "producer-jar", null, "producer-finished", null, producedFree: "X");
+        var profile = Profile(
+            ("consumer-finished", (string?)null, new[] { consumer }),
+            ("producer-finished", (string?)null, new[] { producer }));
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 2, maxBranches: 1);
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Undetermined, result.Status);
+        Assert.Equal(1, result.ExploredBranches);
+        Assert.False(result.Alternatives!.IsComplete);
+        Assert.Single(result.Alternatives.Groups);
+    }
+
+    [Fact]
     public void BudgetExhaustionNeverClaimsCompleteAlternatives()
     {
         var profile = Profile((
