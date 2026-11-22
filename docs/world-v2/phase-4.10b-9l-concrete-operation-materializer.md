@@ -68,7 +68,7 @@ This is an accounting witness only. It does not simulate the workshop staging po
 - Missing initial Master staging supply is increased only when a replay proves a prefix shortage or the final Slave boundary is not funded; the path is then replayed from its beginning.
 - The minimum initial vector is checked against the current ship liquid inventory (when present) plus Master prefill, or the legacy Master liquid source plus prefill.
 - For B orders it invokes `WorldOrderSlaveBoundaryProjector` with the Master ban and an explicit Slave rejected-liquid policy. The returned AND group retains JarState and FreeLiquid conditions separately, and its Slave operation-order witness remains attached.
-- Jar-internal liquid never enters the Master free-liquid ban test. Only a Slave operation's `ConsumedFreeLiquid` can create a free-liquid boundary demand.
+- Jar-internal liquid never becomes a Master free-liquid boundary demand. Separately, the Master rule profile still rejects operations on a Jar whose internal liquid is Master-banned; a Slave profile may admit the same Jar operation after handoff if the Slave does not ban that liquid. Only a Slave operation's `ConsumedFreeLiquid` can create a free-liquid boundary demand.
 
 The replay returns a resource witness, not a reservation. It still does not rewrite the plan or certify execution. The next integration step must make the concrete plan, this replay witness, and Manifest validation agree on the same snapshot and accepted-output decisions.
 
@@ -86,10 +86,12 @@ The replay returns a resource witness, not a reservation. It still does not rewr
 
 A Manifest/replay disagreement returns Undetermined with the candidate plan retained for diagnosis; it is never silently downgraded into a successful result. This deliberately fails closed for rejected or overflowed outputs that the current generic Manifest simulation still treats as accepted. That limitation is explicit and becomes the next integration target.
 
-## Domain correction: ban scope stops at the Jar boundary
+## Domain contract: workshop-local operation ban and transfer boundary
 
-The legacy `ReshapeRules.SelfConsume` called `LiquidRules.Check`, which made a workbench's free-liquid ban reject a full reshape even though the liquid never entered the workbench staging account. That contradicted the World V2 resource boundary.
+A workshop is the actor that operates a Jar. If the Jar contains a liquid banned by the current workshop, that Jar cannot be operated there. This includes `POUR_OUT`, full-reshape self-consumption, and `MATCH`; the fact that the liquid is inside the Jar rather than in free-liquid staging does not grant an operation exemption.
 
-It now requires only that the Jar is full. The Jar's internal liquid is consumed as Jar material and is recorded in the operation witness, but it is not passed through the staging ban. The ban still applies to free-liquid staging use, including `POUR_IN` and empty-reshape cost. The live `Workshop` facade, `WorkshopRulebook`, candidate catalog, materializer, Manifest, and step applier now share this distinction.
+This is distinct from resource migration. Master-to-Slave handoff and workshop-replacement resource transfer do not themselves operate the Jar and therefore do not apply the source workshop's Jar-operation gate. After handoff, the receiving workshop's own rule profile decides whether a later operation is allowed. Thus a Master-banned Jar may be handed to a non-banning Slave and full-reshaped there, while the same operation remains unavailable on the Master.
 
-This is a correction to the underlying domain rule, not a special exception in the new solver.
+Free-liquid policy remains separate: banned free liquid cannot be consumed or stored in workshop staging, and Master-banned free liquid cannot be transferred across the B-class boundary. JarState handoff is not converted into a free-liquid transfer merely because the Jar contains that liquid.
+
+`LiquidRules.CheckJarOperation` makes the Jar-operation check explicit; `ReshapeRules.SelfConsume`, `WorkshopRulebook`, the candidate catalog, and the live Workshop facade use the current workshop's policy. MATCH is versioned to reflect the explicit Jar-operation gate.
