@@ -192,7 +192,6 @@ public sealed class WorldOrderSolveBookTests
         var master = new Workshop("主台", new List<string> { "圆罐" });
         var jar = new Jar("圆罐");
         master.AddJar(jar);
-        master.AddLiquid("酒", 1);
         var roster = new WorkshopRoster(new[] { master }, master);
 
         var firstSnapshot = WorldSnapshotFactory.Capture(roster);
@@ -200,16 +199,13 @@ public sealed class WorldOrderSolveBookTests
         Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
         Assert.Equal("MATCH", first.Result.Plan!.MasterSteps.Single().Operation!.Type);
 
-        Assert.True(master.PourIn(jar, "酒").Success);
-        Assert.True(master.ClearMark(jar).Success);
+        Assert.True(master.MarkJar(jar).Success);
         var changedSnapshot = WorldSnapshotFactory.Capture(roster);
         var second = book.Evaluate(demand.Id, changedSnapshot, Registry());
 
-        Assert.Equal(WorldOrderSolveStatus.Feasible, second.Result!.Status);
-        Assert.NotSame(first.Result.Plan, second.Result.Plan);
-        Assert.Contains(second.Result.Plan!.MasterSteps,
-            step => step.Operation?.Type == "POUR_OUT" &&
-                    step.Before[step.Operation.JarIndex!.Value].Id == jar.Id);
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, second.Result!.Status);
+        Assert.Null(second.Result.Plan);
+        Assert.Equal(changedSnapshot.Version, second.Result.WorldVersion);
     }
 
     [Fact]
