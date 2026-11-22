@@ -131,6 +131,22 @@ public readonly record struct WorkshopRuleDecision(
 
 public static class WorkshopRulebook
 {
+    /// <summary>订单直接匹配规则：MATCH 不改变 Jar 化学状态，但会占用并标记该 Jar。</summary>
+    public static WorkshopRuleDecision EvaluateMatch(RuleContext rules, in JarFacts jar)
+    {
+        if (rules.HasUnresolvableRequirements())
+            return WorkshopRuleDecision.Undetermined(
+                "modifier.required-predicate-unavailable",
+                "存在当前生效但没有可执行谓词的 Require 规则");
+        if (rules.RequiredViolation() is { } requiredViolation)
+            return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
+        if (jar.IsMarked)
+            return WorkshopRuleDecision.Reject("jar.already-operated", "罐子已被操作");
+        if (rules.SuppressionReason("MATCH", jar.Shape, jar.Liquid) is { } suppressed)
+            return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
+        return WorkshopRuleDecision.Allow();
+    }
+
     /// <summary>
     /// 这一操作**现在**是否合法。判定顺序与 <see cref="Workshop"/> 的四个执行方法逐条对齐，
     /// 因此"合法性"与"执行会不会成功"是同一个谓词的两面（由测试钉住）。
