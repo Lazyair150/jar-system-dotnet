@@ -339,3 +339,16 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 - B 类 Slave 只能接收 Master 交接资源，不能从 Ship inventory 自行取液。
 - 生产区入库只改变 Ship inventory，不自动增加 Workshop staging。
 - 操作产出的游离液体先经过当前工作台订单 staging 接收规则；拒收/容量溢出如何处理由 ResourceEffect sink policy 决定，不能被误写成 Jar 化学规则。
+
+
+## 18. 规则变更与活动订单的版本边界
+
+运行时规则加入/移除会使待执行订单的符号解缓存失效，但活动中的订单不能在没有契约的情况下悄悄混用新旧规则。
+
+每个 BoundExecutionPlan 必须记录其 RuleSetFingerprint / RuleRegistryVersion。规则激活策略必须按规则作用域显式声明：
+
+- **Admission-scoped / Pinned**：新规则只影响之后的准入；已准入会话继续使用其固定规则版本，直至完成/中断。
+- **Step-boundary / Revalidated**：规则在下一操作边界重新评估；若不再允许，按明确的暂停、拒绝、取消或中断语义处理。
+- 不允许一个会话在没有版本记录的情况下，前半段按旧规则执行、后半段无提示地按新规则执行。
+
+检查点恢复必须能够恢复或验证活动会话所依赖的规则注册表版本与 RuleSetFingerprint。若所需规则定义不可用，恢复必须失败在发布新 Host 之前，而不是恢复后继续执行一个无法解释的计划。
