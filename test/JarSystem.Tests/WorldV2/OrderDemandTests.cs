@@ -355,6 +355,76 @@ public sealed class OrderDemandTests
         Assert.True(demand.ReadyForSolve);
     }
 
+
+    [Fact]
+    public void SuccessfulCyclesAppendStableEventsAndIncrementOnlyOnFulfillment()
+    {
+        var board = CreateBoard(
+            DemandAreaFulfillmentPolicy.Continuous,
+            DemandAreaFulfillmentPolicy.OneShot);
+        var demand = new OrderDemand(
+            CreateSpecification(), 1_000, "ship.order.buff-shield", new SequentialIdGenerator());
+        board.AddDemand(demand, DemandAreaKind.Active);
+
+        Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
+            board.RecordSuccessfulFulfillment(demand.Id));
+        Assert.Equal(1, demand.CycleSequence);
+        var first = Assert.Single(board.Outbox.Pending);
+        Assert.Equal(demand.Id, first.DemandId);
+        Assert.Equal("ship.order.buff-shield", first.OrderDefinitionKey);
+        Assert.Equal(1, first.CycleSequence);
+        Assert.Equal(board.Outbox.WorldInstanceId + ":" + demand.Id + ":1", first.EventId);
+
+        Assert.False(board.Outbox.Acknowledge("not-an-event"));
+        Assert.True(board.Outbox.Acknowledge(first.EventId));
+        Assert.False(board.Outbox.Acknowledge(first.EventId));
+        Assert.Empty(board.Outbox.Pending);
+    }
+
+    [Fact]
+    public void ContinuousDemandPersistsCycleSequenceAndPendingOutboxAcrossCheckpoint()
+    {
+        var ids = new SequentialIdGenerator();
+        var board = CreateBoard(
+            DemandAreaFulfillmentPolicy.Continuous,
+            DemandAreaFulfillmentPolicy.Continuous);
+        var demand = new OrderDemand(
+            CreateSpecification(), 2_000, "ship.order.buff-rapid-fire", ids);
+        board.AddDemand(demand, DemandAreaKind.Passive);
+
+        board.RecordSuccessfulFulfillment(demand.Id);
+        board.AdvanceLogicalTime(2_000);
+        board.RecordSuccessfulFulfillment(demand.Id);
+
+        var snapshot = board.CaptureRuntimeState(ids);
+        var restored = OrderDemandBoard.RestoreRuntimeState(
+            snapshot, Words, new SequentialIdGenerator());
+        var restoredDemand = Assert.IsType<OrderDemand>(restored.Find(demand.Id));
+
+        Assert.Equal(2, restoredDemand.CycleSequence);
+        Assert.Equal("ship.order.buff-rapid-fire", restoredDemand.OrderDefinitionKey);
+        Assert.Equal(board.Outbox.WorldInstanceId, restored.Outbox.WorldInstanceId);
+        var events = restored.Outbox.Pending;
+        Assert.Equal(2, events.Count);
+        Assert.Equal(new long[] { 1, 2 }, events.Select(item => item.CycleSequence));
+        Assert.Equal(events[0].EventId, board.Outbox.Pending[0].EventId);
+    }
+
+    [Fact]
+    public void FailedOrInterruptedLifecycleOperationsDoNotEmitSuccessfulCycleEvents()
+    {
+        var board = CreateBoard(DemandAreaFulfillmentPolicy.Continuous);
+        var demand = new OrderDemand(
+            CreateSpecification(), 3_000, "ship.order.buff-repair", new SequentialIdGenerator());
+        board.AddDemand(demand, DemandAreaKind.Passive);
+
+        board.StartCooldown(demand.Id);
+        Assert.Empty(board.Outbox.Pending);
+        board.RemoveDemand(demand.Id);
+        Assert.Empty(board.Outbox.Pending);
+        Assert.Equal(0, demand.CycleSequence);
+    }
+
     private sealed class TestSpecification : IOrderSpecification
     {
     }
