@@ -304,6 +304,8 @@ public static class WorldOrderRuleCandidateCatalog
             if (receipt.AcceptedAmount != item.Value) return;
         }
 
+        // Candidate generation is limited to an unmarked initial Jar. The symbolic
+        // program records the resulting mark and prevents any second operation.
         var evaluation = WorkshopRulebook.EvaluateTransition(
             rules, scope, new JarFacts(sourceShape, sourceLiquid, false), operation);
         if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
