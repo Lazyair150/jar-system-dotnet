@@ -86,10 +86,8 @@ public class WarehouseFlowTests
     }
 
     [Fact]
-    public void BannedLiquidFlowsInButCannotBeUsed()
+    public void BannedLiquidIsRejectedByWorkshopStorageDuringWarehouseFlow()
     {
-        // 2026-11 语义：禁令只约束**取用**，不约束**存储**。
-        // 所以被禁的酒照样能流进玄武台（那一格仍然存在），但它取不出来 —— 这才是"禁"的意思。
         var wh = new Warehouse();
         wh.ProduceLiquid("酒", 5);                    // 玄武禁酒
         wh.ProduceLiquid("蜜", 5);
@@ -97,13 +95,12 @@ public class WarehouseFlowTests
 
         var (_, liquids) = wh.FlowToMaster(master);
 
-        Assert.Equal(2, master.LiquidStorage["酒"]);   // 流入（每种每次最多 2 份）
-        Assert.Equal(3, wh.LiquidCount("酒"));
-        Assert.Equal(2, liquids["酒"]);
+        Assert.Equal(0, master.LiquidStorage["酒"]);
+        Assert.Equal(5, wh.LiquidCount("酒"));         // 被工作台禁令拒收，不从仓库扣除
+        Assert.Equal(0, liquids.GetValueOrDefault("酒"));
         Assert.Equal(2, master.LiquidStorage["蜜"]);
         Assert.Equal(3, wh.LiquidCount("蜜"));
-
-        // 关键区别：能存 ≠ 能用。
+        Assert.Equal(2, liquids["蜜"]);
         Assert.False(master.HasUsableLiquid("酒"));
         Assert.Equal("banned", master.CanUseLiquid("酒", 1).Code);
         Assert.True(master.CanUseLiquid("蜜", 1).Granted);
