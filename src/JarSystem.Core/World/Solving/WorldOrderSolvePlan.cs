@@ -34,6 +34,30 @@ public sealed class WorldOrderSolvePlan
             transferLiquids == null
                 ? new Dictionary<string, int>(StringComparer.Ordinal)
                 : transferLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+        ValidateSingleOperationPerJar(MasterSteps.Concat(SlaveSteps));
+    }
+
+    private static void ValidateSingleOperationPerJar(IEnumerable<WorldPlanStep> steps)
+    {
+        var operatedJarIds = new HashSet<int>();
+        foreach (var step in steps)
+        {
+            if (step.Operation?.JarIndex is not int jarIndex) continue;
+            if (jarIndex < 0 || jarIndex >= step.Before.Count ||
+                step.Before.Count != step.After.Count)
+                throw new ArgumentException("订单步骤的 JarIndex 或 Before/After 快照无效");
+
+            var before = step.Before[jarIndex];
+            var after = step.After[jarIndex];
+            if (before.Id is not > 0 || after.Id != before.Id)
+                throw new ArgumentException("订单操作必须保持目标 Jar 的稳定身份");
+            if (before.IsMarked)
+                throw new ArgumentException("已标记 Jar 不能再次参与本订单操作：" + before.Id);
+            if (!after.IsMarked)
+                throw new ArgumentException("订单操作必须在输出状态中标记 Jar：" + before.Id);
+            if (!operatedJarIds.Add(before.Id.Value))
+                throw new ArgumentException("同一 Jar 在一次订单实现中只能操作一次：" + before.Id);
+        }
     }
 
     internal static WorldOrderSolvePlan RestoreFromWire(
