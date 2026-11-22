@@ -90,7 +90,7 @@ Jar 世界的求解基础不是工作台类型，也不是订单类型，而是*
 | ReshapeEmpty | 空罐 → 目标形状空罐 | 消耗指定成本液体 1 |
 | ReshapeFull | 满罐 → 目标形状空罐 | 消耗 Jar 内部液体；不生成游离液体 |
 
-MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源转换算子。Mark 是阶段资源使用约束；跨台 Transfer 的清标记是交接语义，不能误建模成普通改形。
+MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源转换算子。Mark 是订单级的一次性操作锁：同一 Jar 在一次订单实现中最多执行一次规则操作，成功后保持标记。主从 Transfer 只改变归属，不清除 Mark；只有订单生命周期真正结束时才能清理参与 Jar 的标记。
 
 规则转换必须显式区分 Jar 内部液体、工作台游离液体、订单 staging、工作台容量、资源来源与所有权。
 
@@ -325,7 +325,7 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 | Jar 化学转换 | PourIn、PourOut、ReshapeEmpty、ReshapeFull | Rule Operator；定义 Jar 状态变化与游离液体/罐内液体效果 |
 | Jar 匹配与占用 | MATCH、需求唯一落点、Jar 一阶段一操作、Mark/ClearMark | Allocation / lifecycle rule；MATCH 不应伪装成液体转换 |
 | 资源账户流动 | 订单 staging 接收/拒收/溢出丢弃、Ship inventory 补液/返还、prefill 结算 | Resource-flow rule；账户容量和所有权是上下文事实，规则决定允许的流向与结算语义 |
-| 跨工作台交接 | B 类单向 Master → Slave、Jar transfer、清标记、transfer budget | World orchestration rule；不属于某个 Workshop 自己的能力 |
+| 跨工作台交接 | B 类单向 Master → Slave、Jar transfer、保留 Mark、transfer budget | World orchestration rule；不属于某个 Workshop 自己的能力 |
 | 订单阶段 | A 类绕过 Slave；B 类必须证明 Master 路径与 Slave 路径及精确交接 | Order/world policy；不应写进通用 Pour/Reshape 算子 |
 | 岗位与替换 | Master/Slave/Spare 唯一性、主台迁移、目标预置、岗位提交边界 | World lifecycle rule；工作台属性仍与岗位身份分离 |
 | 时间与临时规则 | Modifier 生效区间、CD、Retime、暂停/推进边界 | Temporal rule/context；只在其声明的依赖维度变化时失效相关解集 |
