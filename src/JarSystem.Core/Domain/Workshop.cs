@@ -106,6 +106,8 @@ public class Workshop
             snapshot.LiquidStorage.Keys.Any(key => !_liquidStorage.ContainsKey(key)) ||
             snapshot.LiquidStorage.Any(item => item.Value < 0 || item.Value > MaxLiquids))
             throw new DomainValidationException("工作台快照的游离液体键或数量不符合当前容量配置。");
+        if (snapshot.LiquidStorage.Any(item => item.Value > 0 && _capability.IsBanned(item.Key)))
+            throw new DomainValidationException("工作台快照包含本台禁用的游离液体。");
 
     }
 
@@ -684,6 +686,8 @@ public class Workshop
         }
 
         var restoredLiquids = s.Liquids.ToDictionary(kv => kv.Key, kv => kv.Value);
+        if (restoredLiquids.Any(item => item.Value > 0 && s.Capability.IsBanned(item.Key)))
+            throw new DomainValidationException("工作台快照包含本台禁用的游离液体。");
 
         // 所有可能失败的准备/验证已完成。以下只执行内存字段赋值与容器替换。
         if (s.OriginalJars.Count == s.Jars.Count)
