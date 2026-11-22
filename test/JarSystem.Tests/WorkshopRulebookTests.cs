@@ -17,8 +17,8 @@ namespace JarSystem.Tests;
 /// 以及最初那 105 例错杀。这类错误不会让任何单测变红，只会让某一个入口悄悄宽松或严格。
 /// 对拍是唯一能自动抓住它的形状。</para>
 ///
-/// <para>注意本测试**不要求**求解器调用规则表（求解器走热路径、自己知道规则即可）。
-/// 它只要求"任何一方改动规则时另一方不会悄悄漂移"——这正是把口头约定换成可执行断言的地方。</para>
+/// <para>StateSpaceSolver 现在也通过 WorkshopRulebook 评估四种操作；本测试继续固定规则表与真实 Workshop
+/// 执行结果一致。它是规则权威入口重构的差分基线，后续执行门面也会收敛到同一契约。</para>
 /// </summary>
 public class WorkshopRulebookTests
 {
