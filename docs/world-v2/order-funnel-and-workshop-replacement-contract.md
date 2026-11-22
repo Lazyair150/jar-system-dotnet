@@ -136,13 +136,24 @@ The existing replacement process already expresses the major commit ordering and
 
 The current implementation has these layers, but does not yet expose one unified funnel trace explaining candidate counts, rejection reasons, selected assignments, and final resource proof. In particular, PartitionSearch returns the first feasible partition rather than enumerating the complete solution set. Its current master-subset monotonicity pruning and duplicate-multiset partition elimination are search optimizations, not a general rule engine.
 
+A first resource-independent rule-candidate layer is now present:
+
+- `WorkshopRulebook.Definitions` is the stable operator catalog (rule ID, semantic version, operator name and category). The catalog identity participates in `RuleSetVersion`.
+- `WorldOrderRuleCandidateCatalog` projects each requirement into legal one-operation candidates using the snapshot's rule context. It also records generic `POUR_OUT` preparation operations that can produce free liquid for later steps.
+- Candidate evaluation uses the World V2 `OrderLiquidScope` contract. It does not use the legacy per-liquid `MaxLiquids` account as a substitute for total staging capacity.
+- `WorldOrderRuleCandidateBook` caches profiles by rule-set version, workshop-profile version, order-specification fingerprint and role. Resource-only changes do not invalidate these profiles.
+- `WorldOrderSymbolicSolutionBuilder` enumerates bounded combinations of one-step requirement candidates and records their gross free-liquid/Jar-liquid effects. `WorldOrderSolveBook` refreshes this derived set when an order is evaluated under a changed rule/profile input.
+- Opaque rules and enumeration-budget exhaustion remain `Undetermined`. The status `EnumerationComplete` means only that this one-step candidate-combination layer was exhausted; `NoDirectCandidate` is not proof that the full order is infeasible.
+
+**Important boundary:** this is not yet the complete symbolic execution-plan set. The candidate layer deliberately has no concrete Jar identities, does not prove distinct-Jar allocation, does not schedule preparation operations against staging peaks, and does not prove Master-to-Slave transfer. The authoritative `StateSpaceSolver` / `PartitionSearch` still performs those resource-bound checks and produces the executable plan. The new layer is a reusable rule projection, not a replacement solver and not an execution reservation.
+
 ## 7. Next implementation slice
 
 The next work is ordered by semantic dependency. A trace is useful, but it must explain one authoritative rule engine rather than make the current duplicated rules more observable.
 
-1. Complete the shared rule decision/transition contract: stable rule identity/version, applicability, preconditions, pure Jar transition, source-aware resource effects, and explicit rejection/unknown semantics.
-2. Route Workshop's real execution facade through the same rule transition contract already used by StateSpaceSolver. Keep resource-account mutation in the owning transaction boundary.
-3. Separate symbolic solution profiles from concrete resource binding/readiness. A stock change should re-evaluate binding/readiness, not repeat the symbolic rule search.
+1. Finish the shared rule decision/transition contract: stable rule identity/version, applicability, preconditions, pure Jar transition, source-aware resource effects, and explicit rejection/unknown semantics. The operator catalog and solver-side transition projection now exist; the real `Workshop` execution facade still needs to consume the same pure transition result without duplicating rule branches.
+2. Expand the resource-independent layer from one-step candidates to explicit symbolic operation programs, including bounded preparation sequences and their liquid-flow/capacity constraints. Do not call the current candidate combinations complete order solutions.
+3. Add version-aware access to symbolic profiles: rule/profile/specification changes rebuild them; resource-only changes retain them while the concrete binding/feasibility solve is refreshed.
 4. Generalize the funnel search kernel without folding A/B allocation policy into rule definitions. Preserve exact B-class partition/backtracking and one-way Master-to-Slave transfer semantics.
 5. Add deterministic, read-only funnel trace and adversarial tests for backtracking, capacity, resource-source proof, and complete-vs-undetermined outcomes.
 6. Connect Master replacement as a forward resource-transformation problem using the same rule contract, then expose a compact diagnostic projection to Space.
