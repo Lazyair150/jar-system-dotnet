@@ -103,6 +103,20 @@ public class Jar
     /// <summary>标记为本次执行周期内已操作。</summary>
     internal void Mark() { ThrowIfRecycled(); _marked = true; }
 
+    /// <summary>
+    /// 应用规则引擎已经批准的纯值转换结果。
+    /// 此入口只负责保持实体不变量，不重新解释 POUR_IN/POUR_OUT/RESHAPE 等算子语义。
+    /// </summary>
+    internal void ApplyRuleTransition(string shape, string? liquid, bool isMarked)
+    {
+        ThrowIfRecycled();
+        if (!_vocabulary.IsValidShape(shape))
+            throw new ArgumentException($"无效形状: {shape}", nameof(shape));
+        _shape = shape;
+        _liquid = liquid;
+        _marked = isMarked;
+    }
+
     /// <summary>清除操作标记。</summary>
     internal void Unmark() { ThrowIfRecycled(); _marked = false; }
 
