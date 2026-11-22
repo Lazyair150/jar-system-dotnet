@@ -147,6 +147,13 @@ public static class WorkshopRulebook
     public static WorkshopRuleDecision Evaluate(RuleContext rules, int maxLiquids, in JarFacts jar,
         in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids)
     {
+        if (rules.HasUnresolvableRequirements())
+            return WorkshopRuleDecision.Undetermined(
+                "modifier.required-predicate-unavailable",
+                "存在当前生效但没有可执行谓词的 Require 规则");
+        if (rules.RequiredViolation() is { } requiredViolation)
+            return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
+
         var liquidRules = new LiquidRules(rules.Capability, maxLiquids);
         var reshapeRules = new ReshapeRules(rules.Capability, liquidRules);
 
@@ -327,6 +334,13 @@ public static class WorkshopRulebook
         in JarFacts jar, in WorkshopOperation op)
     {
         if (scope == null) throw new System.ArgumentNullException(nameof(scope));
+        if (rules.HasUnresolvableRequirements())
+            return WorkshopRuleDecision.Undetermined(
+                "modifier.required-predicate-unavailable",
+                "存在当前生效但没有可执行谓词的 Require 规则");
+        if (rules.RequiredViolation() is { } requiredViolation)
+            return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
+
         var liquids = scope.Balance;
         var liquidRules = new LiquidRules(rules.Capability, 0);
         var reshapeRules = new ReshapeRules(rules.Capability, liquidRules);
