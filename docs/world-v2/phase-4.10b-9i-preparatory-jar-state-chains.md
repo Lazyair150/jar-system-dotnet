@@ -19,7 +19,9 @@ This is enforced at multiple layers:
 - WorldOrderSymbolicOperationNode.Rule requires an unmarked input and marked output;
 - WorldOrderSymbolicOperationProgram rejects more than one rule node for a Jar identity;
 - WorldOrderPreparatoryProgramBuilder rejects repeated preparation Jar keys and preparation/requirement identity collisions;
-- the Slave branch enumerator only emits independent preparation Jar assignments.
+- the Slave branch enumerator only emits independent preparation Jar assignments;
+- WorldOrderSolvePlan rejects repeated physical Jar IDs across Master and Slave operation steps;
+- WorldOrderExecutionSession preserves marks through handoff and only clears them during order cleanup.
 
 Revision remains a state-version identifier only. It is not an operation allowance.
 
