@@ -129,7 +129,7 @@ public sealed class PartitionSearch
             request.SlaveInfo == null || request.MasterJars == null ||
             request.MasterLiquids == null)
             throw new ArgumentException("划分搜索请求缺少必要输入", nameof(request));
-        if (request.Requirements.Count > 30)
+        if (request.Requirements.Count > 20)
             throw new ArgumentOutOfRangeException(nameof(request), "需求数量超过位掩码可表达范围");
         inconclusiveReason = null;
         string? diagnosticInconclusiveReason = null;
