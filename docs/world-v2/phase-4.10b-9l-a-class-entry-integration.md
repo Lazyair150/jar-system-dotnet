@@ -23,7 +23,15 @@ Requirement indices identify which demand a step satisfies; they do not define e
 
 ## Workshop ban semantics
 
-The candidate catalog evaluates full-Jar self-consuming reshape against the current workshop RuleContext. A Jar containing a liquid banned by the current workshop cannot be operated there, including full-Jar self-consuming reshape. The same Jar remains transferable as a physical resource; after transfer, the receiving workshop's rules govern any subsequent operation. Free-liquid staging storage and use are checked separately by the LiquidRules contract.
+The candidate catalog evaluates full-Jar self-consuming reshape against the current workshop RuleContext. A Jar containing a liquid banned by the current workshop cannot be operated there, including full-Jar self-consuming reshape. This is intentional: the self-consumed internal liquid is still being used by that workshop's operation even though it never enters staging.
+
+The ban is not a universal Jar-ownership filter:
+- Master-to-Slave handoff and workshop-switch resource migration move the physical Jar as-is; they do not call the workshop's Jar-operation liquid check or stage its internal liquid.
+- `AddJar` / `TransferIn` accept a physical Jar independently of its internal liquid. The receiving workshop's own rules are consulted only when it later operates that Jar.
+- `ReplaceCapability` checks the free-liquid pool against the new ban and rejects a capability change only if that pool still contains newly banned liquid. Jar-internal liquid is not part of this validation.
+- Free-liquid staging storage and use are checked separately by the LiquidRules contract.
+
+Thus a full Jar containing a liquid banned by the Master can cross to a permissive Slave and be self-consumed there, but it cannot be self-consumed while still operated by the Master.
 
 ## Cache boundary
 
