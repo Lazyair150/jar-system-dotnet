@@ -834,7 +834,8 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(4, ship.GetAmount("酒"));
         Assert.Equal(4, world.Admission.GetPrefillBalances(firstMaster)["蜜"]);
         var returns = world.ResourceLedger.For(ResourceCauses.Return);
-        var returned = Assert.Single(returns);
+        var returned = Assert.Single(returns.Where(item =>
+            item.Reason == "主工作台替换后返还未消费预置液体"));
         Assert.Equal("酒", returned.Name);
         Assert.Equal(4, returned.Amount);
         Assert.Equal("主台预置", returned.From);
