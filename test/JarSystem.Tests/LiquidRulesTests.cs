@@ -51,6 +51,46 @@ public class LiquidRulesTests
     }
 
     [Fact]
+    public void WorkshopRejectsBannedFreeLiquidOnBothWholeAndPartialReceive()
+    {
+        var workshop = new Workshop(
+            "禁液台",
+            new List<string> { "圆罐" },
+            ban: new List<string> { "酒" },
+            maxLiquids: 2);
+
+        Assert.False(workshop.AddLiquid("酒", 1));
+        Assert.Equal(0, workshop.LiquidStorage["酒"]);
+        Assert.Equal(0, workshop.TryReceiveLiquid("酒", 5));
+        Assert.Equal(0, workshop.LiquidStorage["酒"]);
+
+        Assert.Equal(2, workshop.TryReceiveLiquid("蜜", 5));
+        Assert.Equal(2, workshop.LiquidStorage["蜜"]);
+    }
+
+    [Fact]
+    public void ApplyingBanDoesNotEraseOldBalanceButPreventsFurtherReceiveOrUse()
+    {
+        var workshop = new Workshop(
+            "动态禁液台",
+            new List<string> { "圆罐" },
+            maxLiquids: 3);
+        Assert.True(workshop.AddLiquid("酒", 2));
+
+        workshop.ReplaceCapability(new WorkshopCapability(
+            new List<string> { "圆罐" },
+            new List<string>(),
+            new List<string> { "酒" }));
+
+        Assert.Equal(2, workshop.LiquidStorage["酒"]);
+        Assert.Equal("banned", workshop.CanUseLiquid("酒", 1).Code);
+        Assert.Equal("banned", workshop.CanStoreLiquid("酒", 1).Code);
+        Assert.False(workshop.AddLiquid("酒", 1));
+        Assert.Equal(0, workshop.TryReceiveLiquid("酒", 1));
+        Assert.Equal(2, workshop.LiquidStorage["酒"]);
+    }
+
+    [Fact]
     public void StockAndCapacityAreAnsweredSeparately()
     {
         var rules = new LiquidRules(Cap(), capacity: 2);
