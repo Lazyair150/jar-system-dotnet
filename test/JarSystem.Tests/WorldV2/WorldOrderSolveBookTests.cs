@@ -61,7 +61,7 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
-    public void DifferentWorldVersionInvalidatesCachedResultBeforeItCanBeRead()
+    public void DifferentWorldVersionRebindsPlanWhenReferencedResourcesRemainValid()
     {
         var board = Board();
         var demand = Demand();
@@ -79,14 +79,17 @@ public sealed class WorldOrderSolveBookTests
         var changedSnapshot = Snapshot(new Jar("圆罐"), new Jar("方罐"));
 
         Assert.NotEqual(firstSnapshot.Version, changedSnapshot.Version);
-        Assert.Null(book.GetCurrentResult(demand.Id, changedSnapshot));
-        Assert.Equal(WorldOrderSolveState.Dirty, book.Find(demand.Id)!.State);
+        var rebound = book.GetCurrentResult(demand.Id, changedSnapshot);
+        Assert.NotNull(rebound);
+        Assert.Equal(changedSnapshot.Version, rebound!.WorldVersion);
+        Assert.NotSame(first.Result, rebound);
+        Assert.Same(first.Result!.Plan, rebound.Plan);
+        Assert.Equal(WorldOrderSolveState.Current, book.Find(demand.Id)!.State);
 
         var second = book.Evaluate(demand.Id, changedSnapshot, Registry());
-        Assert.Equal(changedSnapshot.Version, second.Result!.WorldVersion);
-        Assert.NotSame(first.Result, second.Result);
+        Assert.Same(rebound, second.Result);
 
-        // ResourceVersion 变化会重做资源绑定/当前求解，但规则候选 Profile 仍复用。
+        // ResourceVersion 变化不重建规则候选 Profile，也不重跑已经验证仍然有效的计划。
         Assert.Equal(1, book.RuleCandidates.CacheMisses);
         Assert.True(book.RuleCandidates.CacheHits >= 1);
         Assert.Same(firstSymbolic, book.GetSymbolicSolutions(demand.Id, changedSnapshot));
