@@ -214,4 +214,27 @@ public sealed class WorldV2BridgeSessionTests
         Assert.Empty(session.GetWorldSnapshot().ActiveSessions);
         Assert.Empty(session.GetWorldSnapshot().Demands);
     }
+    [Fact]
+    public void GodotBridgeExposesPendingOrderCycleEventsAndAcknowledgment()
+    {
+        using var session = new WorldV2BridgeSession();
+        session.CreateOrReplaceWorld(Options());
+        session.AdvanceWorld(1_000);
+
+        var demandId = session.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Active, 0, "ship.order.buff-guard"));
+        Assert.True(session.StartActiveDemand(demandId).Success);
+        session.AdvanceWorld(1_000);
+
+        var first = Assert.Single(session.GetPendingOrderCycleEvents());
+        var second = Assert.Single(session.GetPendingOrderCycleEvents());
+        Assert.Equal(first.EventId, second.EventId);
+        Assert.Equal("ship.order.buff-guard", first.OrderDefinitionKey);
+        Assert.True(session.AcknowledgeOrderCycleEvent(first.EventId));
+        Assert.False(session.AcknowledgeOrderCycleEvent(first.EventId));
+        Assert.Empty(session.GetPendingOrderCycleEvents());
+    }
+
+
 }
