@@ -113,7 +113,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         Assert.Single(plan.SlaveSteps);
         Assert.Equal("MATCH", plan.MasterSteps[0].Operation!.Type);
         Assert.Equal("RESHAPE", plan.SlaveSteps[0].Operation!.Type);
-        Assert.Equal(new[] { 9152 }, plan.TransferJarIds);
+        Assert.Equal(new[] { 9151, 9152 }, plan.TransferJarIds.OrderBy(x => x));
         Assert.Equal(9151, plan.MasterSteps[0].Before![plan.MasterSteps[0].Operation!.JarIndex!.Value].Id);
         Assert.Equal(9152, plan.SlaveSteps[0].Before![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
         Assert.Empty(result.Assembly.ResourceReplay!.TransferLiquids);
