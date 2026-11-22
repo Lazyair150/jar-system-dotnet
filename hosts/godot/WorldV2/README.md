@@ -53,6 +53,6 @@ dotnet build hosts/godot/WorldV2/JarWorldV2.csproj -c Release
 
 ## 当前范围
 
-本阶段只验证最小端到端链路：Godot 启动 -> 创建 World v2 -> 按墙钟增量推进 -> Core 应用暂停/倍速 -> DTO 快照 -> UI 显示 -> 节点退出释放会话。
+本阶段只验证最小端到端链路：Godot 启动 -> 创建 World v2 -> 按墙钟增量推进 -> Core 应用暂停/倍速 -> DTO 快照 -> UI 显示与检查点 JSON 保存/恢复 -> 节点退出释放会话。
 
 订单编辑、工作台交互、动画和正式游戏玩法属于后续阶段，不在这个最小宿主里提前实现。
