@@ -96,7 +96,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
                 DemandId = 17,
                 WorldVersion = "world-v2:42",
                 IsPartitioned = true,
-                MasterJarIds = new[] { 1 },
+                MasterJarIds = new[] { 1, 2 },
                 TransferJarIds = new[] { 2 },
                 LockedJarIds = new[] { 1, 2 },
                 MasterInitialLiquidAmounts = new System.Collections.Generic.Dictionary<string, int> { ["water"] = 3 },
