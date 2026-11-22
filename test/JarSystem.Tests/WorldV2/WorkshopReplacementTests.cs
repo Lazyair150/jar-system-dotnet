@@ -911,4 +911,83 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(4, ship.GetAmount("蜜"));
     }
 
+
+    [Fact]
+    public void PrefillOrderConsumptionSettlementAndRepeatedMasterReplacementPreserveLiquidConservation()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var ship = new ShipLiquidInventory(8, new Dictionary<string, int> { ["酒"] = 4 });
+        var resources = new ResourceArea(
+            new ProducerModule(vocabulary),
+            new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+            {
+                ["酒"] = 0,
+                ["蜜"] = 0
+            }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0,
+            shipLiquidInventory: ship);
+        Workshop CreateWorkshop(string name) => new(name, new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var firstMaster = CreateWorkshop("主台 A");
+        var secondMaster = CreateWorkshop("主台 B");
+        var slave = CreateWorkshop("从台");
+        secondMaster.AddJar(new Jar("圆罐", vocabulary: vocabulary));
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { firstMaster, secondMaster, slave }, firstMaster, slave,
+            solverRegistry, logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        // 第一次换主台：从自机液库预置 3 份液体。
+        var firstSwitch = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, secondMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(firstSwitch.Success, firstSwitch.Error);
+        world.Runtime.AdvanceWorldTime(2_000);
+        Assert.Same(secondMaster, world.Roster.Master);
+        Assert.Equal(3, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
+        Assert.Equal(1, ship.GetAmount("酒"));
+
+        // A 类订单只在主台执行，优先消耗预置余额；未消耗的 2 份仍属于主台预置账户。
+        var demand = new OrderDemand(new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.A, vocabulary), 0, world.DemandIdGenerator);
+        world.DemandBoard.AddDemand(demand, DemandAreaKind.Active);
+        var started = world.Scheduler.TryStartActiveDemand(demand.Id);
+        Assert.True(started.Success, started.Reason);
+        world.Runtime.AdvanceWorldTime(1_000);
+        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        Assert.Equal(2, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        Assert.Empty(secondMaster.Jars);
+
+        // 再次换主台：新主台先从自机液库获得剩余 1 份；旧主台剩余 2 份随后返还。
+        var secondSwitch = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, firstMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(secondSwitch.Success, secondSwitch.Error);
+        Assert.Equal(1, world.Admission.GetPrefillBalances(firstMaster)["酒"]);
+        world.Runtime.AdvanceWorldTime(2_000);
+
+        Assert.Same(firstMaster, world.Roster.Master);
+        Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
+        Assert.Equal(1, world.Admission.GetPrefillBalances(firstMaster)["酒"]);
+        Assert.Equal(2, ship.GetAmount("酒"));
+        Assert.Equal(3, ship.GetAmount("酒") +
+            world.Admission.GetPrefillBalances(firstMaster)["酒"]);
+
+        var prefillReturn = Assert.Single(world.ResourceLedger.For(ResourceCauses.Return),
+            item => item.From == "主台预置");
+        Assert.Equal("酒", prefillReturn.Name);
+        Assert.Equal(2, prefillReturn.Amount);
+        Assert.Equal("自机液库", prefillReturn.To);
+
+        // 连续换台、订单执行和返还后，检查点捕获不应再看到退役工作台的残留 staging。
+        world.CaptureExecutionResourceCheckpoint();
+    }
+
 }
