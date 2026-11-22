@@ -87,6 +87,77 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void RuleCandidateProfileIsReusedAcrossResourceOnlyChanges()
+    {
+        var stack = new ModifierStack();
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
+        var roster = new WorkshopRoster(new[] { master }, master);
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.A, Words);
+        var book = new WorldOrderRuleCandidateBook();
+
+        var firstSnapshot = WorldSnapshotFactory.Capture(roster);
+        var first = book.GetOrBuild(firstSnapshot, firstSnapshot.Master!, "Master", specification);
+        var options = Assert.Single(first.Requirements).Candidates;
+        Assert.Contains(options, candidate => candidate.Operation == "MATCH");
+        Assert.Contains(options, candidate => candidate.Operation == "POUR_IN");
+        Assert.True(first.CanStructurallyCoverEveryRequirement);
+
+        master.AddLiquid("蜜", 1);
+        var resourceChangedSnapshot = WorldSnapshotFactory.Capture(roster);
+        Assert.NotEqual(firstSnapshot.ResourceVersion, resourceChangedSnapshot.ResourceVersion);
+        var reused = book.GetOrBuild(
+            resourceChangedSnapshot, resourceChangedSnapshot.Master!, "Master", specification);
+
+        Assert.Same(first, reused);
+        Assert.Equal(1, book.CacheMisses);
+        Assert.Equal(1, book.CacheHits);
+
+        stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "禁止灌酒"
+        });
+        var ruleChangedSnapshot = WorldSnapshotFactory.Capture(roster);
+        var rebuilt = book.GetOrBuild(
+            ruleChangedSnapshot, ruleChangedSnapshot.Master!, "Master", specification);
+
+        Assert.NotSame(first, rebuilt);
+        Assert.DoesNotContain(
+            Assert.Single(rebuilt.Requirements).Candidates,
+            candidate => candidate.Operation == "POUR_IN");
+        Assert.Contains(
+            Assert.Single(rebuilt.Requirements).Candidates,
+            candidate => candidate.Operation == "MATCH");
+        Assert.Equal(2, book.CacheMisses);
+    }
+
+    [Fact]
+    public void OpaqueRequireProducesUndeterminedRuleCandidateProfile()
+    {
+        var stack = new ModifierStack();
+        stack.Push(new RequireModifier
+        {
+            Text = "外部世界条件",
+            Violation = () => null
+        });
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
+        var snapshot = Snapshot(master);
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐" } },
+            Constants.OrderType.A, Words);
+
+        var profile = WorldOrderRuleCandidateCatalog.Build(
+            snapshot, snapshot.Master!, "Master", specification);
+
+        Assert.True(profile.IsUndetermined);
+        Assert.False(profile.CanStructurallyCoverEveryRequirement);
+        Assert.Contains("无法静态重建", profile.Reason ?? string.Empty);
+    }
+
+    [Fact]
     public void BSpecificationUsesMasterSlavePartitionSearch()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
