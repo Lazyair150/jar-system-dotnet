@@ -135,6 +135,12 @@ public class SolverOperation
     public string? CostLiquid { get; set; }
     public Dictionary<string, int>? Consumed { get; set; }
     public bool FullReshape { get; set; }
+
+    /// <summary>生成该操作的领域规则 ID；旧求解器路径可为空，新物化计划必须保留。</summary>
+    public string? RuleId { get; set; }
+
+    /// <summary>生成该操作的领域规则版本；与 RuleId 成对出现。</summary>
+    public int? RuleVersion { get; set; }
 }
 
 public class JarState
