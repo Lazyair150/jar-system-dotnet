@@ -182,6 +182,40 @@ public sealed class WorldSnapshotTests
     }
 
     [Fact]
+    public void SolveFingerprintsSeparateRuleProfileAndResourceChanges()
+    {
+        var stack = new ModifierStack();
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
+        master.AddJar(new Jar("圆罐"));
+        master.AddLiquid("酒", 1);
+        var roster = new WorkshopRoster(new[] { master }, master);
+
+        var baseline = WorldSnapshotFactory.Capture(roster);
+
+        master.AddLiquid("蜜", 1);
+        var resourceChanged = WorldSnapshotFactory.Capture(roster);
+        Assert.Equal(baseline.RuleSetVersion, resourceChanged.RuleSetVersion);
+        Assert.Equal(baseline.WorkshopProfileVersion, resourceChanged.WorkshopProfileVersion);
+        Assert.NotEqual(baseline.ResourceVersion, resourceChanged.ResourceVersion);
+
+        stack.Push(new GrantModifier { Shape = "方罐", Source = "test" });
+        var ruleChanged = WorldSnapshotFactory.Capture(roster);
+        Assert.NotEqual(resourceChanged.RuleSetVersion, ruleChanged.RuleSetVersion);
+        Assert.Equal(resourceChanged.WorkshopProfileVersion, ruleChanged.WorkshopProfileVersion);
+        Assert.Equal(resourceChanged.ResourceVersion, ruleChanged.ResourceVersion);
+
+        var otherProfile = new Workshop("主台", new List<string> { "方罐" });
+        otherProfile.AddJar(new Jar("圆罐"));
+        otherProfile.AddLiquid("酒", 1);
+        otherProfile.AddLiquid("蜜", 1);
+        var profileChanged = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { otherProfile }, otherProfile));
+        Assert.Equal(baseline.RuleSetVersion, profileChanged.RuleSetVersion);
+        Assert.NotEqual(baseline.WorkshopProfileVersion, profileChanged.WorkshopProfileVersion);
+        Assert.Equal(baseline.ResourceVersion, profileChanged.ResourceVersion);
+    }
+
+    [Fact]
     public void ShipInventoryIsDetachedAndPartOfTheWorldVersion()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
