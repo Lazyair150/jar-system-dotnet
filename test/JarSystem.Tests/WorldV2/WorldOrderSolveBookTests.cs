@@ -201,6 +201,7 @@ public sealed class WorldOrderSolveBookTests
         Assert.Equal("MATCH", first.Result.Plan!.MasterSteps.Single().Operation!.Type);
 
         Assert.True(master.PourIn(jar, "酒").Success);
+        Assert.True(master.ClearMark(jar).Success);
         var changedSnapshot = WorldSnapshotFactory.Capture(roster);
         var second = book.Evaluate(demand.Id, changedSnapshot, Registry());
 
