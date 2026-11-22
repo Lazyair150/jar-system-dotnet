@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using JarSystem.Core.World.Demands;
+using JarSystem.Core.Orders;
 
 namespace JarSystem.Core.World.Solving;
 
@@ -12,6 +13,7 @@ public sealed class WorldOrderSolveBook : IDisposable
 {
     private readonly OrderDemandBoard _board;
     private readonly Dictionary<int, WorldOrderSolveRecord> _records = new();
+    public WorldOrderRuleCandidateBook RuleCandidates { get; } = new();
     private bool _disposed;
 
     public WorldOrderSolveBook(OrderDemandBoard board)
@@ -95,6 +97,8 @@ public sealed class WorldOrderSolveBook : IDisposable
             return _records[demandId];
         }
 
+        CacheRuleCandidates(demand, snapshot);
+
         if (record.State == WorldOrderSolveState.Current &&
             record.Result != null &&
             string.Equals(record.Result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
@@ -160,7 +164,20 @@ public sealed class WorldOrderSolveBook : IDisposable
     {
         if (_disposed) return;
         _board.Changed -= OnBoardChanged;
+        RuleCandidates.Clear();
         _disposed = true;
+    }
+
+    private void CacheRuleCandidates(OrderDemand demand, WorldSnapshot snapshot)
+    {
+        if (demand.Specification is not JarOrderSpecification specification) return;
+
+        if (snapshot.Master != null)
+            RuleCandidates.GetOrBuild(snapshot, snapshot.Master, "Master", specification);
+
+        if (specification.Type == JarSystem.Core.Config.Constants.OrderType.B &&
+            snapshot.Slave != null)
+            RuleCandidates.GetOrBuild(snapshot, snapshot.Slave, "Slave", specification);
     }
 
     private void OnBoardChanged(OrderDemandBoardChange change)
