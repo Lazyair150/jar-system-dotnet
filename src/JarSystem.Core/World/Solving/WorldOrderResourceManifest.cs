@@ -93,7 +93,7 @@ public sealed class WorldOrderResourceManifest
         WorldOrderOrderedResourceReplayResult replay)
     {
         if (replay == null) throw new ArgumentNullException(nameof(replay));
-        return CreateCore(result, snapshot, allowResourceVersionChange: false, replay);
+        return CreateCore(result, snapshot, allowResourceVersionChange: false, replay: replay);
     }
 
     /// <summary>
