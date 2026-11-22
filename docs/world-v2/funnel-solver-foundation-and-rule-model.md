@@ -306,3 +306,28 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 - 任意 opaque 扩展只能作为明确不可缓存/不可跨 Host 恢复的运行时能力，不能伪装成普通持久化规则。
 
 在该入口完成前，不能声称 World V2 已支持运行时添加规则并在恢复后保持相同解集。
+
+
+## 17. 规则目录：哪些是规则，哪些只是输入属性
+
+统一 Rule 不代表把所有约束都命名成同一种操作。建议按语义族注册规则定义，但共享同一 Decision / Transition / ResourceEffect 协议。
+
+| 规则族 | 当前领域内容 | 归属与边界 |
+|---|---|---|
+| Jar 化学转换 | PourIn、PourOut、ReshapeEmpty、ReshapeFull | Rule Operator；定义 Jar 状态变化与游离液体/罐内液体效果 |
+| Jar 匹配与占用 | MATCH、需求唯一落点、Jar 一阶段一操作、Mark/ClearMark | Allocation / lifecycle rule；MATCH 不应伪装成液体转换 |
+| 资源账户流动 | 订单 staging 接收/拒收/溢出丢弃、Ship inventory 补液/返还、prefill 结算 | Resource-flow rule；账户容量和所有权是上下文事实，规则决定允许的流向与结算语义 |
+| 跨工作台交接 | B 类单向 Master → Slave、Jar transfer、清标记、transfer budget | World orchestration rule；不属于某个 Workshop 自己的能力 |
+| 订单阶段 | A 类绕过 Slave；B 类必须证明 Master 路径与 Slave 路径及精确交接 | Order/world policy；不应写进通用 Pour/Reshape 算子 |
+| 岗位与替换 | Master/Slave/Spare 唯一性、主台迁移、目标预置、岗位提交边界 | World lifecycle rule；工作台属性仍与岗位身份分离 |
+| 时间与临时规则 | Modifier 生效区间、CD、Retime、暂停/推进边界 | Temporal rule/context；只在其声明的依赖维度变化时失效相关解集 |
+
+以下是**输入属性而不是规则定义**：基础标记、附加标记、Ban 集合、Jar 槽位上限、单液种库存上限、订单 staging 合计容量、当前 Jar 集合、当前液体余额、岗位当前绑定。规则读取这些事实，但不把它们复制进规则注册表。
+
+特别注意：
+- Ban 是取用约束，不等于储存约束。
+- 基础标记决定 PourIn 资格；附加标记参与形状转换，不自动赋予 PourIn 资格。
+- Jar 内液体自耗与工作台游离液体扣除属于不同资源账户。
+- B 类 Slave 只能接收 Master 交接资源，不能从 Ship inventory 自行取液。
+- 生产区入库只改变 Ship inventory，不自动增加 Workshop staging。
+- 操作产出的游离液体先经过当前工作台订单 staging 接收规则；拒收/容量溢出如何处理由 ResourceEffect sink policy 决定，不能被误写成 Jar 化学规则。
