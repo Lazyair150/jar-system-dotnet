@@ -199,13 +199,16 @@ public sealed class WorldOrderSolveBookTests
         Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
         Assert.Equal("MATCH", first.Result.Plan!.MasterSteps.Single().Operation!.Type);
 
-        Assert.True(master.MarkJar(jar).Success);
+        Assert.True(master.PourIn(jar, "酒").Success);
+        Assert.True(master.ClearMark(jar).Success);
         var changedSnapshot = WorldSnapshotFactory.Capture(roster);
         var second = book.Evaluate(demand.Id, changedSnapshot, Registry());
 
-        Assert.Equal(WorldOrderSolveStatus.Infeasible, second.Result!.Status);
-        Assert.Null(second.Result.Plan);
-        Assert.Equal(changedSnapshot.Version, second.Result.WorldVersion);
+        Assert.Equal(WorldOrderSolveStatus.Feasible, second.Result!.Status);
+        Assert.NotSame(first.Result.Plan, second.Result.Plan);
+        Assert.Contains(second.Result.Plan!.MasterSteps,
+            step => step.Operation?.Type == "POUR_OUT" &&
+                    step.Before[step.Operation.JarIndex!.Value].Id == jar.Id);
     }
 
     [Fact]
