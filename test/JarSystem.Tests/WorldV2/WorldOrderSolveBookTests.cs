@@ -177,7 +177,7 @@ public sealed class WorldOrderSolveBookTests
         var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
         Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
         Assert.True(first.Result.Plan!.IsPartitioned);
-        Assert.Contains(transferred.Id, first.Result.Plan.TransferJarIds);
+        Assert.Contains(transferred.Id!.Value, first.Result.Plan.TransferJarIds);
 
         var unused = new Jar("方罐");
         Assert.True(master.AddJar(unused));
