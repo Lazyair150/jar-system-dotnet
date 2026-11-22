@@ -851,4 +851,61 @@ public sealed class WorkshopReplacementTests
         Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
     }
 
+
+    [Fact]
+    public void RetiredMasterPrefillUsesShipReturnCapacityAndRecordsOverflowDiscard()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" });
+        var ship = new ShipLiquidInventory(12, new Dictionary<string, int>
+        {
+            ["酒"] = 4,
+            ["蜜"] = 4
+        });
+        var production = new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+        {
+            ["酒"] = 0,
+            ["蜜"] = 4
+        });
+        var resources = new ResourceArea(new ProducerModule(vocabulary), production, 0, 0, ship);
+        Workshop CreateWorkshop(string name) => new(name, new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var firstMaster = CreateWorkshop("主台 A");
+        var secondMaster = CreateWorkshop("备用台 B");
+        var slave = CreateWorkshop("从台");
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { firstMaster, secondMaster, slave }, firstMaster, slave,
+            solverRegistry, logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var first = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, secondMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(first.Success, first.Error);
+        world.Runtime.AdvanceWorldTime(2_000);
+        Assert.Equal(4, world.Admission.GetPrefillBalances(secondMaster)["蜜"]);
+        Assert.Equal(12, ship.UsedCapacity);
+
+        // 新主台预置占用回滚保留容量；生产先填满剩余可用容量。
+        var second = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, firstMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(second.Success, second.Error);
+        Assert.Equal(4, world.Admission.GetPrefillBalances(firstMaster)["蜜"]);
+        world.Runtime.AdvanceWorldTime(2_000);
+
+        Assert.Same(firstMaster, world.Roster.Master);
+        Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
+        var discardedReturn = Assert.Single(world.ResourceLedger.For(ResourceCauses.Discard)
+            .Where(item => item.From == "主台预置"));
+        Assert.Equal("蜜", discardedReturn.Name);
+        Assert.Equal(4, discardedReturn.Amount);
+        Assert.Equal("主工作台替换后返还自机液库时容量不足", discardedReturn.Reason);
+        Assert.Equal(4, ship.GetAmount("酒"));
+        Assert.Equal(4, ship.GetAmount("蜜"));
+    }
+
 }
