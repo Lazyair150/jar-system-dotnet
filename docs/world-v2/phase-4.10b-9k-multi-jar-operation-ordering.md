@@ -27,7 +27,7 @@ Both schedules are legitimate candidates; the first may be the only candidate wh
 - The builder emits Slave rule nodes in the requested order and attaches the exact JarState edge from the handoff to each operation.
 - WorldOrderSlaveRuleBranchEnumerator enumerates permutations of staging-affecting Slave operations (those that consume or produce free liquid). Operations with no staging effect use a stable tail order because they cannot affect staging feasibility.
 - Every ordered program is replayed independently by WorldOrderSlaveBoundaryProjector; this preserves the actual sequence semantics: consume first, then produce, with rejection and capacity overflow discarding output.
-- Equivalent projected AND groups are deduplicated. Different boundary resource requirements remain separate OR alternatives.
+- Equivalent projected AND groups are deduplicated, but each retained group carries one concrete Slave operation-order witness so deduplication cannot erase the schedule needed to realize it. Different boundary resource requirements remain separate OR alternatives.
 - Schedule expansion consumes the existing node/branch budgets. Exhaustion returns Undetermined, never a partial Complete set.
 
 ## Explicit limits
