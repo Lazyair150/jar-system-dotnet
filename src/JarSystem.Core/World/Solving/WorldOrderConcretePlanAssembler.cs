@@ -61,6 +61,20 @@ public static class WorldOrderConcretePlanAssembler
         if (world == null) throw new ArgumentNullException(nameof(world));
         if (masterProfile == null) throw new ArgumentNullException(nameof(masterProfile));
 
+        // Validate the exact candidate/profile membership and physical Jar state before
+        // trusting any symbolic liquid effect in the resource replay. Otherwise a forged
+        // candidate could manufacture an Infeasible result before profile validation.
+        var identityMaterialization = WorldOrderConcreteOperationMaterializer.Materialize(
+            program, binding, world, masterProfile, slaveProfile);
+        if (!identityMaterialization.IsComplete)
+        {
+            var status = identityMaterialization.Status == WorldOrderConcreteMaterializationStatus.Infeasible
+                ? WorldOrderSolveStatus.Infeasible
+                : WorldOrderSolveStatus.Undetermined;
+            return Failure(status, identityMaterialization.Reason,
+                materialization: identityMaterialization);
+        }
+
         var replay = WorldOrderOrderedResourceReplay.Replay(
             program, world, slaveRejectedLiquids, "concrete-" + demandId);
         if (!replay.IsComplete)
@@ -68,7 +82,8 @@ public static class WorldOrderConcretePlanAssembler
             var status = replay.Status == WorldOrderOrderedResourceReplayStatus.Infeasible
                 ? WorldOrderSolveStatus.Infeasible
                 : WorldOrderSolveStatus.Undetermined;
-            return Failure(status, replay.Reason, replay: replay);
+            return Failure(status, replay.Reason,
+                materialization: identityMaterialization, replay: replay);
         }
 
         var materialization = WorldOrderConcreteOperationMaterializer.Materialize(
