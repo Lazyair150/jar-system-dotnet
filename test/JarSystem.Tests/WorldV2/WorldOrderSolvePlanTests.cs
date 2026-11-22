@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Orders;
 using JarSystem.Core.World.Solving;
+using JarSystem.Core.World.Execution;
 using Xunit;
 
 namespace JarSystem.Tests.WorldV2;
@@ -221,5 +222,32 @@ public sealed class WorldOrderSolvePlanTests
 
         Assert.Equal("rules.match.circular.v3", operation.RuleId);
         Assert.Equal(3, operation.RuleVersion);
+    }
+
+    [Fact]
+    public void RuleIdentitySurvivesExecutionSessionPlanWireRoundTrip()
+    {
+        var step = new SolverStep
+        {
+            Operation = new SolverOperation
+            {
+                Type = "MATCH",
+                JarIndex = 0,
+                Consumed = new Dictionary<string, int>(),
+                RuleId = "rule.match.v7",
+                RuleVersion = 7
+            },
+            Before = new List<JarState> { new() { Id = 92, Shape = "圆罐" } },
+            After = new List<JarState> { new() { Id = 92, Shape = "圆罐", IsMarked = true } },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+        var plan = WorldOrderSolvePlan.FromMaterializedPaths(false, new[] { step });
+
+        var wire = WorldOrderSolvePlanWireDto.FromPlan(plan);
+        var restored = wire.ToPlan();
+        var operation = Assert.Single(restored.MasterSteps).Operation!;
+
+        Assert.Equal("rule.match.v7", operation.RuleId);
+        Assert.Equal(7, operation.RuleVersion);
     }
 }
