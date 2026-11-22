@@ -80,3 +80,18 @@ The demo keeps the JSON string in process memory only. It is an interactive Host
 ## 8. Acceptance boundary
 
 A passing CI build and .NET test suite prepare the code for Host testing; they do not replace this Godot runtime test. Enter the Host testing stage when the latest PR HEAD passes CI. Mark Host acceptance complete only after the above checklist is run in Godot 4.7.1 .NET.
+
+
+## 9. Workshop-individual replacement acceptance
+
+The demo world contains two empty spare workshop individuals. The UI exposes independent target selectors for replacing the master-position individual and the slave-position individual; these are role positions, not UI focus controls.
+
+1. Start the world and confirm both spare individuals appear in the replacement selectors.
+2. Start a master replacement using one spare. Confirm the replacement status advances through two phases while world time continues. During the replacement interval, jar inflow to the master is suspended by Core; production continues in the resource area.
+3. Wait for completion. Confirm the selected individual now occupies the master position and the displaced master individual appears in the spare list.
+4. Start a slave replacement using an empty spare individual. Confirm it completes after one phase and the new individual occupies the slave position.
+5. Confirm a spare containing resources is not offered as a slave target. Core remains the final authority and rejects invalid/stale targets even if the UI list is outdated.
+6. Start another master replacement and click **取消当前替换** before completion. Confirm the old master remains in its role, the target remains spare, and the UI reports cancellation. Note that order interruption already committed at replacement start is not undone.
+7. Confirm the replacement controls are disabled while a replacement is active or the Runtime is faulted, and that the UI shows terminal success/failure details.
+
+A successful UI command only means the Core accepted the replacement process. Host acceptance requires observing the actual role change and the post-replacement spare roster in the live snapshot.
