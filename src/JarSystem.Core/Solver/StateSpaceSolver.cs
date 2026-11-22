@@ -71,7 +71,7 @@ internal class SolverState
     // ---- 罐子状态（求解器自有的快照态） ----
     public void MarkJar(int i) => Jars[i].IsMarked = true;
     public void SetShape(int i, string s) => Jars[i].Shape = s;
-    public void SetLiquid(int i, string l) => Jars[i].Liquid = l;
+    public void SetLiquid(int i, string? l) => Jars[i].Liquid = l;
     public string? TakeLiquid(int i) { var l = Jars[i].Liquid; Jars[i].Liquid = null; return l; }
     public bool IsEmpty(JarState j) => j.Liquid is null;
 
@@ -379,6 +379,19 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         }
     }
 
+    private static WorkshopOperation ToWorkshopOperation(SolverOperation operation) =>
+        operation.Type switch
+        {
+            "POUR_IN" when operation.TargetLiquid != null =>
+                WorkshopOperation.PourIn(operation.TargetLiquid),
+            "POUR_OUT" => WorkshopOperation.PourOut(),
+            "RESHAPE" when operation.FullReshape && operation.TargetShape != null =>
+                WorkshopOperation.ReshapeFull(operation.TargetShape),
+            "RESHAPE" when operation.TargetShape != null && operation.CostLiquid != null =>
+                WorkshopOperation.ReshapeEmpty(operation.TargetShape, operation.CostLiquid),
+            _ => throw new InvalidOperationException("未知或不完整的 Workshop 算子")
+        };
+
     private bool Apply(SolverOperation op, SolverState st)
     {
         int i = op.JarIndex!.Value;
@@ -388,22 +401,33 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         if (st.Jars[i].MasterOrigin && st.TransferUsed >= st.TransferBudget) return false;
         foreach (var kv in op.Consumed ?? new())
             if (!st.HasLiquid(kv.Key, kv.Value)) return false;
-        if (!st.Allows(st.Jars[i], op)) return false;
-        switch (op.Type)
+        if (op.Type == "MATCH")
         {
-            case "MATCH": st.MarkJar(i); break;
-            case "POUR_IN":
-                if (!st.IsEmpty(st.Jars[i])) return false;
-                if (op.TargetLiquid == null || !st.ConsumeLiquid(op.TargetLiquid, 1)) return false;
-                st.SetLiquid(i, op.TargetLiquid); st.MarkJar(i); break;
-            case "RESHAPE":
-                if (st.IsEmpty(st.Jars[i])) { if (op.CostLiquid == null || !st.ConsumeLiquid(op.CostLiquid, 1)) return false; }
-                else { if (st.IsBanned(st.Jars[i].Liquid!)) return false; st.TakeLiquid(i); }
-                st.SetShape(i, op.TargetShape!); st.MarkJar(i); break;
-            case "POUR_OUT":
-                if (st.IsEmpty(st.Jars[i])) return false;
-                var lq = st.TakeLiquid(i); st.MarkJar(i); st.AddLiquid(lq!, 1); Stats.PourOuts++; break;
-            default: return false;
+            st.MarkJar(i);
+        }
+        else
+        {
+            var transition = WorkshopRulebook.CreateTransition(
+                RuleContext.From(st.WorkshopInfo.Capability),
+                st.WorkshopInfo.MaxLiquidCapacity == int.MaxValue
+                    ? st.WorkshopInfo.MaxLiquids
+                    : int.MaxValue,
+                new JarFacts(st.Jars[i].Shape, st.Jars[i].Liquid, st.Jars[i].IsMarked),
+                ToWorkshopOperation(op),
+                st.Liquids);
+            if (transition == null) return false;
+
+            if (transition.Value.ConsumedFreeLiquid is { } consumed &&
+                !st.ConsumeLiquid(consumed, 1)) return false;
+            if (transition.Value.ConsumedJarLiquid is { } jarLiquid &&
+                !string.Equals(st.Jars[i].Liquid, jarLiquid, StringComparison.Ordinal)) return false;
+            if (transition.Value.ProducedFreeLiquid is { } produced)
+                st.AddLiquid(produced, 1);
+
+            st.SetShape(i, transition.Value.After.Shape);
+            st.SetLiquid(i, transition.Value.After.Liquid);
+            st.Jars[i].IsMarked = transition.Value.After.IsMarked;
+            if (op.Type == "POUR_OUT") Stats.PourOuts++;
         }
         if (st.Jars[i].MasterOrigin) st.TransferUsed++;
         return true;
