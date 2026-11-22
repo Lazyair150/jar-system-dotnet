@@ -61,4 +61,8 @@ public sealed class RuleContext
     /// <summary>该操作现在是否被修饰器抑制（返回原因或 null）。</summary>
     public string? SuppressionReason(string? operation, string? shape, string? liquid) =>
         Stack.SuppressionReason(operation, shape, liquid);
+
+    public bool HasUnresolvableRequirements() => Stack.HasUnresolvableRequirements();
+
+    public string? RequiredViolation() => Stack.RequiredViolation();
 }
