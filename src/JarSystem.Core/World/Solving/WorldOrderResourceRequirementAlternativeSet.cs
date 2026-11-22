@@ -111,11 +111,19 @@ public sealed class WorldOrderResourceRequirementGroup
     public string ProviderRole { get; }
     public string ConsumerRole { get; }
 
+    /// <summary>
+    /// One concrete Slave operation-order witness that realizes this boundary group.
+    /// The group is a resource condition, not an execution plan; retaining a witness
+    /// prevents deduplication from erasing the schedule needed to realize the branch.
+    /// </summary>
+    public IReadOnlyList<string> SlaveOperationOrder { get; }
+
     public WorldOrderResourceRequirementGroup(
         string groupId,
         IEnumerable<WorldOrderBoundaryRequirement> requirements,
         string? providerRole = null,
-        string? consumerRole = null)
+        string? consumerRole = null,
+        IEnumerable<string>? slaveOperationOrder = null)
     {
         if (string.IsNullOrWhiteSpace(groupId))
             throw new ArgumentException("资源组身份不能为空", nameof(groupId));
@@ -150,6 +158,13 @@ public sealed class WorldOrderResourceRequirementGroup
 
         Requirements = Array.AsReadOnly(copied);
         GroupId = groupId;
+
+        var operationOrder = (slaveOperationOrder ?? Array.Empty<string>()).ToArray();
+        if (operationOrder.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("从台操作顺序不能包含空节点身份", nameof(slaveOperationOrder));
+        if (operationOrder.Distinct(StringComparer.Ordinal).Count() != operationOrder.Length)
+            throw new ArgumentException("从台操作顺序不能重复执行同一节点", nameof(slaveOperationOrder));
+        SlaveOperationOrder = Array.AsReadOnly(operationOrder);
 
         var freeLiquid = new SortedDictionary<string, int>(StringComparer.Ordinal);
         foreach (var item in copied.Where(x => x.Kind == WorldOrderBoundaryResourceKind.FreeLiquid))
