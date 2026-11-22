@@ -270,12 +270,14 @@ public static class WorldOrderRuleCandidateCatalog
         string? targetLiquid)
     {
         var facts = new JarFacts(sourceShape, sourceLiquid, false);
-        if (!WorkshopRulebook.EvaluateMatch(rules, facts).IsAllowed) return;
-        var definition = WorkshopRulebook.Definitions.First(x => x.Operator == "MATCH");
+        var evaluation = WorkshopRulebook.EvaluateMatchTransition(rules, facts);
+        if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
+        var transition = evaluation.Transition.Value;
         candidates.Add(new WorldOrderRuleCandidate(
             requirementIndex, sourceShape, sourceLiquid, "MATCH",
-            definition.RuleId, definition.RuleVersion,
-            targetShape, targetLiquid, null, null, null, null));
+            transition.RuleId, transition.RuleVersion,
+            transition.After.Shape, transition.After.Liquid,
+            null, null, null, null));
     }
 
     private static void AddTransition(
