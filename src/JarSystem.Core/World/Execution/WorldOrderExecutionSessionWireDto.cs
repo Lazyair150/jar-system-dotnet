@@ -278,6 +278,8 @@ public sealed class WorldPlanOperationWireDto
     public string? CostLiquid { get; init; }
     public Dictionary<string, int> Consumed { get; init; } = new(StringComparer.Ordinal);
     public bool FullReshape { get; init; }
+    public string? RuleId { get; init; }
+    public int? RuleVersion { get; init; }
 
     internal static WorldPlanOperationWireDto FromOperation(WorldPlanOperation value) => new()
     {
@@ -285,7 +287,9 @@ public sealed class WorldPlanOperationWireDto
         TargetShape = value.TargetShape, TargetLiquid = value.TargetLiquid,
         CostLiquid = value.CostLiquid,
         Consumed = value.Consumed.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
-        FullReshape = value.FullReshape
+        FullReshape = value.FullReshape,
+        RuleId = value.RuleId,
+        RuleVersion = value.RuleVersion
     };
 
     internal WorldPlanOperation ToOperation()
@@ -295,13 +299,19 @@ public sealed class WorldPlanOperationWireDto
             Type, Description, JarIndex, TargetShape, TargetLiquid, CostLiquid,
             new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
                 new Dictionary<string, int>(Consumed, StringComparer.Ordinal)),
-            FullReshape);
+            FullReshape)
+        {
+            RuleId = RuleId,
+            RuleVersion = RuleVersion
+        };
     }
 
     internal void Validate()
     {
         if (string.IsNullOrWhiteSpace(Type) || JarIndex is < 0 || Consumed == null ||
-            Consumed.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value < 0))
+            Consumed.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value < 0) ||
+            (RuleId == null) != (RuleVersion == null) ||
+            RuleVersion is < 0)
             throw new InvalidOperationException("Plan operation Wire DTO 无效。");
     }
 }
