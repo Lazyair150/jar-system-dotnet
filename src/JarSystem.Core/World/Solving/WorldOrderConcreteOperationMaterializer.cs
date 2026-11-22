@@ -59,12 +59,25 @@ public static class WorldOrderConcreteOperationMaterializer
         WorldOrderPhysicalJarBindingResult binding,
         WorldSnapshot world,
         WorldOrderRuleCandidateProfile masterProfile,
-        WorldOrderRuleCandidateProfile? slaveProfile = null)
+        WorldOrderRuleCandidateProfile? slaveProfile = null,
+        WorldOrderOrderedResourceReplayResult? resourceReplay = null)
     {
         if (program == null) throw new ArgumentNullException(nameof(program));
         if (binding == null) throw new ArgumentNullException(nameof(binding));
         if (world == null) throw new ArgumentNullException(nameof(world));
         if (masterProfile == null) throw new ArgumentNullException(nameof(masterProfile));
+
+        if (resourceReplay != null && !resourceReplay.IsComplete)
+            return Failure(
+                resourceReplay.Status == WorldOrderOrderedResourceReplayStatus.Infeasible
+                    ? WorldOrderConcreteMaterializationStatus.Infeasible
+                    : WorldOrderConcreteMaterializationStatus.Undetermined,
+                resourceReplay.Reason ?? "有序资源重放未能完成");
+        if (resourceReplay != null &&
+            (program.IsBClass != (resourceReplay.SlaveBoundaryGroup != null) ||
+             (!program.IsBClass && resourceReplay.TransferLiquids.Count != 0)))
+            return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
+                "资源重放结果与符号程序的订单类型不一致");
 
         if (binding.Status == WorldOrderPhysicalJarBindingStatus.Undetermined)
             return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
@@ -242,8 +255,9 @@ public static class WorldOrderConcreteOperationMaterializer
         if (program.IsBClass && slaveIds.Any(id => !initialById.ContainsKey(id)))
             return Failure(WorldOrderConcreteMaterializationStatus.Undetermined, "从台交接 Jar 不属于初始主台库存");
 
-        var slaveTransfer = RequiredInitialLiquids(slavePath);
-        var masterRequired = RequiredInitialLiquids(masterPath, slaveTransfer);
+        var slaveTransfer = resourceReplay?.TransferLiquids ?? RequiredInitialLiquids(slavePath);
+        var masterRequired = resourceReplay?.MasterInitialLiquids ??
+            RequiredInitialLiquids(masterPath, slaveTransfer);
         PopulateAfterLiquidSnapshots(masterPath, masterRequired);
         PopulateAfterLiquidSnapshots(slavePath, slaveTransfer);
 
