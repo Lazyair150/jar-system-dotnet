@@ -141,7 +141,7 @@ public static class WorldOrderRuleCandidateCatalog
         for (var requirementIndex = 0; requirementIndex < specification.Requirements.Count; requirementIndex++)
         {
             var requirement = specification.Requirements[requirementIndex];
-            var sourceShapes = new HashSet<string>(Constants.SHAPES, StringComparer.Ordinal);
+            var sourceShapes = new SortedSet<string>(Constants.SHAPES, StringComparer.Ordinal);
             sourceShapes.UnionWith(rules.Capability.BaseMarks);
             sourceShapes.UnionWith(rules.Capability.AdditionalMarks);
             sourceShapes.UnionWith(rules.Stack.GrantedShapes());
