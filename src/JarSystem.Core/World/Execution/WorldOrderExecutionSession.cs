@@ -229,7 +229,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 (excludedIds == null || !excludedIds.Contains(item.Id!.Value)))
             .ToDictionary(item => item.Id!.Value);
         if (actualById.Count != expectedById.Count)
-            throw new InvalidOperationException(role + "参与罐子数量与执行计划游标不一致。");
+            throw new InvalidOperationException(
+                role + "参与罐子数量与执行计划游标不一致：expected=[" +
+                string.Join(",", expectedById.Keys.OrderBy(id => id)) + "]，actual=[" +
+                string.Join(",", actualById.Keys.OrderBy(id => id)) + "]。");
         foreach (var pair in expectedById)
         {
             if (!actualById.TryGetValue(pair.Key, out var actual) ||
