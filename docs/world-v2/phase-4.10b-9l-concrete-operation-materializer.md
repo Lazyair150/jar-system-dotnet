@@ -34,7 +34,7 @@ It is deliberately not a solver-entry integration and does not itself certify re
 | RESHAPE_EMPTY | RESHAPE, FullReshape=false | consumes CostLiquid from staging |
 | RESHAPE_FULL | RESHAPE, FullReshape=true | consumes the Jar's internal liquid only |
 
-The full-reshape `Consumed` witness records the internal liquid material, but it is not debited from the free-liquid staging balance. The resource manifest validator now checks that distinction explicitly.
+The full-reshape `Consumed` witness records the internal liquid material, but it is not debited from the free-liquid staging balance. Both `WorldOrderResourceManifest` and `WorldPlanStepApplier` validate that same witness; `ExpectedFreeLiquidDelta` deliberately applies no staging debit for a full reshape. A full reshape can therefore use a Jar's internal liquid even when that liquid is banned in Master staging.
 
 ## Liquid snapshots
 
