@@ -97,7 +97,7 @@ public sealed class PartitionSearch
 
     public PartitionSearch(ISolver solver)
     {
-        _solver = solver;
+        _solver = solver ?? throw new ArgumentNullException(nameof(solver));
     }
 
     /// <summary>
@@ -125,6 +125,12 @@ public sealed class PartitionSearch
         out PartitionSearchReport report)
     {
         if (request == null) throw new ArgumentNullException(nameof(request));
+        if (request.Requirements == null || request.MasterInfo == null ||
+            request.SlaveInfo == null || request.MasterJars == null ||
+            request.MasterLiquids == null)
+            throw new ArgumentException("划分搜索请求缺少必要输入", nameof(request));
+        if (request.Requirements.Count > 30)
+            throw new ArgumentOutOfRangeException(nameof(request), "需求数量超过位掩码可表达范围");
         inconclusiveReason = null;
         string? diagnosticInconclusiveReason = null;
         var reqs = request.Requirements;
@@ -354,9 +360,14 @@ public sealed class PartitionSearch
         if (reqs.Count == 0) return "";
         var parts = new string[reqs.Count];
         for (var i = 0; i < reqs.Count; i++)
-            parts[i] = reqs[i].Shape + ":" + (reqs[i].Liquid ?? "");
+        {
+            var shape = reqs[i].Shape;
+            var liquid = reqs[i].Liquid;
+            parts[i] = shape.Length + ":" + shape +
+                (liquid == null ? "N" : "S" + liquid.Length + ":" + liquid);
+        }
         Array.Sort(parts, StringComparer.Ordinal);
-        return string.Join(",", parts);
+        return string.Concat(parts.Select(part => part.Length + ":" + part));
     }
 
     /// <summary>
