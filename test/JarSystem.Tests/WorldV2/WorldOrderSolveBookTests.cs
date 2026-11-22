@@ -183,6 +183,35 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
+    public void ResourceRebindFallsBackToSolverWhenRequiredLiquidSupplyDisappears()
+    {
+        var board = Board();
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        var roster = new WorkshopRoster(new[] { master }, master);
+
+        var supplied = WorldSnapshotFactory.Capture(
+            roster, new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 }));
+        var first = book.Evaluate(demand.Id, supplied, Registry());
+        Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
+
+        var depleted = WorldSnapshotFactory.Capture(
+            roster, new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 0 }));
+        var second = book.Evaluate(demand.Id, depleted, Registry());
+
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, second.Result!.Status);
+        Assert.NotSame(first.Result.Plan, second.Result.Plan);
+        Assert.Equal(depleted.Version, second.Result.WorldVersion);
+    }
+
+    [Fact]
     public void BOrderSymbolicCandidatesIncludeBothRolesWhileAOrderBypassesSlave()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
