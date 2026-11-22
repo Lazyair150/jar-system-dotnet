@@ -264,3 +264,20 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 - 对需要特定资源状态才能改变规则语义的扩展，规则必须声明依赖；该类状态进入对应 Profile 指纹，不能偷偷从库存中读取。
 
 此拆分是架构目标，需通过旧 Solver 差分测试与资源变动不重算测试逐步迁移。
+
+
+## 14. 首轮代码迁移进度（2026-11-22）
+
+已进入代码的第一小段：
+- StateSpaceSolver 的四种候选操作现在通过 WorkshopRulebook 评估；Apply 不再自行重复判断这些操作的领域前置条件。
+- WorkshopRulebook 新增纯值 WorkshopOperationTransition，包含稳定 RuleId/RuleVersion、Jar After facts、游离液体消耗/产出和 Jar 内液体自耗描述。
+- StateSpaceSolver.Apply 使用该转换描述更新搜索副本；RuleContext 在 SolverState 内复用，避免每个搜索节点重复创建规则上下文。
+- 新增测试验证四种操作的转换结果、资源效果和输入纯度。
+- 保留 MATCH 为需求匹配/占用规则，不混入四种 Workshop 转换算子。
+- GitHub Actions verify #1650 已对规则判定接入提交通过；后续包含纯转换及测试的 verify #1657 / #1659 / #1661 仍需以各自最终结果为准。
+
+尚未完成：
+- Workshop 真实执行门面尚未消费同一个 WorkshopOperationTransition；当前它仍负责自身资源账户事务和 Jar 变更。
+- 规则拒绝目前仍主要以 bool 表达，稳定的 Decision / ReasonCode / Undetermined 契约尚未落地。
+- RuleId/RuleVersion 目前是四种转换结果上的第一版稳定身份，不等于已经有完整 Rule Registry / Profile。
+- 搜索仍以当前具体 Jar/液体快照求一条首解；尚未实现抽象 SymbolicSolution、多解集、ResourceBinding 与 Readiness 分离。
