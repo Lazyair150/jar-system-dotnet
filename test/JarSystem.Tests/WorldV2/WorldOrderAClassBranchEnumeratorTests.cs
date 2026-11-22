@@ -112,8 +112,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
 
         var result = Solve(master, new[]
         {
-            new Requirement { Shape = "圆罐", Liquid = "酒" },
-            new Requirement { Shape = "方罐" }
+            new Requirement { Shape = "方罐" },
+            new Requirement { Shape = "圆罐" }
         }, maxBranches: 1, maxNodes: 1);
 
         Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Undetermined, result.Status);
