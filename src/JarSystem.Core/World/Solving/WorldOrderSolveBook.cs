@@ -93,6 +93,7 @@ public sealed class WorldOrderSolveBook : IDisposable
 
     /// <summary>
     /// 对指定订单求解或复用当前版本的缓存结果。
+    /// 规则/Profile/规格候选跨资源版本复用；具体计划只有通过资源清单重验证后才可重绑定。
     /// 订单自身 CD 是求解资格的硬门槛；任何 Dirty/invalidation 都不能绕过它。
     /// </summary>
     public WorldOrderSolveRecord Evaluate(
