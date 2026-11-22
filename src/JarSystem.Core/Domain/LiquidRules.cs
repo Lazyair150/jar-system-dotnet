@@ -48,8 +48,7 @@ public readonly struct LiquidGrant
 /// 现在三分：<b>规则</b>在 <see cref="LiquidRules"/>（纯函数），<b>库存</b>由调用方给（<c>have</c>），
 /// <b>有状态的门面</b>是 <see cref="Workshop"/> 上的三个能力（它把自己的库存喂进来）。
 ///
-/// <para><b>存储与取用是两条规则</b>（2026-11 定案）：禁令只约束<b>取用</b>（倒入罐子、当改形成本、
-/// 满罐自耗），<b>不</b>约束<b>存储</b> —— 被禁的液体可以流进工作台、留在池子里（那一格仍然存在），
+/// <para><b>存储与取用是两条规则</b>（2026-11 定案）：禁令只约束工作台游离液体的<b>取用</b>（倒入罐子、支付空罐改形成本），<b>不</b>约束<b>存储</b> —— 被禁的液体可以流进工作台、留在池子里（那一格仍然存在），
 /// 只是取不出来。于是 <see cref="CanStore"/> 不再问禁令，<see cref="CanPay"/>/<see cref="Check"/> 仍然问。</para>
 /// </summary>
 public readonly struct LiquidRules
