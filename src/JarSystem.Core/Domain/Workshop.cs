@@ -233,7 +233,7 @@ public class Workshop
     public LiquidRules Liquid => new(_capability, MaxLiquids);
 
     /// <summary>能不能<strong>取用</strong>这种液体（禁令门）。**禁令不是"存储上限"：禁液能存进来、能随罐子转移，
-    /// 但倒不出、付不了改形成本、满罐自耗也不行**。</summary>
+    /// 但不能从工作台游离液体池倒出或支付空罐改形成本；满罐改形消耗的是 Jar 内部液体，不经过 staging ban**。</summary>
     public LiquidGrant CheckLiquid(string liquid) => Liquid.Check(liquid);
 
     /// <summary>能不能从池子里取出 amount 份（禁令 + 库存）。倒液、付改形成本都走这里。</summary>
