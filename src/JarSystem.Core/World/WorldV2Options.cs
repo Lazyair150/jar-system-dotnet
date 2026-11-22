@@ -399,6 +399,8 @@ public static class WorldV2Factory
             options.ActiveFulfillmentPolicy,
             clock,
             shipLiquidInventory,
-            WorldV2ConfigurationFingerprint.Compute(options));
+            WorldV2ConfigurationFingerprint.Compute(options),
+            options.Shapes,
+            options.Liquids);
     }
 }
