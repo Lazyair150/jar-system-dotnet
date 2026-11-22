@@ -165,6 +165,9 @@ public sealed record WorldPlanOperation(
     IReadOnlyDictionary<string, int> Consumed,
     bool FullReshape)
 {
+    public string? RuleId { get; init; }
+    public int? RuleVersion { get; init; }
+
     internal static WorldPlanOperation CopyFrom(SolverOperation source) => new(
         source.Type,
         source.Description,
@@ -176,7 +179,11 @@ public sealed record WorldPlanOperation(
             source.Consumed == null
                 ? new Dictionary<string, int>(StringComparer.Ordinal)
                 : new Dictionary<string, int>(source.Consumed, StringComparer.Ordinal)),
-        source.FullReshape);
+        source.FullReshape)
+    {
+        RuleId = source.RuleId,
+        RuleVersion = source.RuleVersion
+    };
 }
 
 public sealed record WorldPlanJarState(
