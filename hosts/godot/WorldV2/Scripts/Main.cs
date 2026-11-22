@@ -11,18 +11,24 @@ public partial class Main : Control
     private WorldV2HostNode _host = null!;
     private Label _statusLabel = null!;
     private RichTextLabel _snapshotLabel = null!;
+    private Button _restoreCheckpointButton = null!;
+    private string? _checkpointJson;
 
     public override void _Ready()
     {
         _host = GetNode<WorldV2HostNode>("WorldV2Host");
         _statusLabel = GetNode<Label>("Root/StatusLabel");
         _snapshotLabel = GetNode<RichTextLabel>("Root/SnapshotLabel");
+        _restoreCheckpointButton = GetNode<Button>("Root/Controls/RestoreCheckpointButton");
 
         _host.SnapshotChanged += Refresh;
         GetNode<Button>("Root/Controls/PauseButton").Pressed += _host.PauseWorld;
         GetNode<Button>("Root/Controls/ResumeButton").Pressed += _host.ResumeWorld;
         GetNode<Button>("Root/Controls/NormalSpeedButton").Pressed += () => _host.SetWorldSpeedRatio(1.0);
         GetNode<Button>("Root/Controls/DoubleSpeedButton").Pressed += () => _host.SetWorldSpeedRatio(2.0);
+        GetNode<Button>("Root/Controls/SaveCheckpointButton").Pressed += SaveCheckpoint;
+        _restoreCheckpointButton.Pressed += RestoreCheckpoint;
+        _restoreCheckpointButton.Disabled = true;
 
         Refresh();
     }
@@ -31,6 +37,23 @@ public partial class Main : Control
     {
         if (_host != null)
             _host.SnapshotChanged -= Refresh;
+    }
+
+    private void SaveCheckpoint()
+    {
+        _checkpointJson = _host.CaptureExecutionCheckpointJson();
+        _restoreCheckpointButton.Disabled = false;
+        Refresh();
+        _statusLabel.Text = "检查点已保存到当前运行内存，可继续推进后恢复";
+    }
+
+    private void RestoreCheckpoint()
+    {
+        if (string.IsNullOrWhiteSpace(_checkpointJson))
+            return;
+
+        _host.RestoreExecutionCheckpointJson(_checkpointJson);
+        Refresh();
     }
 
     private void Refresh()
