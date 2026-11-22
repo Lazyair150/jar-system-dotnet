@@ -139,6 +139,50 @@ public class WorkshopRulebookTests
         Assert.True(checkedCount > 15000, "对拍组合数量异常偏少：" + checkedCount);
     }
 
+    [Fact]
+    public void RuleTransitionsDescribeJarAndResourceEffectsWithoutMutatingInputs()
+    {
+        var capability = new WorkshopCapability(
+            new[] { "圆罐" }, new[] { "尖罐" }, System.Array.Empty<string>());
+        var rules = RuleContext.From(capability);
+
+        var empty = new JarFacts("圆罐", null, false);
+        var fullWine = new JarFacts("圆罐", "酒", false);
+        var liquids = new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 };
+
+        var pourIn = WorkshopRulebook.CreateTransition(
+            rules, 3, empty, WorkshopOperation.PourIn("酒"), liquids);
+        Assert.NotNull(pourIn);
+        Assert.Equal("jar.workshop.pour-in", pourIn!.Value.RuleId);
+        Assert.Equal(1, pourIn.Value.RuleVersion);
+        Assert.Equal(new JarFacts("圆罐", "酒", true), pourIn.Value.After);
+        Assert.Equal("酒", pourIn.Value.ConsumedFreeLiquid);
+        Assert.Null(pourIn.Value.ProducedFreeLiquid);
+        Assert.Null(pourIn.Value.ConsumedJarLiquid);
+
+        var pourOut = WorkshopRulebook.CreateTransition(
+            rules, 3, fullWine, WorkshopOperation.PourOut(), liquids);
+        Assert.NotNull(pourOut);
+        Assert.Equal(new JarFacts("圆罐", null, true), pourOut!.Value.After);
+        Assert.Equal("酒", pourOut.Value.ProducedFreeLiquid);
+
+        var reshapeEmpty = WorkshopRulebook.CreateTransition(
+            rules, 3, empty, WorkshopOperation.ReshapeEmpty("尖罐", "蜜"), liquids);
+        Assert.NotNull(reshapeEmpty);
+        Assert.Equal(new JarFacts("尖罐", null, true), reshapeEmpty!.Value.After);
+        Assert.Equal("蜜", reshapeEmpty.Value.ConsumedFreeLiquid);
+
+        var reshapeFull = WorkshopRulebook.CreateTransition(
+            rules, 3, fullWine, WorkshopOperation.ReshapeFull("尖罐"), liquids);
+        Assert.NotNull(reshapeFull);
+        Assert.Equal(new JarFacts("尖罐", null, true), reshapeFull!.Value.After);
+        Assert.Equal("酒", reshapeFull.Value.ConsumedJarLiquid);
+
+        // 转换描述是纯值结果；调用前的输入库存不会被规则评估修改。
+        Assert.Equal(1, liquids["酒"]);
+        Assert.Equal(1, liquids["蜜"]);
+    }
+
     /// <summary>枚举入口与判定入口必须自洽：<see cref="WorkshopRulebook.Available"/> 恰好是判定为真的那批。</summary>
     [Fact]
     public void AvailableListsExactlyTheAllowedSet()
