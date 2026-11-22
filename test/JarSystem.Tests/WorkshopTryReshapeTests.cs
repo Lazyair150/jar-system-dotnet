@@ -35,11 +35,17 @@ public class WorkshopTryReshapeTests
     [Fact]
     public void AutoModePicksAUsableCostLiquidAndPaysExactlyOne()
     {
-        var w = Xuanwu();
+        // 先有库存，再启用禁令：用于验证禁令变化后旧余额不可使用。
+        var w = new Workshop("玄武台",
+            new List<string> { "圆罐", "方罐" },
+            new List<string> { "三角罐" },
+            maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
         var jar = new Jar("圆罐", null, null, Vocab());
         w.AddJar(jar);
-        w.AddLiquid("酒", 1);      // 被禁 ⇒ 不能当成本
+        w.AddLiquid("酒", 1);
         w.AddLiquid("蜜", 2);
+        w.ReplaceCapability(new WorkshopCapability(
+            new[] { "圆罐", "方罐" }, new[] { "三角罐" }, new[] { "酒" }));
 
         var (ok, reason) = w.TryReshape(jar, "方罐");
 
@@ -53,11 +59,17 @@ public class WorkshopTryReshapeTests
     [Fact]
     public void AnExplicitCostThatCannotBePaidFailsInsteadOfSilentlySwitchingToAnother()
     {
-        var w = Xuanwu();
+        // 先有库存，再启用禁令：酒仍留在旧账中，但不能被当前工作台使用。
+        var w = new Workshop("玄武台",
+            new List<string> { "圆罐", "方罐" },
+            new List<string> { "三角罐" },
+            maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
         var jar = new Jar("圆罐", null, null, Vocab());
         w.AddJar(jar);
-        w.AddLiquid("酒", 1);      // 池里有，但被禁 ⇒ 付不了
-        w.AddLiquid("蜜", 2);      // 明明还有别的可付，但调用方点名要酒
+        w.AddLiquid("酒", 1);
+        w.AddLiquid("蜜", 2);
+        w.ReplaceCapability(new WorkshopCapability(
+            new[] { "圆罐", "方罐" }, new[] { "三角罐" }, new[] { "酒" }));
 
         var (ok, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Empty, "酒");
 
