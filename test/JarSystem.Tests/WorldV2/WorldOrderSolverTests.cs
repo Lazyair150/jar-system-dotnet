@@ -295,6 +295,36 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BClassCanTransferMasterBannedFullJarToPermissiveSlaveForSelfConsumingReshape()
+    {
+        var master = new Workshop("禁酒主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        master.AddJar(new Jar("圆罐", "酒", id: 8201));
+        var slave = new Workshop("允许用酒的从台",
+            new List<string> { "圆罐", "方罐" });
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "方罐" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Equal("partition", result.CheckMethod);
+        Assert.Equal(new[] { 8201 }, result.Plan!.TransferJarIds);
+        Assert.Empty(result.Plan.TransferLiquids);
+        var step = Assert.Single(result.Plan.SlaveSteps);
+        Assert.Equal("RESHAPE", step.Operation!.Type);
+        Assert.True(step.Operation.FullReshape);
+        Assert.Equal("酒", step.Operation.CostLiquid);
+        Assert.Equal(8201, step.Before![step.Operation.JarIndex!.Value].Id);
+        Assert.Equal("方罐", step.After![step.Operation.JarIndex!.Value].Shape);
+        Assert.Null(step.After[step.Operation.JarIndex!.Value].Liquid);
+    }
+
+    [Fact]
     public void BPartitionBacktracksWhenAllSlaveAssignmentViolatesSlaveRule()
     {
         var slaveRules = new ModifierStack();
