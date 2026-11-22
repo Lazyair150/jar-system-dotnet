@@ -30,6 +30,7 @@ This does not permit banned free liquid to cross into a receiving workshop's fre
 
 - `LiquidRulesTests`: ban is enforced on both receive/storage and use; zero/unlimited capacity does not bypass ban.
 - `LiquidGrantTests`: live Workshop and pure LiquidRules answers remain aligned.
-- `WorkshopCapabilityTests`: a capability change that would ban a non-zero existing free-liquid balance is rejected without changing world state or command log.
+- `WorkshopCapabilityTests`: a capability change that would ban a non-zero existing free-liquid balance is rejected without changing world state or command log; a Jar whose internal liquid becomes banned remains owned and transferable.
 - `WorkshopOrderLiquidScopeTests`: a banned Jar is blocked at the current workshop, can be transferred to a non-banning Slave and operated there, and can also be transferred to a banning Slave without being operated there.
+- `WorkshopReplacementTests`: Master replacement transfers a full Jar into a target workshop that bans its internal liquid; the transfer succeeds, but the target cannot subsequently operate the Jar.
 - `WorkshopRulebookTests`: exhaustive rulebook/executor parity fixtures only seed free liquids that the configured workshop is allowed to store.
