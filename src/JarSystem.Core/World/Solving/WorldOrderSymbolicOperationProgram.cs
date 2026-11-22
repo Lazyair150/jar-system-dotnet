@@ -28,9 +28,10 @@ public sealed record WorldOrderSymbolicJarVersion
     public string WorkshopRole { get; }
     public string Shape { get; }
     public string? Liquid { get; }
+    public bool IsMarked { get; }
 
     public WorldOrderSymbolicJarVersion(
-        string jarKey, int revision, string workshopRole, string shape, string? liquid)
+        string jarKey, int revision, string workshopRole, string shape, string? liquid, bool isMarked = false)
     {
         if (string.IsNullOrWhiteSpace(jarKey)) throw new ArgumentException("Jar 符号身份不能为空", nameof(jarKey));
         if (revision < 0) throw new ArgumentOutOfRangeException(nameof(revision));
@@ -41,6 +42,7 @@ public sealed record WorldOrderSymbolicJarVersion
         WorkshopRole = workshopRole;
         Shape = shape;
         Liquid = liquid;
+        IsMarked = isMarked;
     }
 }
 
@@ -106,6 +108,8 @@ public sealed class WorldOrderSymbolicOperationNode
             throw new ArgumentException("规则操作的输入和输出 Jar 必须属于执行岗位");
         if (input.JarKey != output.JarKey || output.Revision != checked(input.Revision + 1))
             throw new ArgumentException("规则操作必须推进同一 Jar 身份的一个状态版本");
+        if (input.IsMarked || !output.IsMarked)
+            throw new ArgumentException("每只 Jar 在一次订单实现中只能操作一次；操作输入必须未标记，输出必须已标记");
         if (candidate.RequirementIndex != (requirementIndex ?? -1) ||
             candidate.SourceShape != input.Shape || candidate.SourceLiquid != input.Liquid ||
             candidate.TargetShape != output.Shape || candidate.TargetLiquid != output.Liquid)
@@ -137,7 +141,7 @@ public sealed class WorldOrderSymbolicOperationNode
             throw new ArgumentException("同一批交接不能重复包含同一 Jar 身份", nameof(inputJars));
 
         var outputs = inputs.Select(x => new WorldOrderSymbolicJarVersion(
-            x.JarKey, checked(x.Revision + 1), slaveRole, x.Shape, x.Liquid)).ToArray();
+            x.JarKey, checked(x.Revision + 1), slaveRole, x.Shape, x.Liquid, x.IsMarked)).ToArray();
 
         return new WorldOrderSymbolicOperationNode(
             nodeId, sequence, WorldOrderSymbolicOperationKind.MasterToSlaveHandoff,
