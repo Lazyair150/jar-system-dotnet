@@ -128,6 +128,41 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
+    public void BOrderSymbolicCandidatesIncludeBothRolesWhileAOrderBypassesSlave()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台", new List<string> { "圆罐" });
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var board = Board();
+        var bDemand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        board.AddDemand(bDemand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+
+        book.Evaluate(bDemand.Id, snapshot, Registry());
+        var bCandidates = book.GetSymbolicSolutions(bDemand.Id, snapshot);
+        Assert.NotNull(bCandidates);
+        Assert.Contains(bCandidates!.Solutions.SelectMany(x => x.Steps),
+            step => step.WorkshopRole == "Master");
+        Assert.Contains(bCandidates.Solutions.SelectMany(x => x.Steps),
+            step => step.WorkshopRole == "Slave");
+
+        var aDemand = Demand();
+        var aBoard = Board();
+        aBoard.AddDemand(aDemand, DemandAreaKind.Passive);
+        using var aBook = new WorldOrderSolveBook(aBoard);
+        aBook.Evaluate(aDemand.Id, snapshot, Registry());
+        var aCandidates = aBook.GetSymbolicSolutions(aDemand.Id, snapshot);
+        Assert.NotNull(aCandidates);
+        Assert.All(aCandidates!.Solutions.SelectMany(x => x.Steps),
+            step => Assert.Equal("Master", step.WorkshopRole));
+    }
+
+    [Fact]
     public void RemovedDemandBecomesDetachedAndItsOldResultCannotBeRead()
     {
         var board = Board();
