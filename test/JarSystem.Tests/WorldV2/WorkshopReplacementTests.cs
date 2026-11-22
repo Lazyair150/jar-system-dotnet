@@ -834,8 +834,8 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(4, ship.GetAmount("酒"));
         Assert.Equal(4, world.Admission.GetPrefillBalances(firstMaster)["蜜"]);
         var returns = world.ResourceLedger.For(ResourceCauses.Return);
-        var returned = Assert.Single(returns.Where(item =>
-            item.Reason == "主工作台替换后返还未消费预置液体"));
+        var returned = Assert.Single(returns,
+            item => item.Reason == "主工作台替换后返还未消费预置液体");
         Assert.Equal("酒", returned.Name);
         Assert.Equal(4, returned.Amount);
         Assert.Equal("主台预置", returned.From);
@@ -902,8 +902,8 @@ public sealed class WorkshopReplacementTests
 
         Assert.Same(firstMaster, world.Roster.Master);
         Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
-        var discardedReturn = Assert.Single(world.ResourceLedger.For(ResourceCauses.Discard)
-            .Where(item => item.From == "主台预置"));
+        var discardedReturn = Assert.Single(world.ResourceLedger.For(ResourceCauses.Discard),
+            item => item.From == "主台预置");
         Assert.Equal("蜜", discardedReturn.Name);
         Assert.Equal(2, discardedReturn.Amount);
         Assert.Equal("主工作台替换后返还自机液库时容量不足", discardedReturn.Reason);
