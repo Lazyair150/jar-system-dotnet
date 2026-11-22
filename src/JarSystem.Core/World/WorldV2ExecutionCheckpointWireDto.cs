@@ -273,6 +273,7 @@ public sealed class DemandBoardWireDto
     public DemandAreaFulfillmentPolicy ActiveFulfillmentPolicy { get; set; }
     public List<OrderDemandWireDto> PassiveDemands { get; set; } = new();
     public List<OrderDemandWireDto> ActiveDemands { get; set; } = new();
+    public OrderCycleOutboxWireDto Outbox { get; set; } = new();
 
     public static DemandBoardWireDto FromSnapshot(OrderDemandBoardSnapshot value) => new()
     {
@@ -280,14 +281,16 @@ public sealed class DemandBoardWireDto
         PassiveFulfillmentPolicy = value.PassiveFulfillmentPolicy,
         ActiveFulfillmentPolicy = value.ActiveFulfillmentPolicy,
         PassiveDemands = value.PassiveDemands.Select(OrderDemandWireDto.FromSnapshot).ToList(),
-        ActiveDemands = value.ActiveDemands.Select(OrderDemandWireDto.FromSnapshot).ToList()
+        ActiveDemands = value.ActiveDemands.Select(OrderDemandWireDto.FromSnapshot).ToList(),
+        Outbox = OrderCycleOutboxWireDto.FromSnapshot(value.Outbox)
     };
 
     public void Validate()
     {
         if (DemandIdSequence < 0 || !Enum.IsDefined(PassiveFulfillmentPolicy) ||
-            !Enum.IsDefined(ActiveFulfillmentPolicy) || PassiveDemands == null || ActiveDemands == null)
+            !Enum.IsDefined(ActiveFulfillmentPolicy) || PassiveDemands == null || ActiveDemands == null || Outbox == null)
             throw new InvalidOperationException("需求板 Wire DTO 无效。");
+        Outbox.Validate();
         foreach (var item in PassiveDemands.Concat(ActiveDemands)) item.Validate();
         var ids = PassiveDemands.Concat(ActiveDemands).Select(item => item.Id).ToArray();
         if (ids.Distinct().Count() != ids.Length || ids.Any(id => id <= 0 || id > DemandIdSequence))
@@ -299,7 +302,7 @@ public sealed class DemandBoardWireDto
         Validate();
         return new OrderDemandBoardSnapshot(DemandIdSequence, PassiveFulfillmentPolicy,
             ActiveFulfillmentPolicy, PassiveDemands.Select(item => item.ToSnapshot()),
-            ActiveDemands.Select(item => item.ToSnapshot()));
+            ActiveDemands.Select(item => item.ToSnapshot()), Outbox.ToSnapshot());
     }
 }
 
@@ -310,6 +313,8 @@ public sealed class OrderDemandWireDto
     public List<OrderRequirementWireDto> Requirements { get; set; } = new();
     public long CooldownDurationLogicalMilli { get; set; }
     public long CooldownRemainingLogicalMilli { get; set; }
+    public string? OrderDefinitionKey { get; set; }
+    public long CycleSequence { get; set; }
 
     public static OrderDemandWireDto FromSnapshot(OrderDemandSnapshot value) => new()
     {
@@ -317,14 +322,17 @@ public sealed class OrderDemandWireDto
         Requirements = value.Requirements.Select(item => new OrderRequirementWireDto
             { Shape = item.Shape, Liquid = item.Liquid }).ToList(),
         CooldownDurationLogicalMilli = value.CooldownDurationLogicalMilli,
-        CooldownRemainingLogicalMilli = value.CooldownRemainingLogicalMilli
+        CooldownRemainingLogicalMilli = value.CooldownRemainingLogicalMilli,
+        OrderDefinitionKey = value.OrderDefinitionKey,
+        CycleSequence = value.CycleSequence
     };
 
     public void Validate()
     {
         if (Id <= 0 || string.IsNullOrWhiteSpace(Type) || Requirements == null ||
             Requirements.Count == 0 || CooldownDurationLogicalMilli < 0 ||
-            CooldownRemainingLogicalMilli < 0 || CooldownRemainingLogicalMilli > CooldownDurationLogicalMilli ||
+            CooldownRemainingLogicalMilli < 0 || CooldownRemainingLogicalMilli > CooldownDurationLogicalMilli || CycleSequence < 0 ||
+            (OrderDefinitionKey != null && string.IsNullOrWhiteSpace(OrderDefinitionKey)) ||
             Requirements.Any(item => item == null || string.IsNullOrWhiteSpace(item.Shape)))
             throw new InvalidOperationException("订单 Wire DTO 无效。");
     }
@@ -334,7 +342,8 @@ public sealed class OrderDemandWireDto
         Validate();
         return new OrderDemandSnapshot(Id, Type,
             Requirements.Select(item => new OrderRequirementSnapshot(item.Shape, item.Liquid)),
-            CooldownDurationLogicalMilli, CooldownRemainingLogicalMilli);
+            CooldownDurationLogicalMilli, CooldownRemainingLogicalMilli,
+            OrderDefinitionKey, CycleSequence);
     }
 }
 
@@ -342,6 +351,65 @@ public sealed class OrderRequirementWireDto
 {
     public string Shape { get; set; } = "";
     public string? Liquid { get; set; }
+}
+
+public sealed class OrderCycleOutboxWireDto
+{
+    public string WorldInstanceId { get; set; } = "";
+    public List<OrderCycleCompletedEventWireDto> Pending { get; set; } = new();
+
+    public static OrderCycleOutboxWireDto FromSnapshot(OrderCycleOutboxSnapshot value) => new()
+    {
+        WorldInstanceId = value.WorldInstanceId,
+        Pending = value.Pending.Select(OrderCycleCompletedEventWireDto.FromEvent).ToList()
+    };
+
+    public void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(WorldInstanceId) || Pending == null ||
+            Pending.Any(item => item == null))
+            throw new InvalidOperationException("订单事件 Outbox Wire DTO 无效。");
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in Pending)
+        {
+            item.Validate(WorldInstanceId);
+            if (!ids.Add(item.EventId))
+                throw new InvalidOperationException("订单事件 Outbox 包含重复 EventId。");
+        }
+    }
+
+    public OrderCycleOutboxSnapshot ToSnapshot()
+    {
+        Validate();
+        return new OrderCycleOutboxSnapshot(WorldInstanceId, Pending.Select(item => item.ToEvent()));
+    }
+}
+
+public sealed class OrderCycleCompletedEventWireDto
+{
+    public string EventId { get; set; } = "";
+    public string WorldInstanceId { get; set; } = "";
+    public int DemandId { get; set; }
+    public string OrderDefinitionKey { get; set; } = "";
+    public long CycleSequence { get; set; }
+
+    public static OrderCycleCompletedEventWireDto FromEvent(OrderCycleCompletedEvent value) => new()
+    {
+        EventId = value.EventId, WorldInstanceId = value.WorldInstanceId,
+        DemandId = value.DemandId, OrderDefinitionKey = value.OrderDefinitionKey,
+        CycleSequence = value.CycleSequence
+    };
+
+    public void Validate(string expectedWorldInstanceId)
+    {
+        if (string.IsNullOrWhiteSpace(EventId) || WorldInstanceId != expectedWorldInstanceId ||
+            DemandId <= 0 || string.IsNullOrWhiteSpace(OrderDefinitionKey) || CycleSequence <= 0 ||
+            EventId != WorldInstanceId + ":" + DemandId + ":" + CycleSequence)
+            throw new InvalidOperationException("订单周期事件 Wire DTO 无效。");
+    }
+
+    public OrderCycleCompletedEvent ToEvent() =>
+        new(EventId, WorldInstanceId, DemandId, OrderDefinitionKey, CycleSequence);
 }
 
 public sealed class ShipLiquidInventoryWireDto
