@@ -136,6 +136,7 @@ public sealed class WorldV2HostServiceTests
         var options = ValidOptions();
         // 两个岗位各自只能完成一种形状，确保真实 B 计划同时包含主台步骤与从台步骤。
         options.Producers[0].Rates["方罐"] = 1.0;
+        options.LiquidProductionRates["酒"] = 0;
         options.JarFlowRatePerLogicalTime = 2;
         options.Workshops[0].BaseMarks = new List<string> { "方罐" };
         options.Workshops.Add(new WorldV2WorkshopOptions
