@@ -85,3 +85,11 @@ The replay returns a resource witness, not a reservation. It still does not rewr
 7. Return Feasible only when the two independent proofs agree exactly.
 
 A Manifest/replay disagreement returns Undetermined with the candidate plan retained for diagnosis; it is never silently downgraded into a successful result. This deliberately fails closed for rejected or overflowed outputs that the current generic Manifest simulation still treats as accepted. That limitation is explicit and becomes the next integration target.
+
+## Domain correction: ban scope stops at the Jar boundary
+
+The legacy `ReshapeRules.SelfConsume` called `LiquidRules.Check`, which made a workbench's free-liquid ban reject a full reshape even though the liquid never entered the workbench staging account. That contradicted the World V2 resource boundary.
+
+It now requires only that the Jar is full. The Jar's internal liquid is consumed as Jar material and is recorded in the operation witness, but it is not passed through the staging ban. The ban still applies to free-liquid staging use, including `POUR_IN` and empty-reshape cost. The live `Workshop` facade, `WorkshopRulebook`, candidate catalog, materializer, Manifest, and step applier now share this distinction.
+
+This is a correction to the underlying domain rule, not a special exception in the new solver.
