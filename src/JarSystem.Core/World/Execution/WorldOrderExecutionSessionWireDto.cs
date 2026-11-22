@@ -143,6 +143,7 @@ public sealed class WorldOrderResourceManifestWireDto
         if (MasterJarIds == null || TransferJarIds == null || LockedJarIds == null ||
             MasterInitialLiquidAmounts == null || TransferLiquids == null || MasterFinalLiquidBalances == null)
             throw new InvalidOperationException("Manifest Wire DTO 包含 null 集合。");
+        // These sets may overlap when a jar is used in the master stage and then handed off.
         if (MasterJarIds.Any(x => x <= 0) || TransferJarIds.Any(x => x <= 0) ||
             MasterJarIds.Distinct().Count() != MasterJarIds.Length ||
             TransferJarIds.Distinct().Count() != TransferJarIds.Length ||
