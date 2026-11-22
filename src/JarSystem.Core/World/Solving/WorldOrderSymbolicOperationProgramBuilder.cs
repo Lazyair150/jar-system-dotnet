@@ -60,7 +60,6 @@ public static class WorldOrderSymbolicOperationProgramBuilder
         }
 
         WorldOrderSymbolicOperationNode? handoff = null;
-        var slaveInputByRequirement = new Dictionary<int, WorldOrderSymbolicJarVersion>();
         if (isBClass)
         {
             var handoffInputs = slaveSteps.Select(assigned =>
@@ -69,7 +68,6 @@ public static class WorldOrderSymbolicOperationProgramBuilder
                 var input = new WorldOrderSymbolicJarVersion(
                     "requirement-" + candidate.RequirementIndex,
                     0, masterRole, candidate.SourceShape, candidate.SourceLiquid);
-                slaveInputByRequirement.Add(candidate.RequirementIndex, input);
                 return input;
             }).ToArray();
 
@@ -104,7 +102,7 @@ public static class WorldOrderSymbolicOperationProgramBuilder
         {
             var slaveLiquidNeeds = new HashSet<string>(
                 slaveSteps.Select(x => x.Candidate.ConsumedFreeLiquid)
-                    .Where(x => x != null)!,
+                    .OfType<string>(),
                 StringComparer.Ordinal);
             foreach (var assigned in masterSteps)
             {
