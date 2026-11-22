@@ -228,6 +228,9 @@ public sealed class WorldPlanStepApplier
                 if (operation.FullReshape)
                 {
                     if (before.Liquid == null || operation.CostLiquid != before.Liquid) return null;
+                    // This is consumed material inside the Jar, not a debit from
+                    // the workshop's free-liquid staging scope.
+                    expected[before.Liquid] = 1;
                 }
                 else
                 {
