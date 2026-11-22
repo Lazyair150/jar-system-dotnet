@@ -31,16 +31,6 @@ public sealed class WorldOrderSolveBook : IDisposable
         _records.TryGetValue(demandId, out var record) ? record : null;
 
     /// <summary>
-    /// 返回最近一次求解输入对应的资源无关规则级解集。
-    /// 它是派生缓存，不代表 Jar 已绑定或资源已预留；在 Evaluate 后可供战前构筑/诊断读取。
-    /// </summary>
-    public WorldOrderSymbolicSolutionSet? GetSymbolicSolutions(int demandId)
-    {
-        ThrowIfDisposed();
-        return _symbolicSolutions.GetValueOrDefault(demandId);
-    }
-
-    /// <summary>
     /// 只在规则集、工作台 Profile 与订单规格均匹配时返回符号候选集。
     /// ResourceVersion 不参与此检查：资源变化不会使规则候选失效。
     /// </summary>
