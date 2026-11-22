@@ -176,7 +176,7 @@ public sealed class WorldV2BridgeSessionTests
         session.AdvanceWorld(1_000);
 
         var json = session.CaptureExecutionCheckpointJson();
-        Assert.Contains("\"schemaVersion\":1", json);
+        Assert.Contains("\"schemaVersion\":2", json);
 
         session.AdvanceWorld(2_000);
         Assert.Equal(3_000, session.GetWorldSnapshot().WorldTimeMilli);
