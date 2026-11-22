@@ -83,8 +83,13 @@ public sealed class WorldOrderSolveBook : IDisposable
 
         if (!string.Equals(record.Result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
         {
-            _records[demandId] = WorldOrderSolveRecord.Dirty(
-                demandId, "世界求解输入版本已变化");
+            if (TryRebind(record, demand, snapshot, out var rebound, out var reason))
+            {
+                _records[demandId] = rebound!;
+                return rebound!.Result;
+            }
+
+            _records[demandId] = WorldOrderSolveRecord.Dirty(demandId, reason);
             return null;
         }
 
@@ -131,31 +136,16 @@ public sealed class WorldOrderSolveBook : IDisposable
             string.Equals(record.Result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
             return record;
 
-        if (record.State == WorldOrderSolveState.Current &&
-            record.Result is { IsFeasible: true, Plan: not null } previous &&
-            !string.IsNullOrWhiteSpace(previous.RuleSetVersion) &&
-            string.Equals(previous.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) &&
-            string.Equals(previous.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal) &&
-            demand.Specification is JarOrderSpecification currentSpecification &&
-            string.Equals(previous.SpecificationVersion,
-                WorldOrderRuleCandidateCatalog.Fingerprint(currentSpecification), StringComparison.Ordinal))
+        if (record.State == WorldOrderSolveState.Current)
         {
-            try
+            if (TryRebind(record, demand, snapshot, out var rebound, out var reason))
             {
-                // 先验证旧计划引用的 Jar 初态、液体最低供给与容量仍成立。
-                // 只有具体资源绑定失效才退回完整求解；规则/Profile 变化则绝不复用。
-                _ = WorldOrderResourceManifest.CreateForResourceRebind(previous, snapshot);
-                var rebound = previous.RebindTo(snapshot);
-                var reboundRecord = new WorldOrderSolveRecord(demandId, WorldOrderSolveState.Current, rebound, null, null);
-                _records[demandId] = reboundRecord;
-                return reboundRecord;
+                _records[demandId] = rebound!;
+                return rebound!;
             }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or
-                                       OverflowException or KeyNotFoundException)
-            {
-                record = WorldOrderSolveRecord.Dirty(demandId, "资源变化使旧计划无法重绑定：" + ex.Message);
-                _records[demandId] = record;
-            }
+
+            record = WorldOrderSolveRecord.Dirty(demandId, reason);
+            _records[demandId] = record;
         }
 
         if (record.State == WorldOrderSolveState.Current)
@@ -221,6 +211,53 @@ public sealed class WorldOrderSolveBook : IDisposable
         RuleCandidates.Clear();
         _symbolicSolutions.Clear();
         _disposed = true;
+    }
+
+    private static bool TryRebind(
+        WorldOrderSolveRecord record,
+        OrderDemand demand,
+        WorldSnapshot snapshot,
+        out WorldOrderSolveRecord? reboundRecord,
+        out string reason)
+    {
+        reboundRecord = null;
+        if (record.Result is not { IsFeasible: true, Plan: not null } previous)
+        {
+            reason = "旧结果没有可重绑定的可行计划";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(previous.RuleSetVersion) ||
+            !string.Equals(previous.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) ||
+            !string.Equals(previous.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal))
+        {
+            reason = "规则集或工作台 Profile 已变化";
+            return false;
+        }
+        if (demand.Specification is not JarOrderSpecification specification ||
+            !string.Equals(previous.SpecificationVersion,
+                WorldOrderRuleCandidateCatalog.Fingerprint(specification), StringComparison.Ordinal))
+        {
+            reason = "订单规格已变化";
+            return false;
+        }
+
+        try
+        {
+            // 先验证旧计划引用的 Jar 初态、液体最低供给与容量仍成立。
+            // 只有具体资源绑定失效才退回完整求解；规则/Profile/规格变化则绝不复用。
+            _ = WorldOrderResourceManifest.CreateForResourceRebind(previous, snapshot);
+            var rebound = previous.RebindTo(snapshot);
+            reboundRecord = new WorldOrderSolveRecord(
+                demand.Id, WorldOrderSolveState.Current, rebound, null, null);
+            reason = string.Empty;
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or
+                                   OverflowException or KeyNotFoundException)
+        {
+            reason = "资源变化使旧计划无法重绑定：" + ex.Message;
+            return false;
+        }
     }
 
     private void CacheRuleCandidates(OrderDemand demand, WorldSnapshot snapshot)
