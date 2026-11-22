@@ -85,7 +85,6 @@ public sealed class ResourceWorldRuntime
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
     private int _ledgerTick;
-    private long _masterPrefillReturnSequence;
 
     public ResourceWorldRuntime(
         ResourceArea resources,
@@ -279,9 +278,8 @@ public sealed class ResourceWorldRuntime
         Action<Workshop>? returnRetiredMasterPrefill = null;
         if (role == WorkshopRole.Master && _returnRetiredMasterPrefill != null)
         {
-            var returnOperationId = "master-prefill-return:" +
-                checked(++_masterPrefillReturnSequence).ToString(
-                    System.Globalization.CultureInfo.InvariantCulture);
+            // GUID 避免 Runtime 从检查点恢复后，序号重置而与账本中已有操作 ID 冲突。
+            var returnOperationId = "master-prefill-return:" + Guid.NewGuid().ToString("N");
             returnRetiredMasterPrefill = retiredMaster =>
             {
                 // 先取 tick，再提交资源返还，避免 tick provider 失败发生在库存变更之后。
