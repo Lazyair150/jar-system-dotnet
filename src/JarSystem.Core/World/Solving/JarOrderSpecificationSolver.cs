@@ -91,20 +91,23 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
             SlaveInfo = slaveInfo,
             MasterJars = snapshot.Master.CreateSolverJars(),
             MasterLiquids = CreateMasterSupplyLiquids(snapshot)
-        }, out var blockage, out var inconclusiveReason);
+        }, out var blockage, out var inconclusiveReason, out var partitionReport);
 
         if (snapshotSolver.BudgetExceeded || inconclusiveReason != null)
             return Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
-                "partition", inconclusiveReason ?? snapshotSolver.InconclusiveReason ?? "分析超出预算");
+                "partition", inconclusiveReason ?? snapshotSolver.InconclusiveReason ?? "分析超出预算",
+                partitionReport: partitionReport);
 
         if (outcome == null)
             return Result(demand, snapshot, WorldOrderSolveStatus.Infeasible,
-                "partition", blockage ?? "没有找到可行的主从需求划分");
+                "partition", blockage ?? "没有找到可行的主从需求划分",
+                partitionReport: partitionReport);
 
         return Result(demand, snapshot, WorldOrderSolveStatus.Feasible,
             "partition", directCount: outcome.DirectCount,
             operationCount: outcome.OperationCount,
-            plan: WorldOrderSolvePlan.Partitioned(outcome));
+            plan: WorldOrderSolvePlan.Partitioned(outcome),
+            partitionReport: partitionReport);
     }
 
     private static Dictionary<string, int> CreateMasterSupplyLiquids(WorldSnapshot snapshot)
@@ -126,8 +129,9 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
         string? reason = null,
         int directCount = 0,
         int operationCount = 0,
-        WorldOrderSolvePlan? plan = null) =>
-        new(demand.Id, snapshot.Version, status, method, reason, directCount, operationCount, plan);
+        WorldOrderSolvePlan? plan = null,
+        PartitionSearchReport? partitionReport = null) =>
+        new(demand.Id, snapshot.Version, status, method, reason, directCount, operationCount, plan, partitionReport);
 
     /// <summary>
     /// 把快照中的静态修饰器投影到一次求解输入。
