@@ -36,6 +36,48 @@ public sealed class PartitionSearchOutcome
     public int OperationCount { get; init; }
 }
 
+/// <summary>划分搜索中的一个只读诊断事件；不包含可变 Jar 或液体对象。</summary>
+public sealed record PartitionSearchTraceEvent(
+    int Sequence,
+    string Stage,
+    int Mask,
+    string MasterRequirementSignature,
+    string SlaveRequirementSignature,
+    string? Reason);
+
+/// <summary>一次 B 类漏斗搜索的只读报告，不替代最终计划或资源证明。</summary>
+public sealed class PartitionSearchReport
+{
+    public int MasksVisited { get; }
+    public int UniquePartitions { get; }
+    public int MasterSolveCount { get; }
+    public int SlaveSolveCount { get; }
+    public int MonotonicityPrunedCount { get; }
+    public int DuplicatePartitionPrunedCount { get; }
+    public bool OutcomeFound { get; }
+    public string? LastBlockage { get; }
+    public string? InconclusiveReason { get; }
+    public IReadOnlyList<PartitionSearchTraceEvent> Events { get; }
+
+    internal PartitionSearchReport(
+        int masksVisited, int uniquePartitions, int masterSolveCount, int slaveSolveCount,
+        int monotonicityPrunedCount, int duplicatePartitionPrunedCount, bool outcomeFound,
+        string? lastBlockage, string? inconclusiveReason,
+        IEnumerable<PartitionSearchTraceEvent> events)
+    {
+        MasksVisited = masksVisited;
+        UniquePartitions = uniquePartitions;
+        MasterSolveCount = masterSolveCount;
+        SlaveSolveCount = slaveSolveCount;
+        MonotonicityPrunedCount = monotonicityPrunedCount;
+        DuplicatePartitionPrunedCount = duplicatePartitionPrunedCount;
+        OutcomeFound = outcomeFound;
+        LastBlockage = lastBlockage;
+        InconclusiveReason = inconclusiveReason;
+        Events = Array.AsReadOnly(events.ToArray());
+    }
+}
+
 /// <summary>
 /// B 类订单的「需求子集划分」精确搜索（原 <c>FeasibilityChecker.CheckTypeB</c> 的主体，整体迁出以便单独测试）。
 ///
@@ -69,13 +111,41 @@ public sealed class PartitionSearch
     /// ② 求解器没按 <see cref="ISolver"/> 契约提供主台**终态** —— 那就无法构造从台池，
     ///    与其静默按"主台原始状态"算错，不如如实报"未判定"（差分测试实测过这个坑）。
     /// </param>
-    public PartitionSearchOutcome? Search(PartitionSearchRequest request, out string? lastBlockage, out string? inconclusiveReason)
+    public PartitionSearchOutcome? Search(
+        PartitionSearchRequest request,
+        out string? lastBlockage,
+        out string? inconclusiveReason) =>
+        Search(request, out lastBlockage, out inconclusiveReason, out _);
+
+    /// <summary>执行与旧 Search 相同的搜索，并额外返回只读、确定性的诊断报告。</summary>
+    public PartitionSearchOutcome? Search(
+        PartitionSearchRequest request,
+        out string? lastBlockage,
+        out string? inconclusiveReason,
+        out PartitionSearchReport report)
     {
+        if (request == null) throw new ArgumentNullException(nameof(request));
         inconclusiveReason = null;
         var reqs = request.Requirements;
         var masterJars = request.MasterJars;
         var masterLiquids = request.MasterLiquids;
         string? blockage = null;
+        var trace = new List<PartitionSearchTraceEvent>();
+        var masksVisited = 0;
+        var uniquePartitions = 0;
+        var masterSolveCount = 0;
+        var slaveSolveCount = 0;
+        var monotonicityPrunedCount = 0;
+        var duplicatePartitionPrunedCount = 0;
+
+        void Record(string stage, int mask, string masterSignature = "", string slaveSignature = "", string? reason = null) =>
+            trace.Add(new PartitionSearchTraceEvent(
+                trace.Count, stage, mask, masterSignature, slaveSignature, reason));
+
+        PartitionSearchReport BuildReport(bool outcomeFound) => new(
+            masksVisited, uniquePartitions, masterSolveCount, slaveSolveCount,
+            monotonicityPrunedCount, duplicatePartitionPrunedCount, outcomeFound,
+            blockage, inconclusiveReason, trace);
 
         // #1（2026-09）主台侧**单调性剪枝**：可行性对"需求集合"单调 ——
         // 若子集 X 在主台上不可行，则任何 X ⊆ Y 的 Y 在主台上也不可行（Y 必须同时满足 X 的要求）。
