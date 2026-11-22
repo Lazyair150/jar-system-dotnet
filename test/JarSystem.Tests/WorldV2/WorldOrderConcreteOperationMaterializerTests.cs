@@ -99,7 +99,8 @@ public sealed class WorldOrderConcreteOperationMaterializerTests
             "handoff", 1, "Master", "Slave", new[] { operated });
         var program = new WorldOrderSymbolicOperationProgram(
             true, "Master", "Slave", new[] { masterNode, handoff },
-            System.Array.Empty<WorldOrderSymbolicOperationDependency>());
+            new[] { WorldOrderSymbolicOperationDependency.JarState(
+                masterNode.NodeId, handoff.NodeId, "jar-c", 1) });
         var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
 
         var result = WorldOrderConcreteOperationMaterializer.Materialize(
@@ -165,8 +166,13 @@ public sealed class WorldOrderConcreteOperationMaterializerTests
             "match-b", 2, "Slave", 0, match, slaveInput, slaveOutput);
         var program = new WorldOrderSymbolicOperationProgram(
             true, "Master", "Slave", new[] { masterNode, handoff, slaveNode },
-            new[] { WorldOrderSymbolicOperationDependency.JarState(
-                handoff.NodeId, slaveNode.NodeId, "jar-b", 1) });
+            new[]
+            {
+                WorldOrderSymbolicOperationDependency.JarState(
+                    masterNode.NodeId, handoff.NodeId, "jar-a", 1),
+                WorldOrderSymbolicOperationDependency.JarState(
+                    handoff.NodeId, slaveNode.NodeId, "jar-b", 1)
+            });
         var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
 
         var result = WorldOrderConcreteOperationMaterializer.Materialize(
