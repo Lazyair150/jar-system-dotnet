@@ -134,7 +134,7 @@ public sealed class WorldV2Context : IDisposable
 
         var shapes = (shapeVocabulary ?? resources.Producers.Generators.Keys)
             .Distinct(StringComparer.Ordinal).ToArray();
-        var liquids = (liquidVocabulary ?? resources.Inventory.LiquidWarehouse.Keys)
+        var liquids = (liquidVocabulary ?? resources.LiquidProduction.Rates.Keys)
             .Distinct(StringComparer.Ordinal).ToArray();
         if (shapes.Length == 0 || liquids.Length != 2 ||
             shapes.Any(string.IsNullOrWhiteSpace) || liquids.Any(string.IsNullOrWhiteSpace))
