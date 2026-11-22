@@ -143,7 +143,7 @@ public sealed record WorkshopRuleDefinition(
 public static class WorkshopRulebook
 {
     /// <summary>基础工作台规则语义版本；改变规则含义时必须递增。</summary>
-    public const int RuleContractVersion = 1;
+    public const int RuleContractVersion = 2;
 
     /// <summary>
     /// 当前工作台算子规则目录。新增算子必须先注册稳定身份/版本，再实现评估与转换；
@@ -155,7 +155,7 @@ public static class WorkshopRulebook
             new WorkshopRuleDefinition("jar.workshop.pour-in", 1, "POUR_IN", WorkshopRuleCategory.Transform),
             new WorkshopRuleDefinition("jar.workshop.pour-out", 1, "POUR_OUT", WorkshopRuleCategory.Transform),
             new WorkshopRuleDefinition("jar.workshop.reshape-empty", 1, "RESHAPE_EMPTY", WorkshopRuleCategory.Transform),
-            new WorkshopRuleDefinition("jar.workshop.reshape-full", 1, "RESHAPE_FULL", WorkshopRuleCategory.Transform),
+            new WorkshopRuleDefinition("jar.workshop.reshape-full", 2, "RESHAPE_FULL", WorkshopRuleCategory.Transform),
             new WorkshopRuleDefinition("jar.workshop.match", 1, "MATCH", WorkshopRuleCategory.Lifecycle)
         });
 
