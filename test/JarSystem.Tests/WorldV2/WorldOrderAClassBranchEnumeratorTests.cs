@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
-using JarSystem.Core.Domain;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Solving;
 using Xunit;
