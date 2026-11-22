@@ -129,6 +129,46 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void OperationSpecificSuppressionDoesNotDeleteJarOrBlockMatch()
+    {
+        var stack = new ModifierStack();
+        stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "禁止灌酒"
+        });
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
+        master.AddJar(new Jar("圆罐"));
+
+        var result = Registry().Solve(Demand(), Snapshot(master));
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.NotNull(result.Plan);
+        Assert.Equal("MATCH", Assert.Single(result.Plan!.MasterSteps).Operation!.Type);
+    }
+
+    [Fact]
+    public void GrantModifierParticipatesInTheSameRuleContextUsedByTheSolver()
+    {
+        var stack = new ModifierStack();
+        stack.Push(new GrantModifier { Shape = "方罐", Source = "test" });
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
+        master.AddJar(new Jar("圆罐"));
+        master.AddLiquid("酒", 1);
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "方罐" } },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, Snapshot(master));
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Contains(result.Plan!.MasterSteps, step => step.Operation?.Type == "RESHAPE");
+    }
+
+    [Fact]
     public void ExhaustedSolverBudgetIsUndeterminedNotInfeasible()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
