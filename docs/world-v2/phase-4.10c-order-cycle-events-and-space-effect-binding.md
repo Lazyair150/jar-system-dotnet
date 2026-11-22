@@ -1,6 +1,6 @@
 # World V2 phase 4.10c — order-cycle events and Space effect binding
 
-Status: domain contract. This document extends the World V2 order lifecycle without making Jar depend on Space gameplay code.
+Status: domain contract with the first Jar-side implementation landed on the phase 4.10b-8 branch. This document extends the World V2 order lifecycle without making Jar depend on Space gameplay code.
 
 ## 1. Purpose
 
@@ -62,9 +62,9 @@ Each successful cycle requires:
 
 cycleSequence increments only after the successful fulfillment transition commits. Failure, cancellation, interruption, admission rejection, and ordinary solve failure do not consume a successful cycle number.
 
-A suitable event ID may be derived from (shipWorldId, jarWorldInstanceId, demandId, cycleSequence) if all components are stable and checkpointed. Alternatively Jar may allocate an event ID and persist it atomically with the outbox. Do not derive event identity from wall-clock time or a UI callback.
+The current Jar implementation derives EventId from (jarWorldInstanceId, demandId, cycleSequence). The Jar world-instance identity is generated once for the demand board and persisted in the execution checkpoint. Do not derive event identity from wall-clock time or a UI callback.
 
-If demand IDs can be reused across world replacement, include a stable Jar world-instance identity in the key.
+A separate shipWorldId may be added by the Space host when materializing battle loadout identity; it is not interpreted by Jar Core.
 
 ## 5. Outbox event
 
@@ -84,10 +84,12 @@ The event reports that Jar successfully completed one configured order cycle. It
 
 ### Atomicity boundary
 
-The event must be recorded in the same Jar-side logical mutation boundary as:
+The event must become visible only after the complete Jar-side success commit:
 1. successful order resource settlement;
-2. demand successful-fulfillment policy (remove or retain and enter cooldown);
-3. successful cycle sequence increment.
+2. resource reservation release;
+3. demand successful-fulfillment policy (remove or retain and enter cooldown);
+4. successful cycle sequence increment;
+5. outbox append before the execution session becomes Completed.
 
 If any part of the success transition fails, there must not be a visible success event. Conversely, once the event is visible, the order's successful fulfillment/cooldown transition must already be committed.
 
@@ -118,10 +120,11 @@ If the Space save cannot atomically persist effect state and processed identity,
 
 The Jar execution/resource checkpoint must include:
 - each demand's orderDefinitionKey;
-- each demand's successful cycle sequence;
+- each retained demand's successful cycle sequence and opaque order-definition key;
 - pending outbox events;
-- acknowledged/retained state required to prevent replay;
-- the stable Jar world-instance identity, if used in event IDs.
+- the stable Jar world-instance identity used in event IDs.
+
+Acknowledged event IDs are removed from the pending outbox. Space must retain its own processed-event identity set because restoring an older checkpoint can replay an event that had been acknowledged after that checkpoint was captured.
 
 Restore must validate uniqueness and consistency:
 - no duplicate event IDs;
@@ -134,13 +137,9 @@ The checkpoint format must be versioned. Old checkpoints with no event state nee
 
 ## 8. Implementation order
 
-1. Add opaque orderDefinitionKey to the demand creation/configuration path and its checkpoint wire DTO.
-2. Add persisted successful cycle sequence to demand state and snapshots.
-3. Introduce immutable OrderCycleCompleted event and an outbox owned by the World V2 Context/Application boundary.
-4. Make successful fulfillment and outbox append one failure-safe logical transition.
-5. Add pending-event read/ack ApplicationService and Bridge methods.
-6. Add tests for repeated cycles, failure/cancel/interruption non-events, checkpoint restore, duplicate read/ack, and event identity stability.
-7. Integrate Space effect binding and idempotent dispatcher only after the Bridge contract is available.
+1–6 are implemented on the Jar branch: opaque orderDefinitionKey is accepted at demand creation; successful cycle sequence is checkpointed; OrderCycleCompleted events are held in a board-owned outbox; pending reads and idempotent acknowledgments are exposed through ApplicationService and Bridge; the checkpoint schema is now version 2 and includes world-instance identity plus pending events.
+7. Regression tests cover repeated cycles, failure/interruption non-events, checkpoint restore, duplicate read/ack, and event identity stability.
+8. Next, integrate Space effect binding and the idempotent dispatcher only after this Bridge contract is validated.
 
 Do not combine this event feature with energy-stone production ingress or arbitrary liquid import. Those are separate resource adapters.
 
