@@ -44,6 +44,23 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
         Assert.Null(requirement.Liquid);
     }
 
+
+    [Fact]
+    public void GroupAggregatesRepeatedLiquidRequirementsAgainstOneSharedBalance()
+    {
+        var group = new WorldOrderResourceRequirementGroup("path", new[]
+        {
+            WorldOrderBoundaryRequirement.FreeLiquid("Master", "Slave", "X", 3, "op-1", 0),
+            WorldOrderBoundaryRequirement.FreeLiquid("Master", "Slave", "X", 2, "op-2", 1),
+            WorldOrderBoundaryRequirement.JarState("Master", "Slave", "wide", "blue", "op-3", 2),
+            WorldOrderBoundaryRequirement.JarState("Master", "Slave", "wide", "blue", "op-4", 3)
+        });
+
+        Assert.Equal(5, group.RequiredFreeLiquid["X"]);
+        Assert.Equal(2, group.RequiredJarStates[new WorldOrderJarStateKey("wide", "blue")]);
+        Assert.Equal(4, group.Requirements.Count);
+    }
+
     [Fact]
     public void AlternativeSet_RejectsMixedBoundaryDirections()
     {
