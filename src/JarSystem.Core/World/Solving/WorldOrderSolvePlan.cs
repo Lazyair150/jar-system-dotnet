@@ -81,21 +81,55 @@ public sealed class WorldOrderSolvePlan
         return new WorldOrderSolvePlan(master, slave, jars, transferLiquids, isPartitioned);
     }
 
+    /// <summary>
+    /// Creates a plan from already materialized, ordered solver paths.
+    /// This is the narrow bridge for the symbolic-program materializer; it does not
+    /// perform rule solving or resource replay. Callers must validate the result with
+    /// WorldOrderResourceManifest.Create before reporting the order as executable.
+    /// </summary>
+    public static WorldOrderSolvePlan FromMaterializedPaths(
+        bool isPartitioned,
+        IEnumerable<SolverStep> masterPath,
+        IEnumerable<SolverStep>? slavePath = null,
+        IEnumerable<int>? transferJarIds = null,
+        IReadOnlyDictionary<string, int>? transferLiquids = null)
+    {
+        if (masterPath == null) throw new ArgumentNullException(nameof(masterPath));
+        var master = masterPath.ToArray();
+        var slave = (slavePath ?? Array.Empty<SolverStep>()).ToArray();
+        var jars = (transferJarIds ?? Array.Empty<int>()).ToArray();
+        var liquids = transferLiquids ??
+            new Dictionary<string, int>(StringComparer.Ordinal);
+
+        if (master.Any(x => x == null) || slave.Any(x => x == null))
+            throw new ArgumentException("Materialized solver paths cannot contain null steps.");
+        if (jars.Any(x => x <= 0) || jars.Distinct().Count() != jars.Length)
+            throw new ArgumentException("Materialized transfer Jar IDs must be positive and unique.", nameof(transferJarIds));
+        if (liquids.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value < 0))
+            throw new ArgumentException("Materialized transfer liquid amounts are invalid.", nameof(transferLiquids));
+        if (!isPartitioned && (slave.Length != 0 || jars.Length != 0 || liquids.Count != 0))
+            throw new ArgumentException("A-class materialized paths cannot contain Slave steps or transfer resources.");
+
+        return new WorldOrderSolvePlan(
+            master.Select(WorldPlanStep.CopyFrom),
+            slave.Select(WorldPlanStep.CopyFrom),
+            jars,
+            liquids,
+            isPartitioned);
+    }
+
     public static WorldOrderSolvePlan SinglePhase(IEnumerable<SolverStep> path)
     {
         if (path == null) throw new ArgumentNullException(nameof(path));
-        return new WorldOrderSolvePlan(path.Select(WorldPlanStep.CopyFrom));
+        return FromMaterializedPaths(false, path);
     }
 
     public static WorldOrderSolvePlan Partitioned(PartitionSearchOutcome outcome)
     {
         if (outcome == null) throw new ArgumentNullException(nameof(outcome));
-        return new WorldOrderSolvePlan(
-            outcome.MasterPath.Select(WorldPlanStep.CopyFrom),
-            outcome.SlavePath.Select(WorldPlanStep.CopyFrom),
-            outcome.TransferJarIds,
-            outcome.TransferLiquids,
-            isPartitioned: true);
+        return FromMaterializedPaths(
+            true, outcome.MasterPath, outcome.SlavePath,
+            outcome.TransferJarIds, outcome.TransferLiquids);
     }
 }
 
