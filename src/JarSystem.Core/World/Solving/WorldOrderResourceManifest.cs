@@ -80,18 +80,44 @@ public sealed class WorldOrderResourceManifest
             masterPeak, slavePeak);
     }
 
-    public static WorldOrderResourceManifest Create(WorldOrderSolveResult result, WorldSnapshot snapshot)
+    public static WorldOrderResourceManifest Create(WorldOrderSolveResult result, WorldSnapshot snapshot) =>
+        CreateCore(result, snapshot, allowResourceVersionChange: false);
+
+    /// <summary>
+    /// 在规则与工作台 Profile 未变化时，尝试将旧计划绑定到新的资源快照。
+    /// 只有计划实际使用的 Jar 初态仍一致、液体供给与容量仍足够时才成功。
+    /// </summary>
+    public static WorldOrderResourceManifest CreateForResourceRebind(
+        WorldOrderSolveResult result, WorldSnapshot snapshot)
+    {
+        if (result == null) throw new ArgumentNullException(nameof(result));
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        if (string.IsNullOrWhiteSpace(result.RuleSetVersion) ||
+            string.IsNullOrWhiteSpace(result.WorkshopProfileVersion) ||
+            !string.Equals(result.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) ||
+            !string.Equals(result.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal))
+            throw new InvalidOperationException("规则集或工作台 Profile 已变化，不能复用旧计划");
+        return CreateCore(result, snapshot, allowResourceVersionChange: true);
+    }
+
+    private static WorldOrderResourceManifest CreateCore(
+        WorldOrderSolveResult result, WorldSnapshot snapshot, bool allowResourceVersionChange)
     {
         if (result == null) throw new ArgumentNullException(nameof(result));
         if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
         if (!result.IsFeasible || result.Plan == null)
             throw new InvalidOperationException("只有携带计划的 Feasible 结果才能生成资源清单");
-        if (!string.Equals(result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
+        if (!allowResourceVersionChange &&
+            !string.Equals(result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
             throw new InvalidOperationException("求解结果与当前世界快照版本不一致");
         if (snapshot.Master == null)
             throw new InvalidOperationException("资源清单要求快照中存在主工作台");
 
         var plan = result.Plan;
+        ValidateUsedMasterJarInputs(plan.MasterSteps, snapshot.Master);
+        var masterFinalJars = plan.MasterSteps.Count == 0
+            ? snapshot.Master.CreateSolverJars()
+            : plan.MasterSteps[^1].After.Select(JarState.Copy).ToList();
         var masterIds = snapshot.Master.Jars.Select(x => RequireId(x.Id, "主台快照")).ToHashSet();
         var masterPathIds = ReadPathJarIds(plan.MasterSteps, masterIds, expectMasterOrigin: false, "主台路径");
         var transferIds = plan.TransferJarIds.ToArray();
@@ -130,6 +156,7 @@ public sealed class WorldOrderResourceManifest
                 plan.SlaveSteps, transferIds.ToHashSet(), expectMasterOrigin: true, "从台路径");
             if (slavePathIds.Any(id => !transferIds.Contains(id)))
                 throw new InvalidOperationException("从台路径使用了未列入 TransferJarIds 的罐子");
+            ValidateUsedSlaveJarInputs(plan.SlaveSteps, masterFinalJars);
 
             transferLiquids = RequiredInitialLiquids(plan.SlaveSteps, null);
             ValidateLiquidMap(plan.TransferLiquids, "TransferLiquids");
@@ -156,11 +183,76 @@ public sealed class WorldOrderResourceManifest
             if (!DictionaryAtLeast(available, masterInitial))
                 throw new InvalidOperationException("自机液库与主台预置库存不足以提供订单初始液体供给");
         }
+        else if (!DictionaryAtLeast(snapshot.Master.Liquids, masterInitial))
+        {
+            throw new InvalidOperationException("主台当前游离液体不足以提供订单初始液体供给");
+        }
+
+        if (masterPeak > snapshot.Master.LiquidStagingCapacity)
+            throw new InvalidOperationException("主台液体路径峰值超过当前暂存容量");
+        if (plan.IsPartitioned)
+        {
+            if (snapshot.Slave == null || transferIds.Length > snapshot.Slave.MaxJars)
+                throw new InvalidOperationException("从台罐位不足以接收当前计划");
+            if (slavePeak > snapshot.Slave.LiquidStagingCapacity)
+                throw new InvalidOperationException("从台液体路径峰值超过当前暂存容量");
+        }
 
         return new WorldOrderResourceManifest(
             result.DemandId, result.WorldVersion, plan.IsPartitioned,
             masterPathIds, transferIds, masterInitial, transferLiquids,
             masterFinal, masterPeak, slavePeak);
+    }
+
+    private static void ValidateUsedMasterJarInputs(
+        IReadOnlyList<WorldPlanStep> steps, WorkshopSolveSnapshot master)
+    {
+        if (steps.Count == 0) return;
+        var initial = steps[0].Before.ToDictionary(
+            jar => RequireId(jar.Id, "主台计划初态"), jar => jar);
+        var current = master.Jars.ToDictionary(
+            jar => RequireId(jar.Id, "主台当前快照"), jar => jar);
+        var usedIds = steps.Select(step =>
+        {
+            ValidateStep(step, "主台路径");
+            return RequireId(step.Before[step.Operation!.JarIndex!.Value].Id, "主台路径");
+        }).Distinct().ToArray();
+
+        foreach (var id in usedIds)
+        {
+            if (!initial.TryGetValue(id, out var planned) ||
+                !current.TryGetValue(id, out var actual) ||
+                planned.Shape != actual.Shape ||
+                planned.Liquid != actual.Liquid ||
+                planned.IsMarked != actual.IsMarked)
+                throw new InvalidOperationException("主台计划依赖的 Jar 初态已变化：#" + id);
+        }
+    }
+
+    private static void ValidateUsedSlaveJarInputs(
+        IReadOnlyList<WorldPlanStep> steps, IReadOnlyList<JarState> masterFinal)
+    {
+        if (steps.Count == 0) return;
+        var plannedInitial = steps[0].Before.ToDictionary(
+            jar => RequireId(jar.Id, "从台计划初态"), jar => jar);
+        var masterFinalById = masterFinal.ToDictionary(
+            jar => RequireId(jar.Id, "主台终态"), jar => jar);
+        var usedIds = steps.Select(step =>
+        {
+            ValidateStep(step, "从台路径");
+            return RequireId(step.Before[step.Operation!.JarIndex!.Value].Id, "从台路径");
+        }).Distinct().ToArray();
+
+        foreach (var id in usedIds)
+        {
+            if (!plannedInitial.TryGetValue(id, out var planned) ||
+                !masterFinalById.TryGetValue(id, out var actual) ||
+                !planned.MasterOrigin ||
+                planned.Shape != actual.Shape ||
+                planned.Liquid != actual.Liquid ||
+                planned.IsMarked != actual.IsMarked)
+                throw new InvalidOperationException("从台计划依赖的转移 Jar 终态已变化：#" + id);
+        }
     }
 
     private static HashSet<int> ReadPathJarIds(
