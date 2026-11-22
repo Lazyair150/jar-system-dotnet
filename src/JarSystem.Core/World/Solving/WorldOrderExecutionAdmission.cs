@@ -103,6 +103,38 @@ public sealed class WorldOrderExecutionAdmission
         return transaction.Receipt;
     }
 
+    /// <summary>
+    /// 主台岗位已成功提交替换后，将退役主台未消费的预置余额返还自机液库。
+    /// 此入口只处理预置余额，不触碰订单账户；订单账户必须已由中断结算清空。
+    /// </summary>
+    internal LiquidBatchReceipt ReturnRetiredMasterPrefill(Workshop retiredMaster)
+    {
+        ArgumentNullException.ThrowIfNull(retiredMaster);
+        if (_shipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容准入没有自机液库，不能返还主台预置余额。");
+        if (ReferenceEquals(_roster.Master, retiredMaster) ||
+            ReferenceEquals(_roster.Slave, retiredMaster))
+            throw new InvalidOperationException("只有已经退出主从岗位的工作台才能返还退役主台预置余额。");
+        if (!_stagingByWorkshop.TryGetValue(retiredMaster, out var staging))
+            return new LiquidBatchReceipt(
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, int>(StringComparer.Ordinal));
+
+        var drained = staging.DrainPrefillForReturn();
+        try
+        {
+            var receipt = _shipLiquidInventory.Return(drained);
+            _stagingByWorkshop.Remove(retiredMaster);
+            return receipt;
+        }
+        catch
+        {
+            staging.RestoreDrainedPrefill(drained);
+            throw;
+        }
+    }
+
     public WorldOrderExecutionAdmissionResult TryAdmit(int demandId)
     {
         if (_canAdmitOrders != null && !_canAdmitOrders())
