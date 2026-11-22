@@ -334,7 +334,17 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     private void FullOps(string shape, string liquid, SolverState st, List<SolverOperation> ops)
     {
         var di = st.FindJarIndex(j => j.Shape == shape && j.Liquid == liquid && !j.IsMarked);
-        if (di != -1 && WithinBudget(st, di)) ops.Add(new SolverOperation { Type = "MATCH", Description = "直接使用 " + shape + "/" + liquid, JarIndex = di, Consumed = new() });
+        if (di != -1 && WithinBudget(st, di))
+        {
+            var match = new SolverOperation
+            {
+                Type = "MATCH",
+                Description = "直接使用 " + shape + "/" + liquid,
+                JarIndex = di,
+                Consumed = new()
+            };
+            if (st.Allows(st.Jars[di], match)) ops.Add(match);
+        }
         var pourInJar = st.FindJarIndex(j => j.Shape == shape && st.IsEmpty(j) && !j.IsMarked);
         if (pourInJar != -1)
         {
@@ -351,7 +361,17 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     private void EmptyOps(string shape, SolverState st, List<SolverOperation> ops)
     {
         var di = st.FindJarIndex(j => j.Shape == shape && st.IsEmpty(j) && !j.IsMarked);
-        if (di != -1 && WithinBudget(st, di)) ops.Add(new SolverOperation { Type = "MATCH", Description = "直接使用 " + shape + "空罐", JarIndex = di, Consumed = new() });
+        if (di != -1 && WithinBudget(st, di))
+        {
+            var match = new SolverOperation
+            {
+                Type = "MATCH",
+                Description = "直接使用 " + shape + "空罐",
+                JarIndex = di,
+                Consumed = new()
+            };
+            if (st.Allows(st.Jars[di], match)) ops.Add(match);
+        }
         // 空罐改形：按（成本液体 → 罐子描述符）去重，理由同上（同构罐子互为等价分支）。
         foreach (var cl in Constants.LIQUIDS)
         {
