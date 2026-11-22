@@ -149,4 +149,35 @@ public sealed class WorldOrderConcretePlanAssemblerTests
         Assert.Contains("不属于当前规则 Profile", result.Reason);
         Assert.Null(result.ResourceReplay);
     }
+
+    [Fact]
+    public void FullReshapeUsingBannedJarInternalLiquidCanAssembleWithoutStagingSupply()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        master.AddJar(new Jar("圆罐", "酒", id: 1041));
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(new[] { master }, master));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "方罐" } }, "A");
+        var profile = WorldOrderRuleCandidateCatalog.Build(
+            world, world.Master!, "Master", specification);
+        var candidate = profile.Requirements.Single().Candidates.Single(x =>
+            x.Operation == "RESHAPE_FULL" && x.SourceShape == "圆罐" && x.SourceLiquid == "酒");
+        var input = new WorldOrderSymbolicJarVersion("full-jar", 0, "Master", "圆罐", "酒");
+        var output = new WorldOrderSymbolicJarVersion("full-jar", 1, "Master", "方罐", null, true);
+        var node = WorldOrderSymbolicOperationNode.Rule(
+            "full-reshape", 0, "Master", 0, candidate, input, output);
+        var program = new WorldOrderSymbolicOperationProgram(
+            false, "Master", "Slave", new[] { node },
+            System.Array.Empty<WorldOrderSymbolicOperationDependency>());
+        var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
+
+        var result = WorldOrderConcretePlanAssembler.Assemble(
+            104, program, binding, world, profile);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Empty(result.Manifest!.MasterInitialLiquidAmounts);
+        Assert.Equal("酒", Assert.Single(result.CandidatePlan!.MasterSteps).Operation!.CostLiquid);
+        Assert.Equal(1, Assert.Single(result.CandidatePlan.MasterSteps).Operation!.Consumed["酒"]);
+    }
 }
