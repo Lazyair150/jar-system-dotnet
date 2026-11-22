@@ -282,7 +282,7 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 - StateSpaceSolver.Apply 使用该转换描述更新搜索副本；RuleContext 在 SolverState 内复用，避免每个搜索节点重复创建规则上下文。
 - 新增测试验证四种操作的转换结果、资源效果和输入纯度。
 - 保留 MATCH 为需求匹配/占用规则，不混入四种 Workshop 转换算子。
-- GitHub Actions verify #1669 已对包含纯转换、SolverState 映射修正与转换测试的代码提交 0725754 通过：Release build、全量测试、契约/schema/config、protocol、solver differential 4,003/4,003、modifier differential 400/1,600、session replay 均通过。此前 #1657/#1659/#1661/#1665/#1667 暴露的编译接线错误已逐项修复；后续文档更新的 verify #1677 曾在较早文档头上运行，当前更晚的纯文档提交仍需以其对应 CI 结果为准。
+- GitHub Actions verify #1669 已对包含纯转换、SolverState 映射修正与转换测试的代码提交 0725754 通过：Release build、全量测试、契约/schema/config、protocol、solver differential 4,003/4,003、modifier differential 400/1,600、session replay 均通过。此前 #1657/#1659/#1661/#1665/#1667 暴露的编译接线错误已逐项修复；verify #1677 已通过后续文档头。随后共享 RuleContext 的 Clone 优化与删除重复规则 helper 的代码提交由 verify #1687 检查中；最新规则版本边界文档头由 verify #1689 检查中。
 
 尚未完成：
 - Workshop 真实执行门面尚未消费同一个 WorkshopOperationTransition；当前它仍负责自身资源账户事务和 Jar 变更。
