@@ -152,6 +152,25 @@ public sealed class WorldOrderSymbolicOperationProgramTests
     }
 
     [Fact]
+    public void HandoffPreservesAnExistingOperationMark()
+    {
+        var marked = new WorldOrderSymbolicJarVersion(
+            "jar-A", 1, "Master", "圆罐", null, isMarked: true);
+        var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff", 0, "Master", "Slave", new[] { marked });
+        var received = Assert.Single(handoff.OutputJars);
+        Assert.True(received.IsMarked);
+
+        Assert.Throws<ArgumentException>(() =>
+            WorldOrderSymbolicOperationNode.Rule(
+                "second-operation", 1, "Slave", 0,
+                Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null),
+                received,
+                new WorldOrderSymbolicJarVersion(
+                    "jar-A", 3, "Slave", "方罐", null, isMarked: true)));
+    }
+
+    [Fact]
     public void OneJarVersionCannotBeConsumedByTwoOperations()
     {
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", null);
