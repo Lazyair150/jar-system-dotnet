@@ -385,59 +385,90 @@ public class Workshop
     public (bool Success, string? Reason) PourIn(Jar j, string l, OrderLiquidScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        if (j.IsMarked) return (false, "罐子已被操作");
-        if (!j.IsEmpty()) return (false, "罐子不为空");
-        if (!_capability.IsBaseMarked(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
-        var touchIn = CheckLiquid(l);
-        if (!touchIn.Granted) return (false, touchIn.Reason);
-        if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
-        if (!scope.TryConsume(l, 1)) return (false, "液体" + l + "不足或不可用");
-        j.PourIn(l);
-        j.Mark();
+        var operation = WorkshopOperation.PourIn(l);
+        var transition = WorkshopRulebook.CreateTransition(_rules, scope, JarFacts.Of(j), operation);
+        if (transition == null)
+        {
+            var decision = WorkshopRulebook.Evaluate(_rules, scope, JarFacts.Of(j), operation);
+            return (false, decision.Reason ?? "灌入规则拒绝该操作");
+        }
+        if (transition.Value.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
+            return (false, "液体" + consumed + "不足或不可用");
+        ApplyJarTransition(j, operation, transition.Value);
         return (true, null);
     }
 
     public (bool Success, string? Reason) PourIn(Jar j, string l)
     {
-        if (j.IsMarked) return (false, "罐子已被操作");
-        if (!j.IsEmpty()) return (false, "罐子不为空");
-        if (!_capability.IsBaseMarked(j.Shape)) return (false, "形状" + j.Shape + "非本工作台基础标记");
-        var touchIn = CheckLiquid(l);
-        if (!touchIn.Granted) return (false, touchIn.Reason);
-        if (_rules.SuppressionReason("POUR_IN", j.Shape, l) is { } suppressed) return (false, suppressed);
-        if (!RemoveLiquid(l)) return (false, "液体" + l + "不足");
-        j.PourIn(l); j.Mark(); return (true, null);
+        var operation = WorkshopOperation.PourIn(l);
+        var transition = WorkshopRulebook.CreateTransition(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+        if (transition == null)
+        {
+            var decision = WorkshopRulebook.Evaluate(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+            return (false, decision.Reason ?? "灌入规则拒绝该操作");
+        }
+        if (transition.Value.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
+            return (false, "液体" + consumed + "不足");
+        ApplyJarTransition(j, operation, transition.Value);
+        return (true, null);
     }
 
     public (bool Success, string? Reason, string? Liquid) PourOut(Jar j, OrderLiquidScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        if (j.IsMarked) return (false, "罐子已被操作", null);
-        if (j.IsEmpty()) return (false, "罐子为空", null);
-        var liquid = j.Liquid!;
-        var touchOut = CheckLiquid(liquid);
-        if (!touchOut.Granted) return (false, touchOut.Reason, null);
-        if (_rules.SuppressionReason("POUR_OUT", j.Shape, liquid) is { } suppressed)
-            return (false, suppressed, null);
+        var operation = WorkshopOperation.PourOut();
+        var transition = WorkshopRulebook.CreateTransition(_rules, scope, JarFacts.Of(j), operation);
+        if (transition == null)
+        {
+            var decision = WorkshopRulebook.Evaluate(_rules, scope, JarFacts.Of(j), operation);
+            return (false, decision.Reason ?? "倒出规则拒绝该操作", null);
+        }
+        var liquid = transition.Value.ProducedFreeLiquid!;
         if (!scope.TryReceiveOperation(liquid, 1, out var receive))
             return (false, receive.Reason, null);
-
-        j.ClearLiquid();
-        j.Mark();
+        ApplyJarTransition(j, operation, transition.Value);
         return (true, null, liquid);
     }
 
     public (bool Success, string? Reason, string? Liquid) PourOut(Jar j)
     {
-        if (j.IsMarked) return (false, "罐子已被操作", null);
-        if (j.IsEmpty()) return (false, "罐子为空", null);
-        var l = j.Liquid!;
-        var touchOut = CheckLiquid(l);
-        if (!touchOut.Granted) return (false, touchOut.Reason, null);
-        if (_rules.SuppressionReason("POUR_OUT", j.Shape, l) is { } suppressed) return (false, suppressed, null);
-        var storeOut = CanStoreLiquid(l, 1);
-        if (!storeOut.Granted) return (false, storeOut.Reason, null);
-        j.ClearLiquid(); AddLiquid(l); j.Mark(); return (true, null, l);
+        var operation = WorkshopOperation.PourOut();
+        var transition = WorkshopRulebook.CreateTransition(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+        if (transition == null)
+        {
+            var decision = WorkshopRulebook.Evaluate(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+            return (false, decision.Reason ?? "倒出规则拒绝该操作", null);
+        }
+        var liquid = transition.Value.ProducedFreeLiquid!;
+        AddLiquid(liquid);
+        ApplyJarTransition(j, operation, transition.Value);
+        return (true, null, liquid);
+    }
+
+    private static void ApplyJarTransition(
+        Jar jar,
+        WorkshopOperation operation,
+        WorkshopRulebook.WorkshopOperationTransition transition)
+    {
+        switch (operation.Kind)
+        {
+            case WorkshopOperationKind.PourIn:
+                jar.PourIn(transition.After.Liquid!);
+                break;
+            case WorkshopOperationKind.PourOut:
+                jar.ClearLiquid();
+                break;
+            case WorkshopOperationKind.ReshapeEmpty:
+                jar.Reshape(transition.After.Shape);
+                break;
+            case WorkshopOperationKind.ReshapeFull:
+                jar.ClearLiquid();
+                jar.Reshape(transition.After.Shape);
+                break;
+            default:
+                throw new System.InvalidOperationException("未知工作台转换算子");
+        }
+        if (transition.After.IsMarked) jar.Mark();
     }
 
     // ============================================================
@@ -542,15 +573,32 @@ public class Workshop
         Jar j, string to, ReshapeMode mode = ReshapeMode.Auto, string? costLiquid = null)
     {
         if (mode == ReshapeMode.Auto) mode = j.IsEmpty() ? ReshapeMode.Empty : ReshapeMode.Full;
+        WorkshopOperation operation;
+        if (mode == ReshapeMode.Full)
+        {
+            operation = WorkshopOperation.ReshapeFull(to);
+        }
+        else
+        {
+            var cost = costLiquid ?? FirstUsableCostLiquid();
+            if (cost == null) return (false, "没有可支付的改形成本液体");
+            operation = WorkshopOperation.ReshapeEmpty(to, cost);
+        }
 
-        if (mode == ReshapeMode.Full) return ReshapeFullCore(j, to);
-
-        var cost = costLiquid ?? FirstUsableCostLiquid();
-        if (cost == null) return (false, "没有可支付的改形成本液体");
-        return ReshapeEmptyCore(j, to, cost);
+        var transition = WorkshopRulebook.CreateTransition(
+            _rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+        if (transition == null)
+        {
+            var decision = WorkshopRulebook.Evaluate(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+            return (false, decision.Reason ?? "改形规则拒绝该操作");
+        }
+        if (transition.Value.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
+            return (false, "无法支付液体" + consumed);
+        ApplyJarTransition(j, operation, transition.Value);
+        return (true, null);
     }
 
-    /// <summary>订单范围内执行改形；空罐成本只从当前订单子账扣除。</summary>
+    /// <summary>订单范围内执行改形；所有规则判定来自同一 WorkshopRulebook。</summary>
     public (bool Success, string? Reason) TryReshape(
         Jar j, string to, OrderLiquidScope scope,
         ReshapeMode mode = ReshapeMode.Auto, string? costLiquid = null)
@@ -558,69 +606,38 @@ public class Workshop
         ArgumentNullException.ThrowIfNull(scope);
         if (mode == ReshapeMode.Auto) mode = j.IsEmpty() ? ReshapeMode.Empty : ReshapeMode.Full;
 
+        WorkshopOperation operation;
         if (mode == ReshapeMode.Full)
         {
-            if (j.IsMarked) return (false, "罐子已被操作");
-            if (j.IsEmpty()) return (false, "必须为满罐");
-            if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
-            if (_rules.SuppressionReason("RESHAPE", j.Shape, j.Liquid) is { } suppressed)
-                return (false, suppressed);
-            var liquid = j.Liquid!;
-            var touch = CheckLiquid(liquid);
-            if (!touch.Granted) return (false, touch.Reason);
-            j.ClearLiquid();
-            j.Reshape(to);
-            j.Mark();
-            return (true, null);
+            operation = WorkshopOperation.ReshapeFull(to);
+        }
+        else
+        {
+            var cost = costLiquid ?? scope.Balance
+                .Where(pair => scope.CanConsume(pair.Key, 1).Granted && !IsBanned(pair.Key))
+                .Select(pair => pair.Key)
+                .FirstOrDefault();
+            if (cost == null) return (false, "没有可支付的改形成本液体");
+            operation = WorkshopOperation.ReshapeEmpty(to, cost);
         }
 
-        if (j.IsMarked) return (false, "罐子已被操作");
-        if (!j.IsEmpty()) return (false, "必须为空罐");
-        if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
-
-        var cost = costLiquid ?? scope.Balance
-            .Where(pair => scope.CanConsume(pair.Key, 1).Granted && !IsBanned(pair.Key))
-            .Select(pair => pair.Key)
-            .FirstOrDefault();
-        if (cost == null) return (false, "没有可支付的改形成本液体");
-        if (_rules.SuppressionReason("RESHAPE", j.Shape, cost) is { } costSuppressed)
-            return (false, costSuppressed);
-        var costPermission = CheckLiquid(cost);
-        if (!costPermission.Granted) return (false, costPermission.Reason);
-        if (!scope.TryConsume(cost, 1)) return (false, "无法支付液体" + cost);
-        j.Reshape(to);
-        j.Mark();
+        var transition = WorkshopRulebook.CreateTransition(_rules, scope, JarFacts.Of(j), operation);
+        if (transition == null)
+        {
+            var decision = WorkshopRulebook.Evaluate(_rules, scope, JarFacts.Of(j), operation);
+            return (false, decision.Reason ?? "改形规则拒绝该操作");
+        }
+        if (transition.Value.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
+            return (false, "无法支付液体" + consumed);
+        ApplyJarTransition(j, operation, transition.Value);
         return (true, null);
     }
 
-    /// <summary>按液池键序找第一份"取得到"的液体（空罐改形的成本）。</summary>
     private string? FirstUsableCostLiquid()
     {
-        foreach (var l in _liquidStorage.Keys)
-            if (HasUsableLiquid(l)) return l;
+        foreach (var liquid in _liquidStorage.Keys)
+            if (HasUsableLiquid(liquid)) return liquid;
         return null;
-    }
-
-    private (bool Success, string? Reason) ReshapeEmptyCore(Jar j, string to, string cost)
-    {
-        if (j.IsMarked) return (false, "罐子已被操作");
-        if (!j.IsEmpty()) return (false, "必须为空罐");
-        if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
-        if (_rules.SuppressionReason("RESHAPE", j.Shape, cost) is { } suppressed) return (false, suppressed);
-        if (!TryPayReshapeCost(cost)) return (false, "无法支付液体" + cost);
-        j.Reshape(to); j.Mark(); return (true, null);
-    }
-
-    private (bool Success, string? Reason) ReshapeFullCore(Jar j, string to)
-    {
-        if (j.IsMarked) return (false, "罐子已被操作");
-        if (j.IsEmpty()) return (false, "必须为满罐");
-        if (!CanTransform(j.Shape, to)) return (false, "无法从" + j.Shape + "转化为" + to);
-        if (_rules.SuppressionReason("RESHAPE", j.Shape, j.Liquid) is { } suppressed) return (false, suppressed);
-        var l = j.ClearLiquid();
-        var touch = CheckLiquid(l!);
-        if (!touch.Granted) { j.PourIn(l!); return (false, touch.Reason); }
-        j.Reshape(to); j.Mark(); return (true, null);
     }
 
     // ============================================================
