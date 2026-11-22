@@ -28,7 +28,7 @@ public sealed class WorldOrderSlaveBoundaryProjectorTests
             var input = new WorldOrderSymbolicJarVersion(
                 jarKey, 1, "Slave", "shape-" + index, spec.JarLiquid);
             var output = new WorldOrderSymbolicJarVersion(
-                jarKey, 2, "Slave", "shape-" + index, spec.JarLiquid);
+                jarKey, 2, "Slave", "shape-" + index, spec.JarLiquid, isMarked: true);
             var candidate = new WorldOrderRuleCandidate(
                 index, input.Shape, input.Liquid,
                 "TEST", "test-rule-" + index, 1,
