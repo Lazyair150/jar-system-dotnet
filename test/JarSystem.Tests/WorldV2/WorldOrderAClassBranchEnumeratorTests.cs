@@ -45,8 +45,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
         var steps = result.Assembly.CandidatePlan!.MasterSteps;
         Assert.Equal(new[] { "POUR_OUT", "POUR_IN" },
             steps.Select(x => x.Operation!.Type));
-        Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("蜜"));
-        Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("蜜"));
+        Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("酒"));
+        Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("酒"));
         Assert.Empty(result.Assembly.Manifest.TransferLiquids);
         Assert.Equal(7102, steps[0].Before![steps[0].Operation!.JarIndex!.Value].Id);
         Assert.Equal(7101, steps[1].Before![steps[1].Operation!.JarIndex!.Value].Id);
@@ -80,8 +80,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
         Assert.Equal(7201, steps[1].Before![steps[1].Operation!.JarIndex!.Value].Id);
         Assert.Equal(1, steps[0].AfterLiquids.GetValueOrDefault("蜜"));
         Assert.Equal(0, steps[1].AfterLiquids.GetValueOrDefault("蜜"));
-        Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("酒"));
-        Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("酒"));
+        Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("蜜"));
+        Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("蜜"));
     }
 
     [Fact]
