@@ -55,8 +55,9 @@ public sealed class WorldOrderSolveBook : IDisposable
     }
 
     /// <summary>
-    /// 仅当订单仍登记、CD 已结束且求解结论匹配当前快照版本时返回结论。
-    /// 若版本变化，会将记录转为 Dirty 并返回 null。
+    /// 仅当订单仍登记且 CD 已结束时返回当前结论。
+    /// 若完整世界版本变化，会先尝试规则/Profile/规格不变前提下的资源计划重绑定；
+    /// 只有重绑定验证失败才将记录转为 Dirty 并返回 null。
     /// </summary>
     public WorldOrderSolveResult? GetCurrentResult(int demandId, WorldSnapshot snapshot)
     {
