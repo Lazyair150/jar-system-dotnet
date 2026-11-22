@@ -212,7 +212,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     var masterCompletedDeliveryJars = plan.MasterSteps[^1].After
                         .Where(item => item.Id.HasValue &&
                             transferIds.Contains(item.Id.Value) &&
-                            !expectedIds.Contains(item.Id.Value));
+                            !expectedIds.Contains(item.Id.Value))
+                        // Transfer 阶段会清除所有转入罐子的主台阶段标记。
+                        .Select(item => new WorldPlanJarState(
+                            item.Id, item.Shape, item.Liquid, IsMarked: false, item.MasterOrigin));
                     expectedSlave = expectedSlave.Concat(masterCompletedDeliveryJars).ToArray();
                 }
 
