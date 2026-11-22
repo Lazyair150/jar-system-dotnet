@@ -142,8 +142,8 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 在规则集合、订单规格、工作台属性和结构性世界条件不变时，订单的**结构解集**不变。资源余额变化不应自动触发完整求解。
 
 必须拆分：
-1. StructuralSolution：规则与结构约束下的操作路径、Jar 角色和资源需求。
-2. ResourceReadiness：当前资源账户是否足够、容量是否足够、所需 Jar 是否仍在对应位置且未被占用。
+1. SymbolicSolution：由订单目标、规则 Profile、工作台能力/容量与世界阶段约束推导出的抽象操作程序。它描述需要什么 Jar 输入事实、可选算子序列、Jar 角色、资源种类/数量公式和跨台依赖，不绑定当前 Jar ID，也不假定当前库存已经满足。
+2. ResourceBinding / Readiness：将 SymbolicSolution 的输入角色绑定到当前真实 Jar 身份与资源账户，检查形状、液体、标记、位置、所有权、容量和余额是否满足；此层可以随资源变化重新评估，但不重跑规则空间搜索。
 3. Admission：原子检查并锁定资源，创建执行 Lease。
 4. Execution：按计划执行，动态规则/前置条件在操作边界再次验证。
 5. Settlement：按资源来源进行返还、丢弃和结算。
@@ -158,10 +158,11 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 - RuleSetFingerprint：规则定义版本、有效修饰器与规则参数。
 - WorkshopStructureFingerprint：工作台能力、容量、岗位/目标工作台结构等影响路径的属性。
 - OrderSpecificationFingerprint：最终目标多重集、订单阶段语义与稳定订单定义身份。
-- ResourceReadinessFingerprint：资源余额、Jar 实际身份/位置/标记、资源预留状态。
+- WorkshopProfileFingerprint：参与工作台的能力参数、容量、岗位结构和会改变抽象操作程序的属性。
+- ResourceBindingFingerprint：当前真实 Jar 身份/形状/液体/标记/位置、各资源账户余额和资源预留状态。
 - ExecutionPolicyFingerprint：预算、完整性模式、目标函数等影响求解输出策略的设置。
 
-结构解缓存键只由真正影响结构求解的输入组成；资源就绪状态单独评估。具体依赖由规则声明，不允许依赖“整个 WorldSnapshot 每 tick 变化”的粗粒度键。
+符号解缓存键由规则集合、订单规格、工作台 Profile 与结构阶段约束组成；真实 Jar 与液体余额由 ResourceBinding 单独评估。真实 Jar 的形状/液体/标记会决定能否绑定某个输入角色，但不必因此重算抽象规则程序。若某条规则确实依赖某项资源事实并改变算子本身，则该事实必须显式声明为规则依赖。具体依赖由规则声明，不允许依赖“整个 WorldSnapshot 每 tick 变化”的粗粒度键。
 
 缓存命中只代表同一输入可复用，不代表资源已预留。Admission 必须基于当前版本原子重验并建立资源租约。解集本身不应进入权威世界快照；快照保存重建所需的权威事实、规则 Profile 身份/版本和必要扩展状态。
 
@@ -247,3 +248,19 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 - 不以找到一个解冒充完整解集，也不以当前没有资源宣告结构无解。
 - 不允许任意运行时委托进入可持久化、可指纹化的规则集合。
 - 不声称 NP-hard 搜索在理论上消失；目标是减少重复求解、共享规则语义并正确利用结构不变性。
+
+
+## 13. 关键实现现状：当前版本指纹仍混合结构与库存
+
+当前 WorldSnapshot.ComputeVersion 写入 Master、Slave、ShipLiquidInventory 的完整余额和 MasterPrefillLiquidBalances；WorkshopSolveSnapshot 也包含 Jar 列表、游离液体余额与修饰器投影。因此生产入库、预置液余额或其他资源事实变化会改变当前 SolveSnapshot.Version。当前订单求解器又直接以该快照构造 StateSpaceSolver 输入，实际结构求解仍受当前库存约束。
+
+这正是下一轮要拆分的地方，不应把当前代码描述成已经具备“资源变化只更新 Readiness”的能力。
+
+目标是引入独立的 SymbolicSolveProfile / ResourceBindingSnapshot：
+- SymbolicSolveProfile 不包含当前库存余额和真实 Jar ID；它包含规则、订单规格、工作台能力/容量、岗位阶段约束，以及由规则声明的结构依赖。
+- ResourceBindingSnapshot 保存真实 Jar、液体余额、Ship inventory、prefill、staging、reservation 与 ownership。
+- SymbolicSolution 表达可满足的 Jar 输入角色和资源需求，不直接声明某个当前 Jar ID。
+- Binding 通过匹配真实 Jar 与资源账户验证可执行条件；准入仍以当前世界独占边界内的事实重验并建立 Lease。
+- 对需要特定资源状态才能改变规则语义的扩展，规则必须声明依赖；该类状态进入对应 Profile 指纹，不能偷偷从库存中读取。
+
+此拆分是架构目标，需通过旧 Solver 差分测试与资源变动不重算测试逐步迁移。
