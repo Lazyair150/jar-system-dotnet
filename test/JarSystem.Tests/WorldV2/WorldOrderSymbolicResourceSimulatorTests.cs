@@ -67,9 +67,9 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
     public void StagingCapacityIsSharedAcrossLiquidsAndOverflowIsDiscarded()
     {
         var firstInput = new WorldOrderSymbolicJarVersion("jar-1", 0, "Master", "圆罐", "酒");
-        var firstOutput = new WorldOrderSymbolicJarVersion("jar-1", 1, "Master", "圆罐", null);
+        var firstOutput = new WorldOrderSymbolicJarVersion("jar-1", 1, "Master", "圆罐", null, isMarked: true);
         var secondInput = new WorldOrderSymbolicJarVersion("jar-2", 0, "Master", "圆罐", "蜜");
-        var secondOutput = new WorldOrderSymbolicJarVersion("jar-2", 1, "Master", "圆罐", null);
+        var secondOutput = new WorldOrderSymbolicJarVersion("jar-2", 1, "Master", "圆罐", null, isMarked: true);
         var first = WorldOrderSymbolicOperationNode.Rule(
             "pour-out-wine", 0, "Master", null,
             Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null, producedFree: "酒"),
@@ -152,7 +152,7 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
     public void JarInternalLiquidConsumptionDoesNotConsumeFreeLiquidStaging()
     {
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", "酒");
-        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null);
+        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null, isMarked: true);
         var node = WorldOrderSymbolicOperationNode.Rule(
             "reshape-full", 0, "Master", 0,
             Candidate(0, "圆罐", "酒", "RESHAPE_FULL", "方罐", null, consumedJar: "酒"),
