@@ -30,7 +30,15 @@ Jar 世界的求解基础不是工作台类型，也不是订单类型，而是*
 7. FailureSemantics：明确拒绝、条件未知、预算耗尽等状态。
 8. Explain：稳定原因码及参数。
 
-规则核心不是返回 bool，而是回答：给定状态和操作，能否应用；若能，得到什么新状态和资源变化；若不能，为什么；若无法判断，缺少什么上下文。
+规则核心不是返回 bool，而是回答：给定状态和意图，结果是 Allowed、Rejected 还是 Undetermined；若允许，产生什么状态变化与资源效果；若拒绝，给出稳定原因码；若未知，指出缺失的上下文或不透明谓词。
+
+并非每条规则都必须改变 Jar。规则定义至少允许四种语义形态：
+- Constraint Rule：只筛选候选状态/操作，不产生状态变化（例如基础标记资格、Ban、容量约束）。
+- Transform Rule：产生确定的 Jar 状态转换（例如四种 Jar 化学算子）。
+- Resource Flow Rule：描述资源账户之间的接收、扣除、转移、返还和溢出处理。
+- Lifecycle Rule：描述 Mark/ClearMark、岗位提交、订单阶段、CD 或规则生效窗口等生命周期约束。
+
+这些形态共享 RuleId、RuleVersion、Applicability、Decision、Explain 和依赖声明；只有 Transform / Flow 规则需要相应的 Transition / ResourceEffect。不要强迫所有规则继承同一个拥有大量空字段的万能 DTO。
 
 ### 2.2 Rule Set / Rule Profile（规则集合）
 
