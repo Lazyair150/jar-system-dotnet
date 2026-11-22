@@ -405,7 +405,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         if (transition.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
             return (false, "液体" + consumed + "不足");
-        ApplyJarTransition(j, operation, transition.Value);
+        ApplyJarTransition(j, operation, transition);
         return (true, null);
     }
 
@@ -420,7 +420,7 @@ public class Workshop
         var liquid = transition.ProducedFreeLiquid!;
         if (!scope.TryReceiveOperation(liquid, 1, out var receive))
             return (false, receive.Reason, null);
-        ApplyJarTransition(j, operation, transition.Value);
+        ApplyJarTransition(j, operation, transition);
         return (true, null, liquid);
     }
 
@@ -433,7 +433,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         var liquid = transition.ProducedFreeLiquid!;
         AddLiquid(liquid);
-        ApplyJarTransition(j, operation, transition.Value);
+        ApplyJarTransition(j, operation, transition);
         return (true, null, liquid);
     }
 
@@ -584,7 +584,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         if (transition.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
             return (false, "无法支付液体" + consumed);
-        ApplyJarTransition(j, operation, transition.Value);
+        ApplyJarTransition(j, operation, transition);
         return (true, null);
     }
 
@@ -617,7 +617,7 @@ public class Workshop
         var transition = evaluation.Transition!.Value;
         if (transition.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
             return (false, "无法支付液体" + consumed);
-        ApplyJarTransition(j, operation, transition.Value);
+        ApplyJarTransition(j, operation, transition);
         return (true, null);
     }
 
