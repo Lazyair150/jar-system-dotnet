@@ -170,6 +170,56 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
         Assert.False(result.Alternatives?.IsComplete ?? false);
     }
 
+
+    [Fact]
+    public void IndependentPreparationJarCanProduceLiquidForAnotherRequirementJar()
+    {
+        var requirement = Candidate(
+            0, "target-jar", null, "finished", null, consumedFree: "X");
+        var preparation = new WorldOrderRuleCandidate(
+            -1, "liquid-source-jar", "X", "PREPARE_POUR_OUT", "prepare-source-X",
+            1, "liquid-source-jar", null, null, null, "X", null);
+        var profile = Profile(
+            new[] { ("finished", (string?)null, new[] { requirement }) },
+            new[] { preparation });
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 2, masterBannedLiquids: new[] { "X" });
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
+        Assert.Equal(2, result.ExploredBranches);
+        var group = Assert.Single(result.Alternatives!.Groups);
+        Assert.Empty(group.RequiredFreeLiquid);
+        Assert.Equal(2, group.RequiredJarStates.Values.Sum());
+        Assert.Contains(group.Requirements, x =>
+            x.Kind == WorldOrderBoundaryResourceKind.JarState &&
+            x.JarShape == "liquid-source-jar" &&
+            x.JarLiquid == "X");
+    }
+
+    [Fact]
+    public void IndependentPreparationEnumerationIsBoundedByBranchAndNodeBudgets()
+    {
+        var requirement = Candidate(
+            0, "target-jar", null, "finished", null, consumedFree: "X");
+        var preparations = new[]
+        {
+            new WorldOrderRuleCandidate(-1, "source-a", "X", "PREPARE_POUR_OUT",
+                "prepare-a", 1, "source-a", null, null, null, "X", null),
+            new WorldOrderRuleCandidate(-1, "source-b", "X", "PREPARE_POUR_OUT",
+                "prepare-b", 1, "source-b", null, null, null, "X", null)
+        };
+        var profile = Profile(
+            new[] { ("finished", (string?)null, new[] { requirement }) },
+            preparations);
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 3, maxBranches: 1);
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Undetermined, result.Status);
+        Assert.False(result.Alternatives?.IsComplete ?? false);
+    }
+
     [Fact]
     public void OpaqueProfileRemainsUndetermined()
     {
