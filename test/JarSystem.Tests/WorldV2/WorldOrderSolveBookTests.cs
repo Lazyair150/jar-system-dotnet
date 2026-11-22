@@ -157,6 +157,44 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
+    public void BResourceRebindValidatesTransferredJarFactsAndIgnoresUnusedNewJars()
+    {
+        var board = Board();
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台", new List<string> { "圆罐" });
+        var transferred = new Jar("圆罐");
+        master.AddJar(transferred);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+
+        var firstSnapshot = WorldSnapshotFactory.Capture(roster);
+        var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
+        Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
+        Assert.True(first.Result.Plan!.IsPartitioned);
+        Assert.Contains(transferred.Id, first.Result.Plan.TransferJarIds);
+
+        var unused = new Jar("方罐");
+        Assert.True(master.AddJar(unused));
+        var withUnusedJar = WorldSnapshotFactory.Capture(roster);
+        var rebound = book.GetCurrentResult(demand.Id, withUnusedJar);
+        Assert.NotNull(rebound);
+        Assert.Same(first.Result.Plan, rebound!.Plan);
+
+        Assert.True(master.MarkJar(transferred).Success);
+        var changedTransferJar = WorldSnapshotFactory.Capture(roster);
+        Assert.Null(book.GetCurrentResult(demand.Id, changedTransferJar));
+        Assert.Equal(WorldOrderSolveState.Dirty, book.Find(demand.Id)!.State);
+        var reSolved = book.Evaluate(demand.Id, changedTransferJar, Registry());
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, reSolved.Result!.Status);
+    }
+
+    [Fact]
     public void ResourceRebindFallsBackToSolverWhenAPlanJarIsReplaced()
     {
         var board = Board();
