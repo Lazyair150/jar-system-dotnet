@@ -89,7 +89,7 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
     }
 
     [Fact]
-    public void MasterBannedLiquidCannotAppearAsFreeLiquidOrInsideTransferredJar()
+    public void MasterBannedLiquidCannotAppearAsFreeLiquidButDoesNotRestrictJarInternalLiquid()
     {
         var freeLiquidGroup = new WorldOrderResourceRequirementGroup("free", new[]
         {
@@ -104,10 +104,13 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
         {
             WorldOrderBoundaryRequirement.JarState("Master", "Slave", "wide", "forbidden", "slave-op")
         });
-        Assert.Throws<ArgumentException>(() => new WorldOrderResourceRequirementAlternativeSet(
+        var jarAllowed = new WorldOrderResourceRequirementAlternativeSet(
             WorldOrderResourceRequirementSetStatus.Complete,
             "rules-v1", "workshops-v1", "spec-v1", "Master", "Slave",
-            new[] { jarGroup }, providerBannedLiquids: new[] { "forbidden" }));
+            new[] { jarGroup }, providerBannedLiquids: new[] { "forbidden" });
+
+        Assert.Single(jarAllowed.Groups);
+        Assert.Equal("forbidden", jarAllowed.Groups[0].Requirements[0].JarLiquid);
     }
 
     [Fact]
