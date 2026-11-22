@@ -32,7 +32,7 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
         var master = new Workshop("主台",
             new List<string> { "圆罐", "方罐" });
         master.AddJar(new Jar("圆罐", id: 7101));
-        master.AddJar(new Jar("方罐", "酒", id: 7102));
+        master.AddJar(new Jar("圆罐", "酒", id: 7102));
 
         var result = Solve(master, new[]
         {
@@ -44,7 +44,7 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
         Assert.NotNull(result.Assembly);
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Assembly!.Status);
         var steps = result.Assembly.CandidatePlan!.MasterSteps;
-        Assert.Equal(new[] { "POUR_OUT", "POUR_IN" },
+        Assert.Equal(new[] { "POUR_OUT", "RESHAPE" },
             steps.Select(x => x.Operation!.Type));
         Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("酒"));
         Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("酒"));
@@ -108,7 +108,7 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
         var master = new Workshop("主台",
             new List<string> { "圆罐", "方罐" });
         master.AddJar(new Jar("圆罐", id: 7401));
-        master.AddJar(new Jar("方罐", "酒", id: 7402));
+        master.AddJar(new Jar("圆罐", "酒", id: 7402));
 
         var result = Solve(master, new[]
         {
