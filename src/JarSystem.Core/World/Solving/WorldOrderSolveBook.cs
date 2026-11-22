@@ -130,6 +130,30 @@ public sealed class WorldOrderSolveBook : IDisposable
             string.Equals(record.Result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
             return record;
 
+        if (record.State == WorldOrderSolveState.Current &&
+            record.Result is { IsFeasible: true, Plan: not null } previous &&
+            !string.IsNullOrWhiteSpace(previous.RuleSetVersion) &&
+            string.Equals(previous.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) &&
+            string.Equals(previous.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal))
+        {
+            try
+            {
+                // 先验证旧计划引用的 Jar 初态、液体最低供给与容量仍成立。
+                // 只有具体资源绑定失效才退回完整求解；规则/Profile 变化则绝不复用。
+                _ = WorldOrderResourceManifest.CreateForResourceRebind(previous, snapshot);
+                var rebound = previous.RebindTo(snapshot);
+                var reboundRecord = new WorldOrderSolveRecord(demandId, WorldOrderSolveState.Current, rebound, null, null);
+                _records[demandId] = reboundRecord;
+                return reboundRecord;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or
+                                       OverflowException or KeyNotFoundException)
+            {
+                record = WorldOrderSolveRecord.Dirty(demandId, "资源变化使旧计划无法重绑定：" + ex.Message);
+                _records[demandId] = record;
+            }
+        }
+
         if (record.State == WorldOrderSolveState.Current)
         {
             record = WorldOrderSolveRecord.Dirty(demandId, "世界求解输入版本已变化");
