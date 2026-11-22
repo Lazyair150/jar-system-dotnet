@@ -74,12 +74,19 @@ public sealed class WorldOrderExecutionSessionWireDto
             throw new InvalidOperationException("会话 Wire DTO 缺少 Manifest 或 Plan。");
         Manifest.Validate();
         Plan.Validate();
+        var transferJarIdsMatch = Manifest.TransferJarIds.OrderBy(x => x)
+            .SequenceEqual(Plan.TransferJarIds.OrderBy(x => x));
+        var transferLiquidsMatch = Manifest.TransferLiquids.Count == Plan.TransferLiquids.Count &&
+            Manifest.TransferLiquids.All(item =>
+                Plan.TransferLiquids.TryGetValue(item.Key, out var amount) && amount == item.Value);
         if (Manifest.DemandId != DemandId || Manifest.IsPartitioned != Plan.IsPartitioned ||
-            !Manifest.TransferJarIds.OrderBy(x => x).SequenceEqual(Plan.TransferJarIds.OrderBy(x => x)) ||
-            Manifest.TransferLiquids.Count != Plan.TransferLiquids.Count ||
-            Manifest.TransferLiquids.Any(item =>
-                !Plan.TransferLiquids.TryGetValue(item.Key, out var amount) || amount != item.Value))
-            throw new InvalidOperationException("会话 Wire DTO 的 Manifest 与 Plan 订单身份或交接资源不一致。");
+            !transferJarIdsMatch || !transferLiquidsMatch)
+            throw new InvalidOperationException(
+                "会话 Wire DTO 的 Manifest 与 Plan 不一致：" +
+                $"DemandId={DemandId}/{Manifest.DemandId}，Partitioned={Manifest.IsPartitioned}/{Plan.IsPartitioned}，" +
+                $"TransferJarIds={string.Join(",", Manifest.TransferJarIds)}/{string.Join(",", Plan.TransferJarIds)}，" +
+                $"TransferLiquids={string.Join(",", Manifest.TransferLiquids.OrderBy(x => x.Key).Select(x => x.Key + "=" + x.Value))}/" +
+                string.Join(",", Plan.TransferLiquids.OrderBy(x => x.Key).Select(x => x.Key + "=" + x.Value)) + "。");
         ExecutionProgressInvariants.Validate(
             stage,
             CompletedMasterSteps,
