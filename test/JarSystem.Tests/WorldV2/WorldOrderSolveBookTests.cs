@@ -84,7 +84,7 @@ public sealed class WorldOrderSolveBookTests
 
         Assert.NotEqual(firstSnapshot.Version, changedSnapshot.Version);
         var rebound = book.GetCurrentResult(demand.Id, changedSnapshot);
-        Assert.NotNull(rebound, book.Find(demand.Id)!.Reason);
+        Assert.NotNull(rebound);
         Assert.Equal(changedSnapshot.Version, rebound!.WorldVersion);
         Assert.NotSame(first.Result, rebound);
         Assert.Same(first.Result!.Plan, rebound.Plan);
