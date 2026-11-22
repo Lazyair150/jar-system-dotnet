@@ -281,3 +281,14 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 - 规则拒绝目前仍主要以 bool 表达，稳定的 Decision / ReasonCode / Undetermined 契约尚未落地。
 - RuleId/RuleVersion 目前是四种转换结果上的第一版稳定身份，不等于已经有完整 Rule Registry / Profile。
 - 搜索仍以当前具体 Jar/液体快照求一条首解；尚未实现抽象 SymbolicSolution、多解集、ResourceBinding 与 Readiness 分离。
+
+
+## 15. 待执行解、准入绑定与活动执行计划不能混为一谈
+
+这里必须明确三种不同对象，否则“解集不进入快照”会被误解为“执行计划也不需要保存”。
+
+1. **待执行的符号解集**：规则/工作台 Profile/订单规格推导出来的候选程序。它是可重建的求解缓存，不是权威世界状态；普通世界检查点不必保存整套候选解。
+2. **资源绑定与准入结果**：从符号解中选定一个候选，将输入 Jar 角色绑定到真实 Jar ID，并按当前资源账户精确计算、校验和预留资源。绑定必须在 Host 独占操作边界内完成；Readiness 本身不拥有资源。
+3. **活动执行计划**：准入成功后，选定的 BoundExecutionPlan、Manifest、Lease、操作游标、阶段、已提交的 Transfer/Settlement 收据，已经成为正在发生的业务事实。为了跨 Host / JSON 检查点恢复而不重复扣液、泵送或执行步骤，这些数据仍必须进入活动执行检查点。
+
+因此，新架构可能减少的是“把待执行的可重建解缓存当作权威状态保存”的重复设计，不是删除活动会话恢复所需的 Plan / Manifest / Lease / Cursor。当前根级检查点中活动 Session 的 Plan 与进度属于第三类，原则上应保留；SolveBook 的待执行结果缓存属于第一类，原则上可以在恢复后重建。
