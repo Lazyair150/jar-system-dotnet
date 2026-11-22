@@ -323,7 +323,7 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 | 规则族 | 当前领域内容 | 归属与边界 |
 |---|---|---|
 | Jar 化学转换 | PourIn、PourOut、ReshapeEmpty、ReshapeFull | Rule Operator；定义 Jar 状态变化与游离液体/罐内液体效果 |
-| Jar 匹配与占用 | MATCH、需求唯一落点、Jar 一阶段一操作、Mark/ClearMark | Allocation / lifecycle rule；MATCH 不应伪装成液体转换 |
+| Jar 匹配与占用 | MATCH、需求唯一落点、Jar 一订单一操作、Mark/ClearMark | Allocation / lifecycle rule；MATCH 不应伪装成液体转换 |
 | 资源账户流动 | 订单 staging 接收/拒收/溢出丢弃、Ship inventory 补液/返还、prefill 结算 | Resource-flow rule；账户容量和所有权是上下文事实，规则决定允许的流向与结算语义 |
 | 跨工作台交接 | B 类单向 Master → Slave、Jar transfer、保留 Mark、transfer budget | World orchestration rule；不属于某个 Workshop 自己的能力 |
 | 订单阶段 | A 类绕过 Slave；B 类必须证明 Master 路径与 Slave 路径及精确交接 | Order/world policy；不应写进通用 Pour/Reshape 算子 |
