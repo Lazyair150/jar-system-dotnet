@@ -592,6 +592,32 @@ public sealed class WorkshopLiquidStaging
             new Dictionary<string, int>(account, StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// 主台岗位退役提交时取出尚未被订单消耗的预置余额。
+    /// 仅允许在订单子账和容量预留均已清空、且没有待提交补液事务时调用。
+    /// </summary>
+    internal IReadOnlyDictionary<string, int> DrainPrefillForReturn()
+    {
+        EnsureNoPendingPrefillTransaction();
+        if (_accounts.Count != 0 || _reservedCapacityByOrder.Count != 0)
+            throw new InvalidOperationException("主台退役时仍有活动订单液体资源，不能返还预置余额。");
+        var drained = new Dictionary<string, int>(_prefillBalances, StringComparer.Ordinal);
+        _prefillBalances.Clear();
+        return new ReadOnlyDictionary<string, int>(drained);
+    }
+
+    /// <summary>返还失败时恢复刚刚取出的预置余额；只用于同一同步提交路径的补偿。</summary>
+    internal void RestoreDrainedPrefill(IReadOnlyDictionary<string, int> amounts)
+    {
+        EnsureNoPendingPrefillTransaction();
+        ShipLiquidInventory.ValidateAmounts(amounts);
+        if (amounts.Keys.Any(_banned.Contains))
+            throw new InvalidOperationException("不能恢复工作台禁用液体的预置余额。");
+        if (ShipLiquidInventory.TotalAmount(amounts) > AvailableCapacity)
+            throw new InvalidOperationException("恢复预置余额会超过工作台暂存容量。");
+        foreach (var item in amounts) AddPrefillUnchecked(item.Key, item.Value);
+    }
+
     /// <summary>捕获订单子账与容量预留；快照不暴露内部可变字典。</summary>
     public WorkshopLiquidStagingSnapshot Capture()
     {
