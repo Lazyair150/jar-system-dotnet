@@ -54,6 +54,14 @@ text = "1 倍速"
 layout_mode = 2
 text = "2 倍速"
 
+[node name="SaveCheckpointButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "保存检查点"
+
+[node name="RestoreCheckpointButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "恢复检查点"
+
 [node name="StatusLabel" type="Label" parent="Root"]
 layout_mode = 2
 text = "正在初始化..."
