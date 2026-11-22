@@ -121,6 +121,16 @@ public static class WorldOrderPreparatoryProgramBuilder
             var slaveJarKeys = new SortedSet<string>(StringComparer.Ordinal);
             foreach (var assigned in requirements.Where(x => x.WorkshopRole == slaveRole))
                 slaveJarKeys.Add(requirementJarKeys[assigned.Candidate.RequirementIndex]);
+            foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == slaveRole))
+                slaveJarKeys.Add(selectedPrep.JarKey);
+
+            var handoffInputs = slaveJarKeys.Select(key => current[key]).ToArray();
+            handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+                "master-to-slave-handoff", sequence++, masterRole, slaveRole, handoffInputs);
+            nodes.Add(handoff);
+            foreach (var output in handoff.OutputJars)
+                current[output.JarKey] = output;
+
             var slaveOperations = new List<(
             string NodeId,
             string JarKey,
