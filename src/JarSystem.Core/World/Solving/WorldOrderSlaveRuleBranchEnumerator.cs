@@ -42,10 +42,10 @@ public sealed class WorldOrderSlaveRuleBranchEnumerationResult
 }
 
 /// <summary>
-/// Enumerates direct Slave rule candidates and independent preparation Jars that
-/// produce free liquids needed by the branch. Every Jar identity is used once.
-/// Every resulting program is projected independently;
-/// no candidate is sent to a Master rule solver.
+/// Enumerates direct Slave rule candidates, independent preparation Jars, and bounded
+/// operation schedules across distinct Jar identities. Resource-affecting operations
+/// are permuted; Jar-only operations retain a canonical tail order. Every Jar identity
+/// is used once, and every schedule is projected independently.
 /// </summary>
 /// <remarks>
 /// A preparation Jar is always independent from every requirement Jar and every
