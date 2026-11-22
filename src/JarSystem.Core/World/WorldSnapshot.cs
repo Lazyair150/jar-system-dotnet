@@ -21,6 +21,12 @@ namespace JarSystem.Core.World;
 public sealed class WorldSnapshot
 {
     public string Version { get; }
+    /// <summary>规则语义版本与当前有效声明式修饰器的独立指纹。</summary>
+    public string RuleSetVersion { get; }
+    /// <summary>主从岗位工作台属性与容量配置的独立指纹。</summary>
+    public string WorkshopProfileVersion { get; }
+    /// <summary>Jar、游离液体、自机液库与预置液资源事实的独立指纹。</summary>
+    public string ResourceVersion { get; }
     public WorkshopSolveSnapshot? Master { get; }
     public WorkshopSolveSnapshot? Slave { get; }
     /// <summary>新液体资源路径的自机液库纯值快照；为空表示旧版兼容求解输入。</summary>
@@ -29,12 +35,18 @@ public sealed class WorldSnapshot
 
     internal WorldSnapshot(
         string version,
+        string ruleSetVersion,
+        string workshopProfileVersion,
+        string resourceVersion,
         WorkshopSolveSnapshot? master,
         WorkshopSolveSnapshot? slave,
         ShipLiquidInventorySnapshot? shipLiquidInventory,
         IReadOnlyDictionary<string, int>? masterPrefillLiquidBalances = null)
     {
         Version = version;
+        RuleSetVersion = ruleSetVersion;
+        WorkshopProfileVersion = workshopProfileVersion;
+        ResourceVersion = resourceVersion;
         Master = master;
         Slave = slave;
         ShipLiquidInventory = shipLiquidInventory;
@@ -250,31 +262,138 @@ public static class WorldSnapshotFactory
         if (masterPrefillLiquidBalances != null)
             ShipLiquidInventory.ValidateAmounts(masterPrefillLiquidBalances);
         var prefill = masterPrefillLiquidBalances ?? new Dictionary<string, int>(StringComparer.Ordinal);
-        var version = ComputeVersion(master, slave, ship, prefill);
-        return new WorldSnapshot(version, master, slave, ship, prefill);
+        var fingerprints = ComputeFingerprints(master, slave, ship, prefill);
+        return new WorldSnapshot(
+            fingerprints.Version,
+            fingerprints.RuleSetVersion,
+            fingerprints.WorkshopProfileVersion,
+            fingerprints.ResourceVersion,
+            master, slave, ship, prefill);
     }
 
-    private static string ComputeVersion(
+    private readonly record struct SnapshotFingerprints(
+        string Version,
+        string RuleSetVersion,
+        string WorkshopProfileVersion,
+        string ResourceVersion);
+
+    private static SnapshotFingerprints ComputeFingerprints(
         WorkshopSolveSnapshot? master,
         WorkshopSolveSnapshot? slave,
         ShipLiquidInventorySnapshot? ship,
         IReadOnlyDictionary<string, int> masterPrefill)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        var ruleSet = Fingerprint("JarSystem.RuleSet.v1", writer =>
         {
-            writer.Write("JarSystem.WorldSolveSnapshot.v3");
-            WriteWorkshop(writer, master);
-            WriteWorkshop(writer, slave);
+            writer.Write(WorkshopRulebook.RuleContractVersion);
+            WriteWorkshopRules(writer, master);
+            WriteWorkshopRules(writer, slave);
+        });
+
+        var workshopProfile = Fingerprint("JarSystem.WorkshopProfile.v1", writer =>
+        {
+            WriteWorkshopProfile(writer, master);
+            WriteWorkshopProfile(writer, slave);
+        });
+
+        var resources = Fingerprint("JarSystem.ResourceState.v1", writer =>
+        {
+            WriteWorkshopResources(writer, master);
+            WriteWorkshopResources(writer, slave);
             WriteShipLiquidInventory(writer, ship);
             var prefill = masterPrefill.OrderBy(item => item.Key, StringComparer.Ordinal).ToArray();
             writer.Write(prefill.Length);
-            foreach (var item in prefill) { writer.Write(item.Key); writer.Write(item.Value); }
-        }
+            foreach (var item in prefill)
+            {
+                writer.Write(item.Key);
+                writer.Write(item.Value);
+            }
+        });
 
+        var combined = Fingerprint("JarSystem.WorldSolveSnapshot.v4", writer =>
+        {
+            writer.Write(ruleSet);
+            writer.Write(workshopProfile);
+            writer.Write(resources);
+        });
+        return new SnapshotFingerprints(combined, ruleSet, workshopProfile, resources);
+    }
+
+    private static string Fingerprint(string domain, Action<BinaryWriter> write)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(domain);
+            write(writer);
+        }
         return Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant();
     }
 
+    private static void WriteWorkshopProfile(BinaryWriter writer, WorkshopSolveSnapshot? workshop)
+    {
+        writer.Write(workshop != null);
+        if (workshop == null) return;
+
+        writer.Write(workshop.Name);
+        writer.Write(workshop.MaxJars);
+        writer.Write(workshop.MaxLiquids);
+        writer.Write(workshop.LiquidStagingCapacity);
+        WriteStrings(writer, workshop.Capability.BaseMarks);
+        WriteStrings(writer, workshop.Capability.AdditionalMarks);
+        WriteStrings(writer, workshop.Capability.Ban);
+    }
+
+    private static void WriteWorkshopResources(BinaryWriter writer, WorkshopSolveSnapshot? workshop)
+    {
+        writer.Write(workshop != null);
+        if (workshop == null) return;
+
+        writer.Write(workshop.Jars.Count);
+        foreach (var jar in workshop.Jars)
+        {
+            writer.Write(jar.Id.HasValue);
+            if (jar.Id.HasValue) writer.Write(jar.Id.Value);
+            writer.Write(jar.Shape);
+            WriteNullableString(writer, jar.Liquid);
+            writer.Write(jar.IsMarked);
+        }
+
+        // 保留求解器输入字典的枚举顺序；若未来规范化排序，必须同步修改输入创建口径。
+        var liquids = workshop.Liquids.ToArray();
+        writer.Write(liquids.Length);
+        foreach (var liquid in liquids)
+        {
+            writer.Write(liquid.Key);
+            writer.Write(liquid.Value);
+        }
+    }
+
+    private static void WriteWorkshopRules(BinaryWriter writer, WorkshopSolveSnapshot? workshop)
+    {
+        writer.Write(workshop != null);
+        if (workshop == null) return;
+
+        writer.Write(workshop.SolverModifiers.Count);
+        foreach (var modifier in workshop.SolverModifiers)
+        {
+            writer.Write(modifier.RuntimeType);
+            writer.Write((int)modifier.Kind);
+            writer.Write(modifier.Name);
+            writer.Write(modifier.Source);
+            writer.Write(modifier.Priority);
+            writer.Write(modifier.HasWindow);
+            writer.Write(modifier.WindowFrom);
+            writer.Write(modifier.WindowTo.HasValue);
+            if (modifier.WindowTo.HasValue) writer.Write(modifier.WindowTo.Value);
+            WriteNullableString(writer, modifier.Operation);
+            WriteNullableString(writer, modifier.Shape);
+            WriteNullableString(writer, modifier.Liquid);
+            WriteNullableString(writer, modifier.Reason);
+            WriteNullableString(writer, modifier.Text);
+            writer.Write(modifier.IsOpaque);
+        }
+    }
 
     private static void WriteShipLiquidInventory(
         BinaryWriter writer, ShipLiquidInventorySnapshot? ship)
