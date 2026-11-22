@@ -41,13 +41,22 @@ public class LiquidRulesTests
     }
 
     [Fact]
-    public void BanDoesNotAffectTheStorageSide()
+    public void BanRejectsFreeLiquidStorage()
     {
-        // 存储只问容量：被禁的液体能进来、能留着，只是取不出来（2026-11 语义）。
         var rules = new LiquidRules(Cap(new List<string> { "酒" }), capacity: 2);
-        Assert.True(rules.CanStore("酒", 1, 0).Granted);
-        Assert.True(rules.CanStore("酒", 2, 0).Granted);
-        Assert.Equal("over-capacity", rules.CanStore("酒", 1, 2).Code);   // 满了才是满
+        Assert.Equal("banned", rules.CanStore("酒", 1, 0).Code);
+        Assert.Equal("banned", rules.CanStore("酒", 1, 2).Code);
+        Assert.Equal("over-capacity", rules.CanStore("蜜", 1, 2).Code);
+    }
+
+    [Fact]
+    public void JarOperationBanIsDistinctFromFreeLiquidAccounting()
+    {
+        var rules = new LiquidRules(Cap(new List<string> { "酒" }), capacity: 2);
+        Assert.Equal("banned", rules.CheckJarOperation("酒").Code);
+        Assert.True(rules.CheckJarOperation("蜜").Granted);
+        // 该检查不消费任何游离液体。
+        Assert.True(rules.CanPay("蜜", 1, 1).Granted);
     }
 
     [Fact]
