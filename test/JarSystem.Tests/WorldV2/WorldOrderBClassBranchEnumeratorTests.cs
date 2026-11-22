@@ -94,8 +94,15 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var master = new Workshop("禁酒主台",
             new List<string> { "圆罐", "方罐" },
             ban: new List<string> { "酒" });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "从台不直接匹配圆罐"
+        });
         var slave = new Workshop("允许用酒的从台",
-            new List<string> { "圆罐", "方罐" });
+            new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
         master.AddJar(new Jar("圆罐", id: 9151));
         master.AddJar(new Jar("圆罐", "酒", id: 9152));
 
