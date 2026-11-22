@@ -146,7 +146,6 @@ public sealed class WorldOrderResourceManifestWireDto
         if (MasterJarIds.Any(x => x <= 0) || TransferJarIds.Any(x => x <= 0) ||
             MasterJarIds.Distinct().Count() != MasterJarIds.Length ||
             TransferJarIds.Distinct().Count() != TransferJarIds.Length ||
-            MasterJarIds.Intersect(TransferJarIds).Any() ||
             LockedJarIds.Distinct().Count() != LockedJarIds.Length ||
             !LockedJarIds.ToHashSet().SetEquals(MasterJarIds.Concat(TransferJarIds)))
             throw new InvalidOperationException("Manifest Wire DTO 的罐子身份集合无效。");
