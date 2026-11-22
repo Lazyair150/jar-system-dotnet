@@ -386,28 +386,24 @@ public class Workshop
     {
         ArgumentNullException.ThrowIfNull(scope);
         var operation = WorkshopOperation.PourIn(l);
-        var transition = WorkshopRulebook.CreateTransition(_rules, scope, JarFacts.Of(j), operation);
-        if (transition == null)
-        {
-            var decision = WorkshopRulebook.Evaluate(_rules, scope, JarFacts.Of(j), operation);
-            return (false, decision.Reason ?? "灌入规则拒绝该操作");
-        }
-        if (transition.Value.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
+        var evaluation = WorkshopRulebook.EvaluateTransition(_rules, scope, JarFacts.Of(j), operation);
+        if (!evaluation.Decision.IsAllowed)
+            return (false, evaluation.Decision.Reason ?? "灌入规则拒绝该操作");
+        var transition = evaluation.Transition!.Value;
+        if (transition.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
             return (false, "液体" + consumed + "不足或不可用");
-        ApplyJarTransition(j, operation, transition.Value);
+        ApplyJarTransition(j, operation, transition);
         return (true, null);
     }
 
     public (bool Success, string? Reason) PourIn(Jar j, string l)
     {
         var operation = WorkshopOperation.PourIn(l);
-        var transition = WorkshopRulebook.CreateTransition(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
-        if (transition == null)
-        {
-            var decision = WorkshopRulebook.Evaluate(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
-            return (false, decision.Reason ?? "灌入规则拒绝该操作");
-        }
-        if (transition.Value.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
+        var evaluation = WorkshopRulebook.EvaluateTransition(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+        if (!evaluation.Decision.IsAllowed)
+            return (false, evaluation.Decision.Reason ?? "灌入规则拒绝该操作");
+        var transition = evaluation.Transition!.Value;
+        if (transition.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
             return (false, "液体" + consumed + "不足");
         ApplyJarTransition(j, operation, transition.Value);
         return (true, null);
@@ -417,13 +413,11 @@ public class Workshop
     {
         ArgumentNullException.ThrowIfNull(scope);
         var operation = WorkshopOperation.PourOut();
-        var transition = WorkshopRulebook.CreateTransition(_rules, scope, JarFacts.Of(j), operation);
-        if (transition == null)
-        {
-            var decision = WorkshopRulebook.Evaluate(_rules, scope, JarFacts.Of(j), operation);
-            return (false, decision.Reason ?? "倒出规则拒绝该操作", null);
-        }
-        var liquid = transition.Value.ProducedFreeLiquid!;
+        var evaluation = WorkshopRulebook.EvaluateTransition(_rules, scope, JarFacts.Of(j), operation);
+        if (!evaluation.Decision.IsAllowed)
+            return (false, evaluation.Decision.Reason ?? "倒出规则拒绝该操作", null);
+        var transition = evaluation.Transition!.Value;
+        var liquid = transition.ProducedFreeLiquid!;
         if (!scope.TryReceiveOperation(liquid, 1, out var receive))
             return (false, receive.Reason, null);
         ApplyJarTransition(j, operation, transition.Value);
@@ -433,13 +427,11 @@ public class Workshop
     public (bool Success, string? Reason, string? Liquid) PourOut(Jar j)
     {
         var operation = WorkshopOperation.PourOut();
-        var transition = WorkshopRulebook.CreateTransition(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
-        if (transition == null)
-        {
-            var decision = WorkshopRulebook.Evaluate(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
-            return (false, decision.Reason ?? "倒出规则拒绝该操作", null);
-        }
-        var liquid = transition.Value.ProducedFreeLiquid!;
+        var evaluation = WorkshopRulebook.EvaluateTransition(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
+        if (!evaluation.Decision.IsAllowed)
+            return (false, evaluation.Decision.Reason ?? "倒出规则拒绝该操作", null);
+        var transition = evaluation.Transition!.Value;
+        var liquid = transition.ProducedFreeLiquid!;
         AddLiquid(liquid);
         ApplyJarTransition(j, operation, transition.Value);
         return (true, null, liquid);
@@ -585,14 +577,12 @@ public class Workshop
             operation = WorkshopOperation.ReshapeEmpty(to, cost);
         }
 
-        var transition = WorkshopRulebook.CreateTransition(
+        var evaluation = WorkshopRulebook.EvaluateTransition(
             _rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
-        if (transition == null)
-        {
-            var decision = WorkshopRulebook.Evaluate(_rules, MaxLiquids, JarFacts.Of(j), operation, _liquidStorage);
-            return (false, decision.Reason ?? "改形规则拒绝该操作");
-        }
-        if (transition.Value.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
+        if (!evaluation.Decision.IsAllowed)
+            return (false, evaluation.Decision.Reason ?? "改形规则拒绝该操作");
+        var transition = evaluation.Transition!.Value;
+        if (transition.ConsumedFreeLiquid is { } consumed && !RemoveLiquid(consumed))
             return (false, "无法支付液体" + consumed);
         ApplyJarTransition(j, operation, transition.Value);
         return (true, null);
@@ -621,13 +611,11 @@ public class Workshop
             operation = WorkshopOperation.ReshapeEmpty(to, cost);
         }
 
-        var transition = WorkshopRulebook.CreateTransition(_rules, scope, JarFacts.Of(j), operation);
-        if (transition == null)
-        {
-            var decision = WorkshopRulebook.Evaluate(_rules, scope, JarFacts.Of(j), operation);
-            return (false, decision.Reason ?? "改形规则拒绝该操作");
-        }
-        if (transition.Value.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
+        var evaluation = WorkshopRulebook.EvaluateTransition(_rules, scope, JarFacts.Of(j), operation);
+        if (!evaluation.Decision.IsAllowed)
+            return (false, evaluation.Decision.Reason ?? "改形规则拒绝该操作");
+        var transition = evaluation.Transition!.Value;
+        if (transition.ConsumedFreeLiquid is { } consumed && !scope.TryConsume(consumed, 1))
             return (false, "无法支付液体" + consumed);
         ApplyJarTransition(j, operation, transition.Value);
         return (true, null);
