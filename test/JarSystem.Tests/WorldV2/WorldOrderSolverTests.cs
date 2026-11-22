@@ -135,6 +135,41 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void RuleCandidateProfileIncludesLiquidPreparationAndHonorsBanAndStagingCapacity()
+    {
+        var master = new Workshop(
+            "主台",
+            new List<string> { "圆罐" },
+            ban: new List<string> { "酒" },
+            liquidStagingCapacity: 1);
+        var snapshot = Snapshot(master);
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐" } },
+            Constants.OrderType.A, Words);
+
+        var profile = WorldOrderRuleCandidateCatalog.Build(
+            snapshot, snapshot.Master!, "Master", specification);
+
+        Assert.Contains(profile.PreparatoryOperations, candidate =>
+            candidate.SourceShape == "方罐" &&
+            candidate.SourceLiquid == "蜜" &&
+            candidate.Operation == "PREPARE_POUR_OUT");
+        Assert.DoesNotContain(profile.PreparatoryOperations,
+            candidate => candidate.SourceLiquid == "酒");
+
+        var noStaging = new Workshop(
+            "主台", new List<string> { "圆罐" },
+            liquidStagingCapacity: 0);
+        var noStagingSnapshot = Snapshot(noStaging);
+        var blocked = WorldOrderRuleCandidateCatalog.Build(
+            noStagingSnapshot, noStagingSnapshot.Master!, "Master", specification);
+        Assert.Empty(blocked.PreparatoryOperations);
+        Assert.DoesNotContain(
+            Assert.Single(blocked.Requirements).Candidates,
+            candidate => candidate.Operation == "POUR_OUT");
+    }
+
+    [Fact]
     public void OpaqueRequireProducesUndeterminedRuleCandidateProfile()
     {
         var stack = new ModifierStack();
