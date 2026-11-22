@@ -211,20 +211,6 @@ public sealed class WorkshopReplacementProcess
 
                     try
                     {
-                        // 旧主台已正式退出岗位；其未消费的预置余额现在才允许返还自机液库。
-                        // 取消/迁徙失败路径不会触达此回调，因此旧主台预置余额保持原样。
-                        _returnRetiredMasterPrefill?.Invoke(_oldWorkshop);
-                    }
-                    catch (Exception returnError)
-                    {
-                        // 岗位已提交，返还结果不确定时冻结世界；不得回滚迁徙或自动重试返还。
-                        FailureReason = "岗位已提交，但旧主台预置液体返还失败，资源结果不确定: " + returnError.Message;
-                        _finished = true;
-                        throw;
-                    }
-
-                    try
-                    {
                         // 岗位指向已提交；此后外部副作用失败不能再伪装成可回滚的迁徙失败。
                         _masterSwitch!.CommitTransferEffects();
                     }
@@ -243,6 +229,20 @@ public sealed class WorkshopReplacementProcess
                         // 岗位/迁徙已提交，不得再调用 Fail() 回滚已经提交的迁徙。
                         PrefillCommitOutcomeUncertain = true;
                         FailureReason = "岗位已提交，但主台前置补液事务提交失败: " + prefillCommitError.Message;
+                        _finished = true;
+                        throw;
+                    }
+
+                    try
+                    {
+                        // 旧主台已正式退出岗位；其未消费的预置余额现在才允许返还自机液库。
+                        // 取消/迁徙失败路径不会触达此回调，因此旧主台预置余额保持原样。
+                        _returnRetiredMasterPrefill?.Invoke(_oldWorkshop);
+                    }
+                    catch (Exception returnError)
+                    {
+                        // 岗位已提交，返还结果不确定时冻结世界；不得回滚迁徙或自动重试返还。
+                        FailureReason = "岗位已提交，但旧主台预置液体返还失败，资源结果不确定: " + returnError.Message;
                         _finished = true;
                         throw;
                     }
