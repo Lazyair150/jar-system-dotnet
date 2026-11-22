@@ -91,8 +91,9 @@ public class WorkshopReshapeTests
         Assert.False(dry.Granted);
         Assert.Equal("no-cost-liquid", dry.Code);
 
-        // 只存着被禁的酒 ⇒ 依然是"没有可付的"（存得住、取不出）。
-        w.AddLiquid("酒", 2);
+        // 被禁的酒不能进入游离液体池；因此也不存在可用的成本库存。
+        Assert.False(w.AddLiquid("酒", 2));
+        Assert.Equal(0, w.LiquidStorage["酒"]);
         var bannedOnly = w.CanReshapeTo(jar, "方罐");
         Assert.False(bannedOnly.Granted);
         Assert.Equal("no-cost-liquid", bannedOnly.Code);
