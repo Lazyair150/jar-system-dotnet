@@ -147,7 +147,8 @@ public static class WorldOrderRuleCandidateCatalog
             sourceShapes.UnionWith(rules.Stack.GrantedShapes());
             sourceShapes.Add(requirement.Shape);
             var candidates = BuildRequirementCandidates(
-                rules, sourceShapes, requirementIndex, requirement.Shape, requirement.Liquid);
+                rules, workshop.LiquidStagingCapacity, workshop.Capability.Ban,
+                sourceShapes, requirementIndex, requirement.Shape, requirement.Liquid);
             results.Add(new WorldOrderRequirementCandidates(
                 requirementIndex, requirement.Shape, requirement.Liquid, candidates));
         }
@@ -159,6 +160,8 @@ public static class WorldOrderRuleCandidateCatalog
 
     private static List<WorldOrderRuleCandidate> BuildRequirementCandidates(
         RuleContext rules,
+        int stagingCapacity,
+        IReadOnlyCollection<string> bannedLiquids,
         IEnumerable<string> sourceShapes,
         int requirementIndex,
         string targetShape,
@@ -194,7 +197,7 @@ public static class WorldOrderRuleCandidateCatalog
                         AddTransition(rules, candidates, requirementIndex,
                             sourceShape, sourceLiquid, targetShape, null,
                             WorkshopOperation.PourOut(), "POUR_OUT",
-                            new Dictionary<string, int>(StringComparer.Ordinal));
+                            new Dictionary<string, int>(StringComparer.Ordinal), stagingCapacity, bannedLiquids);
                 }
             }
 
@@ -210,7 +213,7 @@ public static class WorldOrderRuleCandidateCatalog
                 AddTransition(rules, candidates, requirementIndex,
                     sourceShape, null, targetShape, null,
                     WorkshopOperation.ReshapeEmpty(targetShape, costLiquid),
-                    "RESHAPE_EMPTY", syntheticSupply);
+                    "RESHAPE_EMPTY", syntheticSupply, stagingCapacity, bannedLiquids);
             }
 
             // Full-jar reshape self-consumes its internal liquid; it never creates free liquid.
@@ -218,7 +221,7 @@ public static class WorldOrderRuleCandidateCatalog
                 AddTransition(rules, candidates, requirementIndex,
                     sourceShape, sourceLiquid, targetShape, null,
                     WorkshopOperation.ReshapeFull(targetShape),
-                    "RESHAPE_FULL", new Dictionary<string, int>(StringComparer.Ordinal));
+                    "RESHAPE_FULL", new Dictionary<string, int>(StringComparer.Ordinal), stagingCapacity, bannedLiquids);
         }
 
         return candidates;
@@ -252,11 +255,22 @@ public static class WorldOrderRuleCandidateCatalog
         string? targetLiquid,
         WorkshopOperation operation,
         string operatorName,
-        IReadOnlyDictionary<string, int> syntheticSupply)
+        IReadOnlyDictionary<string, int> syntheticSupply,
+        int stagingCapacity,
+        IReadOnlyCollection<string> bannedLiquids)
     {
+        // 使用 World V2 的订单暂存作用域来评估规则，而不是旧版每液种 MaxLiquids。
+        // 这里只建立“至少具备一次该操作所需条件”的合成作用域，不代表真实订单已预留容量。
+        var staging = new WorkshopLiquidStaging(stagingCapacity, bannedLiquids);
+        var scope = new OrderLiquidScope(1, staging);
+        foreach (var item in syntheticSupply)
+        {
+            var receipt = staging.Receive(1, item.Key, item.Value);
+            if (receipt.Accepted != item.Value) return;
+        }
+
         var evaluation = WorkshopRulebook.EvaluateTransition(
-            rules, 1, new JarFacts(sourceShape, sourceLiquid, false),
-            operation, syntheticSupply);
+            rules, scope, new JarFacts(sourceShape, sourceLiquid, false), operation);
         if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
         var transition = evaluation.Transition.Value;
         candidates.Add(new WorldOrderRuleCandidate(
