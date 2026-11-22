@@ -223,7 +223,20 @@ public static class WorkshopRulebook
         Evaluate(rules, maxLiquids, jar, op, liquids).IsAllowed;
 
     public static WorkshopRuleDecision Evaluate(RuleContext rules, int maxLiquids, in JarFacts jar,
-        in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids)
+        in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids) =>
+        EvaluateCore(rules, maxLiquids, null, jar, op, liquids);
+
+    /// <summary>
+    /// 唯一的工作台算子判定内核。普通库存与订单暂存只提供不同的资源边界，
+    /// 算子适用条件、抑制规则、形状规则与拒绝语义在此只定义一次。
+    /// </summary>
+    private static WorkshopRuleDecision EvaluateCore(
+        RuleContext rules,
+        int maxLiquids,
+        OrderLiquidScope? scope,
+        in JarFacts jar,
+        in WorkshopOperation op,
+        IReadOnlyDictionary<string, int> liquids)
     {
         if (rules.HasUnresolvableRequirements())
             return WorkshopRuleDecision.Undetermined(
@@ -232,7 +245,7 @@ public static class WorkshopRulebook
         if (rules.RequiredViolation() is { } requiredViolation)
             return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
 
-        var liquidRules = new LiquidRules(rules.Capability, maxLiquids);
+        var liquidRules = new LiquidRules(rules.Capability, scope == null ? maxLiquids : 0);
         var reshapeRules = new ReshapeRules(rules, liquidRules);
 
         if (jar.IsMarked)
@@ -251,10 +264,17 @@ public static class WorkshopRulebook
                     return WorkshopRuleDecision.Reject("workshop.shape-not-base-marked", "形状" + jar.Shape + "非本工作台基础标记");
                 if (rules.SuppressionReason("POUR_IN", jar.Shape, liquid) is { } suppressed)
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
+
                 var payment = liquidRules.CanPay(liquid, 1, Count(liquids, liquid));
-                return payment.Granted
-                    ? WorkshopRuleDecision.Allow()
-                    : WorkshopRuleDecision.Reject("liquid.unavailable", payment.Reason ?? "液体不可用");
+                if (!payment.Granted)
+                    return WorkshopRuleDecision.Reject("liquid.unavailable", payment.Reason ?? "液体不可用");
+                if (scope != null)
+                {
+                    var scopePayment = scope.CanConsume(liquid, 1);
+                    if (!scopePayment.Granted)
+                        return WorkshopRuleDecision.Reject("resource.scope-insufficient", scopePayment.Reason ?? "订单液体子账不足");
+                }
+                return WorkshopRuleDecision.Allow();
             }
 
             case WorkshopOperationKind.PourOut:
@@ -264,9 +284,18 @@ public static class WorkshopRulebook
                     return WorkshopRuleDecision.Reject("jar.empty", "罐子为空");
                 if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) is { } suppressed)
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
+
                 var usable = liquidRules.Check(liquid);
                 if (!usable.Granted)
                     return WorkshopRuleDecision.Reject("liquid.banned", usable.Reason ?? "液体不可取用");
+                if (scope != null)
+                {
+                    var receive = scope.CanReceiveOperation(liquid, 1);
+                    return receive.Granted
+                        ? WorkshopRuleDecision.Allow()
+                        : WorkshopRuleDecision.Reject("resource.scope-capacity", receive.Reason ?? "订单暂存空间不可接收");
+                }
+
                 var storage = liquidRules.CanStore(liquid, 1, Count(liquids, liquid));
                 return storage.Granted
                     ? WorkshopRuleDecision.Allow()
@@ -285,10 +314,17 @@ public static class WorkshopRulebook
                     return WorkshopRuleDecision.Reject("shape.transform-not-allowed", "无法从" + jar.Shape + "转化为" + target);
                 if (rules.SuppressionReason("RESHAPE", jar.Shape, cost) is { } suppressed)
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
+
                 var payment = reshapeRules.PayCost(cost, liquids);
-                return payment.Granted
-                    ? WorkshopRuleDecision.Allow()
-                    : WorkshopRuleDecision.Reject("liquid.reshape-cost-unavailable", payment.Reason ?? "改形成本不足");
+                if (!payment.Granted)
+                    return WorkshopRuleDecision.Reject("liquid.reshape-cost-unavailable", payment.Reason ?? "改形成本不足");
+                if (scope != null)
+                {
+                    var scopePayment = scope.CanConsume(cost, 1);
+                    if (!scopePayment.Granted)
+                        return WorkshopRuleDecision.Reject("resource.scope-insufficient", scopePayment.Reason ?? "订单液体子账不足");
+                }
+                return WorkshopRuleDecision.Allow();
             }
 
             case WorkshopOperationKind.ReshapeFull:
@@ -303,6 +339,7 @@ public static class WorkshopRulebook
                     return WorkshopRuleDecision.Reject("shape.transform-not-allowed", "无法从" + jar.Shape + "转化为" + target);
                 if (rules.SuppressionReason("RESHAPE", jar.Shape, liquid) is { } suppressed)
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
+
                 var selfConsume = reshapeRules.SelfConsume(liquid);
                 return selfConsume.Granted
                     ? WorkshopRuleDecision.Allow()
@@ -314,7 +351,7 @@ public static class WorkshopRulebook
         }
     }
 
-        /// <summary>
+    /// <summary>
     /// 规则算子的纯值转换结果。它描述 Jar 终态与资源效果，不直接修改 Workshop、Jar 或资源账户。
     /// RuleId/Version 是稳定领域身份，不使用 CLR 类型名作为规则身份。
     /// </summary>
