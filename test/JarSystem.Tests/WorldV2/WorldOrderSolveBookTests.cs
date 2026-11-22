@@ -144,6 +144,8 @@ public sealed class WorldOrderSolveBookTests
         var ruleChanged = WorldSnapshotFactory.Capture(roster);
         Assert.NotEqual(profileChanged.RuleSetVersion, ruleChanged.RuleSetVersion);
         Assert.Null(book.GetSymbolicSolutions(demand.Id, ruleChanged));
+        Assert.Null(book.GetCurrentResult(demand.Id, ruleChanged));
+        Assert.Equal(WorldOrderSolveState.Dirty, book.Find(demand.Id)!.State);
 
         book.Evaluate(demand.Id, ruleChanged, Registry());
         var ruleRebuilt = book.GetSymbolicSolutions(demand.Id, ruleChanged);
