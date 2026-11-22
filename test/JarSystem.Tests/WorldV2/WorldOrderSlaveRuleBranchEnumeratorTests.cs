@@ -145,10 +145,16 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
             profile, "Master", 2, masterBannedLiquids: new[] { "X" });
 
         Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
-        Assert.Equal(2, result.ExploredBranches);
-        var group = Assert.Single(result.Alternatives!.Groups);
-        Assert.Empty(group.RequiredFreeLiquid);
-        Assert.Single(group.RequiredJarStates);
+        // 9h also considers an independent source Jar of the same catalogued state.
+        // That is a distinct branch from preparing the requirement Jar in place.
+        Assert.Equal(3, result.ExploredBranches);
+        Assert.Equal(2, result.Alternatives!.Groups.Count);
+        var sameJarGroup = Assert.Single(result.Alternatives.Groups.Where(
+            group => group.RequiredJarStates.Values.Sum() == 1));
+        Assert.Empty(sameJarGroup.RequiredFreeLiquid);
+        Assert.Single(sameJarGroup.RequiredJarStates);
+        Assert.Contains(result.Alternatives.Groups, group =>
+            group.RequiredJarStates.Values.Sum() == 2);
     }
 
     [Fact]
