@@ -1,48 +1,32 @@
-# World v2 phase 4.10b-9g — Slave preparatory branch enumeration
+# World v2 phase 4.10b-9g — Independent preparation Jar enumeration
+
+## Corrected domain contract
+
+A Jar's operation mark is an order-lifecycle lock: one Jar may participate in at most one rule operation during one order implementation. A successful rule operation marks the Jar. Revision changes do not clear the mark, and the Master-to-Slave handoff preserves it.
+
+Therefore a preparation Jar and a final requirement Jar must be different identities. The old 9g same-Jar preparation branch was invalid and is removed.
 
 ## Scope
 
-9g extends 9f's direct Slave candidate Cartesian product with catalogued
-`PREPARE_POUR_OUT` alternatives. For each selected direct requirement candidate,
-the enumerator emits the no-preparation branch and each compatible preparation
-branch. A preparation is compatible only when it empties a Jar of the same shape
-that the direct requirement candidate then consumes.
+9g enumerates direct Slave requirement candidates and optional independent PREPARE_POUR_OUT resource Jars. A selected preparation Jar:
+- has its own abstract Jar identity, distinct from every requirement Jar;
+- executes exactly one PourOut operation;
+- produces free liquid into Slave staging;
+- may fund later requirement operations on other Jars;
+- is handed over with the initial Jar inventory before the one Slave-side operation.
 
-The preparation is assigned to the exact abstract Jar key
-`requirement-{index}` and is built by the existing
-`WorldOrderPreparatoryProgramBuilder`. It therefore inherits the established
-ordering contract:
+No preparation output is reused as a second operation on the same Jar. Free-liquid production may still be consumed by other Jars in operation order, subject to staging capacity and rejection.
 
-- Slave preparation occurs strictly after the unique Master-to-Slave handoff.
-- The Jar identity is preserved while its revision advances.
-- The handoff carries the Jar's pre-preparation state; the Slave does not create
-  an initial Jar or borrow a Master-side account.
-- Preparation output enters the Slave's staging account before later operations.
-- Rejected or capacity-overflowed output is discarded by the ordered boundary replay.
-- Master staging bans are evaluated only if a free-liquid boundary from Master is
-  actually required. They do not ban Jar internal liquid or locally produced Slave
-  liquid.
-
-Every preparation choice is a distinct OR alternative containing one AND resource
-group. Branch and node budgets remain conservative: any truncated enumeration is
-`Undetermined`, including when partial groups are available.
+Every preparation choice is a distinct OR alternative containing one AND resource group. Branch and node budgets remain conservative: truncated enumeration is Undetermined.
 
 ## Explicit limits
 
-This is deliberately not a general recursive solver. It supports at most one
-catalogued PourOut preparation per selected requirement Jar immediately before its
-direct rule candidate. It does not yet enumerate arbitrary standalone Jar identities,
-multiple preparation steps on one Jar, multi-Jar production chains, or recursive
-intermediate Jar-state transformations. It also does not bind abstract Jar keys to
-physical inventory or reserve resources.
+This is not a recursive solver. It enumerates one-operation independent resource-producing Jars. It does not support repeated operations on one Jar, arbitrary intermediate Jar-state chains, physical inventory identity binding, or resource reservations.
 
-## Verification coverage
+## Verification
 
-The 9g tests add coverage that:
-- a same-Jar Slave PourOut branch can produce and consume its liquid locally, avoiding
-  a banned Master free-liquid boundary;
-- the direct and prepared variants are separate branches;
-- preparation branch budget exhaustion is reported as Undetermined.
-
-The existing 9f coverage continues to exercise OR-of-AND grouping, Master ban scope,
-local production, opaque profiles, and direct branch budget handling.
+Coverage asserts that:
+- the preparation Jar and requirement Jar are distinct boundary JarState inputs;
+- an independent Slave preparation Jar can satisfy a later requirement Jar's liquid demand without requiring banned Master staging liquid;
+- no same-Jar preparation alternative is generated;
+- preparation branch budget exhaustion is Undetermined.
