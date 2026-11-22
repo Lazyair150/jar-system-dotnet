@@ -22,6 +22,27 @@ public sealed class WorldOrderSymbolicOperationProgramTests
             null, consumedFree, producedFree, null);
 
     [Fact]
+    public void RuleNodeRequiresVersionedCandidateIdentity()
+    {
+        var input = new WorldOrderSymbolicJarVersion("jar", 0, "Master", "圆罐", null);
+        var output = new WorldOrderSymbolicJarVersion("jar", 1, "Master", "方罐", null, isMarked: true);
+        var missingId = Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null) with
+        {
+            RuleId = "",
+            RuleVersion = 1
+        };
+        var missingVersion = Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null) with
+        {
+            RuleVersion = 0
+        };
+
+        Assert.Throws<System.ArgumentException>(() =>
+            WorldOrderSymbolicOperationNode.Rule("missing-id", 0, "Master", 0, missingId, input, output));
+        Assert.Throws<System.ArgumentException>(() =>
+            WorldOrderSymbolicOperationNode.Rule("missing-version", 0, "Master", 0, missingVersion, input, output));
+    }
+
+    [Fact]
     public void BClassProgramUsesDistinctJarsForMasterAndSlaveOperations()
     {
         var masterInput = new WorldOrderSymbolicJarVersion("jar-master-resource", 0, "Master", "圆罐", "酒");
