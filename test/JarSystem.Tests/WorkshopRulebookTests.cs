@@ -36,6 +36,22 @@ public class WorkshopRulebookTests
         Assert.Equal(2, match.RuleVersion);
     }
 
+
+    [Fact]
+    public void MatchCannotOperateOnAJarContainingAWorkshopBannedLiquid()
+    {
+        var capability = new WorkshopCapability(
+            new[] { "圆罐", "方罐" }, new string[0], new[] { "酒" });
+        var rules = RuleContext.From(capability);
+        var facts = new JarFacts("圆罐", "酒", false);
+
+        var decision = WorkshopRulebook.EvaluateMatch(rules, facts);
+
+        Assert.False(decision.IsAllowed);
+        Assert.Equal("liquid.banned", decision.Code);
+        Assert.Contains("禁酒", decision.Reason);
+    }
+
     private sealed class Cfg
     {
         public string Name = "";
