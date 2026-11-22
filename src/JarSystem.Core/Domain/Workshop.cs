@@ -269,7 +269,7 @@ public class Workshop
         return true;
     }
 
-    /// <summary>容量感知地接收液体：返回实际接收量（容量已满则部分接收，装不下的由调用方丢弃并计数）。</summary>
+    /// <summary>按禁令与容量接收游离液体：禁液全量拒收；允许的液体按剩余容量部分接收。</summary>
     public int TryReceiveLiquid(string l, int amount)
     {
         // 禁液整体拒收；未被禁的液体仍按容量部分接收，溢出由调用方丢弃并计数。
