@@ -141,7 +141,7 @@ public static class WorldOrderRuleCandidateCatalog
             return new WorldOrderRuleCandidateProfile(
                 workshop.Name, role, world.RuleSetVersion, world.WorkshopProfileVersion,
                 specificationVersion, Array.Empty<WorldOrderRequirementCandidates>(),
-                isUndetermined: true, reason: "工作台包含无法静态重建的规则");
+                isUndetermined: true, reason: "工作台包含无法静态重建的规则（无法静态投影）");
 
         var rules = workshop.CreateRuleContext();
         var sourceShapes = new SortedSet<string>(Constants.SHAPES, StringComparer.Ordinal);
