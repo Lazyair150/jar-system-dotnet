@@ -17,16 +17,26 @@ namespace JarSystem.Core.Domain;
 public readonly struct ReshapeRules
 {
     private readonly WorkshopCapability? _capability;
+    private readonly RuleContext? _context;
     private readonly LiquidRules _liquid;
 
     public ReshapeRules(WorkshopCapability? capability, LiquidRules liquid)
     {
         _capability = capability;
+        _context = null;
         _liquid = liquid;
     }
 
-    /// <summary>方向：从 <paramref name="from"/> 能否改成 <paramref name="to"/>（唯一来源是 ShapeRules）。</summary>
-    public bool CanTransform(string from, string to) => _capability?.CanTransform(from, to) ?? false;
+    public ReshapeRules(RuleContext context, LiquidRules liquid)
+    {
+        _context = context ?? throw new System.ArgumentNullException(nameof(context));
+        _capability = context.Capability;
+        _liquid = liquid;
+    }
+
+    /// <summary>方向：从 <paramref name="from"/> 能否改成 <paramref name="to"/>（基础形状规则 + 当前 Grant 修饰）。</summary>
+    public bool CanTransform(string from, string to) =>
+        _context?.CanTransform(from, to) ?? (_capability?.CanTransform(from, to) ?? false);
 
     /// <summary>
     /// 空罐改形的成本。
