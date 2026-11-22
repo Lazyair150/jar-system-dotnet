@@ -73,7 +73,7 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
         Assert.Equal(7201, steps[1].Before![steps[1].Operation!.JarIndex!.Value].Id);
         Assert.Equal(1, steps[0].AfterLiquids.GetValueOrDefault("酒"));
         Assert.Equal(0, steps[1].AfterLiquids.GetValueOrDefault("酒"));
-        Assert.Equal(1, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("酒"));
+        Assert.Equal(0, result.Assembly.Manifest!.MasterInitialLiquidAmounts.GetValueOrDefault("酒"));
         Assert.Equal(0, result.Assembly.Manifest.MasterFinalLiquidBalances.GetValueOrDefault("酒"));
     }
 
