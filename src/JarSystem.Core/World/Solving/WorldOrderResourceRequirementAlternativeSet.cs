@@ -178,6 +178,7 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
     public string SpecificationVersion { get; }
     public string ProviderRole { get; }
     public string ConsumerRole { get; }
+    public IReadOnlyCollection<string> ProviderBannedLiquids { get; }
     public IReadOnlyList<WorldOrderResourceRequirementGroup> Groups { get; }
     public string? Reason { get; }
 
@@ -192,7 +193,8 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
         string providerRole,
         string consumerRole,
         IEnumerable<WorldOrderResourceRequirementGroup> groups,
-        string? reason = null)
+        string? reason = null,
+        IEnumerable<string>? providerBannedLiquids = null)
     {
         if (!Enum.IsDefined(status)) throw new ArgumentOutOfRangeException(nameof(status));
         if (string.IsNullOrWhiteSpace(ruleSetVersion))
@@ -209,6 +211,14 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
             throw new ArgumentException("边界提供岗位与使用岗位必须不同");
         if (groups == null) throw new ArgumentNullException(nameof(groups));
 
+        var banned = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var liquid in providerBannedLiquids ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(liquid))
+                throw new ArgumentException("主台禁传液体名称不能为空", nameof(providerBannedLiquids));
+            banned.Add(liquid);
+        }
+
         var copied = groups.ToArray();
         if (copied.Any(x => x == null))
             throw new ArgumentException("资源组集合不能包含 null", nameof(groups));
@@ -216,6 +226,10 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
             throw new ArgumentException("资源组身份不能重复", nameof(groups));
         if (copied.Any(x => x.ProviderRole != providerRole || x.ConsumerRole != consumerRole))
             throw new ArgumentException("资源组必须匹配集合声明的提供/使用岗位", nameof(groups));
+        if (copied.SelectMany(x => x.Requirements).Any(x =>
+            (x.Kind == WorldOrderBoundaryResourceKind.FreeLiquid && banned.Contains(x.Liquid!)) ||
+            (x.Kind == WorldOrderBoundaryResourceKind.JarState && x.JarLiquid != null && banned.Contains(x.JarLiquid))))
+            throw new ArgumentException("主台 ban 的液体不能出现在任何可交接资源组中", nameof(groups));
         if (status == WorldOrderResourceRequirementSetStatus.Complete && copied.Length == 0)
             throw new ArgumentException("完整的可行替代集合至少包含一个资源组；无解应使用 Infeasible", nameof(groups));
         if (status == WorldOrderResourceRequirementSetStatus.Infeasible && copied.Length != 0)
@@ -227,6 +241,7 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
         SpecificationVersion = specificationVersion;
         ProviderRole = providerRole;
         ConsumerRole = consumerRole;
+        ProviderBannedLiquids = Array.AsReadOnly(banned.ToArray());
         Groups = Array.AsReadOnly(copied);
         Reason = reason;
     }
