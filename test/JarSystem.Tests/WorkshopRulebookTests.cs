@@ -24,13 +24,16 @@ public class WorkshopRulebookTests
 {
 
     [Fact]
-    public void FullReshapeRuleVersionTracksTheJarInternalBanScopeCorrection()
+    public void RuleVersionsTrackTheJarOperationBanContract()
     {
         var full = WorkshopRulebook.Definitions.Single(x => x.Operator == "RESHAPE_FULL");
+        var match = WorkshopRulebook.Definitions.Single(x => x.Operator == "MATCH");
 
         Assert.Equal(2, WorkshopRulebook.RuleContractVersion);
         Assert.Equal("jar.workshop.reshape-full", full.RuleId);
-        Assert.Equal(2, full.RuleVersion);
+        Assert.Equal(1, full.RuleVersion);
+        Assert.Equal("jar.workshop.match", match.RuleId);
+        Assert.Equal(2, match.RuleVersion);
     }
 
     private sealed class Cfg
