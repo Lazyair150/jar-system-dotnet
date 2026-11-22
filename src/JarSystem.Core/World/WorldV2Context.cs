@@ -40,7 +40,7 @@ public sealed class WorldV2Context : IDisposable
     /// <summary>
     /// 可跨资源库存变化复用的规则候选缓存。它是派生数据，不进入执行检查点；Restore 后可重建。
     /// </summary>
-    public WorldOrderRuleCandidateBook RuleCandidates { get; } = new();
+    public WorldOrderRuleCandidateBook RuleCandidates => SolveBook.RuleCandidates;
     public WorldResourceReservationBook Reservations { get; }
     public WorldOrderExecutionAdmission Admission { get; }
     public ResourceWorldRuntime Runtime { get; }
@@ -286,7 +286,6 @@ public sealed class WorldV2Context : IDisposable
     {
         if (_disposed) return;
         SolveBook.Dispose();
-        RuleCandidates.Clear();
         _disposed = true;
     }
 }
