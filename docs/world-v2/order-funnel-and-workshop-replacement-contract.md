@@ -138,11 +138,13 @@ The current implementation has these layers, but does not yet expose one unified
 
 ## 7. Next implementation slice
 
-1. Add a deterministic, read-only funnel trace to the solve result: stage, requirement identity, candidate Jar IDs, rejected constraints, backtracks, and final placement.
-2. Preserve solver purity: trace collection cannot mutate snapshots, reserve resources, or alter search order.
-3. Add adversarial tests where a locally valid Slave choice blocks Master, requiring backtracking.
-4. Add tests proving Master liquid is sufficient only after its own path and exact Slave transfer are both accounted for.
-5. Add replacement tests that distinguish target prefill, Jar-contained liquid, transformed Jars, returned old prefill, and discarded overflow.
-6. Expose a compact diagnostic projection to Space for balance analysis, without making Space a second solver.
+The next work is ordered by semantic dependency. A trace is useful, but it must explain one authoritative rule engine rather than make the current duplicated rules more observable.
+
+1. Complete the shared rule decision/transition contract: stable rule identity/version, applicability, preconditions, pure Jar transition, source-aware resource effects, and explicit rejection/unknown semantics.
+2. Route Workshop's real execution facade through the same rule transition contract already used by StateSpaceSolver. Keep resource-account mutation in the owning transaction boundary.
+3. Separate symbolic solution profiles from concrete resource binding/readiness. A stock change should re-evaluate binding/readiness, not repeat the symbolic rule search.
+4. Generalize the funnel search kernel without folding A/B allocation policy into rule definitions. Preserve exact B-class partition/backtracking and one-way Master-to-Slave transfer semantics.
+5. Add deterministic, read-only funnel trace and adversarial tests for backtracking, capacity, resource-source proof, and complete-vs-undetermined outcomes.
+6. Connect Master replacement as a forward resource-transformation problem using the same rule contract, then expose a compact diagnostic projection to Space.
 
 No production balance values are implied by this contract.
