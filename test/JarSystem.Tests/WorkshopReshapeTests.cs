@@ -13,8 +13,7 @@ namespace JarSystem.Tests;
 /// <see cref="Workshop.ReshapeTargets"/>）。
 ///
 /// 为什么要它：这个问题的答案原先散在三处 —— 方向（<see cref="WorkshopCapability.CanTransform"/>）、
-/// 空罐改形的成本（<c>TryReshape(..., ReshapeMode.Empty)</c> 的 TryPayReshapeCost）、满罐自耗（<c>ReshapeMode.Full</c>
-/// 先清空再问禁令，读法 B：自耗也算"使用"）。规则表、求解器、页面各自拼一遍，中文文案也各写一份。
+/// 空罐改形的成本（<c>TryReshape(..., ReshapeMode.Empty)</c> 的 TryPayReshapeCost）、满罐自耗（<c>ReshapeMode.Full</c>）分别属于游离液体和 Jar 内部资源；后者不经过 staging ban。规则表、求解器、页面各自拼一遍，中文文案也各写一份。
 ///
 /// 本组测试的做法是**拿执行器当 oracle**（与 `SolverExecutorParityTests` 同一纪律）：
 /// 对每一种（工作台 × 罐子状态 × 目标形状），`CanReshapeTo` 的回答必须与"真的去执行"逐例一致。
