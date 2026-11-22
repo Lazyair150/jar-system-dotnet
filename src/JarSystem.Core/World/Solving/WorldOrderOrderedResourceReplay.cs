@@ -24,6 +24,7 @@ public sealed class WorldOrderOrderedResourceReplayResult
     public IReadOnlyDictionary<string, int> MasterFinalLiquids { get; }
     public IReadOnlyDictionary<string, int> TransferLiquids { get; }
     public int MasterStagingPeakCapacity { get; }
+    public int SlaveStagingPeakCapacity { get; }
     public WorldOrderResourceRequirementGroup? SlaveBoundaryGroup { get; }
     public string? Reason { get; }
     public bool IsComplete => Status == WorldOrderOrderedResourceReplayStatus.Complete;
@@ -34,6 +35,7 @@ public sealed class WorldOrderOrderedResourceReplayResult
         IReadOnlyDictionary<string, int>? masterFinal,
         IReadOnlyDictionary<string, int>? transfer,
         int peak,
+        int slavePeak,
         WorldOrderResourceRequirementGroup? slaveBoundary,
         string? reason)
     {
@@ -42,6 +44,7 @@ public sealed class WorldOrderOrderedResourceReplayResult
         MasterFinalLiquids = Freeze(masterFinal);
         TransferLiquids = Freeze(transfer);
         MasterStagingPeakCapacity = peak;
+        SlaveStagingPeakCapacity = slavePeak;
         SlaveBoundaryGroup = slaveBoundary;
         Reason = reason;
     }
@@ -84,6 +87,7 @@ public static class WorldOrderOrderedResourceReplay
             throw new ArgumentException("从台拒收液体名称不能为空", nameof(slaveRejectedLiquids));
 
         WorldOrderResourceRequirementGroup? boundary = null;
+        var slavePeak = 0;
         IReadOnlyDictionary<string, int> transfer = new Dictionary<string, int>(StringComparer.Ordinal);
         if (program.IsBClass)
         {
@@ -100,6 +104,7 @@ public static class WorldOrderOrderedResourceReplay
                 return Failure(WorldOrderOrderedResourceReplayStatus.Infeasible,
                     projection.Reason ?? "从台边界资源无法投影");
             boundary = projection.Group;
+            slavePeak = projection.SlaveStagingPeakCapacity;
             transfer = boundary.RequiredFreeLiquid;
         }
 
@@ -188,6 +193,7 @@ public static class WorldOrderOrderedResourceReplay
                 balances,
                 transfer,
                 peak,
+                slavePeak,
                 boundary,
                 null);
         }
@@ -197,7 +203,7 @@ public static class WorldOrderOrderedResourceReplay
 
         WorldOrderOrderedResourceReplayResult Failure(
             WorldOrderOrderedResourceReplayStatus status, string reason) =>
-            new(status, null, null, null, 0, null, reason);
+            new(status, null, null, null, 0, 0, null, reason);
     }
 
     private static int Total(IReadOnlyDictionary<string, int> balances)
