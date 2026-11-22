@@ -128,6 +128,17 @@ public sealed class WorldV2ApplicationService
         _host.RestoreExecutionResourceCheckpoint(options, checkpoint);
     }
 
+    /// <summary>
+    /// 从独立 JSON 文档恢复世界。解码与 DTO 校验先于 Host 发布操作；
+    /// Host 仅在新 Context 完整恢复后原子替换当前实例。
+    /// </summary>
+    public void RestoreExecutionResourceCheckpointJson(WorldV2Options options, string json)
+    {
+        if (options == null) throw new ArgumentNullException(nameof(options));
+        var checkpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(json);
+        _host.RestoreExecutionResourceCheckpoint(options, checkpoint);
+    }
+
     /// <summary>添加罐子订单。输入仅包含玩法数据，不接受外部构造的领域对象。</summary>
     public int AddJarDemand(WorldV2AddJarDemandRequest request)
     {
