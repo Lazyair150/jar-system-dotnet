@@ -158,6 +158,15 @@ public class Workshop
     /// </summary>
     public void ReplaceCapability(WorkshopCapability capability)
     {
+        ArgumentNullException.ThrowIfNull(capability);
+        var newlyBannedStored = _liquidStorage
+            .Where(item => item.Value > 0 && capability.IsBanned(item.Key))
+            .Select(item => item.Key)
+            .ToArray();
+        if (newlyBannedStored.Length > 0)
+            throw new DomainValidationException(
+                "不能对仍存有游离液体的工作台施加对应禁令：" + string.Join("、", newlyBannedStored));
+
         _capability = capability;
         // 换的是**能力参数**，修饰器栈照旧（栈属世界，不属这一次替换）
         _rules = new RuleContext(capability, _rules.Stack);
