@@ -59,15 +59,15 @@ public sealed class WorldOrderPhysicalJarBinderTests
     public void BindsSymbolicJarToExactUnmarkedPhysicalState()
     {
         var snapshot = Snapshot(
-            new Jar("圆罐", "酒"),
-            new Jar("方罐", "蜜"),
-            new Jar("圆罐", "酒"));
+            new Jar("圆罐", "酒", id: 101),
+            new Jar("方罐", "蜜", id: 102),
+            new Jar("圆罐", "酒", id: 103));
         var program = SingleRuleProgram(shape: "圆罐", liquid: "酒");
 
         var result = WorldOrderPhysicalJarBinder.Bind(program, snapshot);
 
         Assert.Equal(WorldOrderPhysicalJarBindingStatus.Complete, result.Status);
-        Assert.Equal(1, Assert.Single(result.JarIds).Value);
+        Assert.Equal(101, Assert.Single(result.JarIds).Value);
     }
 
     [Fact]
@@ -89,9 +89,9 @@ public sealed class WorldOrderPhysicalJarBinderTests
             System.Array.Empty<WorldOrderSymbolicOperationDependency>());
 
         var enough = WorldOrderPhysicalJarBinder.Bind(
-            program, Snapshot(new Jar("圆罐"), new Jar("圆罐")));
+            program, Snapshot(new Jar("圆罐", id: 201), new Jar("圆罐", id: 202)));
         var insufficient = WorldOrderPhysicalJarBinder.Bind(
-            program, Snapshot(new Jar("圆罐")));
+            program, Snapshot(new Jar("圆罐", id: 201)));
 
         Assert.Equal(WorldOrderPhysicalJarBindingStatus.Complete, enough.Status);
         Assert.Equal(2, enough.JarIds.Values.Distinct().Count());
@@ -102,7 +102,7 @@ public sealed class WorldOrderPhysicalJarBinderTests
     [Fact]
     public void MarkedPhysicalJarCannotBeBoundForAnotherOperation()
     {
-        var jar = new Jar("圆罐") { IsMarked = true };
+        var jar = new Jar("圆罐", id: 301);\n        jar.Mark();
         var result = WorldOrderPhysicalJarBinder.Bind(
             SingleRuleProgram(), Snapshot(jar));
 
@@ -113,10 +113,10 @@ public sealed class WorldOrderPhysicalJarBinderTests
     public void SlaveJarIsBoundToMasterOriginBeforeHandoffAndKeepsSameIdentity()
     {
         var result = WorldOrderPhysicalJarBinder.Bind(
-            SlaveProgram(), Snapshot(new Jar("圆罐", "酒")));
+            SlaveProgram(), Snapshot(new Jar("圆罐", "酒", id: 401)));
 
         Assert.Equal(WorldOrderPhysicalJarBindingStatus.Complete, result.Status);
-        Assert.Equal(1, Assert.Single(result.JarIds).Value);
+        Assert.Equal(401, Assert.Single(result.JarIds).Value);
         Assert.Equal("requirement-0", result.JarIds.Keys.Single());
     }
 
