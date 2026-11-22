@@ -323,6 +323,29 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void MatchSuppressionIsSharedByWorkshopExecutionAndSolver()
+    {
+        var stack = new ModifierStack();
+        stack.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "禁止直接匹配"
+        });
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
+        var jar = new Jar("圆罐");
+        master.AddJar(jar);
+
+        var direct = master.MarkJar(jar);
+        Assert.False(direct.Success);
+        Assert.Equal("禁止直接匹配", direct.Reason);
+        Assert.False(jar.IsMarked);
+
+        var result = Registry().Solve(Demand(), Snapshot(master));
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
+    }
+
+    [Fact]
     public void OperationSpecificSuppressionDoesNotDeleteJarOrBlockMatch()
     {
         var stack = new ModifierStack();
