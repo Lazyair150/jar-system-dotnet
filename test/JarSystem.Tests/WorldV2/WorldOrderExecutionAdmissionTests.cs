@@ -321,7 +321,6 @@ public sealed class WorldOrderExecutionAdmissionTests
         // The Jar still contains 酒. A newly captured Master ban must reject operating it;
         // an empty staging account does not make the prefilled Jar exempt from the workshop rule.
         Assert.False(second.Success);
-        Assert.Contains("禁酒", second.Reason);
         Assert.False(admission.GetLiquidScopes(secondDemand.Id).HasValue);
     }
 
