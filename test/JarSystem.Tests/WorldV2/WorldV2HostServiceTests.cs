@@ -229,11 +229,16 @@ public sealed class WorldV2HostServiceTests
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
         Assert.Equal(1, afterPump.ShipLiquidInventory.Balances["酒"]);
 
+        // 真正跨 Host 边界：导出 JSON 后销毁旧 Host，再由全新 Host 从 JSON 重建。
         host.ExecuteExclusive(context => previous = context);
-        application.RestoreExecutionResourceCheckpoint(options, afterPump);
+        host.Dispose();
         Assert.True(previous!.IsDisposed);
 
-        host.ExecuteExclusive(context =>
+        using var rebuiltHost = new WorldV2HostService();
+        var rebuiltApplication = new WorldV2ApplicationService(rebuiltHost);
+        rebuiltApplication.RestoreExecutionResourceCheckpointJson(options, afterPumpJson);
+
+        rebuiltHost.ExecuteExclusive(context =>
         {
             var session = Assert.Single(context.Runtime.ActiveExecutionSessions);
             Assert.Equal(WorldOrderExecutionStage.SlaveSteps, session.Stage);
@@ -248,12 +253,12 @@ public sealed class WorldV2HostServiceTests
         for (var i = 0; i < 12; i++)
         {
             var active = false;
-            host.ExecuteExclusive(context => active = context.Runtime.ActiveExecutionSessions.Count != 0);
+            rebuiltHost.ExecuteExclusive(context => active = context.Runtime.ActiveExecutionSessions.Count != 0);
             if (!active) break;
-            application.AdvanceWorld(1_000);
+            rebuiltApplication.AdvanceWorld(1_000);
         }
 
-        host.ExecuteExclusive(context =>
+        rebuiltHost.ExecuteExclusive(context =>
         {
             Assert.Empty(context.Runtime.ActiveExecutionSessions);
             Assert.Null(context.Reservations.FindLease(demandId));
