@@ -237,8 +237,11 @@ public sealed class PartitionSearch
             Record("master-feasible", mask, masterSignature, slaveSignature);
 
             // 契约检查：主台终态必须能拿到（FinalJars 或路径末步快照），否则从台池无从构造
-            bool hasFinalState = mr.FinalJars != null
-                || (masterPath.Count > 0 && masterPath[^1].After != null);
+            bool hasFinalState =
+                (mr.FinalJars != null && mr.FinalLiquids != null) ||
+                (masterPath.Count > 0 &&
+                 masterPath[^1].After != null &&
+                 masterPath[^1].AfterLiquids != null);
             if (!hasFinalState)
             {
                 diagnosticInconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
@@ -249,20 +252,18 @@ public sealed class PartitionSearch
                 return null;
             }
 
-            List<JarState> masterFinal = masterJars;
-            Dictionary<string, int> masterFinalLiq = masterLiquids;
-            // 主台**终态**优先取求解器的契约字段 FinalJars/FinalLiquids（见 SolverResult.FinalJars 的说明）；
-            // 其次兼容"只填了路径快照"的实现。两者都缺时才会退回主台**原始**状态 ——
-            // 那是一个会静默算错的退化路径（差分测试实测过），因此把它记进 ISolver 的契约要求。
-            if (mr.FinalJars != null)
+            List<JarState> masterFinal;
+            Dictionary<string, int> masterFinalLiq;
+            // 两类终态必须成对来自同一证明：不能把求解后的 Jar 与求解前的液体余额拼接。
+            if (mr.FinalJars != null && mr.FinalLiquids != null)
             {
                 masterFinal = mr.FinalJars;
-                masterFinalLiq = mr.FinalLiquids ?? masterLiquids;
+                masterFinalLiq = mr.FinalLiquids;
             }
-            else if (masterPath.Count > 0 && masterPath[^1].After != null)
+            else
             {
                 masterFinal = masterPath[^1].After!;
-                masterFinalLiq = masterPath[^1].AfterLiquids ?? masterLiquids;
+                masterFinalLiq = masterPath[^1].AfterLiquids!;
             }
 
             // 主台交付罐：主台子集需求在终态中匹配的罐子，转移后必须原样交付，
