@@ -20,6 +20,7 @@ public sealed class WorldOrderSlaveBoundaryProjectionResult
     public WorldOrderResourceRequirementGroup? Group { get; }
     public string? Reason { get; }
     public int ReplayCount { get; }
+    public int SlaveStagingPeakCapacity { get; }
 
     public bool IsProjected => Status == WorldOrderSlaveBoundaryProjectionStatus.Projected;
 
@@ -27,12 +28,14 @@ public sealed class WorldOrderSlaveBoundaryProjectionResult
         WorldOrderSlaveBoundaryProjectionStatus status,
         WorldOrderResourceRequirementGroup? group,
         string? reason,
-        int replayCount)
+        int replayCount,
+        int slaveStagingPeakCapacity = 0)
     {
         Status = status;
         Group = group;
         Reason = reason;
         ReplayCount = replayCount;
+        SlaveStagingPeakCapacity = slaveStagingPeakCapacity;
     }
 }
 
@@ -98,6 +101,7 @@ public static class WorldOrderSlaveBoundaryProjector
                 return Infeasible("从台所需的一次性交接游离液体总量超过从台暂存容量", replayCount);
 
             var balances = new SortedDictionary<string, int>(initial, StringComparer.Ordinal);
+            var peakCapacity = Total(balances);
             var shortage = false;
 
             foreach (var node in slaveOperations)
@@ -136,7 +140,10 @@ public static class WorldOrderSlaveBoundaryProjector
                     continue;
 
                 if (Total(balances) < slaveStagingCapacity)
+                {
                     balances[produced] = checked(balances.GetValueOrDefault(produced) + 1);
+                    peakCapacity = Math.Max(peakCapacity, Total(balances));
+                }
                 // Rejected and overflowed output is discarded and cannot satisfy later steps.
             }
 
@@ -151,7 +158,7 @@ public static class WorldOrderSlaveBoundaryProjector
                 slaveOperations.Select(x => x.NodeId));
             return new WorldOrderSlaveBoundaryProjectionResult(
                 WorldOrderSlaveBoundaryProjectionStatus.Projected,
-                group, null, replayCount);
+                group, null, replayCount, peakCapacity);
         }
 
         return Infeasible("边界资源迭代未能收敛；该分支不能被证明可行", replayCount);
