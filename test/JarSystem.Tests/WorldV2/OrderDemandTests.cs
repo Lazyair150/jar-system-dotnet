@@ -369,6 +369,7 @@ public sealed class OrderDemandTests
         Assert.Equal(DemandFulfillmentResult.RemovedFromArea,
             board.RecordSuccessfulFulfillment(demand.Id));
         Assert.Equal(1, demand.CycleSequence);
+        board.AppendSuccessfulCycleEvent(demand);
         var first = Assert.Single(board.Outbox.Pending);
         Assert.Equal(demand.Id, first.DemandId);
         Assert.Equal("ship.order.buff-shield", first.OrderDefinitionKey);
@@ -393,8 +394,10 @@ public sealed class OrderDemandTests
         board.AddDemand(demand, DemandAreaKind.Passive);
 
         board.RecordSuccessfulFulfillment(demand.Id);
+        board.AppendSuccessfulCycleEvent(demand);
         board.AdvanceLogicalTime(2_000);
         board.RecordSuccessfulFulfillment(demand.Id);
+        board.AppendSuccessfulCycleEvent(demand);
 
         var snapshot = board.CaptureRuntimeState(ids);
         var restored = OrderDemandBoard.RestoreRuntimeState(
