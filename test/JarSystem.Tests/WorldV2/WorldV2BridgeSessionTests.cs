@@ -168,6 +168,28 @@ public sealed class WorldV2BridgeSessionTests
 
 
     [Fact]
+    public void GodotBridgeRestoresVersionedJsonByAtomicHostReplacement()
+    {
+        using var session = new WorldV2BridgeSession();
+        var options = Options();
+        session.CreateOrReplaceWorld(options);
+        session.AdvanceWorld(1_000);
+
+        var json = session.CaptureExecutionCheckpointJson();
+        Assert.Contains("\\"schemaVersion\\": 1", json);
+
+        session.AdvanceWorld(2_000);
+        Assert.Equal(3_000, session.GetWorldSnapshot().WorldTimeMilli);
+
+        session.RestoreExecutionCheckpointJson(options, json);
+        var restored = session.GetWorldSnapshot();
+        Assert.Equal(1_000, restored.WorldTimeMilli);
+        Assert.Equal(1_000, restored.LogicalTimeMilli);
+        Assert.Equal("主台", restored.Master!.Name);
+        Assert.Equal("从台", restored.Slave!.Name);
+    }
+
+    [Fact]
     public void GodotBridgeRestoresExecutionCheckpointAfterWorldRecreation()
     {
         using var session = new WorldV2BridgeSession();
