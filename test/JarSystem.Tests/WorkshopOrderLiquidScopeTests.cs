@@ -237,6 +237,55 @@ public sealed class WorkshopOrderLiquidScopeTests
         Assert.False(workshop.PourIn(jar, "酒", scope).Success);
     }
 
+    [Fact]
+    public void MasterBanBlocksFullJarOperationButUnbannedSlaveCanOperateAfterJarTransfer()
+    {
+        var master = CreateWorkshop(ban: new[] { "酒" });
+        var slave = CreateWorkshop();
+        var jar = new Jar("圆罐", "酒");
+        Assert.True(master.AddJar(jar));
+
+        var blocked = master.TryReshape(jar, "尖罐", ReshapeMode.Full);
+        Assert.False(blocked.Success);
+        Assert.Equal("圆罐", jar.Shape);
+        Assert.Equal("酒", jar.Liquid);
+        Assert.False(jar.IsMarked);
+        Assert.False(master.CanReshapeTo(jar, "尖罐").Granted);
+
+        // Handoff changes ownership only. It is not a Jar operation and must not
+        // evaluate the source workshop's ban as though the Jar were being used.
+        Assert.Same(jar, master.TransferOut(jar));
+        Assert.True(slave.TransferIn(jar));
+        Assert.Same(jar, Assert.Single(slave.Jars));
+
+        var allowed = slave.TryReshape(jar, "尖罐", ReshapeMode.Full);
+        Assert.True(allowed.Success, allowed.Reason);
+        Assert.Equal("尖罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
+    }
+
+    [Fact]
+    public void JarTransferDoesNotApplyDestinationBanButDestinationCannotOperateBannedJar()
+    {
+        var master = CreateWorkshop();
+        var slave = CreateWorkshop(ban: new[] { "酒" });
+        var jar = new Jar("圆罐", "酒");
+        Assert.True(master.AddJar(jar));
+
+        Assert.Same(jar, master.TransferOut(jar));
+        Assert.True(slave.TransferIn(jar));
+        Assert.Same(jar, Assert.Single(slave.Jars));
+        Assert.Equal("酒", jar.Liquid);
+        Assert.False(jar.IsMarked);
+
+        var blocked = slave.TryReshape(jar, "尖罐", ReshapeMode.Full);
+        Assert.False(blocked.Success);
+        Assert.Equal("圆罐", jar.Shape);
+        Assert.Equal("酒", jar.Liquid);
+        Assert.False(jar.IsMarked);
+    }
+
     private static void AssertParity(
         Jar initialJar,
         WorkshopOperation operation,
