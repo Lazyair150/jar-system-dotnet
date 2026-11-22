@@ -228,14 +228,11 @@ public static class WorldOrderPreparatoryProgramBuilder
 
             if (role == slaveRole && handoff != null)
             {
-                var masterCanProduce = producers.Any(x =>
-                    x.WorkshopRole == masterRole &&
-                    x.Sequence < handoff.Sequence &&
-                    x.Candidate!.ProducedFreeLiquid == liquid);
-                var slaveHasPriorProduction = earlier.Length > 0;
-                if (masterCanProduce || !slaveHasPriorProduction)
-                    edges.Add(WorldOrderSymbolicOperationDependency.FreeLiquid(
-                        handoff.NodeId, consumer.NodeId, liquid));
+                // Handoff is the possible source for any deficit left after local
+                // production. The projector determines whether a positive amount is
+                // actually required; this edge records the legal source boundary.
+                edges.Add(WorldOrderSymbolicOperationDependency.FreeLiquid(
+                    handoff.NodeId, consumer.NodeId, liquid));
             }
         }
 
