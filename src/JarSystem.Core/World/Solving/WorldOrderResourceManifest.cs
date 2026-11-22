@@ -63,7 +63,7 @@ public sealed class WorldOrderResourceManifest
         if (masterIds.Any(x => x <= 0) || transferIds.Any(x => x <= 0) ||
             masterIds.Distinct().Count() != masterIds.Length ||
             transferIds.Distinct().Count() != transferIds.Length ||
-            transferIds.Any(x => !masterIds.Contains(x)))
+            masterIds.Intersect(transferIds).Any())
             throw new InvalidOperationException("Wire manifest jar ownership is invalid.");
         ValidateLiquidMap(masterInitialLiquids, "MasterInitialLiquidAmounts");
         ValidateLiquidMap(transferLiquids, "TransferLiquids");
