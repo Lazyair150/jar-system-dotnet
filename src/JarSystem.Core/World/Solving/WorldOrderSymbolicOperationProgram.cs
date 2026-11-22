@@ -290,6 +290,12 @@ public sealed class WorldOrderSymbolicOperationProgram
                     throw new ArgumentException(
                         "游离液体不能跨岗位直接流动；主从之间必须经过唯一交接节点",
                         nameof(dependencies));
+                if (from.Kind == WorldOrderSymbolicOperationKind.Rule &&
+                    from.Candidate?.ProducedFreeLiquid != edge.Liquid)
+                    throw new ArgumentException("游离液体依赖源操作没有产出指定液体", nameof(dependencies));
+                if (to.Kind == WorldOrderSymbolicOperationKind.Rule &&
+                    to.Candidate?.ConsumedFreeLiquid != edge.Liquid)
+                    throw new ArgumentException("游离液体依赖目标操作没有消耗指定液体", nameof(dependencies));
             }
         }
 
