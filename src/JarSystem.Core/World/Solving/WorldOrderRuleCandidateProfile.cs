@@ -74,7 +74,7 @@ public sealed class WorldOrderRuleCandidateProfile
     /// 若某条需求没有任何合法的单 Jar 输入/算子候选，则该工作台 Profile 无法独立满足它。
     /// 对 B 类订单仍需与另一个岗位的候选集合合并判断。
     /// </summary>
-    public bool CanStructurallyCoverEveryRequirement =>
+    public bool HasDirectCandidateForEveryRequirement =>
         !IsUndetermined && Requirements.All(x => x.Candidates.Count > 0);
 
     internal WorldOrderRuleCandidateProfile(
@@ -346,6 +346,7 @@ public sealed class WorldOrderRuleCandidateBook
     {
         if (world == null) throw new ArgumentNullException(nameof(world));
         if (workshop == null) throw new ArgumentNullException(nameof(workshop));
+        if (string.IsNullOrWhiteSpace(role)) throw new ArgumentException("岗位名称不能为空", nameof(role));
         if (specification == null) throw new ArgumentNullException(nameof(specification));
         var specificationVersion = WorldOrderRuleCandidateCatalog.Fingerprint(specification);
         var key = new CacheKey(
@@ -384,6 +385,14 @@ public sealed class WorldOrderRuleCandidateBook
             throw new ArgumentException("规则候选 Profile 不能为 null", nameof(profiles));
         var ordered = profiles.OrderBy(x => x.Role, StringComparer.Ordinal).ToArray();
         var first = ordered[0];
+        if (ordered.Select(x => x.Role).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
+            throw new ArgumentException("工作台角色不能重复", nameof(profiles));
+        if (ordered.Any(x =>
+            x.RuleSetVersion != first.RuleSetVersion ||
+            x.WorkshopProfileVersion != first.WorkshopProfileVersion ||
+            x.SpecificationVersion != first.SpecificationVersion ||
+            x.Requirements.Count != first.Requirements.Count))
+            throw new ArgumentException("参与组合的规则候选 Profile 必须来自同一求解输入", nameof(profiles));
         var roleKey = string.Concat(ordered.Select(x => x.Role.Length + ":" + x.Role));
         var key = new SolutionCacheKey(
             roleKey,
