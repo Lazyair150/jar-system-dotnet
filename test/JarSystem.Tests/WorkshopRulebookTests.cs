@@ -183,6 +183,58 @@ public class WorkshopRulebookTests
         Assert.Equal(1, liquids["蜜"]);
     }
 
+    [Fact]
+    public void RuleEvaluationUsesStableDecisionCodesAndKeepsUnknownSeparate()
+    {
+        var capability = new WorkshopCapability(
+            new[] { "圆罐" }, new[] { "尖罐" }, System.Array.Empty<string>());
+        var facts = new JarFacts("圆罐", null, false);
+        var op = WorkshopOperation.PourIn("酒");
+        var liquids = new Dictionary<string, int> { ["酒"] = 1 };
+
+        var allowed = WorkshopRulebook.Evaluate(
+            RuleContext.From(capability), 3, facts, op, liquids);
+        Assert.Equal(WorkshopRuleDecisionKind.Allowed, allowed.Kind);
+        Assert.Equal("rule.allowed", allowed.ReasonCode);
+
+        var bannedCapability = new WorkshopCapability(
+            new[] { "圆罐" }, new[] { "尖罐" }, new[] { "酒" });
+        var rejected = WorkshopRulebook.Evaluate(
+            RuleContext.From(bannedCapability), 3, facts, op, liquids);
+        Assert.Equal(WorkshopRuleDecisionKind.Rejected, rejected.Kind);
+        Assert.Equal("liquid.unavailable", rejected.ReasonCode);
+
+        var missingPredicateStack = new ModifierStack();
+        using (missingPredicateStack.Push(new RequireModifier
+        {
+            Name = "missing-predicate",
+            Source = "test",
+            Text = "external world condition"
+        }))
+        {
+            var unknown = WorkshopRulebook.Evaluate(
+                new RuleContext(capability, missingPredicateStack), 3, facts, op, liquids);
+            Assert.Equal(WorkshopRuleDecisionKind.Undetermined, unknown.Kind);
+            Assert.Equal("modifier.required-predicate-unavailable", unknown.ReasonCode);
+        }
+
+        var failedPredicateStack = new ModifierStack();
+        using (failedPredicateStack.Push(new RequireModifier
+        {
+            Name = "closed-gate",
+            Source = "test",
+            Text = "gate must be open",
+            Violation = () => "gate is closed"
+        }))
+        {
+            var failed = WorkshopRulebook.Evaluate(
+                new RuleContext(capability, failedPredicateStack), 3, facts, op, liquids);
+            Assert.Equal(WorkshopRuleDecisionKind.Rejected, failed.Kind);
+            Assert.Equal("modifier.required-condition-failed", failed.ReasonCode);
+            Assert.Equal("gate is closed", failed.Reason);
+        }
+    }
+
     /// <summary>枚举入口与判定入口必须自洽：<see cref="WorkshopRulebook.Available"/> 恰好是判定为真的那批。</summary>
     [Fact]
     public void AvailableListsExactlyTheAllowedSet()
