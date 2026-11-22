@@ -144,7 +144,7 @@ public class ResourceFlowSemanticsTests
     {
         var system = new JarSystem.Core.JarSystem(randomSeed: 37);
         system.SetMasterIndex(0);
-        system.Workshops[1].AddLiquid("酒", 1);
+        system.Workshops[1].AddLiquid("蜜", 1);
 
         var error = Assert.Throws<DomainValidationException>(() => system.SetSlaveIndex(1));
         var commandResult = system.SetSlave(1);
