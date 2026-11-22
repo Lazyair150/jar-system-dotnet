@@ -193,7 +193,8 @@ public sealed class PartitionSearch
 
             var masterSignature = Signature(mReqs);
             var slaveSignature = Signature(sReqs);
-            var partitionKey = masterSignature + "\u0001" + slaveSignature;
+            var partitionKey = masterSignature.Length + ":" + masterSignature +
+                slaveSignature.Length + ":" + slaveSignature;
             if (!seenPartitions.Add(partitionKey))
             {
                 duplicatePartitionPrunedCount++;
