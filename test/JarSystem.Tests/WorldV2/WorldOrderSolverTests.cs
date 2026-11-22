@@ -243,6 +243,21 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(1, result.DirectCount);
         Assert.NotNull(result.Plan);
         Assert.True(result.Plan.IsPartitioned);
+        Assert.NotNull(result.PartitionReport);
+        var report = result.PartitionReport!;
+        Assert.True(report.OutcomeFound);
+        Assert.True(report.MasksVisited > 0);
+        Assert.True(report.UniquePartitions > 0);
+        Assert.Equal(report.UniquePartitions, report.MasterSolveCount);
+        Assert.Contains(report.Events, item => item.Stage == "partition-selected");
+        Assert.Equal(
+            report.MasterSolveCount,
+            report.Events.Count(item => item.Stage == "master-solve-started"));
+
+        var repeated = Registry().Solve(demand, snapshot);
+        Assert.Equal(report.Events, repeated.PartitionReport!.Events);
+        Assert.Equal(report.MasterSolveCount, repeated.PartitionReport.MasterSolveCount);
+        Assert.Equal(report.SlaveSolveCount, repeated.PartitionReport.SlaveSolveCount);
     }
 
     [Fact]
