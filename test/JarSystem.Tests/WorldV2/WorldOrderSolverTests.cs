@@ -261,6 +261,25 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BPartitionBudgetExhaustionCarriesUndeterminedTrace()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        var slave = new Workshop("从台");
+        var solver = new JarOrderSpecificationSolver(new StateSpaceSolver()) { NodeBudget = 1 };
+        var registry = new WorldOrderSolverRegistry(new[] { solver });
+
+        var result = registry.Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+        Assert.NotNull(result.PartitionReport);
+        Assert.False(result.PartitionReport!.OutcomeFound);
+        Assert.NotNull(result.PartitionReport.InconclusiveReason);
+        Assert.Contains(result.PartitionReport.Events,
+            item => item.Stage == "undetermined-master-budget");
+    }
+
+    [Fact]
     public void BSpecificationRequiresBothWorkshopRoles()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
