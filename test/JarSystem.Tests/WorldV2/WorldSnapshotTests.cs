@@ -136,21 +136,26 @@ public sealed class WorldSnapshotTests
     }
 
     [Fact]
-    public void OperationSpecificSuppressionIsOpaqueToStaticSolving()
+    public void OperationSpecificSuppressionIsReconstructedAsAnExactRule()
     {
         var stack = new ModifierStack();
         stack.Push(new SuppressModifier
         {
             Operation = "POUR_IN",
-            Liquid = "酒"
+            Liquid = "酒",
+            Reason = "本轮禁止灌酒"
         });
-        var master = new Workshop("主台", modifiers: stack);
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: stack);
         var roster = new WorkshopRoster(new[] { master }, master);
 
         var snapshot = WorldSnapshotFactory.Capture(roster);
 
-        Assert.True(snapshot.Master!.HasOpaqueSolverRules);
-        Assert.True(snapshot.Master.SolverModifiers.Single().IsOpaque);
+        Assert.False(snapshot.Master!.HasOpaqueSolverRules);
+        Assert.False(snapshot.Master.SolverModifiers.Single().IsOpaque);
+        var rules = snapshot.Master.CreateRuleContext();
+        Assert.Equal("本轮禁止灌酒", rules.SuppressionReason("POUR_IN", "圆罐", "酒"));
+        Assert.Null(rules.SuppressionReason("RESHAPE", "圆罐", "酒"));
+        Assert.Null(rules.SuppressionReason("MATCH", "圆罐", "酒"));
     }
 
     [Fact]
