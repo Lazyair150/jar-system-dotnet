@@ -213,9 +213,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                         .Where(item => item.Id.HasValue &&
                             transferIds.Contains(item.Id.Value) &&
                             !expectedIds.Contains(item.Id.Value))
-                        // Transfer 阶段会清除所有转入罐子的主台阶段标记。
+                        // 交接只改变工作台归属，不重置本订单已经消耗的 Jar 操作资格。
                         .Select(item => new WorldPlanJarState(
-                            item.Id, item.Shape, item.Liquid, false, item.MasterOrigin));
+                            item.Id, item.Shape, item.Liquid, item.IsMarked, item.MasterOrigin));
                     expectedSlave = expectedSlave.Concat(masterCompletedDeliveryJars).ToArray();
                 }
 
@@ -578,17 +578,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     TerminateFailure(transferError);
                     return;
                 }
-                // 从台在准入时为空；只清除本次转入罐子的主台阶段标记。
-                foreach (var jarId in _manifest.TransferJarIds)
-                {
-                    var matches = _slave!.Jars.Where(jar => jar.Id == jarId).ToArray();
-                    if (matches.Length != 1)
-                        throw new InvalidOperationException($"转入从台的罐子 #{jarId} 丢失或身份重复");
-                    var clear = _slave.ClearMark(matches[0]);
-                    if (!clear.Success)
-                        throw new InvalidOperationException(clear.Reason ?? $"无法清除罐子 #{jarId} 的阶段标记");
-                }
-
+                // 交接只迁移 Jar 身份与所有权，不清除操作标记。
+                // 已在主台操作过的 Jar 在本订单剩余阶段仍然不可再次操作。
                 _admission.Reservations.MarkTransferCommitted(DemandId);
                 Stage = WorldOrderExecutionStage.SlaveSteps;
                 _admission.Reservations.MarkSlaveExecuting(DemandId);
