@@ -50,6 +50,19 @@ internal class SolverState
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
             ToWorkshopOperation(operation), Liquids);
 
+    private static WorkshopOperation ToWorkshopOperation(SolverOperation operation) =>
+        operation.Type switch
+        {
+            "POUR_IN" when operation.TargetLiquid != null =>
+                WorkshopOperation.PourIn(operation.TargetLiquid),
+            "POUR_OUT" => WorkshopOperation.PourOut(),
+            "RESHAPE" when operation.FullReshape && operation.TargetShape != null =>
+                WorkshopOperation.ReshapeFull(operation.TargetShape),
+            "RESHAPE" when operation.TargetShape != null && operation.CostLiquid != null =>
+                WorkshopOperation.ReshapeEmpty(operation.TargetShape, operation.CostLiquid),
+            _ => throw new InvalidOperationException("未知或不完整的 Workshop 算子")
+        };
+
     public SolverState Clone() => new SolverState(Jars, Liquids, WorkshopInfo)
     {
         TransferBudget = TransferBudget,
