@@ -158,42 +158,13 @@ public sealed class WorldV2HostServiceTests
 
         // Checkpoint A：订单已准入并扣除自机库存，但主台→从台尚未泵送。
         var beforePump = application.CaptureExecutionResourceCheckpoint();
-        _ = ProducerModuleWireDto.FromSnapshot(beforePump.ResourceArea.Producers);
-        _ = LiquidProductionWireDto.FromSnapshot(beforePump.ResourceArea.LiquidProduction);
-        _ = WarehouseWireDto.FromSnapshot(beforePump.ResourceArea.Warehouse);
-        _ = ResourceAreaWireDto.FromSnapshot(beforePump.ResourceArea);
-        _ = DemandBoardWireDto.FromSnapshot(beforePump.DemandBoard);
-        _ = ShipLiquidInventoryWireDto.FromSnapshot(beforePump.ShipLiquidInventory);
-        _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.MasterWorkshop);
-        _ = WorkshopRuntimeStateWireDto.FromSnapshot(beforePump.SlaveWorkshop!);
-        _ = AdmissionWireDto.FromSnapshot(beforePump.Admission);
-        _ = beforePump.ResourceLedger.Entries.Select(ResourceEventWireDto.FromEvent).ToList();
-        _ = beforePump.ResourceLedger.OperationIds.ToList();
-        _ = ResourceLedgerWireDto.FromSnapshot(beforePump.ResourceLedger);
-        _ = WorldClockWireDto.FromSnapshot(beforePump.Clock);
-        _ = beforePump.Sessions.Select(WorldOrderExecutionSessionWireDto.FromSnapshot).ToList();
-        _ = beforePump.ResourceArea.Producers.GeneratorAccumulatedMicro.Keys.ToList();
-        _ = beforePump.ShipLiquidInventory.Balances.Keys.ToList();
-        beforePump.ReservationLeases.Validate();
-        _ = new WorldResourceReservationBookWireDto(beforePump.ReservationLeases.Leases);
-        _ = beforePump.ReservationLeases.DeepCopy();
         var beforePumpWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(beforePump);
+        Assert.Contains("方罐", beforePumpWire.Shapes);
         var beforePumpJson = WorldV2CheckpointJsonCodec.Encode(
             beforePumpWire, beforePump.ConfigurationFingerprint);
         var decodedWire = WorldV2CheckpointJsonCodec
             .Decode<WorldV2ExecutionCheckpointWireDto>(beforePumpJson).Payload;
         decodedWire.Validate();
-        var decodedVocabulary = new Vocabulary(decodedWire.Shapes, decodedWire.Liquids);
-        _ = decodedWire.ResourceArea.ToSnapshot(decodedVocabulary);
-        _ = decodedWire.DemandBoard.ToSnapshot();
-        _ = decodedWire.ShipLiquidInventory.ToSnapshot();
-        _ = decodedWire.MasterWorkshop.ToSnapshot(decodedVocabulary);
-        _ = decodedWire.SlaveWorkshop?.ToSnapshot(decodedVocabulary);
-        _ = decodedWire.Admission.ToSnapshot();
-        _ = WorldResourceReservationBook.RestoreWire(decodedWire.ReservationLeases).Capture();
-        _ = decodedWire.ResourceLedger.ToSnapshot();
-        _ = decodedWire.Clock.ToSnapshot();
-        _ = decodedWire.Sessions.Select(item => item.ToSnapshot()).ToArray();
         beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
         Assert.Equal(transferEventsBeforeOrder, beforePump.ResourceLedger.Entries.Count(item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
