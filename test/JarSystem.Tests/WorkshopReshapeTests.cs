@@ -102,7 +102,7 @@ public class WorkshopReshapeTests
     }
 
     [Fact]
-    public void FullJarCanReshapeByConsumingItsInternalLiquidEvenWhenThatLiquidIsBannedInStaging()
+    public void FullJarContainingBannedLiquidCannotBeOperatedOnThisWorkshop()
     {
         var w = Xuanwu();
         var jar = new Jar("圆罐", "酒", null, Vocab());
@@ -110,13 +110,15 @@ public class WorkshopReshapeTests
 
         var grant = w.CanReshapeTo(jar, "方罐");
 
-        Assert.True(grant.Granted, grant.Reason);
+        Assert.False(grant.Granted);
+        Assert.Equal("banned", grant.Code);
+        Assert.Contains("禁酒", grant.Reason);
         var (success, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
-        Assert.True(success, reason);
-        Assert.Equal("方罐", jar.Shape);
-        Assert.Null(jar.Liquid);
-        Assert.True(jar.IsMarked);
-        Assert.Equal(0, w.LiquidStorage["酒"]);
+        Assert.False(success);
+        Assert.Contains("禁酒", reason);
+        Assert.Equal("圆罐", jar.Shape);
+        Assert.Equal("酒", jar.Liquid);
+        Assert.False(jar.IsMarked);
     }
 
     [Fact]
