@@ -36,8 +36,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
 
         var result = Solve(master, new[]
         {
-            new Requirement { Shape = "圆罐", Liquid = "酒" },
-            new Requirement { Shape = "方罐" }
+            new Requirement { Shape = "方罐" },
+            new Requirement { Shape = "圆罐" }
         });
 
         Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Feasible, result.Status);
