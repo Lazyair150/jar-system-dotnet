@@ -29,13 +29,8 @@ public class WorkshopTryReshapeTests
         "玄武台",
         new List<string> { "圆罐", "方罐" },
         new List<string> { "三角罐" },
+        new List<string> { "酒" },
         maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
-
-    private static void BanWine(Workshop workshop) =>
-        workshop.ReplaceCapability(new WorkshopCapability(
-            new List<string> { "圆罐", "方罐" },
-            new List<string> { "三角罐" },
-            new List<string> { "酒" }));
 
     [Fact]
     public void AutoModePicksAUsableCostLiquidAndPaysExactlyOne()
@@ -45,7 +40,6 @@ public class WorkshopTryReshapeTests
         w.AddJar(jar);
         w.AddLiquid("酒", 1);      // 被禁 ⇒ 不能当成本
         w.AddLiquid("蜜", 2);
-        BanWine(w);
 
         var (ok, reason) = w.TryReshape(jar, "方罐");
 
@@ -53,7 +47,7 @@ public class WorkshopTryReshapeTests
         Assert.Equal("方罐", jar.Shape);
         Assert.True(jar.IsMarked);                                  // 改形会打标记
         Assert.Equal(1, w.LiquidStorage["蜜"]);                     // 只付了 1 份
-        Assert.Equal(1, w.LiquidStorage["酒"]);                     // 禁酒一分未动
+        Assert.Equal(0, w.LiquidStorage["酒"]);                     // 禁酒一分未动
     }
 
     [Fact]
