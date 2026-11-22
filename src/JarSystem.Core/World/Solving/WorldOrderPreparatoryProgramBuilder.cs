@@ -33,6 +33,8 @@ public static class WorldOrderPreparatoryProgramBuilder
         if (string.IsNullOrWhiteSpace(masterRole)) throw new ArgumentException("主台角色不能为空", nameof(masterRole));
         if (string.IsNullOrWhiteSpace(slaveRole)) throw new ArgumentException("从台角色不能为空", nameof(slaveRole));
         if (masterRole == slaveRole) throw new ArgumentException("主台和从台角色必须不同");
+        if (!isBClass && slaveOperationOrder != null)
+            throw new ArgumentException("A 类订单不能指定从台操作顺序", nameof(slaveOperationOrder));
 
         var requirements = solution.Steps.OrderBy(x => x.Candidate.RequirementIndex).ToArray();
         if (requirements.Any(x => x.Candidate.RequirementIndex < 0))
@@ -154,6 +156,8 @@ public static class WorldOrderPreparatoryProgramBuilder
 
         if (slaveOperationOrder != null)
         {
+            if (slaveOperationOrder.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException("从台操作顺序不能包含空节点身份", nameof(slaveOperationOrder));
             if (slaveOperationOrder.Count != slaveOperations.Count ||
                 slaveOperationOrder.Distinct(StringComparer.Ordinal).Count() != slaveOperations.Count)
                 throw new ArgumentException("从台操作顺序必须恰好包含每个操作一次", nameof(slaveOperationOrder));
