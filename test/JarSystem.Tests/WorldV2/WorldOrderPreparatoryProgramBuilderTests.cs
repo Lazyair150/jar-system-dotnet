@@ -38,14 +38,16 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
             new[]
             {
                 new WorldOrderPreparatoryOperationAssignment(
-                    "Slave", "requirement-0", preparation)
+                    "Slave", "preparation-resource-0", preparation)
             },
             true, "Master", "Slave");
 
         Assert.Equal(
-            new[] { "master-to-slave-handoff", "prepare-requirement-0", "requirement-0-slave" },
+            new[] { "master-to-slave-handoff", "prepare-preparation-resource-0", "requirement-0-slave" },
             program.Nodes.Select(x => x.NodeId));
         Assert.Single(program.Nodes, x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
+        Assert.Equal("preparation-resource-0",
+            program.Nodes.Single(x => x.NodeId == "prepare-preparation-resource-0").InputJars[0].JarKey);
 
         var result = WorldOrderSymbolicResourceSimulator.Simulate(
             program,
@@ -74,12 +76,12 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
             new[]
             {
                 new WorldOrderPreparatoryOperationAssignment(
-                    "Master", "requirement-0", preparation)
+                    "Master", "preparation-resource-0", preparation)
             },
             true, "Master", "Slave");
 
         Assert.Equal(
-            new[] { "prepare-requirement-0", "master-to-slave-handoff", "requirement-0-slave" },
+            new[] { "prepare-preparation-resource-0", "master-to-slave-handoff", "requirement-0-slave" },
             program.Nodes.Select(x => x.NodeId));
 
         var result = WorldOrderSymbolicResourceSimulator.Simulate(
@@ -109,11 +111,11 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
             new[]
             {
                 new WorldOrderPreparatoryOperationAssignment(
-                    "Master", "requirement-0", preparation)
+                    "Master", "preparation-resource-0", preparation)
             },
             false, "Master", "Slave");
 
-        Assert.Equal(new[] { "prepare-requirement-0", "requirement-0-master" },
+        Assert.Equal(new[] { "prepare-preparation-resource-0", "requirement-0-master" },
             program.Nodes.Select(x => x.NodeId));
         Assert.DoesNotContain(program.Nodes,
             x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
@@ -140,7 +142,7 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
         Assert.Throws<ArgumentException>(() =>
             WorldOrderPreparatoryProgramBuilder.Build(
                 Solution("Master", requirement),
-                new[] { new WorldOrderPreparatoryOperationAssignment("Master", "requirement-0", wrongInput) },
+                new[] { new WorldOrderPreparatoryOperationAssignment("Master", "preparation-resource-0", wrongInput) },
                 false, "Master", "Slave"));
 
         Assert.Throws<ArgumentException>(() =>
@@ -167,83 +169,60 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     }
 
     [Fact]
-    public void OneJarCanRunAnOrderedMultiStepPreparationChainBeforeItsRequirement()
+    public void PreparationJarCannotAlsoBeUsedByARequirement()
     {
-        var requirement = Candidate(
-            0, "圆罐", "酒", "MATCH", "圆罐", "酒");
-        var pourOut = Candidate(
-            -1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null,
+        var requirement = Candidate(0, "圆罐", "酒", "MATCH", "圆罐", "酒");
+        var preparation = Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null,
             producedFree: "酒");
-        var pourIn = Candidate(
-            -1, "圆罐", null, "PREPARE_POUR_IN", "圆罐", "酒",
-            consumedFree: "酒");
 
-        var program = WorldOrderPreparatoryProgramBuilder.Build(
-            Solution("Slave", requirement),
-            new[]
-            {
-                new WorldOrderPreparatoryOperationAssignment(
-                    "Slave", "requirement-0", pourOut, Order: 0),
-                new WorldOrderPreparatoryOperationAssignment(
-                    "Slave", "requirement-0", pourIn, Order: 1)
-            },
-            true, "Master", "Slave");
-
-        Assert.Equal(
-            new[]
-            {
-                "master-to-slave-handoff",
-                "prepare-requirement-0-0",
-                "prepare-requirement-0-1",
-                "requirement-0-slave"
-            },
-            program.Nodes.Select(x => x.NodeId));
-        Assert.Contains(program.Dependencies, edge =>
-            edge.Kind == WorldOrderSymbolicDependencyKind.JarState &&
-            edge.FromNodeId == "prepare-requirement-0-0" &&
-            edge.ToNodeId == "prepare-requirement-0-1" &&
-            edge.JarRevision == 1);
-        Assert.Contains(program.Dependencies, edge =>
-            edge.Kind == WorldOrderSymbolicDependencyKind.JarState &&
-            edge.FromNodeId == "prepare-requirement-0-1" &&
-            edge.ToNodeId == "requirement-0-slave" &&
-            edge.JarRevision == 2);
-
-        var simulation = WorldOrderSymbolicResourceSimulator.Simulate(
-            program,
-            new WorldOrderSymbolicResourceSimulationRequest(
-                0, 1,
-                new Dictionary<string, int>(),
-                new Dictionary<string, int>()));
-
-        Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Feasible, simulation.Status);
-        Assert.Equal(1, simulation.Roles["Slave"].AcceptedFreeLiquidProduction["酒"]);
-        Assert.Equal(1, simulation.Roles["Slave"].ConsumedFreeLiquid["酒"]);
-        Assert.Empty(simulation.Roles["Slave"].FinalFreeLiquid);
+        Assert.Throws<ArgumentException>(() =>
+            WorldOrderPreparatoryProgramBuilder.Build(
+                Solution("Slave", requirement),
+                new[] { new WorldOrderPreparatoryOperationAssignment(
+                    "Slave", "requirement-0", preparation) },
+                true, "Master", "Slave"));
     }
 
     [Fact]
-    public void MultiStepPreparationChainMustBeStateContinuous()
+    public void OneJarCannotReceiveTwoPreparationAssignments()
     {
         var requirement = Candidate(0, "圆罐", null, "MATCH", "圆罐", null);
-        var first = Candidate(
-            -1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null,
+        var preparation = Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null,
             producedFree: "酒");
-        var disconnected = Candidate(
-            -1, "方罐", null, "PREPARE_POUR_IN", "方罐", "酒",
-            consumedFree: "酒");
 
         Assert.Throws<ArgumentException>(() =>
             WorldOrderPreparatoryProgramBuilder.Build(
                 Solution("Slave", requirement),
                 new[]
                 {
-                    new WorldOrderPreparatoryOperationAssignment(
-                        "Slave", "requirement-0", first, Order: 0),
-                    new WorldOrderPreparatoryOperationAssignment(
-                        "Slave", "requirement-0", disconnected, Order: 1)
+                    new WorldOrderPreparatoryOperationAssignment("Slave", "jar-A", preparation),
+                    new WorldOrderPreparatoryOperationAssignment("Slave", "jar-A", preparation)
                 },
                 true, "Master", "Slave"));
+    }
+
+    [Fact]
+    public void HandoffPreservesMarkAndDoesNotPermitAnotherRuleOperation()
+    {
+        var requirement = Candidate(0, "圆罐", null, "MATCH", "圆罐", null);
+        var preparation = Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null,
+            producedFree: "酒");
+
+        var program = WorldOrderPreparatoryProgramBuilder.Build(
+            Solution("Slave", requirement),
+            new[] { new WorldOrderPreparatoryOperationAssignment(
+                "Master", "preparation-resource-0", preparation) },
+            true, "Master", "Slave");
+
+        var prep = Assert.Single(program.Nodes, x => x.NodeId == "prepare-preparation-resource-0");
+        Assert.False(prep.InputJars[0].IsMarked);
+        Assert.True(prep.OutputJars[0].IsMarked);
+        var handoff = Assert.Single(program.Nodes,
+            x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
+        var handedOff = Assert.Single(handoff.InputJars,
+            x => x.JarKey == "requirement-0");
+        Assert.False(handedOff.IsMarked);
+        Assert.True(handoff.OutputJars.Single(x => x.JarKey == "requirement-0").IsMarked == false);
     }
 
     [Fact]
@@ -254,7 +233,7 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
 
         var program = WorldOrderPreparatoryProgramBuilder.Build(
             Solution("Slave", requirement),
-            new[] { new WorldOrderPreparatoryOperationAssignment("Slave", "requirement-0", preparation) },
+            new[] { new WorldOrderPreparatoryOperationAssignment("Slave", "preparation-resource-0", preparation) },
             true, "Master", "Slave");
 
         Assert.Equal(WorldOrderSymbolicOperationKind.MasterToSlaveHandoff, program.Nodes[0].Kind);
