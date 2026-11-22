@@ -75,6 +75,11 @@ public sealed class WorldOrderBClassDifferentialTests
             Operation = "POUR_OUT",
             Reason = "从台只能使用主台交接的游离液体"
         });
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "RESHAPE_FULL",
+            Reason = "从台必须消耗交接的游离液体"
+        });
         var master = new Workshop("主台",
             new List<string> { "圆罐" }, modifiers: masterRules);
         var slave = new Workshop("从台",
