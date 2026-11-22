@@ -130,7 +130,7 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
 
 
     [Fact]
-    public void SameJarSlavePreparationCreatesAnAlternativeThatAvoidsMasterFreeLiquidBoundary()
+    public void PreparationEnumerationNeverReusesARequirementJar()
     {
         var requirement = Candidate(
             0, "round", null, "target", null, consumedFree: "X");
@@ -145,17 +145,11 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
             profile, "Master", 2, masterBannedLiquids: new[] { "X" });
 
         Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
-        // 9h also considers an independent source Jar of the same catalogued state.
-        // That is a distinct branch from preparing the requirement Jar in place.
-        Assert.Equal(3, result.ExploredBranches);
-        Assert.Equal(2, result.Alternatives!.Groups.Count);
-        var sameJarGroup = Assert.Single(
-            result.Alternatives.Groups,
-            group => group.RequiredJarStates.Values.Sum() == 1);
-        Assert.Empty(sameJarGroup.RequiredFreeLiquid);
-        Assert.Single(sameJarGroup.RequiredJarStates);
-        Assert.Contains(result.Alternatives.Groups, group =>
-            group.RequiredJarStates.Values.Sum() == 2);
+        Assert.Equal(2, result.ExploredBranches);
+        var group = Assert.Single(result.Alternatives!.Groups);
+        Assert.Empty(group.RequiredFreeLiquid);
+        // The output-producing Jar and the requirement Jar are distinct boundary inputs.
+        Assert.Equal(2, group.RequiredJarStates.Values.Sum());
     }
 
     [Fact]
