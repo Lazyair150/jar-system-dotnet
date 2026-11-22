@@ -214,7 +214,7 @@ public static class WorldOrderAClassBranchEnumerator
 
             void VisitPreparations(int position)
             {
-                if (budgetExceeded || FoundAssembly != null) return;
+                if (budgetExceeded || foundAssembly != null) return;
                 if (exploredNodes >= maxNodes)
                 {
                     budgetExceeded = true;
@@ -229,7 +229,7 @@ public static class WorldOrderAClassBranchEnumerator
 
                 // Omit this preparation Jar.
                 VisitPreparations(position + 1);
-                if (budgetExceeded || FoundAssembly != null) return;
+                if (budgetExceeded || foundAssembly != null) return;
 
                 var candidate = prepChoices[position];
                 var liquid = candidate.ProducedFreeLiquid!;
@@ -244,10 +244,10 @@ public static class WorldOrderAClassBranchEnumerator
             }
 
             VisitPreparations(0);
-            if (FoundAssembly != null) break;
+            if (foundAssembly != null) break;
         }
 
-        if (FoundAssembly != null)
+        if (foundAssembly != null)
             return Result(WorldOrderAClassBranchEnumerationStatus.Feasible,
                 foundAssembly, exploredBranches, exploredNodes, rejectedBranches, null);
         if (budgetExceeded || sawUndetermined)
