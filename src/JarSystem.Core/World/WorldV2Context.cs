@@ -34,6 +34,8 @@ public sealed class WorldV2Context : IDisposable
     public OrderDemandBoard DemandBoard { get; }
     public SequentialIdGenerator DemandIdGenerator { get; }
     public string? ConfigurationFingerprint { get; }
+    public IReadOnlyList<string> Shapes { get; }
+    public IReadOnlyList<string> Liquids { get; }
     public WorldOrderSolveBook SolveBook { get; }
     public WorldResourceReservationBook Reservations { get; }
     public WorldOrderExecutionAdmission Admission { get; }
@@ -52,7 +54,9 @@ public sealed class WorldV2Context : IDisposable
         WorldOrderExecutionAdmission admission,
         ResourceWorldRuntime runtime,
         WorldOrderScheduler scheduler,
-        string? configurationFingerprint)
+        string? configurationFingerprint,
+        IReadOnlyList<string> shapes,
+        IReadOnlyList<string> liquids)
     {
         Resources = resources;
         ShipLiquidInventory = shipLiquidInventory;
@@ -66,6 +70,8 @@ public sealed class WorldV2Context : IDisposable
         Runtime = runtime;
         Scheduler = scheduler;
         ConfigurationFingerprint = configurationFingerprint;
+        Shapes = Array.AsReadOnly(shapes.ToArray());
+        Liquids = Array.AsReadOnly(liquids.ToArray());
     }
 
     /// <summary>
@@ -84,7 +90,9 @@ public sealed class WorldV2Context : IDisposable
         DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
         WorldClock? clock = null,
         ShipLiquidInventory? shipLiquidInventory = null,
-        string? configurationFingerprint = null)
+        string? configurationFingerprint = null,
+        IEnumerable<string>? shapeVocabulary = null,
+        IEnumerable<string>? liquidVocabulary = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -124,8 +132,18 @@ public sealed class WorldV2Context : IDisposable
         var scheduler = new WorldOrderScheduler(
             runtime, board, solveBook, solverRegistry, admission, roster, logicalTimePerUnit);
 
+        var shapes = (shapeVocabulary ?? resources.Producers.Generators.Keys)
+            .Distinct(StringComparer.Ordinal).ToArray();
+        var liquids = (liquidVocabulary ?? resources.Inventory.LiquidWarehouse.Keys)
+            .Distinct(StringComparer.Ordinal).ToArray();
+        if (shapes.Length == 0 || liquids.Length != 2 ||
+            shapes.Any(string.IsNullOrWhiteSpace) || liquids.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("World v2 Context 必须持有完整形状与液体词表");
+
         return new WorldV2Context(
-            resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator, solveBook, reservations, admission, runtime, scheduler, configurationFingerprint);
+            resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
+            solveBook, reservations, admission, runtime, scheduler, configurationFingerprint,
+            shapes, liquids);
     }
 
     /// <summary>
@@ -156,6 +174,8 @@ public sealed class WorldV2Context : IDisposable
             ResourceLedger.Capture(),
             Runtime.Clock.Capture(),
             Runtime.LedgerTick,
+            Shapes,
+            Liquids,
             Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()));
     }
 
@@ -203,9 +223,7 @@ public sealed class WorldV2Context : IDisposable
         var stagedShip = new ShipLiquidInventory(
             checkpoint.ShipLiquidInventory.Capacity,
             checkpoint.ShipLiquidInventory.Balances);
-        var vocabulary = new Vocabulary(
-            Resources.Producers.Generators.Keys,
-            Resources.Inventory.LiquidWarehouse.Keys);
+        var vocabulary = new Vocabulary(checkpoint.Shapes, checkpoint.Liquids);
         var stagedDemandIds = new SequentialIdGenerator();
         var stagedBoard = OrderDemandBoard.RestoreRuntimeState(
             checkpoint.DemandBoard, vocabulary, stagedDemandIds);
@@ -283,6 +301,8 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         ResourceLedgerSnapshot resourceLedger,
         WorldClockSnapshot clock,
         int runtimeLedgerTick,
+        IEnumerable<string> shapes,
+        IEnumerable<string> liquids,
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
     {
         ResourceArea = resourceArea;
@@ -298,6 +318,15 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         ResourceLedger = resourceLedger;
         Clock = clock;
         RuntimeLedgerTick = runtimeLedgerTick;
+        var shapeValues = shapes.ToArray();
+        var liquidValues = liquids.ToArray();
+        if (shapeValues.Length == 0 || liquidValues.Length != 2 ||
+            shapeValues.Any(string.IsNullOrWhiteSpace) || liquidValues.Any(string.IsNullOrWhiteSpace) ||
+            shapeValues.Distinct(StringComparer.Ordinal).Count() != shapeValues.Length ||
+            liquidValues.Distinct(StringComparer.Ordinal).Count() != liquidValues.Length)
+            throw new ArgumentException("检查点形状或液体词表无效");
+        Shapes = Array.AsReadOnly(shapeValues);
+        Liquids = Array.AsReadOnly(liquidValues);
         Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
     }
 
@@ -314,5 +343,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     public ResourceLedgerSnapshot ResourceLedger { get; }
     public WorldClockSnapshot Clock { get; }
     public int RuntimeLedgerTick { get; }
+    public IReadOnlyList<string> Shapes { get; }
+    public IReadOnlyList<string> Liquids { get; }
     public IReadOnlyList<WorldOrderExecutionSessionProgressSnapshot> Sessions { get; }
 }
