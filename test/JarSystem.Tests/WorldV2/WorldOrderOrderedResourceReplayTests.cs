@@ -15,6 +15,7 @@ public sealed class WorldOrderOrderedResourceReplayTests
             liquidStagingCapacity: 1);
         if (withProducerJar) master.AddJar(new Jar("圆罐", "酒", id: 921));
         master.AddJar(new Jar("圆罐", id: 922));
+        master.AddLiquid("酒", 1);
         return WorldSnapshotFactory.Capture(new WorkshopRoster(new[] { master }, master));
     }
 
