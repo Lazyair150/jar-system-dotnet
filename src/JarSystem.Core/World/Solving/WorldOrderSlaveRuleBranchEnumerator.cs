@@ -193,8 +193,9 @@ public static class WorldOrderSlaveRuleBranchEnumerator
 
                     var candidate = auxiliaryChoices[position];
                     var liquid = candidate.ProducedFreeLiquid!;
-                    var alreadySelected = selectedAuxiliaryPreparations.Count(
-                        x => x.Candidate.ProducedFreeLiquid == liquid);
+                    var alreadySelected =
+                        selectedPreparations.Count(x => x.Candidate.ProducedFreeLiquid == liquid) +
+                        selectedAuxiliaryPreparations.Count(x => x.Candidate.ProducedFreeLiquid == liquid);
                     if (alreadySelected >= requiredLiquids[liquid]) return;
 
                     selectedAuxiliaryPreparations.Add(new WorldOrderPreparatoryOperationAssignment(
