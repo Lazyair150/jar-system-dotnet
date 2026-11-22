@@ -52,6 +52,8 @@ public sealed class WorldOrderOrderedResourceReplayTests
         Assert.Empty(result.MasterInitialLiquids);
         Assert.Empty(result.MasterFinalLiquids);
         Assert.Equal(1, result.MasterStagingPeakCapacity);
+        Assert.Equal("酒", result.MasterAcceptedProducedLiquids[0]);
+        Assert.Null(result.MasterAcceptedProducedLiquids[1]);
     }
 
     [Fact]
@@ -64,6 +66,8 @@ public sealed class WorldOrderOrderedResourceReplayTests
         Assert.Equal(1, result.MasterInitialLiquids["酒"]);
         Assert.Equal(1, result.MasterFinalLiquids["酒"]);
         Assert.Equal(1, result.MasterStagingPeakCapacity);
+        Assert.Null(result.MasterAcceptedProducedLiquids[0]);
+        Assert.Equal("酒", result.MasterAcceptedProducedLiquids[1]);
     }
 
     [Fact]
