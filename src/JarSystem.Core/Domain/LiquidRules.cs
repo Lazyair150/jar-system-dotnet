@@ -48,9 +48,7 @@ public readonly struct LiquidGrant
 /// 现在三分：<b>规则</b>在 <see cref="LiquidRules"/>（纯函数），<b>库存</b>由调用方给（<c>have</c>），
 /// <b>有状态的门面</b>是 <see cref="Workshop"/> 上的三个能力（它把自己的库存喂进来）。
 ///
-/// <para><b>存储与取用是两条规则</b>（2026-11 定案）：禁令只约束<b>取用</b>（倒入罐子、当改形成本、
-/// 满罐自耗），<b>不</b>约束<b>存储</b> —— 被禁的液体可以流进工作台、留在池子里（那一格仍然存在），
-/// 只是取不出来。于是 <see cref="CanStore"/> 不再问禁令，<see cref="CanPay"/>/<see cref="Check"/> 仍然问。</para>
+/// <para>禁令同时约束工作台游离液体的<b>使用与存储</b>。被禁液体不能从池子取用，也不能被新接收到工作台游离液体账户；容量只在液体未被禁且允许接收时继续判定。Jar 内部液体是独立的物理资源：它可以随 Jar 传递，但当前工作台不得对含有其禁液的 Jar 执行会使用/释放该液体的操作。</para>
 /// </summary>
 public readonly struct LiquidRules
 {
@@ -84,10 +82,12 @@ public readonly struct LiquidRules
         return have >= amount ? LiquidGrant.Yes() : LiquidGrant.Insufficient(liquid);
     }
 
-    /// <summary>能不能放进 <paramref name="amount"/> 份（**只问容量**：禁液也能存进来，只是取不出来）。</summary>
+    /// <summary>能不能把 <paramref name="amount"/> 份接收到本工作台（禁令 + 容量）。</summary>
     public LiquidGrant CanStore(string liquid, int amount, int have)
     {
         if (amount <= 0) return LiquidGrant.Yes();
+        var permission = Check(liquid);
+        if (!permission.Granted) return permission;
         if (_capacity <= 0) return LiquidGrant.Yes();
         return have + amount <= _capacity ? LiquidGrant.Yes() : LiquidGrant.OverCapacity(liquid);
     }
