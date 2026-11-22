@@ -138,7 +138,9 @@ The current implementation has these layers, but does not yet expose one unified
 
 A first resource-independent rule-candidate layer is now present:
 
-- `WorkshopRulebook.Definitions` is the stable operator catalog (rule ID, semantic version, operator name and category). The catalog identity participates in `RuleSetVersion`.
+- `WorkshopRulebook.Definitions` is the stable operator catalog (rule ID, semantic version, operator name and category). It now covers the four Jar transformations plus `MATCH`; the catalog identity participates in `RuleSetVersion`.
+- `WorkshopRulebook.EvaluateMatchTransition` makes direct matching a first-class pure transition. Live `Workshop.MarkJar`, `StateSpaceSolver`, symbolic candidate projection and the greedy fallback now honor the same MATCH suppression/Require rule instead of independently marking a Jar.
+- Live `Workshop` operations apply the rule engine's `After` facts through one generic Jar transition applier. The Workshop still owns the transactional free-liquid account changes; it no longer reinterprets each operation to mutate Jar shape/liquid/mark.
 - `WorldOrderRuleCandidateCatalog` projects each requirement into legal one-operation candidates using the snapshot's rule context. It also records generic `POUR_OUT` preparation operations that can produce free liquid for later steps.
 - Candidate evaluation uses the World V2 `OrderLiquidScope` contract. It does not use the legacy per-liquid `MaxLiquids` account as a substitute for total staging capacity.
 - `WorldOrderRuleCandidateBook` caches profiles by rule-set version, workshop-profile version, order-specification fingerprint and role. Resource-only changes do not invalidate these profiles.
@@ -154,7 +156,7 @@ A first resource-independent rule-candidate layer is now present:
 
 The next work is ordered by semantic dependency. A trace is useful, but it must explain one authoritative rule engine rather than make the current duplicated rules more observable.
 
-1. Finish the shared rule decision/transition contract: stable rule identity/version, applicability, preconditions, pure Jar transition, source-aware resource effects, and explicit rejection/unknown semantics. The operator catalog and solver-side transition projection now exist; the real `Workshop` execution facade still needs to consume the same pure transition result without duplicating rule branches.
+1. Finish the shared rule decision/transition contract by making the operator registry authoritative rather than metadata-only. Built-in MATCH and four Jar transformations now share stable identity/version, decision, pure Jar after-state and resource effects across live Workshop and solver execution. A future new operator must register its stable identity/version and supply one evaluator/transition implementation; it must not add parallel switches to Workshop, solver and candidate projection.
 2. Expand the resource-independent layer from one-step candidates to explicit symbolic operation programs, including bounded preparation sequences and their liquid-flow/capacity constraints. Do not call the current candidate combinations complete order solutions.
 3. Add version-aware access to symbolic profiles: rule/profile/specification changes rebuild them; resource-only changes retain them while the concrete binding/feasibility solve is refreshed.
 4. Generalize the funnel search kernel without folding A/B allocation policy into rule definitions. Preserve exact B-class partition/backtracking and one-way Master-to-Slave transfer semantics.
