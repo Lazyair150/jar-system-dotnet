@@ -104,7 +104,7 @@ public sealed class WorldOrderRoleResourceEffectTests
         Assert.Equal(3, effects["Master"].StepCount);
         Assert.Equal(2, effects["Master"].GrossFreeLiquidConsumption["蜜"]);
         Assert.Equal(1, effects["Master"].GrossFreeLiquidConsumption["酒"]);
-        Assert.Equal(new[] { "酒", "蜜" },
+        Assert.Equal(new[] { "蜜", "酒" },
             new List<string>(effects["Master"].GrossFreeLiquidConsumption.Keys));
     }
 
