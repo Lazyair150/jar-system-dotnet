@@ -21,7 +21,7 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
 
         var alternatives = new WorldOrderResourceRequirementAlternativeSet(
             WorldOrderResourceRequirementSetStatus.Complete,
-            "rules-v1", "workshops-v1", "spec-v1", new[] { xy, z });
+            "rules-v1", "workshops-v1", "spec-v1", "Master", "Slave", new[] { xy, z });
 
         Assert.True(alternatives.IsComplete);
         Assert.Equal(2, alternatives.Groups.Count);
@@ -98,7 +98,7 @@ public sealed class WorldOrderResourceRequirementAlternativeSetTests
 
         var alternatives = new WorldOrderResourceRequirementAlternativeSet(
             WorldOrderResourceRequirementSetStatus.Undetermined,
-            "rules-v1", "workshops-v1", "spec-v1", new[] { partial },
+            "rules-v1", "workshops-v1", "spec-v1", "Master", "Slave", new[] { partial },
             "decomposition budget exhausted");
 
         Assert.True(alternatives.IsUndetermined);
