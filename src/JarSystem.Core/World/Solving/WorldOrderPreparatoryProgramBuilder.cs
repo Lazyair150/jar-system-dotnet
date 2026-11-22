@@ -208,8 +208,14 @@ public static class WorldOrderPreparatoryProgramBuilder
                 sequence++, slaveRole, candidate.RequirementIndex, candidate, input, output);
             nodes.Add(node);
             var producer = prepNodeByJar.GetValueOrDefault(key);
+            // A Master-side preparation feeds the handoff; the Slave requirement
+            // consumes the post-handoff Jar version, so its immediate producer is
+            // the handoff node, not the pre-handoff preparation node.
+            var jarStateProducer = producer?.WorkshopRole == slaveRole
+                ? producer.NodeId
+                : handoff!.NodeId;
             edges.Add(WorldOrderSymbolicOperationDependency.JarState(
-                producer?.NodeId ?? handoff!.NodeId, node.NodeId, key, input.Revision));
+                jarStateProducer, node.NodeId, key, input.Revision));
             current[key] = output;
         }
 
