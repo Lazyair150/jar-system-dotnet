@@ -214,7 +214,16 @@ public sealed class PartitionSearch
                 report = BuildReport(false);
                 return null;
             }
-            if (!mr.Feasible || mr.Path == null)
+            if (mr.Feasible && mr.Path == null)
+            {
+                diagnosticInconclusiveReason = "求解器报告主台可行，但没有提供可执行路径";
+                inconclusiveReason = diagnosticInconclusiveReason;
+                lastBlockage = inconclusiveReason;
+                Record("undetermined-master-missing-path", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
+                return null;
+            }
+            if (!mr.Feasible)
             {
                 masterInfeasible[mask] = true;
                 Record("master-infeasible", mask, masterSignature, slaveSignature, mr.Blockage);
@@ -274,7 +283,12 @@ public sealed class PartitionSearch
 
             // 转移预算：从台罐位 − 交付罐数（交付罐必转，不可再占预算）
             int budget = request.SlaveInfo.MaxJars - deliverableIds.Count;
-            if (budget < 0) continue;
+            if (budget < 0)
+            {
+                blockage = "从台罐位不足以容纳主台交付罐";
+                Record("slave-jar-capacity-rejected", mask, masterSignature, slaveSignature, blockage);
+                continue;
+            }
 
             // 液体池只表示主台终态可供选择的来源；实际泵送量由从台路径最低需求计算，
             // 合计容量则在路径确定后分别按主台“路径 + 终态转出预留”和从台路径峰值校验。
@@ -297,11 +311,20 @@ public sealed class PartitionSearch
                 report = BuildReport(false);
                 return null;
             }
-            if (sr.Feasible && sr.Path != null)
+            if (sr.Feasible && sr.Path == null)
             {
-                var transferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path);
+                diagnosticInconclusiveReason = "求解器报告从台可行，但没有提供可执行路径";
+                inconclusiveReason = diagnosticInconclusiveReason;
+                lastBlockage = inconclusiveReason;
+                Record("undetermined-slave-missing-path", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
+                return null;
+            }
+            if (sr.Feasible)
+            {
+                var transferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path!);
                 var masterPeak = LiquidRequirementCalculator.ComputePeakCapacity(mr.Path, transferLiquids);
-                var slavePeak = LiquidRequirementCalculator.ComputePeakCapacity(sr.Path);
+                var slavePeak = LiquidRequirementCalculator.ComputePeakCapacity(sr.Path!);
                 if (masterPeak > request.MasterInfo.MaxLiquidCapacity)
                 {
                     blockage = "主台订单液体路径及从台交接预留超过总暂存容量";
@@ -317,7 +340,7 @@ public sealed class PartitionSearch
 
                 // 转移罐子清单：交付罐 + 从台路径实际使用的主台来源罐子
                 var transferIds = new HashSet<int>(deliverableIds);
-                foreach (var step in sr.Path)
+                foreach (var step in sr.Path!)
                 {
                     if (step.Operation?.JarIndex.HasValue == true && step.Before != null &&
                         step.Operation.JarIndex.Value >= 0 && step.Operation.JarIndex.Value < step.Before.Count)
@@ -333,13 +356,13 @@ public sealed class PartitionSearch
                 return new PartitionSearchOutcome
                 {
                     MasterPath = mr.Path,
-                    SlavePath = sr.Path,
+                    SlavePath = sr.Path!,
                     TransferJarIds = transferIds.OrderBy(x => x).ToList(),
                     TransferLiquids = transferLiquids,
                     DirectCount = mr.Path.Count(s => s.Operation?.Type == "MATCH")
-                                + sr.Path.Count(s => s.Operation?.Type == "MATCH"),
+                                + sr.Path!.Count(s => s.Operation?.Type == "MATCH"),
                     OperationCount = mr.Path.Count(s => s.Operation?.Type != "MATCH")
-                                   + sr.Path.Count(s => s.Operation?.Type != "MATCH")
+                                   + sr.Path!.Count(s => s.Operation?.Type != "MATCH")
                 };
             }
 
