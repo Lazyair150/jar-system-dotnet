@@ -67,6 +67,28 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void BClassFullJarCannotBeSelfConsumedWhenBothWorkshopsBanItsLiquid()
+    {
+        var master = new Workshop("禁酒主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        var slave = new Workshop("也禁酒的从台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        master.AddJar(new Jar("圆罐", "酒", id: 9121));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "方罐" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            912, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, result.Status);
+        Assert.Null(result.Assembly);
+    }
+
+    [Fact]
     public void BClassMixedBranchKeepsMasterAndSlaveLedgersSeparate()
     {
         var master = new Workshop("禁酒主台",
