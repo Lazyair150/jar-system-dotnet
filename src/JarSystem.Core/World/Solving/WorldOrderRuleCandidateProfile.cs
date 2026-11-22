@@ -141,8 +141,13 @@ public static class WorldOrderRuleCandidateCatalog
         for (var requirementIndex = 0; requirementIndex < specification.Requirements.Count; requirementIndex++)
         {
             var requirement = specification.Requirements[requirementIndex];
+            var sourceShapes = new HashSet<string>(Constants.SHAPES, StringComparer.Ordinal);
+            sourceShapes.UnionWith(rules.Capability.BaseMarks);
+            sourceShapes.UnionWith(rules.Capability.AdditionalMarks);
+            sourceShapes.UnionWith(rules.Stack.GrantedShapes());
+            sourceShapes.Add(requirement.Shape);
             var candidates = BuildRequirementCandidates(
-                rules, requirementIndex, requirement.Shape, requirement.Liquid);
+                rules, sourceShapes, requirementIndex, requirement.Shape, requirement.Liquid);
             results.Add(new WorldOrderRequirementCandidates(
                 requirementIndex, requirement.Shape, requirement.Liquid, candidates));
         }
@@ -154,12 +159,13 @@ public static class WorldOrderRuleCandidateCatalog
 
     private static List<WorldOrderRuleCandidate> BuildRequirementCandidates(
         RuleContext rules,
+        IEnumerable<string> sourceShapes,
         int requirementIndex,
         string targetShape,
         string? targetLiquid)
     {
         var candidates = new List<WorldOrderRuleCandidate>();
-        foreach (var sourceShape in Constants.SHAPES)
+        foreach (var sourceShape in sourceShapes)
         {
             // Direct match is a lifecycle/allocation rule, not a Jar chemistry transform.
             if (sourceShape == targetShape)
