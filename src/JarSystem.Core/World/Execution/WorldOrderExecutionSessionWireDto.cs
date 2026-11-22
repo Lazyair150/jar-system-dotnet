@@ -311,7 +311,7 @@ public sealed class WorldPlanOperationWireDto
         if (string.IsNullOrWhiteSpace(Type) || JarIndex is < 0 || Consumed == null ||
             Consumed.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value < 0) ||
             (RuleId == null) != (RuleVersion == null) ||
-            RuleVersion is < 0)
+            (RuleId != null && (string.IsNullOrWhiteSpace(RuleId) || RuleVersion is not > 0)))
             throw new InvalidOperationException("Plan operation Wire DTO 无效。");
     }
 }
