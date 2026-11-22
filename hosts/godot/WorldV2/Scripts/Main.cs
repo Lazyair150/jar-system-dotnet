@@ -113,8 +113,11 @@ public partial class Main : Control
         foreach (var name in names)
             option.AddItem(name);
 
+        if (names.Length == 0)
+            return;
+
         var selectedIndex = Array.IndexOf(names, preferred ?? string.Empty);
-        option.Select(selectedIndex >= 0 ? selectedIndex : names.Length > 0 ? 0 : -1);
+        option.Select(selectedIndex >= 0 ? selectedIndex : 0);
     }
 
     private void RefreshReplacementControls(WorldV2SnapshotDto snapshot)
@@ -184,15 +187,15 @@ public partial class Main : Control
         RefreshReplacementControls(snapshot);
 
         _snapshotLabel.Text =
-            $"世界时间：{snapshot.WorldTimeMilli} ms\\n" +
-            $"逻辑时间：{snapshot.LogicalTimeMilli} ms\\n" +
-            $"流速倍率：{snapshot.SpeedRatioMilli / 1000.0:0.###}x\\n" +
-            $"主工作台：{snapshot.Master?.Name ?? "-"}\\n" +
-            $"从工作台：{snapshot.Slave?.Name ?? "-"}\\n" +
-            $"备用工作台：{string.Join("、", snapshot.SpareWorkshops.Select(item => item.Name))}\\n" +
-            $"订单数量：{snapshot.Demands.Count}\\n" +
-            $"执行会话：{snapshot.ActiveSessions.Count}\\n" +
-            $"预约数量：{snapshot.ReservationCount}\\n" +
+            $"世界时间：{snapshot.WorldTimeMilli} ms\n" +
+            $"逻辑时间：{snapshot.LogicalTimeMilli} ms\n" +
+            $"流速倍率：{snapshot.SpeedRatioMilli / 1000.0:0.###}x\n" +
+            $"主工作台：{snapshot.Master?.Name ?? "-"}\n" +
+            $"从工作台：{snapshot.Slave?.Name ?? "-"}\n" +
+            $"备用工作台：{string.Join("、", snapshot.SpareWorkshops.Select(item => item.Name))}\n" +
+            $"订单数量：{snapshot.Demands.Count}\n" +
+            $"执行会话：{snapshot.ActiveSessions.Count}\n" +
+            $"预约数量：{snapshot.ReservationCount}\n" +
             $"运行故障：{snapshot.RuntimeFaulted}";
     }
 }
