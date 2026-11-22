@@ -149,8 +149,9 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
         // That is a distinct branch from preparing the requirement Jar in place.
         Assert.Equal(3, result.ExploredBranches);
         Assert.Equal(2, result.Alternatives!.Groups.Count);
-        var sameJarGroup = Assert.Single(result.Alternatives.Groups.Where(
-            group => group.RequiredJarStates.Values.Sum() == 1));
+        var sameJarGroup = Assert.Single(
+            result.Alternatives.Groups,
+            group => group.RequiredJarStates.Values.Sum() == 1);
         Assert.Empty(sameJarGroup.RequiredFreeLiquid);
         Assert.Single(sameJarGroup.RequiredJarStates);
         Assert.Contains(result.Alternatives.Groups, group =>
