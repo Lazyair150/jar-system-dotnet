@@ -226,10 +226,11 @@ public sealed class WorldOrderResourceRequirementAlternativeSet
             throw new ArgumentException("资源组身份不能重复", nameof(groups));
         if (copied.Any(x => x.ProviderRole != providerRole || x.ConsumerRole != consumerRole))
             throw new ArgumentException("资源组必须匹配集合声明的提供/使用岗位", nameof(groups));
+        // Provider ban constrains only free liquid in the provider workshop staging account.
+        // Jar identity/state is an independent resource domain and is not screened here.
         if (copied.SelectMany(x => x.Requirements).Any(x =>
-            (x.Kind == WorldOrderBoundaryResourceKind.FreeLiquid && banned.Contains(x.Liquid!)) ||
-            (x.Kind == WorldOrderBoundaryResourceKind.JarState && x.JarLiquid != null && banned.Contains(x.JarLiquid))))
-            throw new ArgumentException("主台 ban 的液体不能出现在任何可交接资源组中", nameof(groups));
+            x.Kind == WorldOrderBoundaryResourceKind.FreeLiquid && banned.Contains(x.Liquid!)))
+            throw new ArgumentException("主台 ban 的液体不能作为游离液体跨越交接边界", nameof(groups));
         if (status == WorldOrderResourceRequirementSetStatus.Complete && copied.Length == 0)
             throw new ArgumentException("完整的可行替代集合至少包含一个资源组；无解应使用 Infeasible", nameof(groups));
         if (status == WorldOrderResourceRequirementSetStatus.Infeasible && copied.Length != 0)
