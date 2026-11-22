@@ -41,6 +41,21 @@ public sealed class WorldOrderSolveBookTests
         new(passive, active);
 
     [Fact]
+    public void SolverRegistryReusesTheSolveBooksRuleCandidateProfile()
+    {
+        var board = Board();
+        var demand = Demand();
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+
+        var result = book.Evaluate(demand.Id, Snapshot(new Jar("圆罐")), Registry());
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Result!.Status);
+        Assert.True(book.RuleCandidates.CacheMisses >= 1);
+        Assert.True(book.RuleCandidates.CacheHits >= 1);
+    }
+
+    [Fact]
     public void NewDemandIsDirtyAndSuccessfulEvaluationIsCachedForSameWorldVersion()
     {
         var board = Board();
