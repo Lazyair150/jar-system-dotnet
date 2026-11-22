@@ -46,7 +46,12 @@ internal sealed class GreedyPlanBuilder
     {
         var s = req.Shape; var lq = req.Liquid!;
         var ex = FindJar(w.Jars, j => j.Shape == s && j.Liquid == lq && !j.IsMarked);
-        if (ex != null) { ex.Mark(); return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null); }
+        if (ex != null)
+        {
+            var matched = w.MarkJar(ex);
+            if (!matched.Success) return (false, null, matched.Reason);
+            return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+        }
 
         var emp = FindJar(w.Jars, j => j.Shape == s && j.IsEmpty() && !j.IsMarked);
         if (emp != null)
@@ -76,7 +81,12 @@ internal sealed class GreedyPlanBuilder
     {
         var s = req.Shape;
         var ex = FindJar(w.Jars, j => j.Shape == s && j.IsEmpty() && !j.IsMarked);
-        if (ex != null) { ex.Mark(); return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null); }
+        if (ex != null)
+        {
+            var matched = w.MarkJar(ex);
+            if (!matched.Success) return (false, null, matched.Reason);
+            return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+        }
 
         var sr = FindJar(w.Jars, j => j.IsEmpty() && !j.IsMarked && w.CanTransform(j.Shape, s));
         if (sr != null)
