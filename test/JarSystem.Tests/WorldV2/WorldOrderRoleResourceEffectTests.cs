@@ -53,6 +53,28 @@ public sealed class WorldOrderRoleResourceEffectTests
     }
 
     [Fact]
+    public void SymbolicSolutionExposesRoleLedgersWithoutRemovingLegacyAggregateTotals()
+    {
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate(
+                "Master", Candidate(0, consumedFree: "酒", producedFree: "蜜", consumedJar: null)),
+            new WorldOrderAssignedRuleCandidate(
+                "Slave", Candidate(1, consumedFree: "蜜", producedFree: "酒", consumedJar: null))
+        });
+
+        Assert.Equal(1, solution.ResourceEffectsByRole["Master"].GrossFreeLiquidConsumption["酒"]);
+        Assert.Equal(1, solution.ResourceEffectsByRole["Slave"].GrossFreeLiquidConsumption["蜜"]);
+
+        // Legacy totals remain available for diagnostics/backward compatibility only.
+        // They intentionally do not encode account ownership or prove transfer.
+        Assert.Equal(1, solution.GrossFreeLiquidConsumption["酒"]);
+        Assert.Equal(1, solution.GrossFreeLiquidConsumption["蜜"]);
+        Assert.Equal(1, solution.GrossFreeLiquidProduction["蜜"]);
+        Assert.Equal(1, solution.GrossFreeLiquidProduction["酒"]);
+    }
+
+    [Fact]
     public void SingleRoleSolutionDoesNotInventSlaveLedger()
     {
         var effects = WorldOrderRoleResourceEffect.AggregateByRole(new[]
