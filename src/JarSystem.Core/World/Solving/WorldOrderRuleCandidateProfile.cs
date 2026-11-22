@@ -307,6 +307,13 @@ public sealed class WorldOrderRuleCandidateBook
         return built;
     }
 
+    public void Clear()
+    {
+        _profiles.Clear();
+        CacheHits = 0;
+        CacheMisses = 0;
+    }
+
     private readonly record struct CacheKey(
         string Role,
         string RuleSetVersion,
