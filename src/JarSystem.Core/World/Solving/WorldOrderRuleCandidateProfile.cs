@@ -299,7 +299,7 @@ public static class WorldOrderRuleCandidateCatalog
         foreach (var item in syntheticSupply)
         {
             var receipt = staging.Receive(1, item.Key, item.Value);
-            if (receipt.Accepted != item.Value) return;
+            if (receipt.AcceptedAmount != item.Value) return;
         }
 
         var evaluation = WorkshopRulebook.EvaluateTransition(
