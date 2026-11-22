@@ -134,7 +134,10 @@ public sealed class WorldOrderSolveBook : IDisposable
             record.Result is { IsFeasible: true, Plan: not null } previous &&
             !string.IsNullOrWhiteSpace(previous.RuleSetVersion) &&
             string.Equals(previous.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) &&
-            string.Equals(previous.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal))
+            string.Equals(previous.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal) &&
+            demand.Specification is JarOrderSpecification currentSpecification &&
+            string.Equals(previous.SpecificationVersion,
+                WorldOrderRuleCandidateCatalog.Fingerprint(currentSpecification), StringComparison.Ordinal))
         {
             try
             {
