@@ -215,7 +215,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                             !expectedIds.Contains(item.Id.Value))
                         // Transfer 阶段会清除所有转入罐子的主台阶段标记。
                         .Select(item => new WorldPlanJarState(
-                            item.Id, item.Shape, item.Liquid, IsMarked: false, item.MasterOrigin));
+                            item.Id, item.Shape, item.Liquid, false, item.MasterOrigin));
                     expectedSlave = expectedSlave.Concat(masterCompletedDeliveryJars).ToArray();
                 }
 
