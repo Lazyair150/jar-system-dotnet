@@ -60,6 +60,8 @@ public sealed class WorldOrderResourceManifest
             throw new InvalidOperationException("Wire manifest identity or collections are invalid.");
         var masterIds = masterJarIds.ToArray();
         var transferIds = transferJarIds.ToArray();
+        // The sets may overlap: a jar can be processed on the master path and then
+        // transferred to the slave path. LockedJarIds is their union, not a partition.
         if (masterIds.Any(x => x <= 0) || transferIds.Any(x => x <= 0) ||
             masterIds.Distinct().Count() != masterIds.Length ||
             transferIds.Distinct().Count() != transferIds.Length)
