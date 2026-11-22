@@ -789,9 +789,9 @@ public sealed class WorkshopReplacementTests
             ["蜜"] = 0.0005
         });
         var resources = new ResourceArea(producers, production, 0, 0, ship);
-        Workshop CreateWorkshop(string name) => new(name, new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
-        var firstMaster = CreateWorkshop("主台 A");
+        Workshop CreateWorkshop(string name, int stagingCapacity = 4) => new(name, new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: stagingCapacity);
+        var firstMaster = CreateWorkshop("主台 A", stagingCapacity: 2);
         var secondMaster = CreateWorkshop("备用台 B");
         var slave = CreateWorkshop("从台");
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
@@ -892,7 +892,7 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(8, ship.UsedCapacity);
         production.SetRate("蜜", 0);
 
-        // 新主台预置占用回滚保留容量；生产先填满剩余可用容量。
+        // 新主台只预置 2 份，旧主台待返还 4 份；自机液库仅有 2 个空位。
         var second = world.Runtime.BeginReplacement(
             WorkshopRole.Master, firstMaster, new NoOrderInterruption(), 1_000);
         Assert.True(second.Success, second.Error);
