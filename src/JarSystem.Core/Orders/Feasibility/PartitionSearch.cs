@@ -233,11 +233,12 @@ public sealed class PartitionSearch
                 Record("master-infeasible", mask, masterSignature, slaveSignature, mr.Blockage);
                 continue;
             }
+            var masterPath = mr.Path!;
             Record("master-feasible", mask, masterSignature, slaveSignature);
 
             // 契约检查：主台终态必须能拿到（FinalJars 或路径末步快照），否则从台池无从构造
             bool hasFinalState = mr.FinalJars != null
-                || (mr.Path.Count > 0 && mr.Path[^1].After != null);
+                || (masterPath.Count > 0 && masterPath[^1].After != null);
             if (!hasFinalState)
             {
                 diagnosticInconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
@@ -258,10 +259,10 @@ public sealed class PartitionSearch
                 masterFinal = mr.FinalJars;
                 masterFinalLiq = mr.FinalLiquids ?? masterLiquids;
             }
-            else if (mr.Path.Count > 0 && mr.Path[^1].After != null)
+            else if (masterPath.Count > 0 && masterPath[^1].After != null)
             {
-                masterFinal = mr.Path[^1].After!;
-                masterFinalLiq = mr.Path[^1].AfterLiquids ?? masterLiquids;
+                masterFinal = masterPath[^1].After!;
+                masterFinalLiq = masterPath[^1].AfterLiquids ?? masterLiquids;
             }
 
             // 主台交付罐：主台子集需求在终态中匹配的罐子，转移后必须原样交付，
@@ -327,7 +328,7 @@ public sealed class PartitionSearch
             if (sr.Feasible)
             {
                 var transferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path!);
-                var masterPeak = LiquidRequirementCalculator.ComputePeakCapacity(mr.Path, transferLiquids);
+                var masterPeak = LiquidRequirementCalculator.ComputePeakCapacity(masterPath, transferLiquids);
                 var slavePeak = LiquidRequirementCalculator.ComputePeakCapacity(sr.Path!);
                 if (masterPeak > request.MasterInfo.MaxLiquidCapacity)
                 {
@@ -359,13 +360,13 @@ public sealed class PartitionSearch
                 report = BuildReport(true);
                 return new PartitionSearchOutcome
                 {
-                    MasterPath = mr.Path,
+                    MasterPath = masterPath,
                     SlavePath = sr.Path!,
                     TransferJarIds = transferIds.OrderBy(x => x).ToList(),
                     TransferLiquids = transferLiquids,
-                    DirectCount = mr.Path.Count(s => s.Operation?.Type == "MATCH")
+                    DirectCount = masterPath.Count(s => s.Operation?.Type == "MATCH")
                                 + sr.Path!.Count(s => s.Operation?.Type == "MATCH"),
-                    OperationCount = mr.Path.Count(s => s.Operation?.Type != "MATCH")
+                    OperationCount = masterPath.Count(s => s.Operation?.Type != "MATCH")
                                    + sr.Path!.Count(s => s.Operation?.Type != "MATCH")
                 };
             }
