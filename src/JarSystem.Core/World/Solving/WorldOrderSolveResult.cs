@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.World.Demands;
 
 namespace JarSystem.Core.World.Solving;
@@ -19,6 +20,8 @@ public sealed class WorldOrderSolveResult
     public int DirectCount { get; }
     public int OperationCount { get; }
     public WorldOrderSolvePlan? Plan { get; }
+    /// <summary>B 类订单划分搜索的只读漏斗诊断；不参与计划执行或资源预留。</summary>
+    public PartitionSearchReport? PartitionReport { get; }
 
     public bool IsFeasible => Status == WorldOrderSolveStatus.Feasible;
     public bool IsUndetermined => Status == WorldOrderSolveStatus.Undetermined;
@@ -31,7 +34,8 @@ public sealed class WorldOrderSolveResult
         string? reason = null,
         int directCount = 0,
         int operationCount = 0,
-        WorldOrderSolvePlan? plan = null)
+        WorldOrderSolvePlan? plan = null,
+        PartitionSearchReport? partitionReport = null)
     {
         if (demandId <= 0) throw new ArgumentOutOfRangeException(nameof(demandId));
         if (string.IsNullOrWhiteSpace(worldVersion))
@@ -52,6 +56,7 @@ public sealed class WorldOrderSolveResult
         if (status != WorldOrderSolveStatus.Feasible && plan != null)
             throw new ArgumentException("只有可行结果可以携带求解计划", nameof(plan));
         Plan = plan;
+        PartitionReport = partitionReport;
     }
 }
 
