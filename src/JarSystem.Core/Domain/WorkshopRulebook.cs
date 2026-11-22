@@ -421,36 +421,8 @@ public static class WorkshopRulebook
     /// <para>顺序固定是为了可复现：同一状态永远给出同一个序列，测试可以逐项比对。</para>
     /// </summary>
     public static List<WorkshopOperation> Available(RuleContext rules, int maxLiquids, in JarFacts jar,
-        IReadOnlyDictionary<string, int> liquids)
-    {
-        var list = new List<WorkshopOperation>(8);
-
-        if (jar.IsMarked) return list;
-
-        if (IsAllowed(rules, maxLiquids, jar, WorkshopOperation.PourOut(), liquids))
-            list.Add(WorkshopOperation.PourOut());
-
-        foreach (var liquid in Config.Constants.LIQUIDS)
-        {
-            var op = WorkshopOperation.PourIn(liquid);
-            if (IsAllowed(rules, maxLiquids, jar, op, liquids)) list.Add(op);
-        }
-
-        var targets = rules.GetPossibleTransforms(jar.Shape);
-        foreach (var target in targets)
-        {
-            foreach (var cost in Config.Constants.LIQUIDS)
-            {
-                var op = WorkshopOperation.ReshapeEmpty(target, cost);
-                if (IsAllowed(rules, maxLiquids, jar, op, liquids)) list.Add(op);
-            }
-
-            var full = WorkshopOperation.ReshapeFull(target);
-            if (IsAllowed(rules, maxLiquids, jar, full, liquids)) list.Add(full);
-        }
-
-        return list;
-    }
+        IReadOnlyDictionary<string, int> liquids) =>
+        AvailableCore(rules, jar, op => IsAllowed(rules, maxLiquids, jar, op, liquids));
 
     /// <summary>
     /// 订单暂存版本的规则判定。容量使用工作台所有订单子账的合计剩余空间，
@@ -464,100 +436,7 @@ public static class WorkshopRulebook
         in JarFacts jar, in WorkshopOperation op)
     {
         if (scope == null) throw new System.ArgumentNullException(nameof(scope));
-        if (rules.HasUnresolvableRequirements())
-            return WorkshopRuleDecision.Undetermined(
-                "modifier.required-predicate-unavailable",
-                "存在当前生效但没有可执行谓词的 Require 规则");
-        if (rules.RequiredViolation() is { } requiredViolation)
-            return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
-
-        var liquids = scope.Balance;
-        var liquidRules = new LiquidRules(rules.Capability, 0);
-        var reshapeRules = new ReshapeRules(rules, liquidRules);
-
-        if (jar.IsMarked)
-            return WorkshopRuleDecision.Reject("jar.already-operated", "罐子已被操作");
-
-        switch (op.Kind)
-        {
-            case WorkshopOperationKind.PourIn:
-            {
-                var liquid = op.TargetLiquid;
-                if (liquid == null)
-                    return WorkshopRuleDecision.Reject("operation.missing-liquid", "灌入操作缺少目标液体");
-                if (jar.Liquid != null)
-                    return WorkshopRuleDecision.Reject("jar.not-empty", "罐子不为空");
-                if (!rules.IsBaseMarked(jar.Shape))
-                    return WorkshopRuleDecision.Reject("workshop.shape-not-base-marked", "形状" + jar.Shape + "非本工作台基础标记");
-                if (rules.SuppressionReason("POUR_IN", jar.Shape, liquid) is { } suppressed)
-                    return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
-                var payment = liquidRules.CanPay(liquid, 1, Count(liquids, liquid));
-                if (!payment.Granted)
-                    return WorkshopRuleDecision.Reject("liquid.unavailable", payment.Reason ?? "液体不可用");
-                var scopePayment = scope.CanConsume(liquid, 1);
-                return scopePayment.Granted
-                    ? WorkshopRuleDecision.Allow()
-                    : WorkshopRuleDecision.Reject("resource.scope-insufficient", scopePayment.Reason ?? "订单液体子账不足");
-            }
-
-            case WorkshopOperationKind.PourOut:
-            {
-                var liquid = jar.Liquid;
-                if (liquid == null)
-                    return WorkshopRuleDecision.Reject("jar.empty", "罐子为空");
-                if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) is { } suppressed)
-                    return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
-                var usable = liquidRules.Check(liquid);
-                if (!usable.Granted)
-                    return WorkshopRuleDecision.Reject("liquid.banned", usable.Reason ?? "液体不可取用");
-                var receive = scope.CanReceiveOperation(liquid, 1);
-                return receive.Granted
-                    ? WorkshopRuleDecision.Allow()
-                    : WorkshopRuleDecision.Reject("resource.scope-capacity", receive.Reason ?? "订单暂存空间不可接收");
-            }
-
-            case WorkshopOperationKind.ReshapeEmpty:
-            {
-                var target = op.TargetShape;
-                var cost = op.CostLiquid;
-                if (target == null || cost == null)
-                    return WorkshopRuleDecision.Reject("operation.incomplete-reshape", "改形操作缺少目标形状或成本液体");
-                if (jar.Liquid != null)
-                    return WorkshopRuleDecision.Reject("jar.not-empty", "必须为空罐");
-                if (!reshapeRules.CanTransform(jar.Shape, target))
-                    return WorkshopRuleDecision.Reject("shape.transform-not-allowed", "无法从" + jar.Shape + "转化为" + target);
-                if (rules.SuppressionReason("RESHAPE", jar.Shape, cost) is { } suppressed)
-                    return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
-                var payment = reshapeRules.PayCost(cost, liquids);
-                if (!payment.Granted)
-                    return WorkshopRuleDecision.Reject("liquid.reshape-cost-unavailable", payment.Reason ?? "改形成本不足");
-                var scopePayment = scope.CanConsume(cost, 1);
-                return scopePayment.Granted
-                    ? WorkshopRuleDecision.Allow()
-                    : WorkshopRuleDecision.Reject("resource.scope-insufficient", scopePayment.Reason ?? "订单液体子账不足");
-            }
-
-            case WorkshopOperationKind.ReshapeFull:
-            {
-                var target = op.TargetShape;
-                if (target == null)
-                    return WorkshopRuleDecision.Reject("operation.missing-target-shape", "改形操作缺少目标形状");
-                var liquid = jar.Liquid;
-                if (liquid == null)
-                    return WorkshopRuleDecision.Reject("jar.not-full", "必须为满罐");
-                if (!reshapeRules.CanTransform(jar.Shape, target))
-                    return WorkshopRuleDecision.Reject("shape.transform-not-allowed", "无法从" + jar.Shape + "转化为" + target);
-                if (rules.SuppressionReason("RESHAPE", jar.Shape, liquid) is { } suppressed)
-                    return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
-                var selfConsume = reshapeRules.SelfConsume(liquid);
-                return selfConsume.Granted
-                    ? WorkshopRuleDecision.Allow()
-                    : WorkshopRuleDecision.Reject("liquid.jar-self-consume-unavailable", selfConsume.Reason ?? "罐内液体不可自耗");
-            }
-
-            default:
-                return WorkshopRuleDecision.Reject("operation.unsupported", "不支持的工作台操作");
-        }
+        return EvaluateCore(rules, 0, scope, jar, op, scope.Balance);
     }
 
     /// <summary>
@@ -581,29 +460,37 @@ public static class WorkshopRulebook
     public static List<WorkshopOperation> Available(RuleContext rules, OrderLiquidScope scope,
         in JarFacts jar)
     {
+        if (scope == null) throw new System.ArgumentNullException(nameof(scope));
+        return AvailableCore(rules, jar, op => IsAllowed(rules, scope, jar, op));
+    }
+
+    private static List<WorkshopOperation> AvailableCore(
+        RuleContext rules,
+        in JarFacts jar,
+        Func<WorkshopOperation, bool> isAllowed)
+    {
         var list = new List<WorkshopOperation>(8);
         if (jar.IsMarked) return list;
 
-        if (IsAllowed(rules, scope, jar, WorkshopOperation.PourOut()))
-            list.Add(WorkshopOperation.PourOut());
+        var pourOut = WorkshopOperation.PourOut();
+        if (isAllowed(pourOut)) list.Add(pourOut);
 
         foreach (var liquid in Config.Constants.LIQUIDS)
         {
-            var op = WorkshopOperation.PourIn(liquid);
-            if (IsAllowed(rules, scope, jar, op)) list.Add(op);
+            var pourIn = WorkshopOperation.PourIn(liquid);
+            if (isAllowed(pourIn)) list.Add(pourIn);
         }
 
-        var targets = rules.GetPossibleTransforms(jar.Shape);
-        foreach (var target in targets)
+        foreach (var target in rules.GetPossibleTransforms(jar.Shape))
         {
             foreach (var cost in Config.Constants.LIQUIDS)
             {
-                var op = WorkshopOperation.ReshapeEmpty(target, cost);
-                if (IsAllowed(rules, scope, jar, op)) list.Add(op);
+                var reshapeEmpty = WorkshopOperation.ReshapeEmpty(target, cost);
+                if (isAllowed(reshapeEmpty)) list.Add(reshapeEmpty);
             }
 
-            var full = WorkshopOperation.ReshapeFull(target);
-            if (IsAllowed(rules, scope, jar, full)) list.Add(full);
+            var reshapeFull = WorkshopOperation.ReshapeFull(target);
+            if (isAllowed(reshapeFull)) list.Add(reshapeFull);
         }
 
         return list;
