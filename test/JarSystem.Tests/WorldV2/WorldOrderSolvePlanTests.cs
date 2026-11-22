@@ -25,7 +25,9 @@ public sealed class WorldOrderSolvePlanTests
                 Type = "RESHAPE",
                 JarIndex = 0,
                 TargetShape = "方罐",
-                Consumed = consumed
+                Consumed = consumed,
+                RuleId = "RESHAPE_FULL",
+                RuleVersion = 3
             },
             Before = new List<JarState> { new() { Id = 7, Shape = "圆罐", IsMarked = false } },
             After = after,
@@ -35,12 +37,16 @@ public sealed class WorldOrderSolvePlanTests
         var plan = WorldOrderSolvePlan.SinglePhase(new[] { source });
 
         source.Operation.Type = "MUTATED";
+        source.Operation.RuleId = "MUTATED_RULE";
+        source.Operation.RuleVersion = 99;
         source.After[0].Shape = "被篡改";
         consumed["酒"] = 99;
         after.Clear();
 
         var step = Assert.Single(plan.MasterSteps);
         Assert.Equal("RESHAPE", step.Operation!.Type);
+        Assert.Equal("RESHAPE_FULL", step.Operation.RuleId);
+        Assert.Equal(3, step.Operation.RuleVersion);
         Assert.Equal("方罐", Assert.Single(step.After).Shape);
         Assert.Equal(2, step.Operation.Consumed["酒"]);
         Assert.Throws<NotSupportedException>(() =>
