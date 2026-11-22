@@ -4,7 +4,7 @@ The Release build is necessary but does not prove that the Godot scene starts or
 
 ## 1. Open the standalone project
 
-1. Check out the `world-v2/phase-4-godot-host-project` branch of `jar-system-dotnet`.
+1. Check out the `world-v2/phase-4.10b-8-versioned-world-checkpoint` branch of `jar-system-dotnet` (the current PR branch, based on the Godot host project).
 2. Open Godot 4.7.1 **.NET**.
 3. Import `hosts/godot/WorldV2/project.godot` as a separate project.
 4. Wait for the C# solution restore/build to finish.
