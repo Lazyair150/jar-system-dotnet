@@ -198,72 +198,10 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
                 return new SolverResult { Feasible = false };
             }
 
-            var additionalMarks = new List<string>(workshopInfo.Capability.AdditionalMarks);
-            var bannedLiquids = new List<string>(workshopInfo.Capability.Ban);
-            var removedShapes = new HashSet<string>(StringComparer.Ordinal);
-
-            foreach (var modifier in source.SolverModifiers)
-            {
-                if (modifier.IsOpaque)
-                {
-                    _inconclusive = "存在无法表达的规则: " + modifier.Name;
-                    return new SolverResult { Feasible = false };
-                }
-
-                if (modifier.RuntimeType.EndsWith(nameof(GrantModifier), StringComparison.Ordinal))
-                {
-                    if (string.IsNullOrWhiteSpace(modifier.Shape))
-                    {
-                        _inconclusive = "附加标记规则缺少形状";
-                        return new SolverResult { Feasible = false };
-                    }
-                    if (!additionalMarks.Contains(modifier.Shape) &&
-                        !workshopInfo.Capability.BaseMarks.Contains(modifier.Shape))
-                        additionalMarks.Add(modifier.Shape);
-                    continue;
-                }
-
-                if (modifier.RuntimeType.EndsWith(nameof(SuppressModifier), StringComparison.Ordinal))
-                {
-                    if (string.IsNullOrEmpty(modifier.Operation) && string.IsNullOrEmpty(modifier.Shape) &&
-                        !string.IsNullOrEmpty(modifier.Liquid))
-                    {
-                        if (!bannedLiquids.Contains(modifier.Liquid))
-                            bannedLiquids.Add(modifier.Liquid);
-                        continue;
-                    }
-
-                    if (string.IsNullOrEmpty(modifier.Operation) && string.IsNullOrEmpty(modifier.Liquid) &&
-                        !string.IsNullOrEmpty(modifier.Shape))
-                    {
-                        removedShapes.Add(modifier.Shape);
-                        continue;
-                    }
-
-                    _inconclusive = "存在无法精确投影的抑制规则: " + modifier.Name;
-                    return new SolverResult { Feasible = false };
-                }
-
-                _inconclusive = "存在未知求解规则: " + modifier.Name;
-                return new SolverResult { Feasible = false };
-            }
-
-            var projectedInfo = new WorkshopInfo
-            {
-                Capability = new WorkshopCapability(
-                    workshopInfo.Capability.BaseMarks,
-                    additionalMarks,
-                    bannedLiquids),
-                MaxJars = workshopInfo.MaxJars,
-                MaxLiquids = workshopInfo.MaxLiquids,
-                MaxLiquidCapacity = workshopInfo.MaxLiquidCapacity
-            };
-
-            var projectedJars = removedShapes.Count == 0
-                ? jars
-                : jars.Where(j => !removedShapes.Contains(j.Shape)).ToList();
-
-            return _inner.Solve(requirements, projectedInfo, projectedJars, liquids, transferBudget);
+            // WorkshopSolveSnapshot 已经重建出只读 RuleContext。
+            // 规则在规则引擎内精确求值，不再被压扁成 Ban/AdditionalMarks，
+            // 更不能把“禁止某形状操作”错误地解释成“删除该形状的 Jar”。
+            return _inner.Solve(requirements, workshopInfo, jars, liquids, transferBudget);
         }
     }
 }
