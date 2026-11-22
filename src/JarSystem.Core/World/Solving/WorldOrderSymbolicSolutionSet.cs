@@ -182,7 +182,7 @@ public static class WorldOrderSymbolicSolutionBuilder
 
         return Result(
             solutions.Count == 0
-                ? WorldOrderSymbolicSolutionStatus.Infeasible
+                ? WorldOrderSymbolicSolutionStatus.NoDirectCandidate
                 : WorldOrderSymbolicSolutionStatus.EnumerationComplete,
             profiles, solutions, exploredNodes, null);
     }
