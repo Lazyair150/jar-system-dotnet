@@ -198,6 +198,9 @@ public sealed class WorldV2Context : IDisposable
         Resources.ValidateRuntimeStateSnapshot(checkpoint.ResourceArea);
         if (!string.Equals(ConfigurationFingerprint, checkpoint.ConfigurationFingerprint, StringComparison.Ordinal))
             throw new InvalidOperationException("检查点配置指纹与当前世界不一致，拒绝恢复。");
+        if (!Shapes.SequenceEqual(checkpoint.Shapes, StringComparer.Ordinal) ||
+            !Liquids.SequenceEqual(checkpoint.Liquids, StringComparer.Ordinal))
+            throw new InvalidOperationException("检查点形状/液体词表与当前世界配置不一致，拒绝恢复。");
         if (checkpoint.ShipLiquidInventory.Capacity != ShipLiquidInventory.Capacity)
             throw new InvalidOperationException("检查点自机液库容量与当前世界配置不一致。");
         if ((Roster.Slave == null) != (checkpoint.SlaveWorkshop == null))
