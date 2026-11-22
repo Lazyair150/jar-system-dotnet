@@ -55,6 +55,9 @@ public sealed class PartitionSearchReport
     public int MonotonicityPrunedCount { get; }
     public int DuplicatePartitionPrunedCount { get; }
     public bool OutcomeFound { get; }
+    public bool IsFeasible => OutcomeFound;
+    public bool IsUndetermined => InconclusiveReason != null;
+    public bool IsInfeasible => !OutcomeFound && InconclusiveReason == null;
     public string? LastBlockage { get; }
     public string? InconclusiveReason { get; }
     public IReadOnlyList<PartitionSearchTraceEvent> Events { get; }
