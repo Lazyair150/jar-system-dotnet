@@ -207,9 +207,9 @@ public sealed class WorldSnapshotTests
         master.ReplaceCapability(new WorkshopCapability(
             new[] { "方罐" }, System.Array.Empty<string>(), System.Array.Empty<string>()));
         var profileChanged = WorldSnapshotFactory.Capture(roster);
-        Assert.Equal(baseline.RuleSetVersion, profileChanged.RuleSetVersion);
-        Assert.NotEqual(baseline.WorkshopProfileVersion, profileChanged.WorkshopProfileVersion);
-        Assert.Equal(baseline.ResourceVersion, profileChanged.ResourceVersion);
+        Assert.Equal(ruleChanged.RuleSetVersion, profileChanged.RuleSetVersion);
+        Assert.NotEqual(ruleChanged.WorkshopProfileVersion, profileChanged.WorkshopProfileVersion);
+        Assert.Equal(ruleChanged.ResourceVersion, profileChanged.ResourceVersion);
     }
 
     [Fact]
