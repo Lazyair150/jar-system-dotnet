@@ -278,6 +278,9 @@ public sealed class WorldV2ApplicationServiceTests
         var beforeReplacement = app.GetWorldSnapshot();
         Assert.Single(beforeReplacement.ActiveSessions);
         Assert.Equal(1, beforeReplacement.ReservationCount);
+        var spareBeforeReplacement = Assert.Single(beforeReplacement.SpareWorkshops);
+        Assert.Equal("备用台", spareBeforeReplacement.Name);
+        Assert.False(spareBeforeReplacement.HasResources);
 
         var begin = app.BeginWorkshopReplacement(
             WorkshopRole.Master, "备用台", phaseDurationLogicalMilli: 1_000);
@@ -301,6 +304,9 @@ public sealed class WorldV2ApplicationServiceTests
 
         var completed = app.GetWorldSnapshot();
         Assert.Equal("备用台", completed.Master!.Name);
+        var displacedMaster = Assert.Single(completed.SpareWorkshops);
+        Assert.Equal("主台", displacedMaster.Name);
+        Assert.False(displacedMaster.HasResources);
         Assert.NotNull(completed.Replacement);
         Assert.True(completed.Replacement!.IsFinished);
         Assert.True(completed.Replacement.Succeeded);
@@ -415,6 +421,9 @@ public sealed class WorldV2ApplicationServiceTests
         var completed = app.GetWorldSnapshot();
         Assert.Equal("主台", completed.Master!.Name);
         Assert.Equal("备用台", completed.Slave!.Name);
+        var displacedSlave = Assert.Single(completed.SpareWorkshops);
+        Assert.Equal("从台", displacedSlave.Name);
+        Assert.False(displacedSlave.HasResources);
         Assert.True(completed.Replacement!.IsFinished);
         Assert.True(completed.Replacement.Succeeded);
         Assert.False(completed.RuntimeFaulted);
