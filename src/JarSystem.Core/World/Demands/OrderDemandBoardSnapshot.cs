@@ -18,13 +18,15 @@ public sealed class OrderDemandBoardSnapshot
     public DemandAreaFulfillmentPolicy ActiveFulfillmentPolicy { get; }
     public IReadOnlyList<OrderDemandSnapshot> PassiveDemands { get; }
     public IReadOnlyList<OrderDemandSnapshot> ActiveDemands { get; }
+    public OrderCycleOutboxSnapshot Outbox { get; }
 
     public OrderDemandBoardSnapshot(
         int demandIdSequence,
         DemandAreaFulfillmentPolicy passiveFulfillmentPolicy,
         DemandAreaFulfillmentPolicy activeFulfillmentPolicy,
         IEnumerable<OrderDemandSnapshot> passiveDemands,
-        IEnumerable<OrderDemandSnapshot> activeDemands)
+        IEnumerable<OrderDemandSnapshot> activeDemands,
+        OrderCycleOutboxSnapshot? outbox = null)
     {
         if (demandIdSequence < 0) throw new ArgumentOutOfRangeException(nameof(demandIdSequence));
         if (!Enum.IsDefined(passiveFulfillmentPolicy))
@@ -37,13 +39,16 @@ public sealed class OrderDemandBoardSnapshot
         ActiveFulfillmentPolicy = activeFulfillmentPolicy;
         PassiveDemands = Array.AsReadOnly((passiveDemands ?? throw new ArgumentNullException(nameof(passiveDemands))).ToArray());
         ActiveDemands = Array.AsReadOnly((activeDemands ?? throw new ArgumentNullException(nameof(activeDemands))).ToArray());
+        Outbox = outbox ?? new OrderCycleOutbox().Capture();
 
         var all = PassiveDemands.Concat(ActiveDemands).ToArray();
         if (all.Any(item => item == null))
             throw new ArgumentException("需求板检查点不能包含 null 订单");
         if (all.Any(item => item.Id <= 0 || item.CooldownDurationLogicalMilli < 0 ||
             item.CooldownRemainingLogicalMilli < 0 ||
-            item.CooldownRemainingLogicalMilli > item.CooldownDurationLogicalMilli))
+            item.CooldownRemainingLogicalMilli > item.CooldownDurationLogicalMilli ||
+            item.CycleSequence < 0 ||
+            (item.OrderDefinitionKey != null && string.IsNullOrWhiteSpace(item.OrderDefinitionKey))))
             throw new ArgumentException("需求板检查点包含非法订单身份或冷却状态");
         if (all.Select(item => item.Id).Distinct().Count() != all.Length)
             throw new ArgumentException("需求板检查点包含重复需求 ID");
@@ -60,19 +65,25 @@ public sealed class OrderDemandSnapshot
     public IReadOnlyList<OrderRequirementSnapshot> Requirements { get; }
     public long CooldownDurationLogicalMilli { get; }
     public long CooldownRemainingLogicalMilli { get; }
+    public string? OrderDefinitionKey { get; }
+    public long CycleSequence { get; }
 
     public OrderDemandSnapshot(
         int id,
         string type,
         IEnumerable<OrderRequirementSnapshot> requirements,
         long cooldownDurationLogicalMilli,
-        long cooldownRemainingLogicalMilli)
+        long cooldownRemainingLogicalMilli,
+        string? orderDefinitionKey = null,
+        long cycleSequence = 0)
     {
         Id = id;
         Type = type ?? throw new ArgumentNullException(nameof(type));
         Requirements = Array.AsReadOnly((requirements ?? throw new ArgumentNullException(nameof(requirements))).ToArray());
         CooldownDurationLogicalMilli = cooldownDurationLogicalMilli;
         CooldownRemainingLogicalMilli = cooldownRemainingLogicalMilli;
+        OrderDefinitionKey = orderDefinitionKey;
+        CycleSequence = cycleSequence;
     }
 }
 
