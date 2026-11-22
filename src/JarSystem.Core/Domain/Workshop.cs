@@ -357,8 +357,14 @@ public class Workshop
     {
         if (jar == null) throw new ArgumentNullException(nameof(jar));
         if (!_jars.Contains(jar)) return (false, "罐子不属于本工作台");
-        if (jar.IsMarked) return (false, "罐子已被操作");
-        jar.Mark();
+        var evaluation = WorkshopRulebook.EvaluateMatchTransition(_rules, JarFacts.Of(jar));
+        if (!evaluation.Decision.IsAllowed)
+            return (false, evaluation.Decision.Reason ?? "MATCH 规则拒绝该操作");
+        var transition = evaluation.Transition!.Value;
+        jar.ApplyRuleTransition(
+            transition.After.Shape,
+            transition.After.Liquid,
+            transition.After.IsMarked);
         return (true, null);
     }
 
