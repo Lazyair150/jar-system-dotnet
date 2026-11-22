@@ -71,7 +71,7 @@ public sealed class WorldOrderSolveBookTests
         var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
         var firstSymbolic = book.GetSymbolicSolutions(demand.Id);
         Assert.NotNull(firstSymbolic);
-        Assert.Equal(WorldOrderSymbolicSolutionStatus.Complete, firstSymbolic!.Status);
+        Assert.Equal(WorldOrderSymbolicSolutionStatus.EnumerationComplete, firstSymbolic!.Status);
         Assert.NotEmpty(firstSymbolic.Solutions);
         Assert.All(firstSymbolic.Solutions, solution =>
             Assert.All(solution.Steps, step => Assert.Equal("Master", step.WorkshopRole)));
