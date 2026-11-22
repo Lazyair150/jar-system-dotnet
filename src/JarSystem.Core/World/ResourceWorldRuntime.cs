@@ -81,6 +81,7 @@ public sealed class ResourceWorldRuntime
     // 世界级资源服务由装配层提供，避免 Runtime 创建缺少账本/对象池依赖的迁徙事件。
     private readonly Func<Workshop, Workshop, WorkshopSwitchEvent>? _masterSwitchFactory;
     private readonly Func<Workshop, WorkshopPrefillTransaction>? _masterPrefill;
+    private readonly Func<Workshop, LiquidBatchReceipt>? _returnRetiredMasterPrefill;
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
     private int _ledgerTick;
@@ -93,13 +94,15 @@ public sealed class ResourceWorldRuntime
         OrderDemandBoard? demandBoard = null,
         ResourceLedger? resourceLedger = null,
         Func<int>? resourceLedgerTick = null,
-        Func<Workshop, WorkshopPrefillTransaction>? masterPrefill = null)
+        Func<Workshop, WorkshopPrefillTransaction>? masterPrefill = null,
+        Func<Workshop, LiquidBatchReceipt>? returnRetiredMasterPrefill = null)
     {
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         Clock = clock ?? new WorldClock();
         Roster = roster;
         _masterSwitchFactory = masterSwitchFactory;
         _masterPrefill = masterPrefill;
+        _returnRetiredMasterPrefill = returnRetiredMasterPrefill;
         DemandBoard = demandBoard;
         if (resourceLedger == null && resourceLedgerTick != null)
             throw new ArgumentException("未配置资源账本时不能单独提供 tick 来源", nameof(resourceLedgerTick));
@@ -272,9 +275,31 @@ public sealed class ResourceWorldRuntime
                 }
             };
         }
+        Action<Workshop>? returnRetiredMasterPrefill = null;
+        if (role == WorkshopRole.Master && _returnRetiredMasterPrefill != null)
+        {
+            returnRetiredMasterPrefill = retiredMaster =>
+            {
+                // 先取 tick，再提交资源返还，避免 tick provider 失败发生在库存变更之后。
+                var tick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
+                var receipt = _returnRetiredMasterPrefill(retiredMaster);
+                if (_resourceLedger == null) return;
+
+                foreach (var item in receipt.Accepted)
+                    _resourceLedger.Record(tick, ResourceCauses.Return, ResourceKinds.Liquid,
+                        item.Key, item.Value, from: "主台预置", to: "自机液库",
+                        reason: "主工作台替换后返还未消费预置液体");
+                foreach (var item in receipt.Discarded)
+                    _resourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid,
+                        item.Key, item.Value, from: "主台预置", to: null,
+                        reason: "主工作台替换后返还自机液库时容量不足");
+            };
+        }
+
         var process = new WorkshopReplacementProcess(
             Roster, role, target, combinedInterruption, phaseDurationMilli,
-            _masterSwitchFactory, prefillBeforeMigration, rollbackPrefill);
+            _masterSwitchFactory, prefillBeforeMigration, rollbackPrefill,
+            returnRetiredMasterPrefill);
         var result = process.Begin();
         // 即使 Begin 失败，只要订单中断已提交或结果不确定，也保留终态过程供外部检查。
         if (result.Success || process.InterruptionCommitted || process.InterruptionOutcomeUncertain)
