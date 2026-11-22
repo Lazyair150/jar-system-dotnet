@@ -12,17 +12,17 @@ namespace JarSystem.Core.World.Solving;
 public sealed class WorldOrderSymbolicSolution
 {
     public IReadOnlyList<WorldOrderAssignedRuleCandidate> Steps { get; }
-    public IReadOnlyDictionary<string, int> RequiredFreeLiquids { get; }
-    public IReadOnlyDictionary<string, int> ProducedFreeLiquids { get; }
-    public IReadOnlyDictionary<string, int> ConsumedJarLiquids { get; }
+    public IReadOnlyDictionary<string, int> GrossFreeLiquidConsumption { get; }
+    public IReadOnlyDictionary<string, int> GrossFreeLiquidProduction { get; }
+    public IReadOnlyDictionary<string, int> GrossJarLiquidConsumption { get; }
 
     internal WorldOrderSymbolicSolution(IEnumerable<WorldOrderAssignedRuleCandidate> steps)
     {
         var copied = steps.ToArray();
         Steps = Array.AsReadOnly(copied);
-        RequiredFreeLiquids = Sum(copied.Select(x => x.Candidate.ConsumedFreeLiquid));
-        ProducedFreeLiquids = Sum(copied.Select(x => x.Candidate.ProducedFreeLiquid));
-        ConsumedJarLiquids = Sum(copied.Select(x => x.Candidate.ConsumedJarLiquid));
+        GrossFreeLiquidConsumption = Sum(copied.Select(x => x.Candidate.ConsumedFreeLiquid));
+        GrossFreeLiquidProduction = Sum(copied.Select(x => x.Candidate.ProducedFreeLiquid));
+        GrossJarLiquidConsumption = Sum(copied.Select(x => x.Candidate.ConsumedJarLiquid));
     }
 
     private static IReadOnlyDictionary<string, int> Sum(IEnumerable<string?> liquids)
