@@ -79,7 +79,7 @@ public sealed class WorldOrderConcretePlanAssemblerTests
     }
 
     [Fact]
-    public void ManifestMismatchOnRejectedSlaveOutputFailsClosedAsUndetermined()
+    public void ManifestUsesReplayWitnessWhenSlaveRejectsProducedLiquid()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
         master.AddJar(new Jar("圆罐", "酒", id: 1021));
@@ -111,11 +111,12 @@ public sealed class WorldOrderConcretePlanAssemblerTests
             102, program, binding, world, masterProfile, slaveProfile,
             slaveRejectedLiquids: new[] { "酒" });
 
-        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
-        Assert.Null(result.SolveResult);
-        Assert.Contains("不一致", result.Reason);
-        Assert.Equal(0, result.ResourceReplay!.SlaveStagingPeakCapacity);
-        Assert.NotNull(result.CandidatePlan);
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.NotNull(result.SolveResult);
+        Assert.Empty(result.Manifest!.TransferLiquids);
+        Assert.Equal(0, result.Manifest.SlaveStagingPeakCapacity);
+        Assert.Empty(result.CandidatePlan!.SlaveSteps.Single().AfterLiquids);
+        Assert.Null(result.ResourceReplay!.SlaveAcceptedProducedLiquids.Single());
     }
 
     [Fact]
