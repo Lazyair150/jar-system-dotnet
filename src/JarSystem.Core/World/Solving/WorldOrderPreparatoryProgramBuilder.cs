@@ -25,7 +25,8 @@ public static class WorldOrderPreparatoryProgramBuilder
         IReadOnlyCollection<WorldOrderPreparatoryOperationAssignment> preparations,
         bool isBClass,
         string masterRole,
-        string slaveRole)
+        string slaveRole,
+        IReadOnlyList<string>? slaveOperationOrder = null)
     {
         if (solution == null) throw new ArgumentNullException(nameof(solution));
         if (preparations == null) throw new ArgumentNullException(nameof(preparations));
@@ -120,46 +121,60 @@ public static class WorldOrderPreparatoryProgramBuilder
             var slaveJarKeys = new SortedSet<string>(StringComparer.Ordinal);
             foreach (var assigned in requirements.Where(x => x.WorkshopRole == slaveRole))
                 slaveJarKeys.Add(requirementJarKeys[assigned.Candidate.RequirementIndex]);
-            foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == slaveRole))
-                slaveJarKeys.Add(selectedPrep.JarKey);
-
-            var handoffInputs = slaveJarKeys.Select(key => current[key]).ToArray();
-            handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
-                "master-to-slave-handoff", sequence++, masterRole, slaveRole, handoffInputs);
-            nodes.Add(handoff);
-            foreach (var output in handoff.OutputJars)
-                current[output.JarKey] = output;
-        }
-
-        foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == slaveRole)
-                     .OrderBy(x => x.JarKey, StringComparer.Ordinal))
-        {
-            var input = current[selectedPrep.JarKey];
-            EnsureCandidateInput(selectedPrep.Candidate, input);
-            var output = NextVersion(input, slaveRole, selectedPrep.Candidate);
-            var node = WorldOrderSymbolicOperationNode.Rule(
+            var slaveOperations = new List<(
+            string NodeId,
+            string JarKey,
+            int? RequirementIndex,
+            WorldOrderRuleCandidate Candidate)>();
+        foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == slaveRole))
+            slaveOperations.Add((
                 "prepare-" + selectedPrep.JarKey,
-                sequence++, slaveRole, null, selectedPrep.Candidate, input, output);
-            nodes.Add(node);
-            edges.Add(WorldOrderSymbolicOperationDependency.JarState(
-                handoff!.NodeId, node.NodeId, selectedPrep.JarKey, input.Revision));
-            current[selectedPrep.JarKey] = output;
-        }
-
+                selectedPrep.JarKey,
+                null,
+                selectedPrep.Candidate));
         foreach (var assigned in requirements.Where(x => x.WorkshopRole == slaveRole))
         {
-            var candidate = assigned.Candidate;
-            var key = requirementJarKeys[candidate.RequirementIndex];
-            var input = current[key];
-            EnsureCandidateInput(candidate, input);
-            var output = NextVersion(input, slaveRole, candidate);
+            var requirementIndex = assigned.Candidate.RequirementIndex;
+            slaveOperations.Add((
+                "requirement-" + requirementIndex + "-slave",
+                requirementJarKeys[requirementIndex],
+                requirementIndex,
+                assigned.Candidate));
+        }
+
+        if (slaveOperationOrder != null)
+        {
+            if (slaveOperationOrder.Count != slaveOperations.Count ||
+                slaveOperationOrder.Distinct(StringComparer.Ordinal).Count() != slaveOperations.Count)
+                throw new ArgumentException("从台操作顺序必须恰好包含每个操作一次", nameof(slaveOperationOrder));
+            var byNodeId = slaveOperations.ToDictionary(x => x.NodeId, StringComparer.Ordinal);
+            if (slaveOperationOrder.Any(id => !byNodeId.ContainsKey(id)))
+                throw new ArgumentException("从台操作顺序包含未知操作", nameof(slaveOperationOrder));
+            slaveOperations = slaveOperationOrder.Select(id => byNodeId[id]).ToList();
+        }
+        else
+        {
+            // Stable compatibility order for callers that do not request schedule enumeration.
+            slaveOperations = slaveOperations
+                .OrderBy(x => x.RequirementIndex.HasValue ? 1 : 0)
+                .ThenBy(x => x.RequirementIndex ?? -1)
+                .ThenBy(x => x.JarKey, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        foreach (var operation in slaveOperations)
+        {
+            var input = current[operation.JarKey];
+            EnsureCandidateInput(operation.Candidate, input);
+            var output = NextVersion(input, slaveRole, operation.Candidate);
             var node = WorldOrderSymbolicOperationNode.Rule(
-                "requirement-" + candidate.RequirementIndex + "-slave",
-                sequence++, slaveRole, candidate.RequirementIndex, candidate, input, output);
+                operation.NodeId,
+                sequence++, slaveRole, operation.RequirementIndex,
+                operation.Candidate, input, output);
             nodes.Add(node);
             edges.Add(WorldOrderSymbolicOperationDependency.JarState(
-                handoff!.NodeId, node.NodeId, key, input.Revision));
-            current[key] = output;
+                handoff!.NodeId, node.NodeId, operation.JarKey, input.Revision));
+            current[operation.JarKey] = output;
         }
 
         AddLiquidDependencies(nodes, edges, handoff, masterRole, slaveRole);
