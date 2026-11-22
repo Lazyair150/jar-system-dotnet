@@ -184,6 +184,23 @@ public class WorkshopRulebookTests
     }
 
     [Fact]
+    public void RuleCatalogHasUniqueStableIdsAndVersionsForEveryWorkshopOperator()
+    {
+        var definitions = WorkshopRulebook.Definitions;
+        Assert.Equal(5, definitions.Count);
+        Assert.Equal(definitions.Count, definitions.Select(x => x.RuleId).Distinct().Count());
+        Assert.All(definitions, definition =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(definition.RuleId));
+            Assert.True(definition.RuleVersion > 0);
+            Assert.False(string.IsNullOrWhiteSpace(definition.Operator));
+        });
+        Assert.Contains(definitions, x => x.Operator == "MATCH" &&
+            x.Category == WorkshopRuleCategory.Lifecycle);
+        Assert.Equal(4, definitions.Count(x => x.Category == WorkshopRuleCategory.Transform));
+    }
+
+    [Fact]
     public void RuleEvaluationUsesStableDecisionCodesAndKeepsUnknownSeparate()
     {
         var capability = new WorkshopCapability(
