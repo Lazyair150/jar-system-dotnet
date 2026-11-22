@@ -32,6 +32,12 @@ public sealed class WorldOrderSolveResult
     public bool IsFeasible => Status == WorldOrderSolveStatus.Feasible;
     public bool IsUndetermined => Status == WorldOrderSolveStatus.Undetermined;
 
+    /// <summary>同一规则/Profile 下资源重绑定成功后，生成绑定新世界版本的结果视图。</summary>
+    internal WorldOrderSolveResult RebindTo(WorldSnapshot snapshot) =>
+        new(DemandId, snapshot.Version, Status, CheckMethod, Reason, DirectCount, OperationCount,
+            Plan, PartitionReport, snapshot.RuleSetVersion, snapshot.WorkshopProfileVersion,
+            snapshot.ResourceVersion);
+
     public WorldOrderSolveResult(
         int demandId,
         string worldVersion,
