@@ -183,6 +183,35 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
+    public void ResourceRebindRejectsChangedFactsOnSameJarIdentity()
+    {
+        var board = Board();
+        var demand = Demand();
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var jar = new Jar("圆罐");
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var roster = new WorkshopRoster(new[] { master }, master);
+
+        var firstSnapshot = WorldSnapshotFactory.Capture(roster);
+        var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
+        Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
+        Assert.Equal("MATCH", first.Result.Plan!.MasterSteps.Single().Operation!.Type);
+
+        Assert.True(master.PourIn(jar, "酒").Success);
+        var changedSnapshot = WorldSnapshotFactory.Capture(roster);
+        var second = book.Evaluate(demand.Id, changedSnapshot, Registry());
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, second.Result!.Status);
+        Assert.NotSame(first.Result.Plan, second.Result.Plan);
+        Assert.Contains(second.Result.Plan!.MasterSteps,
+            step => step.Operation?.Type == "POUR_OUT" &&
+                    step.Before[step.Operation.JarIndex!.Value].Id == jar.Id);
+    }
+
+    [Fact]
     public void ResourceRebindFallsBackToSolverWhenRequiredLiquidSupplyDisappears()
     {
         var board = Board();
