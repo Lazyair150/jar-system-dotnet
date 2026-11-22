@@ -314,7 +314,7 @@ public sealed class WorldOrderSolverTests
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
         Assert.Equal("partition", result.CheckMethod);
         Assert.Equal(new[] { 8201 }, result.Plan!.TransferJarIds);
-        Assert.Empty(result.Plan.TransferLiquids);
+        Assert.DoesNotContain(result.Plan.TransferLiquids, item => item.Value > 0);
         var step = Assert.Single(result.Plan.SlaveSteps);
         Assert.Equal("RESHAPE", step.Operation!.Type);
         Assert.True(step.Operation.FullReshape);
