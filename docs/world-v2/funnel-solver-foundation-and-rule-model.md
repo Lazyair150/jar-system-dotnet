@@ -292,3 +292,17 @@ MATCH 是订单目标与现有 Jar 的匹配/占用规则，不是四种资源�
 3. **活动执行计划**：准入成功后，选定的 BoundExecutionPlan、Manifest、Lease、操作游标、阶段、已提交的 Transfer/Settlement 收据，已经成为正在发生的业务事实。为了跨 Host / JSON 检查点恢复而不重复扣液、泵送或执行步骤，这些数据仍必须进入活动执行检查点。
 
 因此，新架构可能减少的是“把待执行的可重建解缓存当作权威状态保存”的重复设计，不是删除活动会话恢复所需的 Plan / Manifest / Lease / Cursor。当前根级检查点中活动 Session 的 Plan 与进度属于第三类，原则上应保留；SolveBook 的待执行结果缓存属于第一类，原则上可以在恢复后重建。
+
+
+## 16. 运行时规则的真实接入缺口
+
+当前 World V2 Context 的检查点注释明确说明：Context 尚未持有动态 ModifierStack；执行资源检查点也不会捕获动态 ModifierStack。另一方面，WorkshopSolveSnapshot 能捕获工作台所见的修饰器投影，但这不等于 World V2 已经拥有可持久化的世界级动态规则系统。
+
+因此，未来的运行时规则不能只靠在某个 Workshop 上临时 Push 一个委托来实现。规则激活必须经过 World V2 的权威入口：
+- World RuleSet/Profile 管理已注册规则定义与当前生效的规则修饰；
+- 每个修饰器有稳定身份、参数、目标作用域、优先级、生效区间和版本；
+- Context/Checkpoint 捕获可恢复的声明式活动规则状态；
+- Restore 校验规则注册表版本与所需定义是否存在；
+- 任意 opaque 扩展只能作为明确不可缓存/不可跨 Host 恢复的运行时能力，不能伪装成普通持久化规则。
+
+在该入口完成前，不能声称 World V2 已支持运行时添加规则并在恢复后保持相同解集。
