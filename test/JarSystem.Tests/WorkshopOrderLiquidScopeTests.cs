@@ -308,7 +308,7 @@ public sealed class WorkshopOrderLiquidScopeTests
         Assert.Equal("尖罐", jar.Shape);
         Assert.Null(jar.Liquid);
         Assert.True(jar.IsMarked);
-        Assert.Equal(0, slaveScope.GetAmount(101, "酒"));
+        Assert.Equal(0, slaveScope.GetAmount("酒"));
     }
 
     private static void AssertParity(
