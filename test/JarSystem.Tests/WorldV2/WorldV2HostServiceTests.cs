@@ -125,6 +125,10 @@ public sealed class WorldV2HostServiceTests
     public void HostCheckpointRestoreResumesBOrderAfterPumpWithoutRepeatingTransferOrFunding()
     {
         var options = ValidOptions();
+        // 两个岗位各自只能完成一种形状，确保真实 B 计划同时包含主台步骤与从台步骤。
+        options.Producers[0].Rates["方罐"] = 1.0;
+        options.JarFlowRatePerLogicalTime = 2;
+        options.Workshops[0].BaseMarks = new List<string> { "方罐" };
         options.Workshops.Add(new WorldV2WorkshopOptions
         {
             Name = "从台",
@@ -141,10 +145,14 @@ public sealed class WorldV2HostServiceTests
 
         // 通过真实生产区→仓库→主台链路准备一只罐子，避免测试绕过资源所有权路径。
         application.AdvanceWorld(1_000);
-        host.ExecuteExclusive(context => Assert.Single(context.Roster.Master!.Jars));
+        host.ExecuteExclusive(context => Assert.Equal(2, context.Roster.Master!.Jars.Count));
 
         var demandId = application.AddJarDemand(new WorldV2AddJarDemandRequest(
-            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            new[]
+            {
+                new WorldV2RequirementInput("方罐", "酒"),
+                new WorldV2RequirementInput("圆罐", "酒")
+            },
             Constants.OrderType.B,
             DemandAreaKind.Active,
             CooldownDurationLogicalMilli: 0));
@@ -169,7 +177,7 @@ public sealed class WorldV2HostServiceTests
         beforePump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(beforePumpJson);
         Assert.Equal(transferEventsBeforeOrder, beforePump.ResourceLedger.Entries.Count(item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
-        Assert.Equal(2, beforePump.ShipLiquidInventory.Balances["酒"]);
+        Assert.Equal(1, beforePump.ShipLiquidInventory.Balances["酒"]);
 
         WorldV2Context? previous = null;
         host.ExecuteExclusive(context => previous = context);
@@ -180,11 +188,11 @@ public sealed class WorldV2HostServiceTests
             var session = Assert.Single(context.Runtime.ActiveExecutionSessions);
             Assert.Equal(WorldOrderExecutionStage.MasterSteps, session.Stage);
             var scopes = context.Admission.GetLiquidScopes(demandId)!.Value;
-            Assert.Equal(1, scopes.Master.GetAmount("酒"));
+            Assert.Equal(2, scopes.Master.GetAmount("酒"));
             Assert.Equal(0, scopes.Slave!.GetAmount("酒"));
             Assert.Equal(transferEventsBeforeOrder,
                 context.ResourceLedger.For(ResourceCauses.Transfer).Count(item => item.Kind == ResourceKinds.Liquid));
-            Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
+            Assert.Equal(1, context.ShipLiquidInventory!.GetAmount("酒"));
         });
 
         WorldOrderExecutionStage stage = WorldOrderExecutionStage.MasterSteps;
@@ -202,7 +210,7 @@ public sealed class WorldV2HostServiceTests
         afterPump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(afterPumpJson);
         Assert.Equal(transferEventsBeforeOrder + 1, afterPump.ResourceLedger.Entries.Count(item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid));
-        Assert.Equal(2, afterPump.ShipLiquidInventory.Balances["酒"]);
+        Assert.Equal(1, afterPump.ShipLiquidInventory.Balances["酒"]);
 
         host.ExecuteExclusive(context => previous = context);
         application.RestoreExecutionResourceCheckpoint(options, afterPump);
@@ -217,7 +225,7 @@ public sealed class WorldV2HostServiceTests
             Assert.Equal(1, context.Admission.GetLiquidScopes(demandId)!.Value.Slave!.GetAmount("酒"));
             Assert.Equal(transferEventsBeforeOrder + 1,
                 context.ResourceLedger.For(ResourceCauses.Transfer).Count(item => item.Kind == ResourceKinds.Liquid));
-            Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
+            Assert.Equal(1, context.ShipLiquidInventory!.GetAmount("酒"));
         });
 
         for (var i = 0; i < 12; i++)
@@ -233,7 +241,7 @@ public sealed class WorldV2HostServiceTests
             Assert.Empty(context.Runtime.ActiveExecutionSessions);
             Assert.Null(context.Reservations.FindLease(demandId));
             Assert.Empty(context.Roster.Slave!.Jars);
-            Assert.Equal(2, context.ShipLiquidInventory!.GetAmount("酒"));
+            Assert.Equal(1, context.ShipLiquidInventory!.GetAmount("酒"));
             Assert.Equal(transferEventsBeforeOrder + 1,
                 context.ResourceLedger.For(ResourceCauses.Transfer).Count(item => item.Kind == ResourceKinds.Liquid));
         });
