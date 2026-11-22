@@ -283,10 +283,13 @@ public sealed class WorldOrderRuleCandidateBook
 {
     private readonly object _gate = new();
     private readonly Dictionary<CacheKey, WorldOrderRuleCandidateProfile> _profiles = new();
+    private readonly Dictionary<SolutionCacheKey, WorldOrderSymbolicSolutionSet> _solutions = new();
     private const int MaxEntries = 512;
 
     public int CacheHits { get; private set; }
     public int CacheMisses { get; private set; }
+    public int SolutionCacheHits { get; private set; }
+    public int SolutionCacheMisses { get; private set; }
 
     public WorldOrderRuleCandidateProfile GetOrBuild(
         WorldSnapshot world,
@@ -321,13 +324,50 @@ public sealed class WorldOrderRuleCandidateBook
         }
     }
 
+    public WorldOrderSymbolicSolutionSet GetOrBuildSolutions(
+        IReadOnlyList<WorldOrderRuleCandidateProfile> profiles,
+        int maxSolutions = 256,
+        int maxNodes = 100_000)
+    {
+        if (profiles == null || profiles.Count == 0)
+            throw new ArgumentException("至少需要一个规则候选 Profile", nameof(profiles));
+        var ordered = profiles.OrderBy(x => x.Role, StringComparer.Ordinal).ToArray();
+        var first = ordered[0];
+        var roleKey = string.Join(",", ordered.Select(x => x.Role));
+        var key = new SolutionCacheKey(
+            roleKey,
+            first.RuleSetVersion,
+            first.WorkshopProfileVersion,
+            first.SpecificationVersion,
+            maxSolutions,
+            maxNodes);
+
+        lock (_gate)
+        {
+            if (_solutions.TryGetValue(key, out var cached))
+            {
+                SolutionCacheHits++;
+                return cached;
+            }
+
+            SolutionCacheMisses++;
+            var built = WorldOrderSymbolicSolutionBuilder.Build(ordered, maxSolutions, maxNodes);
+            if (_solutions.Count >= MaxEntries) _solutions.Clear();
+            _solutions[key] = built;
+            return built;
+        }
+    }
+
     public void Clear()
     {
         lock (_gate)
         {
             _profiles.Clear();
+            _solutions.Clear();
             CacheHits = 0;
             CacheMisses = 0;
+            SolutionCacheHits = 0;
+            SolutionCacheMisses = 0;
         }
     }
 
@@ -337,4 +377,12 @@ public sealed class WorldOrderRuleCandidateBook
         string WorkshopProfileVersion,
         string SpecificationVersion,
         string WorkshopName);
+
+    private readonly record struct SolutionCacheKey(
+        string Roles,
+        string RuleSetVersion,
+        string WorkshopProfileVersion,
+        string SpecificationVersion,
+        int MaxSolutions,
+        int MaxNodes);
 }
