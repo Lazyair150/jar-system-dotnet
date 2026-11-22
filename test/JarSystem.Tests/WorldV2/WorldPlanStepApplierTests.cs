@@ -99,7 +99,8 @@ public sealed class WorldPlanStepApplierTests
         workshop.AddLiquid("酒", 2);
         var step = Step(jar, "RESHAPE", targetShape: "方罐",
             costLiquid: "酒", fullReshape: true,
-            afterShape: "方罐", afterLiquid: null);
+            afterShape: "方罐", afterLiquid: null,
+            consumed: new Dictionary<string, int> { ["酒"] = 1 });
 
         var result = new WorldPlanStepApplier().Apply(workshop, step);
 
