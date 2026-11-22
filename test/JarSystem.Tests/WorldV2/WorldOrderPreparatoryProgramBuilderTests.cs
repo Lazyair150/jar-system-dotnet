@@ -164,6 +164,34 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     }
 
     [Fact]
+    public void BClassHandoffIncludesMasterCompletedOutputAndSlaveOperationJars()
+    {
+        var masterOutput = Candidate(
+            0, "圆罐", null, "MATCH", "圆罐", null);
+        var slaveOperation = Candidate(
+            1, "方罐", null, "RESHAPE_EMPTY", "三角罐", null,
+            consumedFree: "X");
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate("Master", masterOutput),
+            new WorldOrderAssignedRuleCandidate("Slave", slaveOperation)
+        });
+
+        var program = WorldOrderPreparatoryProgramBuilder.Build(
+            solution,
+            Array.Empty<WorldOrderPreparatoryOperationAssignment>(),
+            true, "Master", "Slave");
+        var handoff = Assert.Single(program.Nodes,
+            x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
+
+        Assert.Equal(new[] { "requirement-0", "requirement-1" },
+            handoff.InputJars.Select(x => x.JarKey));
+        Assert.Equal(1, handoff.InputJars.Single(x => x.JarKey == "requirement-0").Revision);
+        Assert.Equal(0, handoff.InputJars.Single(x => x.JarKey == "requirement-1").Revision);
+        Assert.Equal("Master", handoff.InputJars.Single(x => x.JarKey == "requirement-0").WorkshopRole);
+    }
+
+    [Fact]
     public void ExplicitMasterOperationOrderIsIndependentOfRequirementIndex()
     {
         var solution = new WorldOrderSymbolicSolution(new[]
