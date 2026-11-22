@@ -135,6 +135,41 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void NoDirectRuleCandidateIsNotReportedAsACompleteOrderInfeasibility()
+    {
+        var stack = new ModifierStack();
+        stack.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "禁止直接匹配"
+        });
+        stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Shape = "圆罐",
+            Liquid = "酒",
+            Reason = "禁止灌酒"
+        });
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐" }, modifiers: stack);
+        var snapshot = Snapshot(master);
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.A, Words);
+        var profile = WorldOrderRuleCandidateCatalog.Build(
+            snapshot, snapshot.Master!, "Master", specification);
+
+        Assert.Empty(Assert.Single(profile.Requirements).Candidates);
+        var candidateSet = WorldOrderSymbolicSolutionBuilder.Build(new[] { profile });
+        Assert.Equal(
+            WorldOrderSymbolicSolutionStatus.NoDirectCandidate,
+            candidateSet.Status);
+        Assert.False(candidateSet.IsEnumerationComplete);
+        Assert.False(candidateSet.IsResourceBound);
+    }
+
+    [Fact]
     public void RuleCandidateProfileIncludesLiquidPreparationAndHonorsBanAndStagingCapacity()
     {
         var master = new Workshop(
