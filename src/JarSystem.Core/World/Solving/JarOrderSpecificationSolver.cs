@@ -12,7 +12,7 @@ namespace JarSystem.Core.World.Solving;
 
 /// <summary>
 /// 当前罐子玩法的订单规格适配器。
-/// A 类在主台单阶段求解；B 类复用已验证的 PartitionSearch，在主/从台快照上做需求划分。
+/// A 类经规则候选、物理 Jar 绑定、有序资源重放与 Manifest 物化；B 类暂保留 PartitionSearch。
 /// 输入只来自 WorldSnapshot；不会读取实时 Workshop、Jar 或 ModifierStack。
 /// </summary>
 public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareSolver
@@ -51,12 +51,6 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
 
         var masterInfo = snapshot.Master.CreateWorkshopInfo();
         var slaveInfo = snapshot.Slave?.CreateWorkshopInfo();
-        var snapshotSolver = new SnapshotProjectedSolver(
-            _innerSolver, masterInfo, snapshot.Master, slaveInfo, snapshot.Slave);
-
-        if (snapshotSolver is IWorkBudgetedSolver budgeted)
-            budgeted.BeginCheck(NodeBudget);
-
         var requirements = RequirementOrdering.FullFirst(specification.Requirements);
 
         if (specification.Type == Constants.OrderType.A)
@@ -85,6 +79,13 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
                 "9l_concrete_a",
                 enumeration.Reason ?? "A 类具体规则分支没有得到确定结论");
         }
+
+        // PartitionSearch remains the B-class differential oracle until the full B-class
+        // concrete branch enumerator and entry-point parity suite are complete.
+        var snapshotSolver = new SnapshotProjectedSolver(
+            _innerSolver, masterInfo, snapshot.Master, slaveInfo, snapshot.Slave);
+        if (snapshotSolver is IWorkBudgetedSolver budgeted)
+            budgeted.BeginCheck(NodeBudget);
 
         var slaveSnapshot = snapshot.Slave;
         if (slaveSnapshot == null || slaveInfo == null)
