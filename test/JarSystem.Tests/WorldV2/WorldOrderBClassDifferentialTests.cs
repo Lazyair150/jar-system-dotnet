@@ -77,7 +77,9 @@ public sealed class WorldOrderBClassDifferentialTests
         });
         slaveRules.Push(new SuppressModifier
         {
-            Operation = "RESHAPE_FULL",
+            Operation = "RESHAPE",
+            Shape = "圆罐",
+            Liquid = "酒",
             Reason = "从台必须消耗交接的游离液体"
         });
         var master = new Workshop("主台",
