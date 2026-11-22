@@ -8,7 +8,8 @@ namespace JarSystem.Core.World.Solving;
 
 /// <summary>
 /// 世界订单的一次求解结论。它只描述分析结论，不代表资源预留或执行承诺。
-/// 每个结果都绑定需求 ID 与输入快照版本，调用方不得把旧版本结论当作当前方案。
+/// 每个结果都绑定需求 ID 与完整输入快照版本，并保留规则/Profile/资源/规格的分离指纹。
+/// 只有规则、Profile、规格不变且资源清单重新验证成功时，求解簿才可将同一计划重绑定到新 WorldVersion。
 /// </summary>
 public sealed class WorldOrderSolveResult
 {
