@@ -164,6 +164,68 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     }
 
     [Fact]
+    public void ExplicitMasterOperationOrderIsIndependentOfRequirementIndex()
+    {
+        var consumer = Candidate(
+            0, "consumer-jar", null, "RESHAPE_EMPTY", "consumer-finished", null,
+            consumedFree: "X");
+        var producer = Candidate(
+            1, "producer-jar", "X", "PREPARE_POUR_OUT", "producer-finished", null,
+            producedFree: "X");
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate("Master",
+                Candidate(0, "consumer-jar", null, "RESHAPE_EMPTY", "consumer-finished", null,
+                    consumedFree: "X")),
+            new WorldOrderAssignedRuleCandidate("Master",
+                Candidate(1, "producer-jar", "X", "POUR_OUT", "producer-finished", null,
+                    producedFree: "X"))
+        });
+
+        var program = WorldOrderPreparatoryProgramBuilder.Build(
+            solution,
+            Array.Empty<WorldOrderPreparatoryOperationAssignment>(),
+            false, "Master", "Slave",
+            masterOperationOrder: new[]
+            {
+                "requirement-1-master",
+                "requirement-0-master"
+            });
+
+        Assert.Equal(
+            new[] { "requirement-1-master", "requirement-0-master" },
+            program.Nodes.Select(x => x.NodeId));
+        Assert.Contains(program.Dependencies, edge =>
+            edge.Kind == WorldOrderSymbolicDependencyKind.FreeLiquid &&
+            edge.FromNodeId == "requirement-1-master" &&
+            edge.ToNodeId == "requirement-0-master" &&
+            edge.Liquid == "X");
+    }
+
+    [Fact]
+    public void ExplicitMasterOperationOrderMustBeExactAndUnique()
+    {
+        var first = Candidate(0, "a", null, "MATCH", "a", null);
+        var second = Candidate(1, "b", null, "MATCH", "b", null);
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate("Master", first),
+            new WorldOrderAssignedRuleCandidate("Master", second)
+        });
+
+        Assert.Throws<ArgumentException>(() =>
+            WorldOrderPreparatoryProgramBuilder.Build(
+                solution, Array.Empty<WorldOrderPreparatoryOperationAssignment>(),
+                false, "Master", "Slave",
+                masterOperationOrder: new[] { "requirement-0-master" }));
+        Assert.Throws<ArgumentException>(() =>
+            WorldOrderPreparatoryProgramBuilder.Build(
+                solution, Array.Empty<WorldOrderPreparatoryOperationAssignment>(),
+                false, "Master", "Slave",
+                masterOperationOrder: new[] { "requirement-0-master", "requirement-0-master" }));
+    }
+
+    [Fact]
     public void PreparationCandidateMustBeCataloguedPourOut()
     {
         var requirement = Candidate(0, "圆罐", null, "RESHAPE_EMPTY", "方罐", null, consumedFree: "酒");
