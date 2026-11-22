@@ -286,6 +286,7 @@ public sealed class WorldV2Context : IDisposable
     {
         if (_disposed) return;
         SolveBook.Dispose();
+        RuleCandidates.Clear();
         _disposed = true;
     }
 }
