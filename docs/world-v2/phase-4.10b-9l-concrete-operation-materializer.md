@@ -84,7 +84,7 @@ The replay returns a resource witness, not a reservation. It still does not rewr
 6. Compare Manifest's Master initial/final balances, transfer vector, both staging peaks, and transfer Jar IDs against the policy-aware replay.
 7. Return Feasible only when the two independent proofs agree exactly.
 
-A Manifest/replay disagreement returns Undetermined with the candidate plan retained for diagnosis; it is never silently downgraded into a successful result. This deliberately fails closed for rejected or overflowed outputs that the current generic Manifest simulation still treats as accepted. That limitation is explicit and becomes the next integration target.
+The replay now carries a per-step accepted-output witness for both roles. The concrete materializer uses it to populate each step's `AfterLiquids`, and `WorldOrderResourceManifest.CreateWithReplay` re-simulates the immutable plan with the same accepted/rejected decisions. Rejected and capacity-overflowed outputs are therefore not reintroduced by generic simulation. Every step's `AfterLiquids`, final Master balance, staging peaks, transfer vector, and Jar IDs are cross-checked before Feasible is returned.
 
 ## Domain contract: workshop-local operation ban and transfer boundary
 
@@ -95,3 +95,9 @@ This is distinct from resource migration. Master-to-Slave handoff and workshop-r
 Free-liquid policy remains separate: banned free liquid cannot be consumed or stored in workshop staging, and Master-banned free liquid cannot be transferred across the B-class boundary. JarState handoff is not converted into a free-liquid transfer merely because the Jar contains that liquid.
 
 `LiquidRules.CheckJarOperation` makes the Jar-operation check explicit; `ReshapeRules.SelfConsume`, `WorkshopRulebook`, the candidate catalog, and the live Workshop facade use the current workshop's policy. MATCH is versioned to reflect the explicit Jar-operation gate.
+
+## Accepted-output witness and replay-bound Manifest
+
+The replay result carries one accepted-output slot per role-local operation step. A non-null value identifies the liquid actually admitted to staging; null means no output or a rejected/overflowed output. The materializer uses this exact witness when writing `AfterLiquids`.
+
+The Manifest has a dedicated replay-bound constructor. It still validates Jar ownership, one-shot transfer, step state transitions, supply, capacities, and immutable plan snapshots, but its path simulation no longer assumes every `POUR_OUT` output was accepted. It checks every step's `AfterLiquids` against the accepted-output witness and then checks the final Master balance and both staging peaks. The ordinary Manifest path remains unchanged for legacy plans without a replay witness.
