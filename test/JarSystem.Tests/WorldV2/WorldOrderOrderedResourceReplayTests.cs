@@ -131,8 +131,13 @@ public sealed class WorldOrderOrderedResourceReplayTests
             "slave-reshape", 1, "Slave", 0, candidate, received, output);
         var program = new WorldOrderSymbolicOperationProgram(
             true, "Master", "Slave", new[] { handoff, slaveNode },
-            new[] { WorldOrderSymbolicOperationDependency.JarState(
-                handoff.NodeId, slaveNode.NodeId, "tool", 1) });
+            new[]
+            {
+                WorldOrderSymbolicOperationDependency.JarState(
+                    handoff.NodeId, slaveNode.NodeId, "tool", 1),
+                WorldOrderSymbolicOperationDependency.FreeLiquid(
+                    handoff.NodeId, slaveNode.NodeId, "酒")
+            });
 
         var result = WorldOrderOrderedResourceReplay.Replay(
             program, world, new[] { "酒" });
