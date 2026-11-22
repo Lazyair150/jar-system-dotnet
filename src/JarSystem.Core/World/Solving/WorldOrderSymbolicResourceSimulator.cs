@@ -94,9 +94,12 @@ public sealed class WorldOrderSymbolicRoleResourceState
         ConsumedJarLiquid = Copy(consumedJarLiquid);
     }
 
-    private static IReadOnlyDictionary<string, int> Copy(IReadOnlyDictionary<string, int> source) =>
-        new ReadOnlyDictionary<string, int>(
-            new SortedDictionary<string, int>(source, StringComparer.Ordinal));
+    private static IReadOnlyDictionary<string, int> Copy(IReadOnlyDictionary<string, int> source)
+    {
+        var copy = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in source) copy.Add(item.Key, item.Value);
+        return new ReadOnlyDictionary<string, int>(copy);
+    }
 }
 
 /// <summary>
@@ -124,10 +127,13 @@ public sealed class WorldOrderSymbolicResourceSimulationResult
         FailureNodeId = failureNodeId;
         Reason = reason;
         HandoffApplied = handoffApplied;
-        Roles = new ReadOnlyDictionary<string, WorldOrderSymbolicRoleResourceState>(
-            new SortedDictionary<string, WorldOrderSymbolicRoleResourceState>(roles, StringComparer.Ordinal));
-        HandoffTransferredFreeLiquid = new ReadOnlyDictionary<string, int>(
-            new SortedDictionary<string, int>(handoffTransferredFreeLiquid, StringComparer.Ordinal));
+        var roleCopy = new SortedDictionary<string, WorldOrderSymbolicRoleResourceState>(StringComparer.Ordinal);
+        foreach (var item in roles) roleCopy.Add(item.Key, item.Value);
+        Roles = new ReadOnlyDictionary<string, WorldOrderSymbolicRoleResourceState>(roleCopy);
+
+        var transferCopy = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in handoffTransferredFreeLiquid) transferCopy.Add(item.Key, item.Value);
+        HandoffTransferredFreeLiquid = new ReadOnlyDictionary<string, int>(transferCopy);
     }
 }
 
