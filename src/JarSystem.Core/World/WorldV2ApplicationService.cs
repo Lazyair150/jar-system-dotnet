@@ -95,6 +95,30 @@ public sealed class WorldV2ApplicationService
     }
 
     /// <summary>
+    /// 读取尚未由 Space 确认的订单成功周期事件。读取不移除事件，重复读取安全。
+    /// </summary>
+    public IReadOnlyList<OrderCycleCompletedEvent> GetPendingOrderCycleEvents()
+    {
+        IReadOnlyList<OrderCycleCompletedEvent>? events = null;
+        _host.ExecuteExclusive(context =>
+            events = CopyList(context.DemandBoard.Outbox.Pending));
+        return events!;
+    }
+
+    /// <summary>
+    /// Space 在效果应用及处理身份持久化成功后确认事件。重复/未知确认返回 false。
+    /// </summary>
+    public bool AcknowledgeOrderCycleEvent(string eventId)
+    {
+        if (string.IsNullOrWhiteSpace(eventId))
+            throw new ArgumentException("EventId 不能为空", nameof(eventId));
+        var acknowledged = false;
+        _host.ExecuteExclusive(context =>
+            acknowledged = context.DemandBoard.Outbox.Acknowledge(eventId));
+        return acknowledged;
+    }
+
+    /// <summary>
     /// 捕获当前活动执行的资源检查点。返回值为脱离 Context 的纯值快照，
     /// 调用方不能据此绕过 Host 直接修改世界。
     /// </summary>
@@ -144,6 +168,8 @@ public sealed class WorldV2ApplicationService
     {
         if (request == null) throw new ArgumentNullException(nameof(request));
         if (request.Requirements == null) throw new ArgumentException("订单需求不能为空", nameof(request));
+        if (request.OrderDefinitionKey != null && string.IsNullOrWhiteSpace(request.OrderDefinitionKey))
+            throw new ArgumentException("订单定义 key 不能是空白字符串", nameof(request));
 
         // 在进入 Host 独占区之前复制调用方集合。IReadOnlyList 只限制接口，
         // 不保证底层集合不可变；不能让外部并发修改影响 Host 回调中的领域对象构造。
@@ -167,7 +193,8 @@ public sealed class WorldV2ApplicationService
 
             var specification = new JarOrderSpecification(
                 requirements, type, vocabulary: vocabulary);
-            var demand = new OrderDemand(specification, cooldownDuration, context.DemandIdGenerator);
+            var demand = new OrderDemand(
+                specification, cooldownDuration, request.OrderDefinitionKey, context.DemandIdGenerator);
             context.DemandBoard.AddDemand(demand, area);
             demandId = demand.Id;
         });
@@ -288,7 +315,9 @@ public sealed class WorldV2ApplicationService
                     demand.Id, area, type, CopyList(requirements),
                     demand.CooldownDurationLogicalMilli,
                     demand.CooldownRemainingLogicalMilli,
-                    demand.IsCoolingDown);
+                    demand.IsCoolingDown,
+                    demand.OrderDefinitionKey,
+                    demand.CycleSequence);
             }).ToArray();
 
             var sessions = context.Runtime.ActiveExecutionSessions.Select(session =>
@@ -387,7 +416,8 @@ public sealed record WorldV2AddJarDemandRequest(
     IReadOnlyList<WorldV2RequirementInput> Requirements,
     string Type,
     DemandAreaKind Area,
-    long CooldownDurationLogicalMilli);
+    long CooldownDurationLogicalMilli,
+    string? OrderDefinitionKey = null);
 
 public sealed record WorldV2RequirementDto(string Shape, string? Liquid);
 public sealed record WorldV2JarDto(int? Id, string Shape, string? Liquid, bool IsMarked);
@@ -421,7 +451,9 @@ public sealed record WorldV2DemandDto(
     IReadOnlyList<WorldV2RequirementDto> Requirements,
     long CooldownDurationLogicalMilli,
     long CooldownRemainingLogicalMilli,
-    bool IsCoolingDown);
+    bool IsCoolingDown,
+    string? OrderDefinitionKey,
+    long CycleSequence);
 
 public sealed record WorldV2ExecutionSessionDto(
     int DemandId,
