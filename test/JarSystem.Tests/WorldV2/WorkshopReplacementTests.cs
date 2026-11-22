@@ -771,4 +771,84 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(1, restoredShip.GetAmount("蜜"));
     }
 
+
+    [Fact]
+    public void RetiredMasterPrefillReturnsOnlyAfterCommitAndCancelPreservesIt()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" });
+        var ship = new ShipLiquidInventory(8, new Dictionary<string, int>
+        {
+            ["酒"] = 4,
+            ["蜜"] = 4
+        });
+        var producers = new ProducerModule(vocabulary);
+        var production = new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+        {
+            ["酒"] = 0,
+            ["蜜"] = 0
+        });
+        var resources = new ResourceArea(producers, production, 0, 0, ship);
+        Workshop CreateWorkshop(string name) => new(name, new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        var firstMaster = CreateWorkshop("主台 A");
+        var secondMaster = CreateWorkshop("备用台 B");
+        var slave = CreateWorkshop("从台");
+        var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        using var world = WorldV2Context.Create(
+            resources, new[] { firstMaster, secondMaster, slave }, firstMaster, slave,
+            solverRegistry, logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var first = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, secondMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(first.Success, first.Error);
+        world.Runtime.AdvanceWorldTime(2_000);
+        Assert.Same(secondMaster, world.Roster.Master);
+        Assert.Equal(4, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
+        Assert.Equal(4, ship.GetAmount("蜜"));
+
+        // 第二次替换开始时，新主台先获得自己的预置液体；取消不得返还旧主台余额。
+        var cancelled = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, firstMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(cancelled.Success, cancelled.Error);
+        Assert.Equal(4, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
+        Assert.Equal(4, world.Admission.GetPrefillBalances(firstMaster)["蜜"]);
+        Assert.True(world.Runtime.CancelActiveReplacement("测试取消").Success);
+        Assert.Equal(4, world.Admission.GetPrefillBalances(secondMaster)["酒"]);
+        Assert.Empty(world.Admission.GetPrefillBalances(firstMaster));
+        Assert.Equal(4, ship.GetAmount("蜜"));
+
+        // 只有第二次替换正式提交后，旧主台预置余额才返还自机液库并从退役 staging 中移除。
+        var committed = world.Runtime.BeginReplacement(
+            WorkshopRole.Master, firstMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(committed.Success, committed.Error);
+        world.Runtime.AdvanceWorldTime(2_000);
+        Assert.Same(firstMaster, world.Roster.Master);
+        Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
+        Assert.Equal(4, ship.GetAmount("酒"));
+        Assert.Equal(4, world.Admission.GetPrefillBalances(firstMaster)["蜜"]);
+        var returns = world.ResourceLedger.For(ResourceCauses.Return);
+        var returned = Assert.Single(returns);
+        Assert.Equal("酒", returned.Name);
+        Assert.Equal(4, returned.Amount);
+        Assert.Equal("主台预置", returned.From);
+        Assert.Equal("自机液库", returned.To);
+
+        // 退役主台的 staging 已清空并脱离准入器，检查点不再被旧岗位对象阻塞。
+        world.CaptureExecutionResourceCheckpoint();
+
+        // 旧主台可以作为空备用个体接任从台，不会把主台预置液体带入从台。
+        var slaveReplacement = world.Runtime.BeginReplacement(
+            WorkshopRole.Slave, secondMaster, new NoOrderInterruption(), 1_000);
+        Assert.True(slaveReplacement.Success, slaveReplacement.Error);
+        world.Runtime.AdvanceWorldTime(1_000);
+        Assert.Same(secondMaster, world.Roster.Slave);
+        Assert.Empty(world.Admission.GetPrefillBalances(secondMaster));
+    }
+
 }
