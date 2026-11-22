@@ -513,4 +513,42 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Empty(app.GetWorldSnapshot().ActiveSessions);
         Assert.Empty(app.GetWorldSnapshot().Demands);
     }
+    [Fact]
+    public void SuccessfulOrderCycleOutboxSurvivesJsonRestoreAndAcknowledgesIdempotently()
+    {
+        using var firstHost = new WorldV2HostService();
+        var firstApp = new WorldV2ApplicationService(firstHost);
+        firstApp.CreateOrReplaceWorld(Options());
+        firstApp.AdvanceWorld(1_000);
+
+        var demandId = firstApp.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "酒") },
+            "A", DemandAreaKind.Active, 0, "ship.order.buff-overdrive"));
+        Assert.True(firstApp.StartActiveDemand(demandId).Success);
+        firstApp.AdvanceWorld(1_000);
+
+        var firstRead = Assert.Single(firstApp.GetPendingOrderCycleEvents());
+        var repeatedRead = Assert.Single(firstApp.GetPendingOrderCycleEvents());
+        Assert.Equal(firstRead, repeatedRead);
+        Assert.Equal("ship.order.buff-overdrive", firstRead.OrderDefinitionKey);
+        Assert.Equal(demandId, firstRead.DemandId);
+        Assert.Equal(1, firstRead.CycleSequence);
+
+        var json = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(
+            firstApp.CaptureExecutionResourceCheckpoint());
+
+        using var restoredHost = new WorldV2HostService();
+        var restoredApp = new WorldV2ApplicationService(restoredHost);
+        restoredApp.CreateOrReplaceWorld(Options());
+        restoredApp.RestoreExecutionResourceCheckpointJson(Options(), json);
+
+        var restoredEvent = Assert.Single(restoredApp.GetPendingOrderCycleEvents());
+        Assert.Equal(firstRead.EventId, restoredEvent.EventId);
+        Assert.Equal(firstRead.WorldInstanceId, restoredEvent.WorldInstanceId);
+        Assert.True(restoredApp.AcknowledgeOrderCycleEvent(restoredEvent.EventId));
+        Assert.False(restoredApp.AcknowledgeOrderCycleEvent(restoredEvent.EventId));
+        Assert.Empty(restoredApp.GetPendingOrderCycleEvents());
+    }
+
+
 }
