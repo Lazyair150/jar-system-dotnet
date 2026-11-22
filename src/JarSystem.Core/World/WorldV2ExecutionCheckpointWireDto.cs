@@ -36,7 +36,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         ArgumentNullException.ThrowIfNull(checkpoint);
         var wire = new WorldV2ExecutionCheckpointWireDto
         {
-            Shapes = checkpoint.ResourceArea.Producers.GeneratorAccumulatedMicro.Keys.ToList(),
+            Shapes = CollectShapes(checkpoint),
             Liquids = checkpoint.ShipLiquidInventory.Balances.Keys.ToList(),
             ResourceArea = ResourceAreaWireDto.FromSnapshot(checkpoint.ResourceArea),
             DemandBoard = DemandBoardWireDto.FromSnapshot(checkpoint.DemandBoard),
@@ -96,6 +96,29 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         if (Sessions.Any(item => item == null) ||
             Sessions.Select(item => item.DemandId).Distinct().Count() != Sessions.Count)
             throw new InvalidOperationException("根级检查点包含空 Session 或重复 Session ID.");
+    }
+
+    private static List<string> CollectShapes(WorldV2ExecutionResourceCheckpoint checkpoint)
+    {
+        // Vocabulary is configuration data, not runtime accumulator state. An accumulator
+        // may be empty (or a producer may currently have no remainder), so it cannot be
+        // used as the authoritative list of supported shapes.
+        return checkpoint.ResourceArea.Producers.Producers
+            .SelectMany(item => item.Value.Keys)
+            .Concat(checkpoint.ResourceArea.Producers.GeneratorAccumulatedMicro.Keys)
+            .Concat(checkpoint.ResourceArea.Warehouse.Jars.Select(jar => jar.Shape))
+            .Concat(checkpoint.MasterWorkshop.BaseMarks)
+            .Concat(checkpoint.MasterWorkshop.AdditionalMarks)
+            .Concat(checkpoint.MasterWorkshop.Jars.Select(jar => jar.Shape))
+            .Concat(checkpoint.SlaveWorkshop?.BaseMarks ?? Array.Empty<string>())
+            .Concat(checkpoint.SlaveWorkshop?.AdditionalMarks ?? Array.Empty<string>())
+            .Concat(checkpoint.SlaveWorkshop?.Jars.Select(jar => jar.Shape) ?? Array.Empty<string>())
+            .Concat(checkpoint.DemandBoard.PassiveDemands.Concat(checkpoint.DemandBoard.ActiveDemands)
+                .SelectMany(demand => demand.Requirements).Select(requirement => requirement.Shape))
+            .Where(shape => !string.IsNullOrWhiteSpace(shape))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(shape => shape, StringComparer.Ordinal)
+            .ToList();
     }
 
     private static WorldResourceReservationBookWireDto Clone(WorldResourceReservationBookWireDto source) =>
