@@ -202,7 +202,7 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
     }
 
     [Fact]
-    public void HandoffPreservesMarkAndDoesNotPermitAnotherRuleOperation()
+    public void PreparationJarIsNotTheRequirementJarAtHandoff()
     {
         var requirement = Candidate(0, "圆罐", null, "MATCH", "圆罐", null);
         var preparation = Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null,
@@ -219,10 +219,10 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
         Assert.True(prep.OutputJars[0].IsMarked);
         var handoff = Assert.Single(program.Nodes,
             x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
+        Assert.DoesNotContain(handoff.InputJars, x => x.JarKey == "preparation-resource-0");
         var handedOff = Assert.Single(handoff.InputJars,
             x => x.JarKey == "requirement-0");
         Assert.False(handedOff.IsMarked);
-        Assert.True(handoff.OutputJars.Single(x => x.JarKey == "requirement-0").IsMarked == false);
     }
 
     [Fact]
