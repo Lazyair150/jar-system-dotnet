@@ -38,22 +38,18 @@ internal class SolverState
     public bool Allows(JarState jar, SolverOperation operation)
     {
         if (operation.Type == "MATCH") return true;
-        var intent = operation.Type switch
-        {
-            "POUR_IN" when operation.TargetLiquid != null =>
-                WorkshopOperation.PourIn(operation.TargetLiquid),
-            "POUR_OUT" => WorkshopOperation.PourOut(),
-            "RESHAPE" when operation.FullReshape && operation.TargetShape != null =>
-                WorkshopOperation.ReshapeFull(operation.TargetShape),
-            "RESHAPE" when operation.TargetShape != null && operation.CostLiquid != null =>
-                WorkshopOperation.ReshapeEmpty(operation.TargetShape, operation.CostLiquid),
-            _ => (WorkshopOperation?)null
-        };
-        return intent.HasValue && WorkshopRulebook.IsAllowed(
+        var intent = ToWorkshopOperation(operation);
+        return WorkshopRulebook.IsAllowed(
             _rules, _perLiquidCapacity,
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
-            intent.Value, Liquids);
+            intent, Liquids);
     }
+
+    public WorkshopOperationTransition? CreateTransition(JarState jar, WorkshopOperation operation) =>
+        WorkshopRulebook.CreateTransition(
+            _rules, _perLiquidCapacity,
+            new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
+            operation, Liquids);
 
     public SolverState Clone() => new SolverState(Jars, Liquids, WorkshopInfo)
     {
@@ -407,14 +403,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         }
         else
         {
-            var transition = WorkshopRulebook.CreateTransition(
-                RuleContext.From(st.WorkshopInfo.Capability),
-                st.WorkshopInfo.MaxLiquidCapacity == int.MaxValue
-                    ? st.WorkshopInfo.MaxLiquids
-                    : int.MaxValue,
-                new JarFacts(st.Jars[i].Shape, st.Jars[i].Liquid, st.Jars[i].IsMarked),
-                ToWorkshopOperation(op),
-                st.Liquids);
+            var transition = st.CreateTransition(st.Jars[i], ToWorkshopOperation(op));
             if (transition == null) return false;
 
             if (transition.Value.ConsumedFreeLiquid is { } consumed &&
