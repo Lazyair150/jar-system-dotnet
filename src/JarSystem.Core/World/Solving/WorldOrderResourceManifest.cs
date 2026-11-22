@@ -184,9 +184,14 @@ public sealed class WorldOrderResourceManifest
             if (!DictionaryAtLeast(available, masterInitial))
                 throw new InvalidOperationException("自机液库与主台预置库存不足以提供订单初始液体供给");
         }
-        else if (!DictionaryAtLeast(snapshot.Master.Liquids, masterInitial))
+        else
         {
-            throw new InvalidOperationException("主台当前游离液体不足以提供订单初始液体供给");
+            var available = snapshot.Master.Liquids.ToDictionary(
+                item => item.Key, item => item.Value, StringComparer.Ordinal);
+            foreach (var item in snapshot.MasterPrefillLiquidBalances)
+                available[item.Key] = checked(available.GetValueOrDefault(item.Key) + item.Value);
+            if (!DictionaryAtLeast(available, masterInitial))
+                throw new InvalidOperationException("主台当前游离液体与预置库存不足以提供订单初始液体供给");
         }
 
         if (masterPeak > snapshot.Master.LiquidStagingCapacity)
