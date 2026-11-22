@@ -26,7 +26,7 @@ ResourceWorldRuntime.TryStartExecutionSession is the public entry point. Session
 - A-class sessions reserve their referenced jars and initial master free-liquid budget.
 - B-class sessions additionally reserve the world's single slave role. Two B-class sessions cannot both be admitted while that role is occupied.
 - Reservations are ownership declarations, not mutations of inventory and not multi-threaded world transactions. The world remains driven by a serialized logical scheduler.
-- ResourceWorldRuntime may advance multiple sessions in the same logical tick. The reservation book prevents overlapping jar/liquid ownership, and B-class sessions additionally reserve the single slave role. Mark cleanup is scoped to each session's locked jar IDs, so one order cannot clear another order's operation marks. The scheduler still decides which eligible orders to start and in what priority order.
+- ResourceWorldRuntime may advance multiple sessions in the same logical tick. The reservation book prevents overlapping jar/liquid ownership, and B-class sessions additionally reserve the single slave role. Each physical Jar may be operated at most once across the entire order, including both Master and Slave phases. The one-time handoff preserves marks; cleanup is scoped to each session's locked Jar IDs and runs only when that order ends, so one order cannot clear another order's operation marks. The scheduler still decides which eligible orders to start and in what priority order.
 
 ## State machine
 
