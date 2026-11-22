@@ -169,9 +169,6 @@ public sealed class WorldOrderPreparatoryProgramBuilderTests
         var consumer = Candidate(
             0, "consumer-jar", null, "RESHAPE_EMPTY", "consumer-finished", null,
             consumedFree: "X");
-        var producer = Candidate(
-            1, "producer-jar", "X", "PREPARE_POUR_OUT", "producer-finished", null,
-            producedFree: "X");
         var solution = new WorldOrderSymbolicSolution(new[]
         {
             new WorldOrderAssignedRuleCandidate("Master",
