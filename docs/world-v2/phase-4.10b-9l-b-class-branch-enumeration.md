@@ -12,7 +12,7 @@ The Master schedule runs before handoff. The single handoff moves every physical
 
 ## Physical ownership and operation mark
 
-All symbolic root Jars are bound to distinct, unmarked physical IDs in the initial Master inventory. Slave profiles describe Slave rules, not a second inventory source. The one handoff includes Master-completed output Jars as well as Slave operation/preparation Jars. The binder rejects missing IDs, marked Jars, duplicate IDs, state mismatches, and insufficient distinct physical Jars.
+All symbolic root Jars are bound to distinct, unmarked physical IDs in the initial Master inventory. Slave profiles describe Slave rules, not a second inventory source. The Slave's pre-existing Jar and free-liquid inventories must be empty for a B-class solve; its resources come only from this order's one handoff. The one handoff includes Master-completed output Jars as well as Slave operation/preparation Jars. The binder rejects missing IDs, marked Jars, duplicate IDs, state mismatches, and insufficient distinct physical Jars.
 
 Each physical Jar can be operated at most once across the whole order. A revision change or handoff does not clear its order-level mark. The handoff is a single Master→Slave batch and cannot be repeated or reversed.
 
