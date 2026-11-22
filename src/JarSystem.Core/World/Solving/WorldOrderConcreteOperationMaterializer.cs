@@ -214,7 +214,7 @@ public static class WorldOrderConcreteOperationMaterializer
                 return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
                     "暂不支持物化该规则算子：" + candidate.Operation);
 
-            var before = stateList.Select(JarState.Copy).ToList();
+            var before = stateList.Select(x => JarState.Copy(x)).ToList();
             var after = stateList.Select(JarState.Copy).ToList();
             after[jarIndex].Shape = output.Shape;
             after[jarIndex].Liquid = output.Liquid;
