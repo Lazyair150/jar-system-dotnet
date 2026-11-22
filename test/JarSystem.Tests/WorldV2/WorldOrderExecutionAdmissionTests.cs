@@ -288,7 +288,7 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
-    public void NewAdmissionRefreshesEmptyStagingWhenWorkshopBanRulesChange()
+    public void NewAdmissionRejectsPrefilledJarAfterWorkshopBanRulesChange()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             vocabulary: Words, liquidStagingCapacity: 4);
