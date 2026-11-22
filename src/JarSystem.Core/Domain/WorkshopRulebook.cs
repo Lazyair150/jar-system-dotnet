@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace JarSystem.Core.Domain;
 
-/// <summary>工作台能对罐子做的四件事（与 <see cref="Workshop"/> 的四个执行方法一一对应）。</summary>
+/// <summary>工作台对 Jar 执行的化学转换算子；MATCH 是独立的生命周期规则，不属于此枚举。</summary>
 public enum WorkshopOperationKind
 {
     /// <summary>空罐灌入某液体（消耗工作台游离液体 1 单位）。</summary>
@@ -82,14 +82,12 @@ public readonly struct JarFacts
 /// **工作台规则表**：给一处"罐子 + 工作台"状态，回答"哪些操作合法、哪些不合法"。
 ///
 /// <para><b>它是什么、不是什么</b>：
-/// 它<b>不执行任何操作</b>，也不持有罐子对象——只把 <c>Workshop.PourIn/PourOut/ReshapeEmpty/ReshapeFull</c>
-/// 里那几道判定按同样的顺序重述一遍，输入是纯事实（形状、液体、是否已被操作、各液体库存、上限）。
-/// 也就是说：它是这些规则的**可调用形态**，而不是另一套规则。</para>
+/// 它不持有 Jar/Workshop 实体，也不直接记账；它对纯事实执行规则评估，并产生纯值 Jar 终态与资源效果。
+/// 普通工作台库存和订单暂存是两种资源边界，但算子适用条件只在 <see cref="EvaluateCore"/> 定义一次。</para>
 ///
-/// <para><b>当前接入边界</b>：StateSpaceSolver 的候选操作枚举与 Apply 已调用本表；
-/// Apply 消费 <see cref="CreateTransition"/> 返回的纯值转换描述，再由 SolverState 更新搜索副本。
-/// Workshop 的真实执行门面仍保留原有资源事务与状态变更逻辑，下一阶段再迁移到同一转换契约。
-/// 搜索热路径不得为了统一规则而引入不必要的堆分配。</para>
+/// <para><b>当前接入边界</b>：StateSpaceSolver、Workshop 实际执行、订单候选投影与 MATCH 均消费本表的评估/转换结果。
+/// 资源账户仍由所属事务边界扣除或接收；规则表不持有账户，也不提交外部副作用。
+/// 规则目录目前是稳定元数据目录，新增算子仍需扩展操作类型与评估/转换实现；它尚不是可热插拔的规则插件系统。</para>
 ///
 /// <para><b>一致性基线</b>：测试对每个 (罐子, 工作台, 候选操作) 断言
 /// 「<c>WorkshopRulebook.IsAllowed</c> 与 <c>Workshop.xxx</c> 的执行结果一致」，
