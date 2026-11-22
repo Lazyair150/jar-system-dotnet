@@ -928,10 +928,10 @@ public sealed class WorkshopReplacementTests
             jarFlowRate: 0,
             liquidFlowRate: 0,
             shipLiquidInventory: ship);
-        Workshop CreateWorkshop(string name) => new(name, new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+        Workshop CreateWorkshop(string name, int stagingCapacity = 4) => new(name, new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: stagingCapacity);
         var firstMaster = CreateWorkshop("主台 A");
-        var secondMaster = CreateWorkshop("主台 B");
+        var secondMaster = CreateWorkshop("主台 B", stagingCapacity: 3);
         var slave = CreateWorkshop("从台");
         var deliveredJar = new Jar("圆罐", vocabulary: vocabulary);
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
