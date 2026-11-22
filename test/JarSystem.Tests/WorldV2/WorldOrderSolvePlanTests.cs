@@ -197,4 +197,29 @@ public sealed class WorldOrderSolvePlanTests
             WorldOrderSolvePlan.FromMaterializedPaths(
                 false, new[] { step }, transferJarIds: new[] { 81 }));
     }
+
+    [Fact]
+    public void MaterializedPlanRetainsExactRuleIdentity()
+    {
+        var step = new SolverStep
+        {
+            Operation = new SolverOperation
+            {
+                Type = "MATCH",
+                JarIndex = 0,
+                Consumed = new Dictionary<string, int>(),
+                RuleId = "rules.match.circular.v3",
+                RuleVersion = 3
+            },
+            Before = new List<JarState> { new() { Id = 91, Shape = "圆罐" } },
+            After = new List<JarState> { new() { Id = 91, Shape = "圆罐", IsMarked = true } },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+
+        var plan = WorldOrderSolvePlan.FromMaterializedPaths(false, new[] { step });
+        var operation = Assert.Single(plan.MasterSteps).Operation!;
+
+        Assert.Equal("rules.match.circular.v3", operation.RuleId);
+        Assert.Equal(3, operation.RuleVersion);
+    }
 }
