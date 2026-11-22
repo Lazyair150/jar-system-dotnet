@@ -94,7 +94,6 @@ internal class SolverState
     public void AddLiquid(string l, int a = 1) => Liquids[l] = Liquids.GetValueOrDefault(l, 0) + a;
 
     // ---- 罐子状态（求解器自有的快照态） ----
-    public void MarkJar(int i) => Jars[i].IsMarked = true;
     public void SetShape(int i, string s) => Jars[i].Shape = s;
     public void SetLiquid(int i, string? l) => Jars[i].Liquid = l;
     public string? TakeLiquid(int i) { var l = Jars[i].Liquid; Jars[i].Liquid = null; return l; }
