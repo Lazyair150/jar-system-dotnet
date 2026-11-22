@@ -710,11 +710,17 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 throw new InvalidOperationException($"订单交付罐 #{jar.Id} 无法从工作台移除");
         }
 
-        CleanupTemporaryResources(settlementTick);
-        if (_board.RecordSuccessfulFulfillment(DemandId) == DemandFulfillmentResult.NotFound)
-            throw new InvalidOperationException("执行成功时订单已不在需求板中");
+        var completedDemand = _board.Find(DemandId)
+            ?? throw new InvalidOperationException("执行成功时订单已不在需求板中");
 
+        // 成功事件必须晚于所有资源结算与预留释放。这样下游只能观察到完整提交的周期，
+        // 不会因释放阶段失败而提前触发 Space Buff/效果。
+        CleanupTemporaryResources(settlementTick);
         ReleaseReservation(settlementTick);
+        if (_board.RecordSuccessfulFulfillment(DemandId) == DemandFulfillmentResult.NotFound)
+            throw new InvalidOperationException("执行成功提交时订单已不在需求板中");
+        _board.AppendSuccessfulCycleEvent(completedDemand);
+
         Reason = null;
         Stage = WorldOrderExecutionStage.Completed;
     }
