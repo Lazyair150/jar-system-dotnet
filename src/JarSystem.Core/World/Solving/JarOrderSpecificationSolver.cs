@@ -59,8 +59,10 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
                     snapshot, snapshot.Master, "Master", specification)
                 ?? WorldOrderRuleCandidateCatalog.Build(
                     snapshot, snapshot.Master, "Master", specification);
+            // Match WorldOrderSolveBook.CacheRuleCandidates' default cache key. The
+            // concrete resource/schedule search still observes NodeBudget independently.
             var symbolicSolutions = candidateBook?.GetOrBuildSolutions(
-                new[] { masterProfile }, maxSolutions: 256, maxNodes: Math.Max(1, NodeBudget));
+                new[] { masterProfile }, maxSolutions: 256, maxNodes: 100_000);
             var enumeration = WorldOrderAClassBranchEnumerator.Enumerate(
                 demand.Id, masterProfile, snapshot,
                 maxBranches: 256,
