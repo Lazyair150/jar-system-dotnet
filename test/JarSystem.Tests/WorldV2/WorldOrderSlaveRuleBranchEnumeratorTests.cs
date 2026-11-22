@@ -19,13 +19,15 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
             1, targetShape, targetLiquid, null, consumedFree, producedFree, null);
 
     private static WorldOrderRuleCandidateProfile Profile(
-        params (string Shape, string? Liquid, WorldOrderRuleCandidate[] Candidates)[] requirements)
+        (string Shape, string? Liquid, WorldOrderRuleCandidate[] Candidates)[] requirements,
+        WorldOrderRuleCandidate[]? preparations = null)
     {
         var entries = requirements.Select((item, index) =>
             new WorldOrderRequirementCandidates(
                 index, item.Shape, item.Liquid, item.Candidates));
         return new WorldOrderRuleCandidateProfile(
-            "SlaveWorkshop", "Slave", "rules-v1", "workshops-v1", "spec-v1", entries);
+            "SlaveWorkshop", "Slave", "rules-v1", "workshops-v1", "spec-v1",
+            entries, preparations);
     }
 
     [Fact]
@@ -120,6 +122,48 @@ public sealed class WorldOrderSlaveRuleBranchEnumeratorTests
         Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Undetermined, result.Status);
         Assert.False(result.Alternatives?.IsComplete ?? false);
         Assert.Contains("预算", result.Reason);
+    }
+
+
+    [Fact]
+    public void SameJarSlavePreparationCreatesAnAlternativeThatAvoidsMasterFreeLiquidBoundary()
+    {
+        var requirement = Candidate(
+            0, "round", null, "target", null, consumedFree: "X");
+        var preparation = new WorldOrderRuleCandidate(
+            -1, "round", "X", "PREPARE_POUR_OUT", "prepare-pour-out",
+            1, "round", null, null, null, "X", null);
+        var profile = Profile(
+            new[] { ("target", (string?)null, new[] { requirement }) },
+            new[] { preparation });
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 2, masterBannedLiquids: new[] { "X" });
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Complete, result.Status);
+        Assert.Equal(2, result.ExploredBranches);
+        var group = Assert.Single(result.Alternatives!.Groups);
+        Assert.Empty(group.RequiredFreeLiquid);
+        Assert.Single(group.RequiredJarStates);
+    }
+
+    [Fact]
+    public void PreparatoryBranchBudgetExhaustionRemainsUndetermined()
+    {
+        var requirement = Candidate(
+            0, "round", null, "target", null, consumedFree: "X");
+        var preparation = new WorldOrderRuleCandidate(
+            -1, "round", "X", "PREPARE_POUR_OUT", "prepare-pour-out",
+            1, "round", null, null, null, "X", null);
+        var profile = Profile(
+            new[] { ("target", (string?)null, new[] { requirement }) },
+            new[] { preparation });
+
+        var result = WorldOrderSlaveRuleBranchEnumerator.Enumerate(
+            profile, "Master", 2, maxBranches: 1);
+
+        Assert.Equal(WorldOrderSlaveRuleBranchEnumerationStatus.Undetermined, result.Status);
+        Assert.False(result.Alternatives?.IsComplete ?? false);
     }
 
     [Fact]
