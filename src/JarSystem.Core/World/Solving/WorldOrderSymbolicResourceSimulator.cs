@@ -22,12 +22,16 @@ public sealed class WorldOrderSymbolicResourceSimulationRequest
     public int SlaveStagingCapacity { get; }
     public IReadOnlyDictionary<string, int> MasterInitialFreeLiquid { get; }
     public IReadOnlyDictionary<string, int> HandoffFreeLiquid { get; }
+    public IReadOnlyCollection<string> MasterRejectedLiquids { get; }
+    public IReadOnlyCollection<string> SlaveRejectedLiquids { get; }
 
     public WorldOrderSymbolicResourceSimulationRequest(
         int masterStagingCapacity,
         int slaveStagingCapacity,
         IReadOnlyDictionary<string, int> masterInitialFreeLiquid,
-        IReadOnlyDictionary<string, int> handoffFreeLiquid)
+        IReadOnlyDictionary<string, int> handoffFreeLiquid,
+        IReadOnlyCollection<string>? masterRejectedLiquids = null,
+        IReadOnlyCollection<string>? slaveRejectedLiquids = null)
     {
         if (masterStagingCapacity < 0) throw new ArgumentOutOfRangeException(nameof(masterStagingCapacity));
         if (slaveStagingCapacity < 0) throw new ArgumentOutOfRangeException(nameof(slaveStagingCapacity));
@@ -38,8 +42,12 @@ public sealed class WorldOrderSymbolicResourceSimulationRequest
         SlaveStagingCapacity = slaveStagingCapacity;
         MasterInitialFreeLiquid = CopyAmounts(masterInitialFreeLiquid, nameof(masterInitialFreeLiquid));
         HandoffFreeLiquid = CopyAmounts(handoffFreeLiquid, nameof(handoffFreeLiquid));
+        MasterRejectedLiquids = CopyNames(masterRejectedLiquids, nameof(masterRejectedLiquids));
+        SlaveRejectedLiquids = CopyNames(slaveRejectedLiquids, nameof(slaveRejectedLiquids));
         if (Total(MasterInitialFreeLiquid) > MasterStagingCapacity)
             throw new ArgumentException("主台初始订单液体余额超过暂存容量", nameof(masterInitialFreeLiquid));
+        if (MasterInitialFreeLiquid.Keys.Any(x => MasterRejectedLiquids.Contains(x, StringComparer.Ordinal)))
+            throw new ArgumentException("主台初始订单余额包含被当前工作台拒收的液体", nameof(masterInitialFreeLiquid));
     }
 
     private static IReadOnlyDictionary<string, int> CopyAmounts(
@@ -55,6 +63,19 @@ public sealed class WorldOrderSymbolicResourceSimulationRequest
             result.Add(item.Key, item.Value);
         }
         return new ReadOnlyDictionary<string, int>(result);
+    }
+
+    private static IReadOnlyCollection<string> CopyNames(
+        IReadOnlyCollection<string>? source, string parameterName)
+    {
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var name in source ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("拒收液体名称不能为空", parameterName);
+            names.Add(name);
+        }
+        return Array.AsReadOnly(names.ToArray());
     }
 
     private static int Total(IReadOnlyDictionary<string, int> amounts)
@@ -73,6 +94,8 @@ public sealed class WorldOrderSymbolicRoleResourceState
     public IReadOnlyDictionary<string, int> FinalFreeLiquid { get; }
     public IReadOnlyDictionary<string, int> AcceptedFreeLiquidProduction { get; }
     public IReadOnlyDictionary<string, int> DiscardedFreeLiquidProduction { get; }
+    public IReadOnlyDictionary<string, int> RejectedFreeLiquidProduction { get; }
+    public IReadOnlyDictionary<string, int> OverflowDiscardedFreeLiquidProduction { get; }
     public IReadOnlyDictionary<string, int> ConsumedFreeLiquid { get; }
     public IReadOnlyDictionary<string, int> ConsumedJarLiquid { get; }
 
@@ -82,6 +105,8 @@ public sealed class WorldOrderSymbolicRoleResourceState
         IReadOnlyDictionary<string, int> finalFreeLiquid,
         IReadOnlyDictionary<string, int> acceptedFreeLiquidProduction,
         IReadOnlyDictionary<string, int> discardedFreeLiquidProduction,
+        IReadOnlyDictionary<string, int> rejectedFreeLiquidProduction,
+        IReadOnlyDictionary<string, int> overflowDiscardedFreeLiquidProduction,
         IReadOnlyDictionary<string, int> consumedFreeLiquid,
         IReadOnlyDictionary<string, int> consumedJarLiquid)
     {
@@ -90,6 +115,8 @@ public sealed class WorldOrderSymbolicRoleResourceState
         FinalFreeLiquid = Copy(finalFreeLiquid);
         AcceptedFreeLiquidProduction = Copy(acceptedFreeLiquidProduction);
         DiscardedFreeLiquidProduction = Copy(discardedFreeLiquidProduction);
+        RejectedFreeLiquidProduction = Copy(rejectedFreeLiquidProduction);
+        OverflowDiscardedFreeLiquidProduction = Copy(overflowDiscardedFreeLiquidProduction);
         ConsumedFreeLiquid = Copy(consumedFreeLiquid);
         ConsumedJarLiquid = Copy(consumedJarLiquid);
     }
@@ -181,6 +208,8 @@ public static class WorldOrderSymbolicResourceSimulator
 
                 foreach (var item in request.HandoffFreeLiquid)
                 {
+                    if (slave.Rejects(item.Key))
+                        return Failure(node.NodeId, "从台拒收交接液体：" + item.Key);
                     if (master.Balance(item.Key) < item.Value)
                         return Failure(node.NodeId, "主台在唯一交接时刻缺少液体：" + item.Key);
                 }
@@ -249,24 +278,27 @@ public static class WorldOrderSymbolicResourceSimulator
         private readonly SortedDictionary<string, int> _balances = new(StringComparer.Ordinal);
         private readonly SortedDictionary<string, int> _accepted = new(StringComparer.Ordinal);
         private readonly SortedDictionary<string, int> _discarded = new(StringComparer.Ordinal);
+        private readonly SortedDictionary<string, int> _rejected = new(StringComparer.Ordinal);
+        private readonly SortedDictionary<string, int> _overflowDiscarded = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _rejectedLiquids;
         private readonly SortedDictionary<string, int> _consumedFree = new(StringComparer.Ordinal);
         private readonly SortedDictionary<string, int> _consumedJar = new(StringComparer.Ordinal);
 
         public int Capacity { get; }
         public int Peak { get; private set; }
 
-        public MutableRoleResourceState(int capacity)
+        public MutableRoleResourceState(
+            int capacity,
+            IReadOnlyDictionary<string, int> initial,
+            IReadOnlyCollection<string> rejectedLiquids)
         {
             Capacity = capacity;
-            UpdatePeak();
-        }
-
-        public MutableRoleResourceState(int capacity, IReadOnlyDictionary<string, int> initial)
-            : this(capacity)
-        {
+            _rejectedLiquids = new HashSet<string>(rejectedLiquids, StringComparer.Ordinal);
             foreach (var item in initial) _balances.Add(item.Key, item.Value);
             UpdatePeak();
         }
+
+        public bool Rejects(string liquid) => _rejectedLiquids.Contains(liquid);
 
         public int Balance(string liquid) => _balances.GetValueOrDefault(liquid);
 
@@ -291,15 +323,26 @@ public static class WorldOrderSymbolicResourceSimulator
 
         public void ReceiveOrDiscard(string liquid, int amount)
         {
+            if (Rejects(liquid))
+            {
+                Add(_rejected, liquid, amount);
+                Add(_discarded, liquid, amount);
+                return;
+            }
+
             var freeCapacity = Capacity - TotalBalance();
             var accepted = Math.Min(freeCapacity, amount);
-            var discarded = amount - accepted;
+            var overflowDiscarded = amount - accepted;
             if (accepted > 0)
             {
                 _balances[liquid] = checked(Balance(liquid) + accepted);
                 Add(_accepted, liquid, accepted);
             }
-            if (discarded > 0) Add(_discarded, liquid, discarded);
+            if (overflowDiscarded > 0)
+            {
+                Add(_overflowDiscarded, liquid, overflowDiscarded);
+                Add(_discarded, liquid, overflowDiscarded);
+            }
             UpdatePeak();
         }
 
@@ -309,7 +352,8 @@ public static class WorldOrderSymbolicResourceSimulator
         public void UpdatePeak() => Peak = Math.Max(Peak, TotalBalance());
 
         public WorldOrderSymbolicRoleResourceState Snapshot() =>
-            new(Capacity, Peak, _balances, _accepted, _discarded, _consumedFree, _consumedJar);
+            new(Capacity, Peak, _balances, _accepted, _discarded, _rejected,
+                _overflowDiscarded, _consumedFree, _consumedJar);
 
         private int TotalBalance()
         {
