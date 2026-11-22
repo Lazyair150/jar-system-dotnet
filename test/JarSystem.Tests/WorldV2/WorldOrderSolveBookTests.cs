@@ -106,7 +106,8 @@ public sealed class WorldOrderSolveBookTests
         var roster = new WorkshopRoster(new[] { master }, master);
 
         var firstSnapshot = WorldSnapshotFactory.Capture(roster);
-        book.Evaluate(demand.Id, firstSnapshot, Registry());
+        var firstRecord = book.Evaluate(demand.Id, firstSnapshot, Registry());
+        var firstRecordPlan = firstRecord.Result!.Plan;
         var first = book.GetSymbolicSolutions(demand.Id, firstSnapshot);
         Assert.NotNull(first);
 
@@ -114,6 +115,11 @@ public sealed class WorldOrderSolveBookTests
         var resourceChanged = WorldSnapshotFactory.Capture(roster);
         Assert.NotEqual(firstSnapshot.ResourceVersion, resourceChanged.ResourceVersion);
         Assert.Same(first, book.GetSymbolicSolutions(demand.Id, resourceChanged));
+
+        var resourceRebound = book.Evaluate(demand.Id, resourceChanged, Registry());
+        Assert.Equal(WorldOrderSolveState.Current, resourceRebound.State);
+        Assert.Equal(resourceChanged.Version, resourceRebound.Result!.WorldVersion);
+        Assert.Same(firstRecordPlan, resourceRebound.Result.Plan);
 
         master.ReplaceCapability(new WorkshopCapability(
             new[] { "方罐" }, System.Array.Empty<string>(), System.Array.Empty<string>()));
@@ -143,6 +149,37 @@ public sealed class WorldOrderSolveBookTests
         Assert.DoesNotContain(
             ruleRebuilt!.Solutions.SelectMany(solution => solution.Steps),
             step => step.Candidate.Operation == "MATCH");
+    }
+
+    [Fact]
+    public void ResourceRebindFallsBackToSolverWhenAPlanJarIsReplaced()
+    {
+        var board = Board();
+        var demand = Demand();
+        board.AddDemand(demand, DemandAreaKind.Passive);
+        using var book = new WorldOrderSolveBook(board);
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var original = new Jar("圆罐");
+        master.AddJar(original);
+        var roster = new WorkshopRoster(new[] { master }, master);
+
+        var firstSnapshot = WorldSnapshotFactory.Capture(roster);
+        var first = book.Evaluate(demand.Id, firstSnapshot, Registry());
+        Assert.Equal(WorldOrderSolveStatus.Feasible, first.Result!.Status);
+
+        Assert.True(master.RemoveJar(original));
+        var replacement = new Jar("圆罐");
+        Assert.True(master.AddJar(replacement));
+        var changedSnapshot = WorldSnapshotFactory.Capture(roster);
+
+        var rebound = book.Evaluate(demand.Id, changedSnapshot, Registry());
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, rebound.Result!.Status);
+        Assert.Equal(changedSnapshot.Version, rebound.Result.WorldVersion);
+        Assert.NotSame(first.Result.Plan, rebound.Result.Plan);
+        Assert.Contains(rebound.Result.Plan!.MasterSteps,
+            step => step.Operation?.Type == "MATCH" &&
+                    step.Before![step.Operation.JarIndex!.Value].Id == replacement.Id);
     }
 
     [Fact]
