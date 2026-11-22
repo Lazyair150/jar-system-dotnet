@@ -18,8 +18,8 @@ public enum WorldOrderSymbolicDependencyKind
 }
 
 /// <summary>
-/// An abstract version of one physical Jar. JarKey preserves identity while Revision
-/// distinguishes successive states of that same Jar in an operation program.
+/// An abstract version of one physical Jar. Revision identifies state, while IsMarked
+/// records the order-lifecycle lock that prevents a second rule operation on this Jar.
 /// </summary>
 public sealed record WorldOrderSymbolicJarVersion
 {
@@ -228,6 +228,11 @@ public sealed class WorldOrderSymbolicOperationProgram
             throw new ArgumentException("操作节点身份不能重复", nameof(nodes));
         if (orderedNodes.Select(x => x.Sequence).Distinct().Count() != orderedNodes.Length)
             throw new ArgumentException("操作序号不能重复", nameof(nodes));
+
+        var ruleNodes = orderedNodes.Where(x => x.Kind == WorldOrderSymbolicOperationKind.Rule).ToArray();
+        if (ruleNodes.Select(x => x.InputJars[0].JarKey)
+            .Distinct(StringComparer.Ordinal).Count() != ruleNodes.Length)
+            throw new ArgumentException("同一 Jar 在一次订单实现中不能执行多个规则操作", nameof(nodes));
 
         var handoffs = orderedNodes.Where(x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff).ToArray();
         if (isBClass ? handoffs.Length != 1 : handoffs.Length != 0)
