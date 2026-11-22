@@ -144,9 +144,7 @@ public sealed class WorldV2BridgeSession : IDisposable
     public void RestoreExecutionCheckpointJson(WorldV2Options options, string json)
     {
         ThrowIfDisposed();
-        if (options == null) throw new ArgumentNullException(nameof(options));
-        var checkpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(json);
-        _application.RestoreExecutionResourceCheckpoint(options, checkpoint);
+        _application.RestoreExecutionResourceCheckpointJson(options, json);
     }
 
     /// <summary>
