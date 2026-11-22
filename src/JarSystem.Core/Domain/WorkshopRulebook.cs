@@ -178,6 +178,51 @@ public static class WorkshopRulebook
     }
 
     /// <summary>
+    /// 规则算子的纯值转换结果。它描述 Jar 终态与资源效果，不直接修改 Workshop、Jar 或资源账户。
+    /// RuleId/Version 是稳定领域身份，不使用 CLR 类型名作为规则身份。
+    /// </summary>
+    public readonly record struct WorkshopOperationTransition(
+        string RuleId,
+        int RuleVersion,
+        JarFacts After,
+        string? ConsumedFreeLiquid,
+        string? ProducedFreeLiquid,
+        string? ConsumedJarLiquid);
+
+    /// <summary>
+    /// 在当前规则上下文中评估并生成一次确定性状态转换。
+    /// null 表示规则拒绝；非 null 表示可执行的纯值转换证明。
+    /// 资源账户的实际扣除/接收仍由调用方在所属事务边界内完成。
+    /// </summary>
+    public static WorkshopOperationTransition? CreateTransition(
+        RuleContext rules, int maxLiquids, in JarFacts jar,
+        in WorkshopOperation op, IReadOnlyDictionary<string, int> liquids)
+    {
+        if (!IsAllowed(rules, maxLiquids, jar, op, liquids)) return null;
+
+        return op.Kind switch
+        {
+            WorkshopOperationKind.PourIn => new WorkshopOperationTransition(
+                "jar.workshop.pour-in", 1,
+                new JarFacts(jar.Shape, op.TargetLiquid, true),
+                op.TargetLiquid, null, null),
+            WorkshopOperationKind.PourOut => new WorkshopOperationTransition(
+                "jar.workshop.pour-out", 1,
+                new JarFacts(jar.Shape, null, true),
+                null, jar.Liquid, null),
+            WorkshopOperationKind.ReshapeEmpty => new WorkshopOperationTransition(
+                "jar.workshop.reshape-empty", 1,
+                new JarFacts(op.TargetShape!, null, true),
+                op.CostLiquid, null, null),
+            WorkshopOperationKind.ReshapeFull => new WorkshopOperationTransition(
+                "jar.workshop.reshape-full", 1,
+                new JarFacts(op.TargetShape!, null, true),
+                null, null, jar.Liquid),
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// 列出现在**全部**合法操作（按固定顺序：倒出 → 灌入 → 空罐改形 → 满罐改形）。
     ///
     /// <para>顺序固定是为了可复现：同一状态永远给出同一个序列，测试可以逐项比对。</para>
