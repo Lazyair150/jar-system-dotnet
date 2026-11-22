@@ -119,10 +119,58 @@ public sealed class WorkshopSolveSnapshot
     public Dictionary<string, int> CreateSolverLiquids() =>
         _liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
 
-    /// <summary>创建仅含基础能力的规则输入；动态修饰器必须由后续求解适配器另行投影。</summary>
+    /// <summary>
+    /// 从捕获时已经生效的声明式修饰器重建只读规则上下文。
+    /// 任意委托或未知扩展不允许被静默丢弃；调用方必须先检查 HasOpaqueSolverRules。
+    /// </summary>
+    public RuleContext CreateRuleContext()
+    {
+        if (HasOpaqueSolverRules)
+            throw new InvalidOperationException("工作台快照包含不可静态重建的规则");
+
+        var modifiers = new List<IRuleModifier>(_modifiers.Count);
+        foreach (var modifier in _modifiers)
+        {
+            switch (modifier.Kind)
+            {
+                case ModifierKind.Suppress:
+                    modifiers.Add(new SuppressModifier
+                    {
+                        Name = modifier.Name,
+                        Source = modifier.Source,
+                        Priority = modifier.Priority,
+                        Operation = modifier.Operation,
+                        Shape = modifier.Shape,
+                        Liquid = modifier.Liquid,
+                        Reason = modifier.Reason ?? "此刻不得进行该操作"
+                    });
+                    break;
+                case ModifierKind.Grant:
+                    if (string.IsNullOrWhiteSpace(modifier.Shape))
+                        throw new InvalidOperationException("Grant 规则缺少目标形状");
+                    modifiers.Add(new GrantModifier
+                    {
+                        Name = modifier.Name,
+                        Source = modifier.Source,
+                        Priority = modifier.Priority,
+                        Shape = modifier.Shape
+                    });
+                    break;
+                default:
+                    throw new InvalidOperationException("未支持的静态规则类型: " + modifier.Kind);
+            }
+        }
+
+        return new RuleContext(
+            Capability,
+            ModifierStack.CreateReadOnlySnapshot(modifiers));
+    }
+
+    /// <summary>创建包含能力属性与冻结规则上下文的求解输入。</summary>
     public WorkshopInfo CreateWorkshopInfo() => new()
     {
         Capability = Capability,
+        Rules = CreateRuleContext(),
         MaxJars = MaxJars,
         MaxLiquids = MaxLiquids,
         MaxLiquidCapacity = LiquidStagingCapacity
@@ -182,7 +230,7 @@ public sealed record WorldRuleModifierSnapshot(
             value.Kind, value.Name, value.Source, value.Priority,
             value.Window.HasValue, value.Window?.From ?? 0, value.Window?.To,
             value.Operation, value.Shape, value.Liquid, value.Reason, null,
-            !(noTarget || wholeLiquid || wholeShape));
+            false);
     }
 
     internal static WorldRuleModifierSnapshot Grant(GrantModifier value) => new(
