@@ -280,6 +280,25 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BPartitionRequiresJarAndLiquidTerminalStateFromSameProof()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        var slave = new Workshop("从台");
+        var registry = new WorldOrderSolverRegistry(new[]
+        {
+            new JarOrderSpecificationSolver(new FeasibleWithoutFinalLiquidsSolver())
+        });
+
+        var result = registry.Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+        Assert.NotNull(result.PartitionReport);
+        Assert.Contains(result.PartitionReport!.Events,
+            item => item.Stage == "undetermined-master-final-state");
+    }
+
+    [Fact]
     public void BPartitionBudgetExhaustionCarriesUndeterminedTrace()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
@@ -460,6 +479,23 @@ public sealed class WorldOrderSolverTests
                 Feasible = true,
                 FinalJars = jars,
                 FinalLiquids = new Dictionary<string, int>(liquids)
+            };
+    }
+
+    private sealed class FeasibleWithoutFinalLiquidsSolver : ISolver
+    {
+        public SolverResult Solve(
+            List<Requirement> requirements,
+            WorkshopInfo workshopInfo,
+            List<JarState> jars,
+            Dictionary<string, int> liquids,
+            int transferBudget = int.MaxValue) =>
+            new()
+            {
+                Feasible = true,
+                Path = new List<SolverStep>(),
+                FinalJars = jars,
+                FinalLiquids = null
             };
     }
 
