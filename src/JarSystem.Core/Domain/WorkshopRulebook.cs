@@ -155,7 +155,7 @@ public static class WorkshopRulebook
             return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
 
         var liquidRules = new LiquidRules(rules.Capability, maxLiquids);
-        var reshapeRules = new ReshapeRules(rules.Capability, liquidRules);
+        var reshapeRules = new ReshapeRules(rules, liquidRules);
 
         if (jar.IsMarked)
             return WorkshopRuleDecision.Reject("jar.already-operated", "罐子已被操作");
@@ -343,7 +343,7 @@ public static class WorkshopRulebook
 
         var liquids = scope.Balance;
         var liquidRules = new LiquidRules(rules.Capability, 0);
-        var reshapeRules = new ReshapeRules(rules.Capability, liquidRules);
+        var reshapeRules = new ReshapeRules(rules, liquidRules);
 
         if (jar.IsMarked)
             return WorkshopRuleDecision.Reject("jar.already-operated", "罐子已被操作");
