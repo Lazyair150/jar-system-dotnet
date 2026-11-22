@@ -261,6 +261,25 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BPartitionDoesNotTreatFeasibleSolverWithoutPathAsInfeasible()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐"));
+        var slave = new Workshop("从台");
+        var registry = new WorldOrderSolverRegistry(new[]
+        {
+            new JarOrderSpecificationSolver(new FeasibleWithoutPathSolver())
+        });
+
+        var result = registry.Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+        Assert.NotNull(result.PartitionReport);
+        Assert.Contains(result.PartitionReport!.Events,
+            item => item.Stage == "undetermined-master-missing-path");
+    }
+
+    [Fact]
     public void BPartitionBudgetExhaustionCarriesUndeterminedTrace()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
@@ -403,6 +422,22 @@ public sealed class WorldOrderSolverTests
 
         public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot) =>
             new(demand.Id + 1, snapshot.Version, WorldOrderSolveStatus.Infeasible);
+    }
+
+    private sealed class FeasibleWithoutPathSolver : ISolver
+    {
+        public SolverResult Solve(
+            List<Requirement> requirements,
+            WorkshopInfo workshopInfo,
+            List<JarState> jars,
+            Dictionary<string, int> liquids,
+            int transferBudget = int.MaxValue) =>
+            new()
+            {
+                Feasible = true,
+                FinalJars = jars,
+                FinalLiquids = new Dictionary<string, int>(liquids)
+            };
     }
 
     private sealed class ForeignSpecification : IOrderSpecification
