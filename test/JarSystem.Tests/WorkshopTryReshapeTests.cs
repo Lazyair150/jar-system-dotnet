@@ -29,8 +29,13 @@ public class WorkshopTryReshapeTests
         "玄武台",
         new List<string> { "圆罐", "方罐" },
         new List<string> { "三角罐" },
-        new List<string> { "酒" },
         maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
+
+    private static void BanWine(Workshop workshop) =>
+        workshop.ReplaceCapability(new WorkshopCapability(
+            new List<string> { "圆罐", "方罐" },
+            new List<string> { "三角罐" },
+            new List<string> { "酒" }));
 
     [Fact]
     public void AutoModePicksAUsableCostLiquidAndPaysExactlyOne()
@@ -40,6 +45,7 @@ public class WorkshopTryReshapeTests
         w.AddJar(jar);
         w.AddLiquid("酒", 1);      // 被禁 ⇒ 不能当成本
         w.AddLiquid("蜜", 2);
+        BanWine(w);
 
         var (ok, reason) = w.TryReshape(jar, "方罐");
 
@@ -58,6 +64,7 @@ public class WorkshopTryReshapeTests
         w.AddJar(jar);
         w.AddLiquid("酒", 1);      // 池里有，但被禁 ⇒ 付不了
         w.AddLiquid("蜜", 2);      // 明明还有别的可付，但调用方点名要酒
+        BanWine(w);
 
         var (ok, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Empty, "酒");
 
@@ -125,6 +132,7 @@ public class WorkshopTryReshapeTests
             ask.AddJar(probe);
             ask.AddLiquid("酒", 1);
             ask.AddLiquid("蜜", 1);
+            BanWine(ask);
             var granted = ask.CanReshapeTo(probe, to).Granted;
 
             // 动手
@@ -133,6 +141,7 @@ public class WorkshopTryReshapeTests
             act.AddJar(jar);
             act.AddLiquid("酒", 1);
             act.AddLiquid("蜜", 1);
+            BanWine(act);
             var (ok, _) = act.TryReshape(jar, to);
 
             cases++;
