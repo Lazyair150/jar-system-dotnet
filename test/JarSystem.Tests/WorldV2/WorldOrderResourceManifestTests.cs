@@ -104,6 +104,40 @@ public sealed class WorldOrderResourceManifestTests
     }
 
     [Fact]
+    public void ManifestRejectsPartialRuleProvenance()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" }, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var roster = new WorkshopRoster(new[] { master }, master);
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+        var solved = Solve(Constants.OrderType.A,
+            new Requirement { Shape = "圆罐", Liquid = "酒" }, master);
+        Assert.True(solved.IsFeasible);
+
+        var original = Assert.Single(solved.Plan!.MasterSteps);
+        var malformedStep = original with
+        {
+            Operation = original.Operation! with { RuleId = "test.rule", RuleVersion = null }
+        };
+        var malformedPlan = WorldOrderSolvePlan.RestoreFromWire(
+            false,
+            System.Array.Empty<int>(),
+            new Dictionary<string, int>(),
+            new[] { malformedStep },
+            System.Array.Empty<WorldPlanStep>());
+        var malformedResult = new WorldOrderSolveResult(
+            solved.DemandId, solved.WorldVersion, WorldOrderSolveStatus.Feasible,
+            solved.CheckMethod, solved.Reason, solved.DirectCount, solved.OperationCount,
+            malformedPlan, solved.PartitionReport, solved.RuleSetVersion,
+            solved.WorkshopProfileVersion, solved.ResourceVersion, solved.SpecificationVersion);
+
+        Assert.Throws<System.InvalidOperationException>(
+            () => WorldOrderResourceManifest.Create(malformedResult, snapshot));
+    }
+
+    [Fact]
     public void BManifestCountsOnlySlaveRequiredLiquidAgainstSlaveCapacity()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
