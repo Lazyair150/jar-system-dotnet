@@ -71,3 +71,17 @@ This is an accounting witness only. It does not simulate the workshop staging po
 - Jar-internal liquid never enters the Master free-liquid ban test. Only a Slave operation's `ConsumedFreeLiquid` can create a free-liquid boundary demand.
 
 The replay returns a resource witness, not a reservation. It still does not rewrite the plan or certify execution. The next integration step must make the concrete plan, this replay witness, and Manifest validation agree on the same snapshot and accepted-output decisions.
+
+## Fail-closed plan assembly
+
+`WorldOrderConcretePlanAssembler` is now the join point for one already enumerated symbolic branch:
+
+1. Run ordered resource replay on the captured WorldSnapshot.
+2. Materialize physical Jar operations using the replay's exact Master initial and Slave transfer liquid vectors.
+3. Freeze the role-local paths into `WorldOrderSolvePlan`.
+4. Build a provisional version-bound `WorldOrderSolveResult`.
+5. Require `WorldOrderResourceManifest.Create` to succeed.
+6. Compare Manifest's Master initial/final balances, transfer vector, both staging peaks, and transfer Jar IDs against the policy-aware replay.
+7. Return Feasible only when the two independent proofs agree exactly.
+
+A Manifest/replay disagreement returns Undetermined with the candidate plan retained for diagnosis; it is never silently downgraded into a successful result. This deliberately fails closed for rejected or overflowed outputs that the current generic Manifest simulation still treats as accepted. That limitation is explicit and becomes the next integration target.
