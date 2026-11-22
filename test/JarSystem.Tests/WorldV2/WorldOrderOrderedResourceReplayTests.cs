@@ -140,4 +140,29 @@ public sealed class WorldOrderOrderedResourceReplayTests
         Assert.Equal(WorldOrderOrderedResourceReplayStatus.Infeasible, result.Status);
         Assert.Contains("拒收", result.Reason);
     }
+
+    [Fact]
+    public void MasterBanDoesNotBlockFullReshapeUsingJarInternalLiquid()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" });
+        master.AddJar(new Jar("方罐", "酒", id: 951));
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(new[] { master }, master));
+        var candidate = new WorldOrderRuleCandidate(
+            0, "方罐", "酒", "RESHAPE_FULL", "reshape.full", 1,
+            "圆罐", null, null, null, null, "酒");
+        var input = new WorldOrderSymbolicJarVersion("full-jar", 0, "Master", "方罐", "酒");
+        var output = new WorldOrderSymbolicJarVersion("full-jar", 1, "Master", "圆罐", null, true);
+        var node = WorldOrderSymbolicOperationNode.Rule(
+            "full-reshape", 0, "Master", 0, candidate, input, output);
+        var program = new WorldOrderSymbolicOperationProgram(
+            false, "Master", "Slave", new[] { node },
+            System.Array.Empty<WorldOrderSymbolicOperationDependency>());
+
+        var result = WorldOrderOrderedResourceReplay.Replay(program, world);
+
+        Assert.Equal(WorldOrderOrderedResourceReplayStatus.Complete, result.Status);
+        Assert.Empty(result.MasterInitialLiquids);
+        Assert.Empty(result.MasterFinalLiquids);
+    }
 }
