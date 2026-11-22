@@ -39,6 +39,19 @@ public sealed class ModifierStack : IIntensitySource
         _view = _active.AsReadOnly();
     }
 
+    /// <summary>
+    /// 从已经在捕获时刻生效的声明式规则构造只读栈。
+    /// 调用方必须先将窗口过滤到当前时刻；冻结副本不再推进自己的时间线。
+    /// </summary>
+    public static ModifierStack CreateReadOnlySnapshot(IEnumerable<IRuleModifier> modifiers)
+    {
+        if (modifiers == null) throw new ArgumentNullException(nameof(modifiers));
+        var snapshot = new ModifierStack(isReadOnly: true);
+        snapshot._active.AddRange(modifiers);
+        snapshot._revision = snapshot._active.Count == 0 ? 0 : 1;
+        return snapshot;
+    }
+
     /// <summary>当前活跃修饰器（只读视图，活视图；包含尚未到 From 的未来修饰器）。</summary>
     public IReadOnlyList<IRuleModifier> Active => _view;
 
