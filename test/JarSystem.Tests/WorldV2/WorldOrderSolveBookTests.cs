@@ -80,7 +80,7 @@ public sealed class WorldOrderSolveBookTests
 
         Assert.NotEqual(firstSnapshot.Version, changedSnapshot.Version);
         var rebound = book.GetCurrentResult(demand.Id, changedSnapshot);
-        Assert.NotNull(rebound);
+        Assert.NotNull(rebound, book.Find(demand.Id)!.Reason);
         Assert.Equal(changedSnapshot.Version, rebound!.WorldVersion);
         Assert.NotSame(first.Result, rebound);
         Assert.Same(first.Result!.Plan, rebound.Plan);
@@ -235,6 +235,7 @@ public sealed class WorldOrderSolveBookTests
         var master = new Workshop("主台", new List<string> { "圆罐" });
         var jar = new Jar("圆罐");
         master.AddJar(jar);
+        master.AddLiquid("酒", 1);
         var roster = new WorkshopRoster(new[] { master }, master);
 
         var firstSnapshot = WorldSnapshotFactory.Capture(roster);
