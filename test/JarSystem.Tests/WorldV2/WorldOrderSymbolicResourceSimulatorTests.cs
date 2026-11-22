@@ -217,6 +217,26 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
     }
 
     [Fact]
+    public void MasterBannedLiquidCannotCrossTheOneTimeHandoff()
+    {
+        var result = WorldOrderSymbolicResourceSimulator.Simulate(
+            EmptyBProgram(),
+            new WorldOrderSymbolicResourceSimulationRequest(
+                1, 1,
+                new Dictionary<string, int> { ["酒"] = 1 },
+                new Dictionary<string, int> { ["酒"] = 1 },
+                masterBannedLiquids: new[] { "酒" }));
+
+        Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Infeasible, result.Status);
+        Assert.Equal("master-to-slave-handoff", result.FailureNodeId);
+        Assert.Contains("主台禁止向外传递", result.FailureReason);
+        Assert.False(result.HandoffApplied);
+        Assert.Empty(result.HandoffTransferredFreeLiquid);
+        Assert.Equal(1, result.Roles["Master"].FinalFreeLiquid["酒"]);
+        Assert.Empty(result.Roles["Slave"].FinalFreeLiquid);
+    }
+
+    [Fact]
     public void SlaveRejectingTheTransferredLiquidFailsTheWholeHandoffAtomically()
     {
         var result = WorldOrderSymbolicResourceSimulator.Simulate(
