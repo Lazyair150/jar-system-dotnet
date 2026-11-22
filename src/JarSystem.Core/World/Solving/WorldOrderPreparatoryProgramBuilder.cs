@@ -26,7 +26,8 @@ public static class WorldOrderPreparatoryProgramBuilder
         bool isBClass,
         string masterRole,
         string slaveRole,
-        IReadOnlyList<string>? slaveOperationOrder = null)
+        IReadOnlyList<string>? slaveOperationOrder = null,
+        IReadOnlyList<string>? masterOperationOrder = null)
     {
         if (solution == null) throw new ArgumentNullException(nameof(solution));
         if (preparations == null) throw new ArgumentNullException(nameof(preparations));
@@ -92,29 +93,59 @@ public static class WorldOrderPreparatoryProgramBuilder
         var sequence = 0;
 
         // Master operations, including independent preparation Jars, finish before handoff.
-        foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == masterRole)
-                     .OrderBy(x => x.JarKey, StringComparer.Ordinal))
-        {
-            var input = current[selectedPrep.JarKey];
-            EnsureCandidateInput(selectedPrep.Candidate, input);
-            var output = NextVersion(input, masterRole, selectedPrep.Candidate);
-            nodes.Add(WorldOrderSymbolicOperationNode.Rule(
+        // Their order is a real staging schedule: do not infer it from requirement indices.
+        var masterOperations = new List<(
+            string NodeId,
+            string JarKey,
+            int? RequirementIndex,
+            WorldOrderRuleCandidate Candidate)>();
+        foreach (var selectedPrep in prep.Where(x => x.WorkshopRole == masterRole))
+            masterOperations.Add((
                 "prepare-" + selectedPrep.JarKey,
-                sequence++, masterRole, null, selectedPrep.Candidate, input, output));
-            current[selectedPrep.JarKey] = output;
-        }
-
+                selectedPrep.JarKey,
+                null,
+                selectedPrep.Candidate));
         foreach (var assigned in requirements.Where(x => x.WorkshopRole == masterRole))
         {
-            var candidate = assigned.Candidate;
-            var key = requirementJarKeys[candidate.RequirementIndex];
-            var input = current[key];
-            EnsureCandidateInput(candidate, input);
-            var output = NextVersion(input, masterRole, candidate);
+            var requirementIndex = assigned.Candidate.RequirementIndex;
+            masterOperations.Add((
+                "requirement-" + requirementIndex + "-master",
+                requirementJarKeys[requirementIndex],
+                requirementIndex,
+                assigned.Candidate));
+        }
+
+        if (masterOperationOrder != null)
+        {
+            if (masterOperationOrder.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException("主台操作顺序不能包含空节点身份", nameof(masterOperationOrder));
+            if (masterOperationOrder.Count != masterOperations.Count ||
+                masterOperationOrder.Distinct(StringComparer.Ordinal).Count() != masterOperations.Count)
+                throw new ArgumentException("主台操作顺序必须恰好包含每个操作一次", nameof(masterOperationOrder));
+            var byNodeId = masterOperations.ToDictionary(x => x.NodeId, StringComparer.Ordinal);
+            if (masterOperationOrder.Any(id => !byNodeId.ContainsKey(id)))
+                throw new ArgumentException("主台操作顺序包含未知操作", nameof(masterOperationOrder));
+            masterOperations = masterOperationOrder.Select(id => byNodeId[id]).ToList();
+        }
+        else
+        {
+            masterOperations = masterOperations
+                .OrderBy(x => x.RequirementIndex.HasValue ? 1 : 0)
+                .ThenBy(x => x.RequirementIndex ?? -1)
+                .ThenBy(x => x.JarKey, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        foreach (var operation in masterOperations)
+        {
+            var input = current[operation.JarKey];
+            EnsureCandidateInput(operation.Candidate, input);
+            var output = NextVersion(input, masterRole, operation.Candidate);
             nodes.Add(WorldOrderSymbolicOperationNode.Rule(
-                "requirement-" + candidate.RequirementIndex + "-master",
-                sequence++, masterRole, candidate.RequirementIndex, candidate, input, output));
-            current[key] = output;
+                operation.NodeId,
+                sequence++, masterRole, operation.RequirementIndex,
+                operation.Candidate, input, output));
+            current[operation.JarKey] = output;
         }
 
         WorldOrderSymbolicOperationNode? handoff = null;
