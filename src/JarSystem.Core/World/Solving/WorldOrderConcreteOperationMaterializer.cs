@@ -276,8 +276,12 @@ public static class WorldOrderConcreteOperationMaterializer
         var slaveTransfer = resourceReplay?.TransferLiquids ?? RequiredInitialLiquids(slavePath);
         var masterRequired = resourceReplay?.MasterInitialLiquids ??
             RequiredInitialLiquids(masterPath, slaveTransfer);
-        PopulateAfterLiquidSnapshots(masterPath, masterRequired);
-        PopulateAfterLiquidSnapshots(slavePath, slaveTransfer);
+        if (!PopulateAfterLiquidSnapshots(
+                masterPath, masterRequired, resourceReplay?.MasterAcceptedProducedLiquids) ||
+            !PopulateAfterLiquidSnapshots(
+                slavePath, slaveTransfer, resourceReplay?.SlaveAcceptedProducedLiquids))
+            return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
+                "有序资源重放的逐步产液接受 witness 与具体操作路径不一致");
 
         return new WorldOrderConcreteMaterializationResult(
             WorldOrderConcreteMaterializationStatus.Complete,
@@ -401,23 +405,47 @@ public static class WorldOrderConcreteOperationMaterializer
         return peak;
     }
 
-    private static void PopulateAfterLiquidSnapshots(
-        IReadOnlyList<SolverStep> steps, IReadOnlyDictionary<string, int> initial)
+    private static bool PopulateAfterLiquidSnapshots(
+        IReadOnlyList<SolverStep> steps,
+        IReadOnlyDictionary<string, int> initial,
+        IReadOnlyList<string?>? acceptedProducedLiquids)
     {
+        if (acceptedProducedLiquids != null && acceptedProducedLiquids.Count != steps.Count)
+            return false;
+
         var balances = initial.Where(x => x.Value > 0)
             .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-        foreach (var step in steps)
+        for (var index = 0; index < steps.Count; index++)
         {
+            var step = steps[index];
             var op = step.Operation!;
+            var accepted = acceptedProducedLiquids == null ? null : acceptedProducedLiquids[index];
             if (op.Type == "POUR_IN")
                 Add(balances, op.TargetLiquid!, -1);
             else if (op.Type == "RESHAPE" && !op.FullReshape)
                 Add(balances, op.CostLiquid!, -1);
             else if (op.Type == "POUR_OUT")
-                Add(balances, step.Before![op.JarIndex!.Value].Liquid!, 1);
+            {
+                var produced = step.Before![op.JarIndex!.Value].Liquid!;
+                if (acceptedProducedLiquids == null || accepted == produced)
+                    Add(balances, produced, 1);
+                else if (accepted != null)
+                    return false;
+            }
+            else if (accepted != null)
+            {
+                return false;
+            }
+
+            if (balances.Values.Any(x => x < 0))
+                return false;
+            foreach (var key in balances.Where(x => x.Value == 0).Select(x => x.Key).ToArray())
+                balances.Remove(key);
             step.AfterLiquids = balances.Where(x => x.Value > 0)
                 .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
         }
+
+        return true;
     }
 
     private static void Add(Dictionary<string, int> balances, string liquid, int amount) =>
