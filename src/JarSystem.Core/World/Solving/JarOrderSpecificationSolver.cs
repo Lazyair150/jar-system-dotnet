@@ -15,7 +15,7 @@ namespace JarSystem.Core.World.Solving;
 /// A 类在主台单阶段求解；B 类复用已验证的 PartitionSearch，在主/从台快照上做需求划分。
 /// 输入只来自 WorldSnapshot；不会读取实时 Workshop、Jar 或 ModifierStack。
 /// </summary>
-public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
+public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareSolver
 {
     private readonly ISolver _innerSolver;
 
@@ -27,7 +27,19 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
         _innerSolver = innerSolver ?? throw new ArgumentNullException(nameof(innerSolver));
     }
 
-    public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot)
+    public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot) =>
+        SolveCore(demand, snapshot, null);
+
+    public WorldOrderSolveResult Solve(
+        OrderDemand demand,
+        WorldSnapshot snapshot,
+        WorldOrderRuleCandidateBook candidateBook) =>
+        SolveCore(demand, snapshot, candidateBook);
+
+    private WorldOrderSolveResult SolveCore(
+        OrderDemand demand,
+        WorldSnapshot snapshot,
+        WorldOrderRuleCandidateBook? candidateBook)
     {
         if (demand.Specification is not JarOrderSpecification specification)
             return Result(demand, snapshot, WorldOrderSolveStatus.UnsupportedSpecification,
@@ -49,29 +61,29 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderSpecificationSolver
 
         if (specification.Type == Constants.OrderType.A)
         {
-            var solved = snapshotSolver.Solve(
-                requirements,
-                masterInfo,
-                snapshot.Master.CreateSolverJars(),
-                CreateMasterSupplyLiquids(snapshot));
+            var masterProfile = candidateBook?.GetOrBuild(
+                    snapshot, snapshot.Master, "Master", specification)
+                ?? WorldOrderRuleCandidateCatalog.Build(
+                    snapshot, snapshot.Master, "Master", specification);
+            var symbolicSolutions = candidateBook?.GetOrBuildSolutions(
+                new[] { masterProfile }, maxSolutions: 256, maxNodes: Math.Max(1, NodeBudget));
+            var enumeration = WorldOrderAClassBranchEnumerator.Enumerate(
+                demand.Id, masterProfile, snapshot,
+                maxBranches: 256,
+                maxNodes: Math.Max(1, NodeBudget),
+                precomputedSolutions: symbolicSolutions);
 
-            if (snapshotSolver.BudgetExceeded)
-                return Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
-                    "single_phase", snapshotSolver.InconclusiveReason ?? "分析超出预算");
+            if (enumeration.Status == WorldOrderAClassBranchEnumerationStatus.Feasible)
+                return enumeration.Assembly?.SolveResult
+                    ?? Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
+                        "9l_concrete_a", "A 类分支报告可行但未返回具体计划");
 
-            if (!solved.Feasible)
-                return Result(demand, snapshot, WorldOrderSolveStatus.Infeasible,
-                    "single_phase", solved.Blockage);
-
-            if (solved.Path == null)
-                return Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
-                    "single_phase", "求解器报告可行，但没有提供可执行路径");
-
-            var path = solved.Path;
-            return Result(demand, snapshot, WorldOrderSolveStatus.Feasible,
-                "single_phase", directCount: path.Count(x => x.Operation?.Type == "MATCH"),
-                operationCount: path.Count(x => x.Operation?.Type != "MATCH"),
-                plan: WorldOrderSolvePlan.SinglePhase(path));
+            return Result(demand, snapshot,
+                enumeration.Status == WorldOrderAClassBranchEnumerationStatus.Infeasible
+                    ? WorldOrderSolveStatus.Infeasible
+                    : WorldOrderSolveStatus.Undetermined,
+                "9l_concrete_a",
+                enumeration.Reason ?? "A 类具体规则分支没有得到确定结论");
         }
 
         var slaveSnapshot = snapshot.Slave;
