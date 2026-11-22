@@ -295,11 +295,13 @@ public sealed class PartitionSearch
                 if (masterPeak > request.MasterInfo.MaxLiquidCapacity)
                 {
                     blockage = "主台订单液体路径及从台交接预留超过总暂存容量";
+                    Record("master-staging-capacity-rejected", mask, masterSignature, slaveSignature, blockage);
                     continue;
                 }
                 if (slavePeak > request.SlaveInfo.MaxLiquidCapacity)
                 {
                     blockage = "从台订单液体路径峰值超过总暂存容量";
+                    Record("slave-staging-capacity-rejected", mask, masterSignature, slaveSignature, blockage);
                     continue;
                 }
 
@@ -316,6 +318,8 @@ public sealed class PartitionSearch
                 }
 
                 lastBlockage = blockage;
+                Record("partition-selected", mask, masterSignature, slaveSignature);
+                report = BuildReport(true);
                 return new PartitionSearchOutcome
                 {
                     MasterPath = mr.Path,
@@ -330,9 +334,11 @@ public sealed class PartitionSearch
             }
 
             blockage = sr.Blockage ?? blockage;
+            Record("slave-infeasible", mask, masterSignature, slaveSignature, sr.Blockage);
         }
 
         lastBlockage = blockage;
+        report = BuildReport(false);
         return null;
     }
 
