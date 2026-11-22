@@ -76,15 +76,23 @@ public static class WorldOrderAClassBranchEnumerator
         if (masterProfile.IsUndetermined)
             return Result(WorldOrderAClassBranchEnumerationStatus.Undetermined,
                 null, 0, 0, 0, masterProfile.Reason ?? "主台规则候选 Profile 未能确定");
-        if (masterProfile.Requirements.Any(x => x.Candidates.Count == 0))
-            return Result(WorldOrderAClassBranchEnumerationStatus.Infeasible,
-                null, 0, 0, 0, "至少一项订单需求在主台没有合法规则候选");
 
-        var symbolic = precomputedSolutions ?? WorldOrderSymbolicSolutionBuilder.Build(
-            new[] { masterProfile }, maxBranches, maxNodes);
-        if (symbolic.RuleSetVersion != masterProfile.RuleSetVersion ||
-            symbolic.WorkshopProfileVersion != masterProfile.WorkshopProfileVersion ||
-            symbolic.SpecificationVersion != masterProfile.SpecificationVersion ||
+        // Candidate profiles are intentionally inventory-independent and cacheable.
+        // Before enumerating concrete A-class assignments, remove candidates whose exact
+        // initial Jar state is absent. The physical binder still enforces distinct IDs.
+        var profile = FilterToAvailablePhysicalJarStates(masterProfile, world.Master!);
+        if (profile.Requirements.Any(x => x.Candidates.Count == 0))
+            return Result(WorldOrderAClassBranchEnumerationStatus.Infeasible,
+                null, 0, 0, 0, "至少一项订单需求没有可绑定的未标记物理 Jar 初态");
+
+        var reusableSolutions = ReferenceEquals(profile, masterProfile)
+            ? precomputedSolutions
+            : null;
+        var symbolic = reusableSolutions ?? WorldOrderSymbolicSolutionBuilder.Build(
+            new[] { profile }, maxBranches, maxNodes);
+        if (symbolic.RuleSetVersion != profile.RuleSetVersion ||
+            symbolic.WorkshopProfileVersion != profile.WorkshopProfileVersion ||
+            symbolic.SpecificationVersion != profile.SpecificationVersion ||
             symbolic.Solutions.Any(solution => solution.Steps.Any(step => step.WorkshopRole != "Master")))
             return Result(WorldOrderAClassBranchEnumerationStatus.Undetermined,
                 null, 0, symbolic.ExploredNodes, 0,
@@ -113,7 +121,7 @@ public static class WorldOrderAClassBranchEnumerator
                 .Where(x => x.Candidate.ConsumedFreeLiquid != null)
                 .GroupBy(x => x.Candidate.ConsumedFreeLiquid!, StringComparer.Ordinal)
                 .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
-            var prepChoices = masterProfile.PreparatoryOperations
+            var prepChoices = profile.PreparatoryOperations
                 .Where(x => x.ProducedFreeLiquid != null &&
                             requiredLiquids.ContainsKey(x.ProducedFreeLiquid))
                 .OrderBy(x => x.ProducedFreeLiquid, StringComparer.Ordinal)
@@ -192,7 +200,7 @@ public static class WorldOrderAClassBranchEnumerator
 
                         var binding = WorldOrderPhysicalJarBinder.Bind(program, world.Master!);
                         var assembly = WorldOrderConcretePlanAssembler.Assemble(
-                            demandId, program, binding, world, masterProfile);
+                            demandId, program, binding, world, profile);
                         if (assembly.IsFeasible)
                         {
                             foundAssembly = assembly;
@@ -268,6 +276,44 @@ public static class WorldOrderAClassBranchEnumerator
             null, exploredBranches, exploredNodes, rejectedBranches,
             lastReason ?? "所有 A 类规则候选、准备资源和主台顺序均不可行");
 
+    }
+
+    private static WorldOrderRuleCandidateProfile FilterToAvailablePhysicalJarStates(
+        WorldOrderRuleCandidateProfile profile,
+        WorkshopSolveSnapshot master)
+    {
+        var available = master.Jars
+            .Where(jar => !jar.IsMarked)
+            .GroupBy(jar => (jar.Shape, jar.Liquid))
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        bool Exists(WorldOrderRuleCandidate candidate) =>
+            available.GetValueOrDefault((candidate.SourceShape, candidate.SourceLiquid)) > 0;
+
+        var requirements = profile.Requirements
+            .Select(requirement => new WorldOrderRequirementCandidates(
+                requirement.RequirementIndex,
+                requirement.TargetShape,
+                requirement.TargetLiquid,
+                requirement.Candidates.Where(Exists)))
+            .ToArray();
+        var preparations = profile.PreparatoryOperations.Where(Exists).ToArray();
+
+        if (requirements.Select((item, index) =>
+                item.Candidates.Count == profile.Requirements[index].Candidates.Count).All(x => x) &&
+            preparations.Length == profile.PreparatoryOperations.Count)
+            return profile;
+
+        return new WorldOrderRuleCandidateProfile(
+            profile.WorkshopName,
+            profile.Role,
+            profile.RuleSetVersion,
+            profile.WorkshopProfileVersion,
+            profile.SpecificationVersion,
+            requirements,
+            preparations,
+            profile.IsUndetermined,
+            profile.Reason);
     }
 
     private static WorldOrderAClassBranchEnumerationResult Result(
