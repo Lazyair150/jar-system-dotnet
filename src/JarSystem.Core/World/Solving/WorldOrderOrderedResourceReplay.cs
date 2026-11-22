@@ -26,6 +26,10 @@ public sealed class WorldOrderOrderedResourceReplayResult
     public int MasterStagingPeakCapacity { get; }
     public int SlaveStagingPeakCapacity { get; }
     public WorldOrderResourceRequirementGroup? SlaveBoundaryGroup { get; }
+    /// <summary>Per-Master-step accepted free-liquid output; null means no output or policy/capacity discard.</summary>
+    public IReadOnlyList<string?> MasterAcceptedProducedLiquids { get; }
+    /// <summary>Per-Slave-step accepted free-liquid output; null means no output or policy/capacity discard.</summary>
+    public IReadOnlyList<string?> SlaveAcceptedProducedLiquids { get; }
     public string? Reason { get; }
     public bool IsComplete => Status == WorldOrderOrderedResourceReplayStatus.Complete;
 
@@ -37,6 +41,8 @@ public sealed class WorldOrderOrderedResourceReplayResult
         int peak,
         int slavePeak,
         WorldOrderResourceRequirementGroup? slaveBoundary,
+        IEnumerable<string?>? masterAcceptedProducedLiquids,
+        IEnumerable<string?>? slaveAcceptedProducedLiquids,
         string? reason)
     {
         Status = status;
@@ -46,6 +52,8 @@ public sealed class WorldOrderOrderedResourceReplayResult
         MasterStagingPeakCapacity = peak;
         SlaveStagingPeakCapacity = slavePeak;
         SlaveBoundaryGroup = slaveBoundary;
+        MasterAcceptedProducedLiquids = Array.AsReadOnly((masterAcceptedProducedLiquids ?? Array.Empty<string?>()).ToArray());
+        SlaveAcceptedProducedLiquids = Array.AsReadOnly((slaveAcceptedProducedLiquids ?? Array.Empty<string?>()).ToArray());
         Reason = reason;
     }
 
@@ -113,6 +121,11 @@ public static class WorldOrderOrderedResourceReplay
                         x.WorkshopRole == program.MasterRole)
             .OrderBy(x => x.Sequence)
             .ToArray();
+        var slaveNodes = program.Nodes
+            .Where(x => x.Kind == WorldOrderSymbolicOperationKind.Rule &&
+                        x.WorkshopRole == program.SlaveRole)
+            .OrderBy(x => x.Sequence)
+            .ToArray();
         var capacity = world.Master.LiquidStagingCapacity;
         var initial = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var maxReplays = masterNodes.Length + transfer.Count + 2;
@@ -126,6 +139,7 @@ public static class WorldOrderOrderedResourceReplay
             var balances = new SortedDictionary<string, int>(initial, StringComparer.Ordinal);
             var peak = Total(balances);
             var restart = false;
+            var acceptedMasterOutputs = new List<string?>();
 
             foreach (var node in masterNodes)
             {
@@ -148,14 +162,15 @@ public static class WorldOrderOrderedResourceReplay
                 }
 
                 var produced = candidate.ProducedFreeLiquid;
-                if (produced == null || banned.Contains(produced))
-                    continue;
-                if (Total(balances) < capacity)
+                string? accepted = null;
+                if (produced != null && !banned.Contains(produced) && Total(balances) < capacity)
                 {
                     balances[produced] = checked(balances.GetValueOrDefault(produced) + 1);
                     peak = Math.Max(peak, Total(balances));
+                    accepted = produced;
                 }
                 // Banned output and capacity overflow are intentionally discarded.
+                acceptedMasterOutputs.Add(accepted);
             }
 
             if (restart)
@@ -187,6 +202,20 @@ public static class WorldOrderOrderedResourceReplay
                 return Failure(WorldOrderOrderedResourceReplayStatus.Infeasible,
                     "自机液库/主台初始资源不足以提供有序重放所需的主台游离液体");
 
+            var acceptedSlaveOutputs = new List<string?>();
+            if (program.IsBClass)
+            {
+                var slaveReplay = ReplaySlave(slaveNodes, transfer,
+                    world.Slave!.LiquidStagingCapacity, rejected);
+                if (!slaveReplay.IsComplete)
+                    return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined,
+                        slaveReplay.Reason ?? "从台有序重放与边界投影不一致");
+                if (slaveReplay.PeakCapacity != slavePeak)
+                    return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined,
+                        "从台有序重放峰值与边界投影不一致");
+                acceptedSlaveOutputs.AddRange(slaveReplay.AcceptedOutputs);
+            }
+
             return new WorldOrderOrderedResourceReplayResult(
                 WorldOrderOrderedResourceReplayStatus.Complete,
                 initial,
@@ -195,6 +224,8 @@ public static class WorldOrderOrderedResourceReplay
                 peak,
                 slavePeak,
                 boundary,
+                acceptedMasterOutputs,
+                acceptedSlaveOutputs,
                 null);
         }
 
@@ -203,7 +234,48 @@ public static class WorldOrderOrderedResourceReplay
 
         WorldOrderOrderedResourceReplayResult Failure(
             WorldOrderOrderedResourceReplayStatus status, string reason) =>
-            new(status, null, null, null, 0, 0, null, reason);
+            new(status, null, null, null, 0, 0, null, null, null, reason);
+    }
+
+    private static (bool IsComplete, string? Reason, IReadOnlyList<string?> AcceptedOutputs, int PeakCapacity)
+        ReplaySlave(
+            IReadOnlyList<WorldOrderSymbolicOperationNode> nodes,
+            IReadOnlyDictionary<string, int> initial,
+            int capacity,
+            IReadOnlySet<string> rejected)
+    {
+        var balances = initial.Where(x => x.Value > 0)
+            .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+        var peak = Total(balances);
+        if (peak > capacity)
+            return (false, "从台边界初始液体超过暂存容量", Array.Empty<string?>(), 0);
+
+        var acceptedOutputs = new List<string?>();
+        foreach (var node in nodes)
+        {
+            var candidate = node.Candidate!;
+            if (candidate.ConsumedFreeLiquid is { } consumed)
+            {
+                var available = balances.GetValueOrDefault(consumed);
+                if (available <= 0)
+                    return (false, "从台边界投影后仍缺少游离液体：" + consumed,
+                        Array.Empty<string?>(), 0);
+                if (available == 1) balances.Remove(consumed);
+                else balances[consumed] = available - 1;
+            }
+
+            string? accepted = null;
+            var produced = candidate.ProducedFreeLiquid;
+            if (produced != null && !rejected.Contains(produced) && Total(balances) < capacity)
+            {
+                balances[produced] = checked(balances.GetValueOrDefault(produced) + 1);
+                peak = Math.Max(peak, Total(balances));
+                accepted = produced;
+            }
+            acceptedOutputs.Add(accepted);
+        }
+
+        return (true, null, Array.AsReadOnly(acceptedOutputs.ToArray()), peak);
     }
 
     private static int Total(IReadOnlyDictionary<string, int> balances)
