@@ -1,54 +1,52 @@
-# Phase 4.10b 9l — B-class concrete branch enumeration
+# Phase 4.10b 9l — B-class Slave-owned demand enumeration
 
-## Scope
+## Domain boundary
 
-This slice adds `WorldOrderBClassBranchEnumerator` as a concrete branch/materialization path. It does **not** switch `JarOrderSpecificationSolver` from `PartitionSearch`; the legacy path remains the differential oracle until parity and entry-point tests are complete.
+B-class requirements are decomposed exclusively under the Slave rule profile. The Master is not a second requirement-solving role: it is a provider for the free-liquid boundary extracted from the Slave's candidate execution branch.
 
-## Branch model
+The Slave may use:
+- Jars received in the one Master→Slave handoff;
+- free liquid received in that same handoff;
+- free liquid produced by its own operations, but only after the output is accepted into Slave staging.
 
-For each final requirement, the combined Master/Slave rule profiles contribute OR candidates. A complete symbolic solution chooses exactly one candidate and one role per requirement. The enumerator then considers independent `PREPARE_POUR_OUT` Jars on both roles and bounded schedules for all staging-affecting operations on each role.
+The Master may perform only legal preparatory operations needed to produce free liquid demanded by the Slave branch. Master-produced output must first be accepted into Master staging. Only the minimum required free-liquid balance crosses the handoff. No branch is sent back to Master for recursive requirement solving.
 
-The Master schedule runs before handoff. The single handoff moves every physical Jar that the Slave will operate **and every completed Master requirement Jar** so the B-class output is collected on the Slave. Master-operated output Jars cross with their order-level mark intact and are never scheduled for a second operation. The Slave schedule runs after that handoff. Jar-only operations are placed in a stable tail because they do not alter staging feasibility.
+## Enumeration
+
+1. Build/cache Master and Slave rule profiles independently.
+2. Filter both profiles' candidate Jar states against distinct physical Jars in the initial Master inventory.
+3. Enumerate final requirement candidates from the Slave profile only.
+4. Enumerate optional Master preparation operations that can produce a liquid required by the Slave branch.
+5. Enumerate optional Slave preparation operations that can produce a liquid required by a later Slave step.
+6. Enumerate Master preparation order and bounded Slave staging-affecting operation order.
+7. Bind every symbolic Jar identity to a distinct physical Jar ID.
+8. Perform exactly one atomic Master→Slave handoff.
+9. Replay Master and Slave staging independently in actual operation order.
+10. Materialize concrete steps and freeze an immutable plan; report Feasible only after Manifest validation against the same WorldSnapshot and replay witness.
+
+The Master profile's requirement candidates are deliberately excluded from the symbolic demand solution set. The Master profile contributes only its preparatory-operation candidates. The Slave profile owns every final requirement step.
 
 ## Physical ownership and operation mark
 
-All symbolic root Jars are bound to distinct, unmarked physical IDs in the initial Master inventory. Slave profiles describe Slave rules, not a second inventory source. The Slave's pre-existing Jar and free-liquid inventories must be empty for a B-class solve; its resources come only from this order's one handoff. The one handoff includes Master-completed output Jars as well as Slave operation/preparation Jars. The binder rejects missing IDs, marked Jars, duplicate IDs, state mismatches, and insufficient distinct physical Jars.
+All physical Jars originate in the initial Master inventory. Slave inventory must be empty at B-class admission; it cannot be used as a second source. The single handoff contains every Jar needed by Slave requirement and preparation steps.
 
-Each physical Jar can be operated at most once across the whole order. A revision change or handoff does not clear its order-level mark. The handoff is a single Master→Slave batch and cannot be repeated or reversed.
+Each physical Jar can be operated at most once across the whole order. Revision changes and handoff do not clear the order-level operation mark. Distinct symbolic Jar identities must bind to distinct physical Jar IDs.
 
 ## Ban and transfer semantics
 
-- Master ban governs Master Jar operations, Master staging storage/use, and Master free-liquid handoff.
-- A JarState handoff is physical resource movement; internal liquid is not reclassified as staging liquid and is not rejected by Master ban.
-- Slave ban governs Slave Jar operations and prevents banned free liquid from entering/remaining in Slave staging; explicit Slave reject policy is combined with that receive boundary.
-- Therefore a full Jar containing a Master-banned liquid may be transferred intact and reshaped on a Slave that permits that liquid. The same reshape remains illegal on the Master.
+- Master ban blocks Master operations on Jars containing that liquid and blocks banned free liquid from Master staging storage/use/handoff.
+- A JarState handoff is physical resource movement. Its internal liquid is not reclassified as staging liquid and is not rejected by Master ban.
+- Slave ban blocks Slave operations on Jars containing that liquid and blocks banned free liquid from entering/remaining in Slave staging. Explicit Slave reject policy is additive.
+- Thus a full Jar containing a Master-banned liquid may cross intact and be self-consumed by a Slave that permits that liquid.
+- Master preparation output is eligible for handoff only after it has been accepted into Master staging. Slave-local output can satisfy only later Slave steps after successful staging acceptance.
+- Every operation consumes free liquid before producing it. Banned output and capacity overflow are discarded under the owning workshop's staging policy.
 
-## Feasibility proof
+## Feasibility and budgets
 
-A branch is feasible only after:
-1. candidate assignment and preparation selection;
-2. Master and Slave schedule enumeration;
-3. distinct physical Jar binding;
-4. concrete operation materialization;
-5. ordered Master/Slave staging replay and one-way handoff projection;
-6. immutable plan freezing;
-7. Manifest validation against the same WorldSnapshot and replay witness.
+A branch is Feasible only after candidate validation, physical Jar binding, operation materialization, ordered staging replay, the one-way handoff proof, immutable plan freezing, and Manifest validation all succeed.
 
-The resource accounts are role-local. Slave-produced free liquid is usable only if it is accepted by Slave staging. Master-produced free liquid may contribute to the single handoff only after it has been accepted by Master staging.
+Opaque rule input or exhausted search budgets produce Undetermined, never Infeasible. The legacy `PartitionSearch` implementation is extracted as `WorldOrderPartitionBClassOracle`; it is callable only through `SolvePartitionOracleForDifferentialTesting`. It remains useful for targeted overlapping comparisons but is not authoritative where its historical requirement partitioning differs from the Slave-owned B-class contract.
 
-Budget exhaustion and opaque rule input produce `Undetermined`; they are never collapsed into `Infeasible`.
+## Production entry point
 
-## Remaining work
-
-- Add differential tests comparing this concrete enumerator with `PartitionSearch` over targeted and generated small worlds.
-- Prove parity for Master/Slave assignment, Jar transfer IDs, staging balances, capacity peaks, and reject/ban cases.
-- Only then route B-class entry-point solving through this enumerator. Until then, the existing solver registry path remains unchanged.
-
-
-## 9l B-class production entry point
-
-The B-class branch enumerator is now wired into `JarOrderSpecificationSolver.Solve`. Production B-class solving follows the same concrete proof chain as A-class: Master/Slave rule profiles → Slave-owned symbolic requirement branches → physical Jar binding from the initial Master inventory → role-local operation ordering → one atomic Master→Slave handoff → ordered staging replay → concrete step materialization → immutable plan and Manifest validation.
-
-The former `PartitionSearch` path is extracted as `WorldOrderPartitionBClassOracle`. It is callable only through the explicitly named `SolvePartitionOracleForDifferentialTesting` adapter method and is no longer the production decision path. It remains a legacy differential oracle and is not authoritative where its requirement-role partitioning differs from the Slave-owned B-class contract. Differential tests must compare the concrete enumerator/entry point against this oracle only for overlapping semantics; new preparation and staging-order behavior is tested directly.
-
-Entry-point results use `9l_concrete_plan` for a successfully assembled plan and `9l_concrete_b` for an enumeration-level Infeasible/Undetermined result. Search-budget exhaustion remains Undetermined. A B-class world with no Slave role or a non-empty initial Slave inventory remains InvalidWorld.
+`JarOrderSpecificationSolver.Solve` now routes B-class orders through `WorldOrderBClassBranchEnumerator`. A successful concrete assembly returns `9l_concrete_plan`; enumeration-level Infeasible/Undetermined results are labeled `9l_concrete_b`. B-class still requires both roles and an empty initial Slave inventory.
