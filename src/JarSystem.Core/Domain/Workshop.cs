@@ -171,7 +171,7 @@ public class Workshop
 
         _capability = capability;
         // 换的是**能力参数**，修饰器栈照旧（栈属世界，不属这一次替换）
-        _rules = new RuleContext(capability, _rules.Stack, _rules.EffectiveProfile, _rules.RuleScope, _rules.RuleSlotId);
+        _rules = new RuleContext(capability, _rules.Stack, _rules.EffectiveProfile, _rules.RuleScope, _rules.RuleSlotId, _rules.ProfileModifiers);
     }
 
     /// <summary>绑定到世界的修饰器栈（宿主把外部构造的工作台纳入世界时调用）。</summary>
