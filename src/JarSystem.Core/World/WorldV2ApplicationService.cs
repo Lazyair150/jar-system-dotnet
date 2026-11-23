@@ -577,13 +577,13 @@ public sealed class WorldV2ApplicationService
         new ReadOnlyDictionary<string, int>(
             values.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
 
+}
+
 public sealed record WorldV2ProducedJarImportResultDto(
     bool WasDuplicate,
     int SubmittedJarCount,
     int StoredJarCount,
     int DiscardedJarCount);
-
-}
 
 public sealed record WorldV2RequirementInput(string Shape, string? Liquid);
 
