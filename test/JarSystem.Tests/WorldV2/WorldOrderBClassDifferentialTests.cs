@@ -61,6 +61,70 @@ public sealed class WorldOrderBClassDifferentialTests
 
 
     [Fact]
+    public void ConcreteEnumeratorMatchesPartitionOracleForMasterOnlyDirectMatch()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", id: 9521));
+        var world = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { master, slave }, master, slave));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐" } },
+            Constants.OrderType.B, Words);
+        var demand = new OrderDemand(specification, 0);
+
+        var legacy = new JarOrderSpecificationSolver(new StateSpaceSolver()).Solve(demand, world);
+        var masterProfile = WorldOrderRuleCandidateCatalog.Build(world, world.Master!, "Master", specification);
+        var slaveProfile = WorldOrderRuleCandidateCatalog.Build(world, world.Slave!, "Slave", specification);
+        var concrete = WorldOrderBClassBranchEnumerator.Enumerate(
+            demand.Id, masterProfile, slaveProfile, world);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, legacy.Status);
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, concrete.Status);
+        var plan = concrete.Assembly!.CandidatePlan!;
+        Assert.Equal(new[] { 9521 }, plan.TransferJarIds);
+        Assert.Equal("MATCH", Assert.Single(plan.MasterSteps).Operation!.Type);
+        Assert.Empty(plan.SlaveSteps);
+        Assert.DoesNotContain(plan.TransferLiquids, item => item.Value > 0);
+    }
+
+    [Fact]
+    public void ConcreteEnumeratorMatchesPartitionOracleForSlaveOnlyDirectMatch()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "主台不能直接匹配圆罐"
+        });
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            modifiers: masterRules);
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", id: 9531));
+        var world = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { master, slave }, master, slave));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐" } },
+            Constants.OrderType.B, Words);
+        var demand = new OrderDemand(specification, 0);
+
+        var legacy = new JarOrderSpecificationSolver(new StateSpaceSolver()).Solve(demand, world);
+        var masterProfile = WorldOrderRuleCandidateCatalog.Build(world, world.Master!, "Master", specification);
+        var slaveProfile = WorldOrderRuleCandidateCatalog.Build(world, world.Slave!, "Slave", specification);
+        var concrete = WorldOrderBClassBranchEnumerator.Enumerate(
+            demand.Id, masterProfile, slaveProfile, world);
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, legacy.Status);
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, concrete.Status);
+        var plan = concrete.Assembly!.CandidatePlan!;
+        Assert.Equal(new[] { 9531 }, plan.TransferJarIds);
+        Assert.Empty(plan.MasterSteps);
+        Assert.Equal("MATCH", Assert.Single(plan.SlaveSteps).Operation!.Type);
+        Assert.DoesNotContain(plan.TransferLiquids, item => item.Value > 0);
+    }
+
+    [Fact]
     public void ConcreteEnumeratorAndPartitionOracleBothRejectWhenBothRolesBanJarLiquid()
     {
         var master = new Workshop("禁酒主台",
