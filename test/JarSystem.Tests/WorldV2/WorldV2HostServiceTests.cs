@@ -134,7 +134,8 @@ public sealed class WorldV2HostServiceTests
     public void HostCheckpointRestoreResumesBOrderAfterPumpWithoutRepeatingTransferOrFunding()
     {
         var options = ValidOptions();
-        // 两个岗位各自只能完成一种形状，确保真实 B 计划同时包含主台步骤与从台步骤。
+        // B 类需求由从台规则环境统一分解；主台只提供本次交接所需的游离酒。
+        // 两只生产出的 Jar 都由从台执行 PourIn，验证一批 Jar + 液体的原子交接。
         options.Producers[0].Rates["方罐"] = 1.0;
         options.LiquidProductionRates["酒"] = 0;
         options.JarFlowRatePerLogicalTime = 2;
@@ -142,7 +143,7 @@ public sealed class WorldV2HostServiceTests
         options.Workshops.Add(new WorldV2WorkshopOptions
         {
             Name = "从台",
-            BaseMarks = new List<string> { "圆罐" },
+            BaseMarks = new List<string> { "方罐", "圆罐" },
             MaxJars = 10,
             MaxLiquids = 10,
             LiquidStagingCapacity = 10
@@ -218,10 +219,11 @@ public sealed class WorldV2HostServiceTests
         var afterPump = application.CaptureExecutionResourceCheckpoint();
         var afterPumpSession = Assert.Single(afterPump.Sessions);
         var transferJarIds = afterPumpSession.Manifest.TransferJarIds.ToHashSet();
-        var slaveStepJarIds = afterPumpSession.Plan.SlaveSteps[0].Before
-            .Where(item => item.Id.HasValue).Select(item => item.Id!.Value).ToHashSet();
+        var slaveStepJarIds = afterPumpSession.Plan.SlaveSteps
+            .Select(step => step.Before![step.Operation!.JarIndex!.Value].Id!.Value)
+            .ToHashSet();
         Assert.Equal(2, transferJarIds.Count);
-        Assert.Single(transferJarIds.Except(slaveStepJarIds));
+        Assert.Equal(transferJarIds, slaveStepJarIds);
         Assert.Equal(2, afterPump.SlaveWorkshop!.Jars.Count);
         var afterPumpJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(afterPump);
         afterPump = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(afterPumpJson);
