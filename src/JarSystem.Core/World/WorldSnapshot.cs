@@ -321,6 +321,7 @@ public static class WorldSnapshotFactory
         writer.Write(workshop.MaxJars);
         writer.Write(workshop.MaxLiquids);
         writer.Write(workshop.LiquidStagingCapacity);
+        writer.Write(workshop.EffectiveRuleProfile.Fingerprint);
         WriteStrings(writer, workshop.Capability.BaseMarks);
         WriteStrings(writer, workshop.Capability.AdditionalMarks);
         WriteStrings(writer, workshop.Capability.Ban);
@@ -356,7 +357,6 @@ public static class WorldSnapshotFactory
         writer.Write(workshop != null);
         if (workshop == null) return;
 
-        writer.Write(workshop.EffectiveRuleProfile.Fingerprint);
         writer.Write(workshop.SolverModifiers.Count);
         foreach (var modifier in workshop.SolverModifiers)
         {
