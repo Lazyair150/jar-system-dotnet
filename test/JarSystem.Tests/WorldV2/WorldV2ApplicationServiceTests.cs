@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 using Xunit;
@@ -550,5 +551,98 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Empty(restoredApp.GetPendingOrderCycleEvents());
     }
 
+
+
+    [Fact]
+    public void ExternalProducedJarImportIsIdempotentAndRejectsOperationIdPayloadReuse()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        var first = app.ImportProducedJars("stone-batch-001",
+            new Dictionary<string, int> { ["圆罐"] = 2, ["方罐"] = 1 });
+        Assert.False(first.WasDuplicate);
+        Assert.Equal(3, first.SubmittedJarCount);
+        Assert.Equal(3, first.StoredJarCount);
+        Assert.Equal(0, first.DiscardedJarCount);
+        Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
+
+        var duplicate = app.ImportProducedJars("stone-batch-001",
+            new Dictionary<string, int> { ["方罐"] = 1, ["圆罐"] = 2 });
+        Assert.True(duplicate.WasDuplicate);
+        Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
+
+        Assert.Throws<DomainValidationException>(() =>
+            app.ImportProducedJars("stone-batch-001",
+                new Dictionary<string, int> { ["圆罐"] = 3 }));
+        Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
+    }
+
+    [Fact]
+    public void ExternalProducedJarImportUsesWarehouseCapacityAndRecordsDiscardedOverflow()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        var result = app.ImportProducedJars("stone-batch-overflow",
+            new Dictionary<string, int> { ["圆罐"] = Constants.WAREHOUSE_MAX_JARS + 1 });
+
+        Assert.Equal(Constants.WAREHOUSE_MAX_JARS + 1, result.SubmittedJarCount);
+        Assert.Equal(Constants.WAREHOUSE_MAX_JARS, result.StoredJarCount);
+        Assert.Equal(1, result.DiscardedJarCount);
+        Assert.Equal(Constants.WAREHOUSE_MAX_JARS, app.GetWorldSnapshot().ResourceJars.Count);
+        var ledger = app.GetResourceLedger();
+        Assert.Contains(ledger.Events, item =>
+            item.Cause == "discard" && item.Kind == "jar" && item.Name == "圆罐" && item.Amount == 1);
+    }
+
+    [Fact]
+    public void ExternalProducedJarImportRejectsUnknownShapeBeforeAnyMutation()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        var beforeSnapshot = app.GetWorldSnapshot();
+        var beforeLedger = app.GetResourceLedger();
+
+        Assert.Throws<DomainValidationException>(() =>
+            app.ImportProducedJars("stone-batch-invalid",
+                new Dictionary<string, int> { ["未知罐"] = 1 }));
+
+        var afterSnapshot = app.GetWorldSnapshot();
+        var afterLedger = app.GetResourceLedger();
+        Assert.Equal(beforeSnapshot.ResourceJars, afterSnapshot.ResourceJars);
+        Assert.Equal(beforeLedger.LastSeq, afterLedger.LastSeq);
+        Assert.Equal(beforeLedger.Dropped, afterLedger.Dropped);
+        Assert.Equal(beforeLedger.Events, afterLedger.Events);
+    }
+
+
+    [Fact]
+    public void ExternalProducedJarImportDeduplicationSurvivesExecutionCheckpointRestore()
+    {
+        using var firstHost = new WorldV2HostService();
+        var firstApp = new WorldV2ApplicationService(firstHost);
+        firstApp.CreateOrReplaceWorld(Options());
+        firstApp.ImportProducedJars("stone-batch-checkpoint",
+            new Dictionary<string, int> { ["方罐"] = 2 });
+
+        var checkpointJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(
+            firstApp.CaptureExecutionResourceCheckpoint());
+
+        using var restoredHost = new WorldV2HostService();
+        var restoredApp = new WorldV2ApplicationService(restoredHost);
+        restoredApp.CreateOrReplaceWorld(Options());
+        restoredApp.RestoreExecutionResourceCheckpointJson(Options(), checkpointJson);
+
+        var duplicate = restoredApp.ImportProducedJars("stone-batch-checkpoint",
+            new Dictionary<string, int> { ["方罐"] = 2 });
+
+        Assert.True(duplicate.WasDuplicate);
+        Assert.Equal(2, restoredApp.GetWorldSnapshot().ResourceJars.Count);
+    }
 
 }
