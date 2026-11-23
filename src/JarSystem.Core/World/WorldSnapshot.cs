@@ -150,44 +150,6 @@ public sealed class WorkshopSolveSnapshot
 
         return RuleContext.From(EffectiveRuleProfile);
 
-        // Kept below temporarily as a differential reference while the profile adapter
-        // replaces the former snapshot-specific reconstruction path.
-        var modifiers = new List<IRuleModifier>(_modifiers.Count);
-        foreach (var modifier in _modifiers)
-        {
-            switch (modifier.Kind)
-            {
-                case ModifierKind.Suppress:
-                    modifiers.Add(new SuppressModifier
-                    {
-                        Name = modifier.Name,
-                        Source = modifier.Source,
-                        Priority = modifier.Priority,
-                        Operation = modifier.Operation,
-                        Shape = modifier.Shape,
-                        Liquid = modifier.Liquid,
-                        Reason = modifier.Reason ?? "此刻不得进行该操作"
-                    });
-                    break;
-                case ModifierKind.Grant:
-                    if (string.IsNullOrWhiteSpace(modifier.Shape))
-                        throw new InvalidOperationException("Grant 规则缺少目标形状");
-                    modifiers.Add(new GrantModifier
-                    {
-                        Name = modifier.Name,
-                        Source = modifier.Source,
-                        Priority = modifier.Priority,
-                        Shape = modifier.Shape
-                    });
-                    break;
-                default:
-                    throw new InvalidOperationException("未支持的静态规则类型: " + modifier.Kind);
-            }
-        }
-
-        return new RuleContext(
-            Capability,
-            ModifierStack.CreateReadOnlySnapshot(modifiers));
     }
 
     /// <summary>创建包含能力属性与冻结规则上下文的求解输入。</summary>
