@@ -129,11 +129,11 @@ public class Workshop
     public Workshop(string name, List<string>? baseMarks = null, List<string>? additionalMarks = null,
         List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null,
         Vocabulary? vocabulary = null, ModifierStack? modifiers = null,
-        int? liquidStagingCapacity = null)
+        int? liquidStagingCapacity = null, RuleContext? initialRules = null)
     {
         Name = name;
-        _capability = new WorkshopCapability(baseMarks, additionalMarks, ban);
-        _rules = new RuleContext(_capability, modifiers ?? new ModifierStack());
+        _capability = initialRules?.Capability ?? new WorkshopCapability(baseMarks, additionalMarks, ban);
+        _rules = initialRules ?? new RuleContext(_capability, modifiers ?? new ModifierStack());
         MaxJars = maxJars ?? Constants.DEFAULT_MAX_JARS;
         MaxLiquids = maxLiquids ?? Constants.DEFAULT_MAX_LIQUIDS;
         LiquidStagingCapacity = liquidStagingCapacity ?? MaxLiquids;
@@ -171,7 +171,7 @@ public class Workshop
 
         _capability = capability;
         // 换的是**能力参数**，修饰器栈照旧（栈属世界，不属这一次替换）
-        _rules = new RuleContext(capability, _rules.Stack);
+        _rules = new RuleContext(capability, _rules.Stack, _rules.EffectiveProfile, _rules.RuleScope, _rules.RuleSlotId);
     }
 
     /// <summary>绑定到世界的修饰器栈（宿主把外部构造的工作台纳入世界时调用）。</summary>
