@@ -137,8 +137,8 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         {
             Operation = "RESHAPE",
             Shape = "圆罐",
-            Liquid = "酒",
-            Reason = "强制从台先倒出游离液体再改形"
+            Liquid = "蜜",
+            Reason = "只禁止满酒罐改形，允许倒酒后供空罐改形"
         });
         var slave = new Workshop("允许用酒的从台",
             new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
