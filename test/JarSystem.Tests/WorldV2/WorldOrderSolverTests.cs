@@ -318,6 +318,81 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BClassEntryPointTransfersMasterPreparationOutputForSlavePourIn()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "主台不直接匹配圆罐"
+        });
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Reason = "主台不执行倒入操作"
+        });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_OUT",
+            Reason = "从台不执行倒出操作"
+        });
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Liquid = "蜜",
+            Reason = "从台不直接交付满蜜罐"
+        });
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "RESHAPE",
+            Shape = "圆罐",
+            Liquid = "蜜",
+            Reason = "从台不使用满蜜罐改形"
+        });
+        var master = new Workshop("主台", new List<string> { "圆罐" }, modifiers: masterRules);
+        var slave = new Workshop("从台", new List<string> { "圆罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", id: 8251));
+        master.AddJar(new Jar("圆罐", "蜜", id: 8252));
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "蜜" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Equal("9l_concrete_plan", result.CheckMethod);
+        Assert.Equal(new[] { 8251 }, result.Plan!.TransferJarIds);
+        Assert.Equal(1, result.Plan.TransferLiquids.GetValueOrDefault("蜜"));
+        Assert.Equal("POUR_OUT", Assert.Single(result.Plan.MasterSteps).Operation!.Type);
+        Assert.Equal("POUR_IN", Assert.Single(result.Plan.SlaveSteps).Operation!.Type);
+        Assert.Equal(8251, result.Plan.SlaveSteps[0]
+            .Before![result.Plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Equal("蜜", result.Plan.SlaveSteps[0]
+            .After![result.Plan.SlaveSteps[0].Operation!.JarIndex!.Value].Liquid);
+    }
+
+    [Fact]
+    public void BClassEntryPointBudgetExhaustionIsUndetermined()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台");
+        master.AddJar(new Jar("圆罐", id: 8261));
+        var solver = new JarOrderSpecificationSolver(new StateSpaceSolver()) { NodeBudget = 1 };
+        var registry = new WorldOrderSolverRegistry(new[] { solver });
+
+        var result = registry.Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
+        Assert.Equal("9l_concrete_b", result.CheckMethod);
+        Assert.Null(result.Plan);
+    }
+
+    [Fact]
     public void BPartitionBacktracksWhenAllSlaveAssignmentViolatesSlaveRule()
     {
         var slaveRules = new ModifierStack();
