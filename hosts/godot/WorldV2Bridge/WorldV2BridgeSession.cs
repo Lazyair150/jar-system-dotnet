@@ -79,6 +79,18 @@ public sealed class WorldV2BridgeSession : IDisposable
         _application.UpdateProducerRates(producerName, rates);
     }
 
+    /// <summary>
+    /// Import already-produced empty Jars from an external domain into the central warehouse.
+    /// The operation ID is durable and idempotent across execution-checkpoint restore.
+    /// </summary>
+    public WorldV2ProducedJarImportResultDto ImportProducedJars(
+        string operationId,
+        IReadOnlyDictionary<string, int> jarCounts)
+    {
+        ThrowIfDisposed();
+        return _application.ImportProducedJars(operationId, jarCounts);
+    }
+
     public int AddJarDemand(WorldV2AddJarDemandRequest request)
     {
         ThrowIfDisposed();
