@@ -126,7 +126,7 @@ public sealed class WorkshopReplacementTests
         Assert.Same(jar, Assert.Single(newMaster.Jars));
         Assert.Equal("酒", jar.Liquid);
         Assert.True(newMaster.IsBanned("酒"));
-        Assert.False(newMaster.CanOperateJarLiquid("酒"));
+        Assert.False(newMaster.CanReshapeTo(jar, "方罐").Granted);
     }
 
     [Fact]
