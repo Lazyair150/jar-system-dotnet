@@ -408,13 +408,19 @@ public sealed class WorldOrderExecutionAdmissionTests
         var setup = Prepare(master, demand);
 
         Assert.True(setup.Book.Find(demand.Id)!.State == WorldOrderSolveState.Current);
+        var original = setup.Book.Find(demand.Id)!.Result!;
+        Assert.NotNull(original.ResourceReplay);
         master.AddLiquid("蜜", 1);
 
         var result = setup.Admission.TryAdmit(demand.Id);
 
         Assert.True(result.Success, result.Reason);
         Assert.NotNull(result.Manifest);
-        Assert.Equal(WorldOrderSolveState.Current, setup.Book.Find(demand.Id)!.State);
+        var rebound = setup.Book.Find(demand.Id)!;
+        Assert.Equal(WorldOrderSolveState.Current, rebound.State);
+        Assert.NotSame(original, rebound.Result);
+        Assert.Same(original.ResourceReplay, rebound.Result!.ResourceReplay);
+        Assert.NotEqual(original.WorldVersion, rebound.Result.WorldVersion);
         Assert.Equal(1, setup.Reservations.Count);
     }
 
