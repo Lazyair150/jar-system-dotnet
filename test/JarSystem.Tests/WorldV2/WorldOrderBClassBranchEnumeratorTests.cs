@@ -48,7 +48,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             910, input.Master, input.Slave, input.World);
 
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.True(result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible, result.Reason);
         Assert.NotNull(result.Assembly);
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Assembly!.Status);
         var plan = result.Assembly.CandidatePlan!;
