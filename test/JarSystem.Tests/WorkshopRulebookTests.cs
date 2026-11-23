@@ -82,17 +82,17 @@ public class WorkshopRulebookTests
     private static Workshop Build(Cfg cfg, string shape, string? liquid, bool marked,
         (string Liquid, int Count)[] storage, ModifierStack? modifiers = null)
     {
-        // 先建立库存，再施加当前禁令：用于覆盖"规则变更前已存在的余额"，
-        // 同时验证该余额不能因此被取用或让含禁液 Jar 被操作。
         var w = new Workshop(cfg.Name, new List<string>(cfg.Base), new List<string>(cfg.Add),
-            new List<string>(), maxJars: 8, maxLiquids: cfg.MaxLiquids, modifiers: modifiers);
+            new List<string>(cfg.Ban), maxJars: 8, maxLiquids: cfg.MaxLiquids, modifiers: modifiers);
         var jar = new Jar(shape, liquid);
         if (marked) jar.Mark();
         Assert.True(w.AddJar(jar), "罐子放不进工作台（罐位不足？）");
         foreach (var (l, n) in storage)
+        {
+            // 禁液不能进入游离液体池；Jar 内部液体仍是独立物理资源。
+            if (w.IsBanned(l)) continue;
             Assert.True(w.AddLiquid(l, n), "测试初始液体库存无法建立");
-        w.ReplaceCapability(new WorkshopCapability(
-            new List<string>(cfg.Base), new List<string>(cfg.Add), new List<string>(cfg.Ban)));
+        }
         return w;
     }
 
