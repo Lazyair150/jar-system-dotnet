@@ -84,6 +84,101 @@ public sealed class WorldV2FactoryTests
     }
 
     [Fact]
+    public void FactoryAppliesBoardContributionsToExactMasterAndSlaveRuntimeSlots()
+    {
+        const string boardId = "board.test";
+        const string assignmentFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var assignment = new WorldV2BoardAssignmentSnapshotOptions
+        {
+            SchemaVersion = 1,
+            BoardId = boardId,
+            DefinitionVersion = 1,
+            AssignmentFingerprint = assignmentFingerprint,
+            BoardDefinition = new WorldV2BoardDefinitionSnapshotOptions
+            {
+                BoardId = boardId,
+                DefinitionVersion = 1,
+                Slots = new List<WorldV2BoardSlotSnapshotOptions>
+                {
+                    new() { SlotId = "slot.master", ComponentKind = "workshop", RoleId = "master", Required = true },
+                    new() { SlotId = "slot.slave", ComponentKind = "workshop", RoleId = "slave", Required = true },
+                    new() { SlotId = "slot.parser", ComponentKind = "ore_parser", RoleId = "none", Required = true }
+                }
+            },
+            Assignments = new List<WorldV2BoardAssignmentEntryOptions>
+            {
+                new() { SlotId = "slot.master", ComponentKind = "workshop", RoleId = "master", OwnedInstanceId = "owned.master", DefinitionId = "workshop.master", DefinitionVersion = 1 },
+                new() { SlotId = "slot.slave", ComponentKind = "workshop", RoleId = "slave", OwnedInstanceId = "owned.slave", DefinitionId = "workshop.slave", DefinitionVersion = 1 },
+                new() { SlotId = "slot.parser", ComponentKind = "ore_parser", OwnedInstanceId = "owned.parser", DefinitionId = "parser.basic", DefinitionVersion = 1 }
+            }
+        };
+        var profile = new WorldV2BoardRuleProfileOptions
+        {
+            SchemaVersion = 1,
+            BoardId = boardId,
+            BoardDefinitionVersion = 1,
+            AssignmentFingerprint = assignmentFingerprint,
+            Contributions = new List<WorldV2RuleContributionOptions>
+            {
+                Contribution("rule.master-base", "GrantBaseMark", "圆罐", "slot.master", "owned.master", "workshop.master"),
+                Contribution("rule.master-ban", "BanLiquid", "酒", "slot.master", "owned.master", "workshop.master"),
+                Contribution("rule.slave-base", "GrantBaseMark", "方罐", "slot.slave", "owned.slave", "workshop.slave"),
+                Contribution("rule.slave-ban", "BanLiquid", "蜜", "slot.slave", "owned.slave", "workshop.slave")
+            }
+        };
+        profile.Fingerprint = profile.ComputeCanonicalFingerprint();
+
+        var options = ValidOptions();
+        options.BoardRuleProfile = profile;
+        options.BoardAssignmentSnapshot = assignment;
+        options.Workshops[0].BoardSlotId = "slot.master";
+        options.Workshops[1].BoardSlotId = "slot.slave";
+
+        using var world = WorldV2Factory.Create(options);
+        var master = world.Roster.Master!;
+        var slave = world.Roster.Slave!;
+
+        Assert.Equal(new[] { "圆罐" }, master.BaseMarks);
+        Assert.Equal(new[] { "方罐" }, slave.BaseMarks);
+        Assert.True(master.IsBanned("酒"));
+        Assert.False(master.IsBanned("蜜"));
+        Assert.True(slave.IsBanned("蜜"));
+        Assert.False(slave.IsBanned("酒"));
+
+        var snapshot = WorldSnapshotFactory.Capture(world.Roster, world.ShipLiquidInventory);
+        Assert.Equal("slot.master", snapshot.Master!.RuleSlotId);
+        Assert.Equal("slot.slave", snapshot.Slave!.RuleSlotId);
+        Assert.Contains(snapshot.Master.EffectiveRuleProfile.Contributions,
+            x => x.Source.SourceInstanceId == "owned.master");
+        Assert.Contains(snapshot.Slave.EffectiveRuleProfile.Contributions,
+            x => x.Source.SourceInstanceId == "owned.slave");
+        Assert.True(snapshot.Master.CreateWorkshopInfo().Rules.IsBanned("酒"));
+        Assert.False(snapshot.Slave.CreateWorkshopInfo().Rules.IsBanned("酒"));
+    }
+
+    private static WorldV2RuleContributionOptions Contribution(
+        string ruleId, string effect, string target, string slotId,
+        string instanceId, string definitionId) => new()
+    {
+        RuleId = ruleId,
+        RuleVersion = 1,
+        Effect = effect,
+        Target = target,
+        Scope = "workshop",
+        Priority = 0,
+        Source = new WorldV2RuleContributionSourceOptions
+        {
+            SourceKind = "installed-component",
+            DefinitionId = definitionId,
+            DefinitionVersion = 1,
+            SourceInstanceId = instanceId,
+            SourceRevision = 1,
+            SlotId = slotId
+        },
+        Parameters = new Dictionary<string, string>()
+    };
+
+    [Fact]
     public void FactoryUsesPerLogicalTimeRatesAndDoesNotReuseLegacyTickFlowSettings()
     {
         var options = ValidOptions();
