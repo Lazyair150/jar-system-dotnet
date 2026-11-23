@@ -612,4 +612,29 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Empty(app.GetResourceLedger().Events);
     }
 
+
+    [Fact]
+    public void ExternalProducedJarImportDeduplicationSurvivesExecutionCheckpointRestore()
+    {
+        using var firstHost = new WorldV2HostService();
+        var firstApp = new WorldV2ApplicationService(firstHost);
+        firstApp.CreateOrReplaceWorld(Options());
+        firstApp.ImportProducedJars("stone-batch-checkpoint",
+            new Dictionary<string, int> { ["方罐"] = 2 });
+
+        var checkpointJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(
+            firstApp.CaptureExecutionResourceCheckpoint());
+
+        using var restoredHost = new WorldV2HostService();
+        var restoredApp = new WorldV2ApplicationService(restoredHost);
+        restoredApp.CreateOrReplaceWorld(Options());
+        restoredApp.RestoreExecutionResourceCheckpointJson(Options(), checkpointJson);
+
+        var duplicate = restoredApp.ImportProducedJars("stone-batch-checkpoint",
+            new Dictionary<string, int> { ["方罐"] = 2 });
+
+        Assert.True(duplicate.WasDuplicate);
+        Assert.Equal(2, restoredApp.GetWorldSnapshot().ResourceJars.Count);
+    }
+
 }
