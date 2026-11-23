@@ -98,6 +98,8 @@ public sealed class EffectiveRuleProfileTests
         }))
         {
             var captured = context.CaptureEffectiveProfile()!;
+            Assert.Equal(profile.AssignmentFingerprint, captured.AssignmentFingerprint);
+            Assert.Equal(profile.SourceProfileFingerprint, captured.SourceProfileFingerprint);
             Assert.Contains(captured.Contributions, x =>
                 x.RuleId == "rule.installed-mark" &&
                 x.Source.SourceInstanceId == "owned.workshop" &&
