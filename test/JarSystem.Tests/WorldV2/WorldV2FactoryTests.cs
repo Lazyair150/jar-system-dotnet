@@ -150,14 +150,16 @@ public sealed class WorldV2FactoryTests
         Assert.False(slave.IsBanned("酒"));
 
         var snapshot = WorldSnapshotFactory.Capture(world.Roster, world.ShipLiquidInventory);
-        Assert.Equal("slot.master", snapshot.Master!.RuleSlotId);
-        Assert.Equal("slot.slave", snapshot.Slave!.RuleSlotId);
-        Assert.Contains(snapshot.Master.EffectiveRuleProfile.Contributions,
+        var masterSnapshot = snapshot.Master!;
+        var slaveSnapshot = snapshot.Slave!;
+        Assert.Equal("slot.master", masterSnapshot.RuleSlotId);
+        Assert.Equal("slot.slave", slaveSnapshot.RuleSlotId);
+        Assert.Contains(masterSnapshot.EffectiveRuleProfile.Contributions,
             x => x.Source.SourceInstanceId == "owned.master");
-        Assert.Contains(snapshot.Slave.EffectiveRuleProfile.Contributions,
+        Assert.Contains(slaveSnapshot.EffectiveRuleProfile.Contributions,
             x => x.Source.SourceInstanceId == "owned.slave");
-        Assert.True(snapshot.Master.CreateWorkshopInfo().Rules.IsBanned("酒"));
-        Assert.False(snapshot.Slave.CreateWorkshopInfo().Rules.IsBanned("酒"));
+        Assert.True(masterSnapshot.CreateWorkshopInfo().Rules.IsBanned("酒"));
+        Assert.False(slaveSnapshot.CreateWorkshopInfo().Rules.IsBanned("酒"));
     }
 
     private static WorldV2RuleContributionOptions Contribution(
