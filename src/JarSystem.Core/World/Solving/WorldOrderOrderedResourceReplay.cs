@@ -90,9 +90,16 @@ public static class WorldOrderOrderedResourceReplay
             return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "B 类订单缺少从台快照或从台规则不可静态重放");
 
         var banned = new HashSet<string>(world.Master.Capability.Ban, StringComparer.Ordinal);
-        var rejected = new HashSet<string>(slaveRejectedLiquids ?? Array.Empty<string>(), StringComparer.Ordinal);
-        if (rejected.Any(string.IsNullOrWhiteSpace))
-            throw new ArgumentException("从台拒收液体名称不能为空", nameof(slaveRejectedLiquids));
+        // A Slave ban is an intrinsic receive/use restriction for free-liquid staging.
+        // Explicit rejects add policy; they never replace the workshop's own ban.
+        var rejected = new HashSet<string>(
+            world.Slave?.Capability.Ban ?? Array.Empty<string>(), StringComparer.Ordinal);
+        foreach (var liquid in slaveRejectedLiquids ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(liquid))
+                throw new ArgumentException("从台拒收液体名称不能为空", nameof(slaveRejectedLiquids));
+            rejected.Add(liquid);
+        }
 
         WorldOrderResourceRequirementGroup? boundary = null;
         var slavePeak = 0;
