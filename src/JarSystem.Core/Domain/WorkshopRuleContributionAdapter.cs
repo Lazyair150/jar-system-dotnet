@@ -49,7 +49,7 @@ public static class WorkshopRuleContributionAdapter
                 ModifierKind.Grant => RuleContributionEffect.GrantAdditionalMark,
                 ModifierKind.Retime => RuleContributionEffect.RetimeProcess,
                 ModifierKind.Intensity => RuleContributionEffect.ModifyIntensity,
-                _ => throw new ArgumentOutOfRangeException(nameof(modifiers), modifier.Kind, "Unsupported modifier kind.")
+                _ => RuleContributionEffect.RequireCondition
             };
             var target = modifier.Name;
             switch (modifier)
@@ -76,6 +76,11 @@ public static class WorkshopRuleContributionAdapter
                 case IntensityModifier intensity:
                     target = string.IsNullOrWhiteSpace(intensity.Target) ? intensity.Name : intensity.Target;
                     parameters.Add(new("factorPerMille", intensity.FactorPerMille.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                    break;
+                default:
+                    effect = RuleContributionEffect.RequireCondition;
+                    target = string.IsNullOrWhiteSpace(modifier.Name) ? "unknown-modifier" : modifier.Name;
+                    parameters.Add(new("predicate", "opaque"));
                     break;
             }
 
