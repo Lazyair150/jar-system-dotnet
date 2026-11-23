@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
+using System.Text;
+using JarSystem.Core.Production;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
@@ -34,6 +37,111 @@ public sealed class WorldV2ApplicationService
     public void SetWorldSpeedRatio(double ratio)
     {
         _host.ExecuteExclusive(context => context.Runtime.Clock.SetSpeedRatio(ratio));
+    }
+
+    /// <summary>
+    /// 将 Space 原石解析器已经完成的空罐批次导入 Jar 中央仓库。
+    /// 这是离散产出入口，不经过时间型 Producer；批次 ID 通过资源账本操作收据持久去重。
+    /// </summary>
+    public WorldV2ProducedJarImportResultDto ImportProducedJars(
+        string operationId,
+        IReadOnlyDictionary<string, int> jarCounts)
+    {
+        if (string.IsNullOrWhiteSpace(operationId) || operationId.Length > 128 ||
+            operationId.Contains('|'))
+            throw new ArgumentException("外部 Jar 批次 ID 必须是 1 到 128 个字符且不能包含 |", nameof(operationId));
+        if (jarCounts == null)
+            throw new ArgumentNullException(nameof(jarCounts));
+
+        var requested = jarCounts.ToDictionary(
+            pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        if (requested.Count == 0 ||
+            requested.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value <= 0))
+            throw new DomainValidationException("外部 Jar 批次必须包含有效形状和正整数数量");
+
+        var submittedCount = requested.Values.Aggregate(0L, (sum, amount) => checked(sum + amount));
+        if (submittedCount > int.MaxValue)
+            throw new DomainValidationException("单个外部 Jar 批次数量超出可表示范围");
+
+        var canonicalPayload = string.Join("\n", requested
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => pair.Key + "\t" + pair.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var payloadFingerprint = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(canonicalPayload))).ToLowerInvariant();
+        var operationPrefix = "space-produced-jar-import|" + operationId + "|";
+        var ledgerOperationId = operationPrefix + payloadFingerprint;
+
+        WorldV2ProducedJarImportResultDto? result = null;
+        _host.ExecuteExclusive(context =>
+        {
+            foreach (var shape in requested.Keys)
+                if (!context.Shapes.Contains(shape, StringComparer.Ordinal))
+                    throw new DomainValidationException("外部 Jar 批次包含当前世界未知形状: " + shape);
+
+            var priorOperations = context.ResourceLedger.Capture().OperationIds
+                .Where(item => item.StartsWith(operationPrefix, StringComparison.Ordinal))
+                .ToArray();
+            if (priorOperations.Length > 0)
+            {
+                if (priorOperations.Length != 1 ||
+                    !string.Equals(priorOperations[0], ledgerOperationId, StringComparison.Ordinal))
+                    throw new DomainValidationException("外部 Jar 批次 ID 已用于不同的产出内容: " + operationId);
+                result = new WorldV2ProducedJarImportResultDto(true, 0, 0, 0);
+                return;
+            }
+
+            var remainingWarehouseSlots = Math.Max(
+                0, Constants.WAREHOUSE_MAX_JARS - context.Resources.Inventory.JarCount);
+            var storedByShape = new Dictionary<string, int>(StringComparer.Ordinal);
+            var discardedByShape = new Dictionary<string, int>(StringComparer.Ordinal);
+            var remainingSlots = remainingWarehouseSlots;
+            foreach (var pair in requested.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                var stored = Math.Min(pair.Value, remainingSlots);
+                var discarded = pair.Value - stored;
+                if (stored > 0) storedByShape.Add(pair.Key, stored);
+                if (discarded > 0) discardedByShape.Add(pair.Key, discarded);
+                remainingSlots -= stored;
+            }
+
+            var vocabulary = new Vocabulary(context.Shapes, context.Liquids);
+            var jars = storedByShape
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .SelectMany(pair => Enumerable.Range(0, pair.Value)
+                    .Select(_ => new Jar(pair.Key, vocabulary: vocabulary)))
+                .ToArray();
+
+            var mutations = storedByShape
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => new ResourceLedgerMutation(
+                    ResourceCauses.Production, ResourceKinds.Jar, pair.Key, pair.Value,
+                    From: "Space 原石解析器", To: "Jar 中央仓库"))
+                .Concat(discardedByShape
+                    .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                    .Select(pair => new ResourceLedgerMutation(
+                        ResourceCauses.Discard, ResourceKinds.Jar, pair.Key, pair.Value,
+                        From: "Space 原石解析器", To: "容量溢出",
+                        Reason: "中央仓库容量已满")))
+                .ToArray();
+
+            if (!context.ResourceLedger.RecordBatchOnce(
+                ledgerOperationId, context.Runtime.LedgerTick, mutations))
+            {
+                result = new WorldV2ProducedJarImportResultDto(true, 0, 0, 0);
+                return;
+            }
+
+            // 账本批次先提交，随后仅执行已预构造且不再需要校验的仓库写入。
+            context.Resources.Inventory.StoreJars(jars);
+            if (discardedByShape.Values.Sum() > 0)
+                context.Resources.Inventory.CountDiscardedJars(discardedByShape.Values.Sum());
+
+            var storedCount = storedByShape.Values.Sum();
+            var discardedCount = discardedByShape.Values.Sum();
+            result = new WorldV2ProducedJarImportResultDto(
+                false, (int)submittedCount, storedCount, discardedCount);
+        });
+        return result!;
     }
 
     /// <summary>
@@ -468,7 +576,14 @@ public sealed class WorldV2ApplicationService
         IEnumerable<KeyValuePair<string, int>> values) =>
         new ReadOnlyDictionary<string, int>(
             values.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+
 }
+
+public sealed record WorldV2ProducedJarImportResultDto(
+    bool WasDuplicate,
+    int SubmittedJarCount,
+    int StoredJarCount,
+    int DiscardedJarCount);
 
 public sealed record WorldV2RequirementInput(string Shape, string? Liquid);
 
