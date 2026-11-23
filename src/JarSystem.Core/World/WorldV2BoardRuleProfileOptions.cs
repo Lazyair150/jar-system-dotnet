@@ -77,7 +77,7 @@ public sealed class WorldV2BoardRuleProfileOptions
                 errors.Add("duplicate Board rule contribution identity: " + contribution.RuleId);
         }
 
-        if (errors.Count == 0 && !string.Equals(ComputeFingerprint(), Fingerprint, StringComparison.OrdinalIgnoreCase))
+        if (errors.Count == 0 && !string.Equals(ComputeCanonicalFingerprint(), Fingerprint, StringComparison.OrdinalIgnoreCase))
             errors.Add("boardRuleProfile fingerprint does not match its canonical content");
         return errors;
     }
@@ -91,7 +91,7 @@ public sealed class WorldV2BoardRuleProfileOptions
         return EffectiveRuleProfile.Create(BoardId, BoardDefinitionVersion, 1, contributions);
     }
 
-    private string ComputeFingerprint()
+    public string ComputeCanonicalFingerprint()
     {
         var payload = new ProfileFingerprintPayload
         {
