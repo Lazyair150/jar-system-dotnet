@@ -145,9 +145,9 @@ public static class WorldInvariants
                 if (kv.Value > w.MaxLiquids)
                     Add(v, "LIQUID-OVER-CAPACITY",
                         label + " 的 " + kv.Key + " 存量 " + kv.Value + " 超过上限 " + w.MaxLiquids);
-                // 曾经有一条 BANNED-LIQUID-STORED：池子里不许存禁液。
-                // 2026-11 语义变更后「禁 = 能存不能用」，这条不变量失去对象 —— 存着禁液是**合法状态**
-                // （那一格仍然存在，只是取不出来），所以它被删掉而不是放宽。
+                if (kv.Value > 0 && w.IsBanned(kv.Key))
+                    Add(v, "BANNED-LIQUID-STORED",
+                        label + " 的 " + kv.Key + " 被本台禁用，但游离液体池仍存有 " + kv.Value + " 份");
             }
         }
 
