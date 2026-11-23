@@ -27,7 +27,7 @@ public sealed class EffectiveRuleProfileTests
         var profile = EffectiveRuleProfile.Create("board.demo", 1, 1, [first, second]);
 
         Assert.Equal(2, profile.Contributions.Count);
-        Assert.NotEqual(profile.Contributions[0].Source.SourceInstanceId, profile.Contributions[1].Source.OwnedInstanceId);
+        Assert.NotEqual(profile.Contributions[0].Source.SourceInstanceId, profile.Contributions[1].Source.SourceInstanceId);
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public sealed class EffectiveRuleProfileTests
         var first = Contribution("rule.alpha", "instance.a", "slot.a", 1);
         var progressed = first with
         {
-            Source = first.Source with { ProgressionRevision = 2 },
+            Source = first.Source with { SourceRevision = 2 },
             Parameters = [new RuleContributionParameter("strength", "2")]
         };
 
