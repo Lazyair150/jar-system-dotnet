@@ -306,7 +306,7 @@ Rule Profile fingerprint 至少应覆盖：
 - 新增不可变 `EffectiveRuleProfile`：按 Priority、Slot、RuleId、SourceInstance 确定性排序；拒绝重复贡献身份；对 Board 身份、Assignment revision、贡献来源和参数计算 SHA-256 fingerprint。
 - 新增 `WorkshopRuleContributionAdapter`，将现有 WorkshopCapability 的 BaseMark / AdditionalMark / Ban 与活跃 ModifierStack 声明式投影成 Rule Contributions。该适配器是迁移桥，不是最终任意零件 Definition catalog。
 - `RuleContext.From(EffectiveRuleProfile, scope)` 已能从 Profile 重建对应作用域的基础能力与 Suppress / Grant / Require / Retime / Intensity 修饰器。无法重建的 Require 仍然是 Undetermined；未支持的容量贡献保守返回无法判定。
-- `WorkshopSolveSnapshot` 现在冻结 EffectiveRuleProfile；`CreateRuleContext()` 通过 Profile 构造规则上下文；World RuleSet fingerprint 纳入 Profile fingerprint。现有 `WorldOrderRuleCandidateCatalog` 经 `WorkshopSolveSnapshot.CreateRuleContext()` 间接消费 EffectiveRuleProfile，而不是再从快照字段单独重建规则。
+- `WorkshopSolveSnapshot` 现在冻结 EffectiveRuleProfile；`CreateRuleContext()` 通过 Profile 构造规则上下文；现有 `WorldOrderRuleCandidateCatalog` 经 `WorkshopSolveSnapshot.CreateRuleContext()` 间接消费 EffectiveRuleProfile，而不是再从快照字段单独重建规则。WorldSnapshot 仍保留 RuleSetVersion / WorkshopProfileVersion / ResourceVersion 三段指纹分离：能力参数变化继续落入 WorkshopProfileVersion，临时规则变化落入 RuleSetVersion，资源余额变化只落入 ResourceVersion；Profile fingerprint 是装配产物身份，不得破坏这三类变化的既有缓存边界。
 - 静态求解 Profile 排除仅影响执行/生产的 Retime / Intensity；有效窗口在捕获时过滤，Profile 保存窗口来源元数据，冻结 RuleContext 不会在本地重新启动窗口时钟。
 
 ### 已落地的 Space 装配主链切片
