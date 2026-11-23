@@ -154,6 +154,8 @@ public sealed class WorldV2FactoryTests
         var slaveSnapshot = snapshot.Slave!;
         Assert.Equal("slot.master", masterSnapshot.RuleSlotId);
         Assert.Equal("slot.slave", slaveSnapshot.RuleSlotId);
+        Assert.Equal(assignmentFingerprint, masterSnapshot.EffectiveRuleProfile.AssignmentFingerprint);
+        Assert.Equal(profile.Fingerprint, masterSnapshot.EffectiveRuleProfile.SourceProfileFingerprint);
         Assert.Contains(masterSnapshot.EffectiveRuleProfile.Contributions,
             x => x.Source.SourceInstanceId == "owned.master");
         Assert.Contains(slaveSnapshot.EffectiveRuleProfile.Contributions,
