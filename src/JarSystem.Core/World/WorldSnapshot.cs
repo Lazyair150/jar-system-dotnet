@@ -73,6 +73,7 @@ public sealed class WorkshopSolveSnapshot
     public IReadOnlyList<WorldRuleModifierSnapshot> SolverModifiers => _modifiers;
     /// <summary>Frozen declarative profile consumed by the solver's RuleContext adapter.</summary>
     public EffectiveRuleProfile EffectiveRuleProfile { get; }
+    public string? RuleSlotId { get; }
 
     /// <summary>
     /// true 表示存在求解器不能静态投影的规则（例如带任意委托的 Require）。
@@ -87,6 +88,7 @@ public sealed class WorkshopSolveSnapshot
         MaxLiquids = workshop.MaxLiquids;
         LiquidStagingCapacity = workshop.LiquidStagingCapacity;
         Capability = workshop.Capability;
+        RuleSlotId = workshop.Rules.RuleSlotId;
 
         _jars = Array.AsReadOnly(workshop.Jars
             .Select(JarStateMapper.From)
@@ -123,10 +125,10 @@ public sealed class WorkshopSolveSnapshot
         }
 
         _modifiers = Array.AsReadOnly(modifiers.ToArray());
-        HasOpaqueSolverRules = _modifiers.Any(x => x.IsOpaque);
+        HasOpaqueSolverRules = _modifiers.Any(x => x.IsOpaque) || workshop.Rules.HasUnresolvableRequirements();
         var source = new RuleContributionSource(
             "legacy-workshop-runtime", "legacy.workshop", 1, workshop.Name, 1, workshop.Name);
-        EffectiveRuleProfile = WorkshopRuleContributionAdapter.Build(
+        EffectiveRuleProfile = workshop.Rules.EffectiveProfile ?? WorkshopRuleContributionAdapter.Build(
             "legacy.runtime", 1, 1, source, Capability, workshop.Rules.Stack, includeExecutionModifiers: false);
     }
 
@@ -146,7 +148,7 @@ public sealed class WorkshopSolveSnapshot
         if (HasOpaqueSolverRules)
             throw new InvalidOperationException("工作台快照包含不可静态重建的规则");
 
-        return RuleContext.From(EffectiveRuleProfile);
+        return RuleContext.From(EffectiveRuleProfile, "workshop", RuleSlotId);
 
     }
 
@@ -154,7 +156,7 @@ public sealed class WorkshopSolveSnapshot
     public WorkshopInfo CreateWorkshopInfo() => new()
     {
         Capability = Capability,
-        Rules = RuleContext.From(EffectiveRuleProfile),
+        Rules = RuleContext.From(EffectiveRuleProfile, "workshop", RuleSlotId),
         MaxJars = MaxJars,
         MaxLiquids = MaxLiquids,
         MaxLiquidCapacity = LiquidStagingCapacity
@@ -354,6 +356,7 @@ public static class WorldSnapshotFactory
         writer.Write(workshop != null);
         if (workshop == null) return;
 
+        writer.Write(workshop.EffectiveRuleProfile.Fingerprint);
         writer.Write(workshop.SolverModifiers.Count);
         foreach (var modifier in workshop.SolverModifiers)
         {
