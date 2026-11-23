@@ -114,6 +114,7 @@ public sealed class WorkshopReplacementTests
         var slave = new Workshop("从台");
         var jar = new Jar("圆罐", "酒", id: 781);
         oldMaster.AddJar(jar);
+        oldMaster.AddLiquid("酒", 1);
         var roster = new WorkshopRoster(new[] { oldMaster, newMaster, slave }, oldMaster, slave);
         var process = new WorkshopReplacementProcess(
             roster, WorkshopRole.Master, newMaster, new NoOrderInterruption(), 1_000);
@@ -125,6 +126,7 @@ public sealed class WorkshopReplacementTests
         Assert.True(process.Succeeded);
         Assert.Same(jar, Assert.Single(newMaster.Jars));
         Assert.Equal("酒", jar.Liquid);
+        Assert.Equal(0, newMaster.LiquidStorage["酒"]); // 禁液游离液体不进入目标台
         Assert.True(newMaster.IsBanned("酒"));
         Assert.False(newMaster.CanReshapeTo(jar, "方罐").Granted);
     }
