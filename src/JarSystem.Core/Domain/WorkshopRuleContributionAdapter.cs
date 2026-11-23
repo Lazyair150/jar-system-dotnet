@@ -52,7 +52,8 @@ public static class WorkshopRuleContributionAdapter
             switch (modifier)
             {
                 case GrantModifier grant:
-                    target = grant.Shape;
+                    target = string.IsNullOrWhiteSpace(grant.Shape) ? grant.Name : grant.Shape;
+                    if (string.IsNullOrWhiteSpace(grant.Shape)) effect = RuleContributionEffect.RequireCondition;
                     break;
                 case SuppressModifier suppress:
                     target = string.Join("|", suppress.Operation ?? "*", suppress.Shape ?? "*", suppress.Liquid ?? "*");
@@ -62,7 +63,7 @@ public static class WorkshopRuleContributionAdapter
                     parameters.Add(new("reason", suppress.Reason));
                     break;
                 case RequireModifier require:
-                    target = require.Text;
+                    target = string.IsNullOrWhiteSpace(require.Text) ? require.Name : require.Text;
                     parameters.Add(new("predicate", require.Violation == null ? "opaque" : "runtime"));
                     break;
                 case RetimeModifier retime:
@@ -70,7 +71,7 @@ public static class WorkshopRuleContributionAdapter
                     parameters.Add(new("ticksPerStep", retime.TicksPerStep.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                     break;
                 case IntensityModifier intensity:
-                    target = intensity.Target;
+                    target = string.IsNullOrWhiteSpace(intensity.Target) ? intensity.Name : intensity.Target;
                     parameters.Add(new("factorPerMille", intensity.FactorPerMille.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                     break;
             }
