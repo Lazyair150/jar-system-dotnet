@@ -237,8 +237,9 @@ public sealed class WorldV2Options
             result.Errors.AddRange(BoardRuleProfile.Validate());
             if (BoardRuleProfile.AssignmentSnapshot != null)
             {
-                var assignments = BoardRuleProfile.AssignmentSnapshot.Assignments
-                    .Where(x => x != null).ToDictionary(x => x.SlotId, StringComparer.Ordinal);
+                var assignments = new Dictionary<string, WorldV2BoardAssignmentEntryOptions>(StringComparer.Ordinal);
+                foreach (var assignment in BoardRuleProfile.AssignmentSnapshot.Assignments.Where(x => x != null))
+                    assignments.TryAdd(assignment.SlotId, assignment);
                 var workshopOptions = Workshops ?? new List<WorldV2WorkshopOptions>();
                 foreach (var workshop in workshopOptions)
                 {
