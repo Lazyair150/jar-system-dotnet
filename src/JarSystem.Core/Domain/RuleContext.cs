@@ -106,6 +106,7 @@ public sealed class RuleContext
 
     public string RuleScope => _ruleScope;
     public string? RuleSlotId => _ruleSlotId;
+    internal IReadOnlyCollection<IRuleModifier> ProfileModifiers => _profileModifiers;
 
     public bool IsBaseMarked(string shape) => _capability.IsBaseMarked(shape);
 
