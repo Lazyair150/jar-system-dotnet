@@ -31,6 +31,8 @@ public sealed class WorldOrderSolveResult
     public WorldOrderSolvePlan? Plan { get; }
     /// <summary>B 类订单划分搜索的只读漏斗诊断；不参与计划执行或资源预留。</summary>
     public PartitionSearchReport? PartitionReport { get; }
+    /// <summary>Concrete policy-aware ordered resource proof used to materialize this plan.</summary>
+    public WorldOrderOrderedResourceReplayResult? ResourceReplay { get; }
 
     public bool IsFeasible => Status == WorldOrderSolveStatus.Feasible;
     public bool IsUndetermined => Status == WorldOrderSolveStatus.Undetermined;
@@ -39,7 +41,7 @@ public sealed class WorldOrderSolveResult
     internal WorldOrderSolveResult RebindTo(WorldSnapshot snapshot) =>
         new(DemandId, snapshot.Version, Status, CheckMethod, Reason, DirectCount, OperationCount,
             Plan, PartitionReport, snapshot.RuleSetVersion, snapshot.WorkshopProfileVersion,
-            snapshot.ResourceVersion, SpecificationVersion);
+            snapshot.ResourceVersion, SpecificationVersion, ResourceReplay);
 
     public WorldOrderSolveResult(
         int demandId,
@@ -54,7 +56,8 @@ public sealed class WorldOrderSolveResult
         string? ruleSetVersion = null,
         string? workshopProfileVersion = null,
         string? resourceVersion = null,
-        string? specificationVersion = null)
+        string? specificationVersion = null,
+        WorldOrderOrderedResourceReplayResult? resourceReplay = null)
     {
         if (demandId <= 0) throw new ArgumentOutOfRangeException(nameof(demandId));
         if (string.IsNullOrWhiteSpace(worldVersion))
@@ -78,8 +81,11 @@ public sealed class WorldOrderSolveResult
             throw new ArgumentException("可行结果必须包含不可变求解计划", nameof(plan));
         if (status != WorldOrderSolveStatus.Feasible && plan != null)
             throw new ArgumentException("只有可行结果可以携带求解计划", nameof(plan));
+        if (resourceReplay != null && (status != WorldOrderSolveStatus.Feasible || !resourceReplay.IsComplete))
+            throw new ArgumentException("只有可行结果可以携带完整的有序资源重放证明", nameof(resourceReplay));
         Plan = plan;
         PartitionReport = partitionReport;
+        ResourceReplay = resourceReplay;
     }
 }
 
