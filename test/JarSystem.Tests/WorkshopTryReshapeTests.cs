@@ -35,17 +35,11 @@ public class WorkshopTryReshapeTests
     [Fact]
     public void AutoModePicksAUsableCostLiquidAndPaysExactlyOne()
     {
-        // 先有库存，再启用禁令：用于验证禁令变化后旧余额不可使用。
-        var w = new Workshop("玄武台",
-            new List<string> { "圆罐", "方罐" },
-            new List<string> { "三角罐" },
-            maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
+        var w = Xuanwu();
         var jar = new Jar("圆罐", null, null, Vocab());
         w.AddJar(jar);
-        w.AddLiquid("酒", 1);
+        Assert.False(w.AddLiquid("酒", 1)); // 被禁液体不能进入游离液体池
         w.AddLiquid("蜜", 2);
-        w.ReplaceCapability(new WorkshopCapability(
-            new[] { "圆罐", "方罐" }, new[] { "三角罐" }, new[] { "酒" }));
 
         var (ok, reason) = w.TryReshape(jar, "方罐");
 
@@ -53,23 +47,17 @@ public class WorkshopTryReshapeTests
         Assert.Equal("方罐", jar.Shape);
         Assert.True(jar.IsMarked);                                  // 改形会打标记
         Assert.Equal(1, w.LiquidStorage["蜜"]);                     // 只付了 1 份
-        Assert.Equal(1, w.LiquidStorage["酒"]);                     // 禁酒一分未动
+        Assert.Equal(0, w.LiquidStorage["酒"]);                     // 禁酒一分未动
     }
 
     [Fact]
     public void AnExplicitCostThatCannotBePaidFailsInsteadOfSilentlySwitchingToAnother()
     {
-        // 先有库存，再启用禁令：酒仍留在旧账中，但不能被当前工作台使用。
-        var w = new Workshop("玄武台",
-            new List<string> { "圆罐", "方罐" },
-            new List<string> { "三角罐" },
-            maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
+        var w = Xuanwu();
         var jar = new Jar("圆罐", null, null, Vocab());
         w.AddJar(jar);
-        w.AddLiquid("酒", 1);
-        w.AddLiquid("蜜", 2);
-        w.ReplaceCapability(new WorkshopCapability(
-            new[] { "圆罐", "方罐" }, new[] { "三角罐" }, new[] { "酒" }));
+        Assert.False(w.AddLiquid("酒", 1)); // 被禁液体不能进入游离液体池
+        w.AddLiquid("蜜", 2);      // 明明还有别的可付，但调用方点名要酒
 
         var (ok, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Empty, "酒");
 
@@ -78,7 +66,7 @@ public class WorkshopTryReshapeTests
         Assert.Equal("圆罐", jar.Shape);                            // 世界没变
         Assert.False(jar.IsMarked);
         Assert.Equal(2, w.LiquidStorage["蜜"]);                     // **没有**偷偷换用蜜
-        Assert.Equal(1, w.LiquidStorage["酒"]);
+        Assert.Equal(0, w.LiquidStorage["酒"]);
     }
 
     [Fact]
