@@ -265,7 +265,7 @@ public sealed class WorldV2Options
                     workshopOptions.Where(x => x != null).Select(x => x.BoardSlotId).Distinct(StringComparer.Ordinal).Count() != workshopOptions.Count)
                     result.Errors.Add("当前 World V2 runtime 仅接受两个不同的已分配 workshop Board Slot");
 
-                foreach (var contribution in BoardRuleProfile.Contributions.Where(x => x != null))
+                foreach (var contribution in (BoardRuleProfile.Contributions ?? new List<WorldV2RuleContributionOptions>()).Where(x => x != null))
                 {
                     if (!Enum.TryParse<RuleContributionEffect>(contribution.Effect, false, out var effect) ||
                         !Enum.IsDefined(effect)) continue;
