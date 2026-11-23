@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
@@ -184,6 +185,44 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         Assert.Equal("POUR_IN", Assert.Single(plan.SlaveSteps).Operation!.Type);
         Assert.Equal(9851, plan.SlaveSteps[0].Before![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
         Assert.Equal("蜜", plan.SlaveSteps[0].After![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Liquid);
+    }
+
+    [Fact]
+    public void TwoIdenticalMasterPreparationJarsCanBothFundTwoSlaveRequirements()
+    {
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐", "方罐" },
+            liquidStagingCapacity: 2);
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", "酒", id: 9861));
+        master.AddJar(new Jar("圆罐", "酒", id: 9862));
+        master.AddJar(new Jar("方罐", id: 9863));
+        master.AddJar(new Jar("方罐", id: 9864));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "方罐", Liquid = "酒" },
+            new Requirement { Shape = "方罐", Liquid = "酒" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            986, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Equal(4, plan.TransferJarIds.Count);
+        Assert.Equal(2, plan.TransferLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(2, plan.MasterSteps.Count);
+        Assert.Equal(2, plan.SlaveSteps.Count);
+        Assert.All(plan.MasterSteps, step => Assert.Equal("POUR_OUT", step.Operation!.Type));
+        Assert.All(plan.SlaveSteps, step => Assert.Equal("POUR_IN", step.Operation!.Type));
+        Assert.Equal(
+            new[] { 9861, 9862 },
+            plan.MasterSteps.Select(step =>
+                step.Before![step.Operation!.JarIndex!.Value].Id!.Value).OrderBy(id => id));
+        Assert.Equal(
+            new[] { 9863, 9864 },
+            plan.SlaveSteps.Select(step =>
+                step.Before![step.Operation!.JarIndex!.Value].Id!.Value).OrderBy(id => id));
     }
 
     [Fact]
