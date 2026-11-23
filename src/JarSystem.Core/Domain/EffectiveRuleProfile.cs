@@ -45,7 +45,9 @@ public enum RuleContributionEffect
     BanLiquid,
     SuppressOperation,
     RequireCondition,
-    ModifyCapacity
+    ModifyCapacity,
+    RetimeProcess,
+    ModifyIntensity
 }
 
 /// <summary>Exact provenance of the installed instance that emitted a contribution.</summary>
@@ -53,15 +55,15 @@ public sealed record RuleContributionSource(
     string SourceKind,
     string DefinitionId,
     int DefinitionVersion,
-    string OwnedInstanceId,
-    int ProgressionRevision,
+    string SourceInstanceId,
+    int SourceRevision,
     string SlotId)
 {
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(SourceKind) ||
             string.IsNullOrWhiteSpace(DefinitionId) || DefinitionVersion <= 0 ||
-            string.IsNullOrWhiteSpace(OwnedInstanceId) || ProgressionRevision <= 0 ||
+            string.IsNullOrWhiteSpace(SourceInstanceId) || SourceRevision <= 0 ||
             string.IsNullOrWhiteSpace(SlotId))
             throw new ArgumentException("Rule contribution source must retain exact Definition, Owned Instance, progression and slot identity.");
     }
@@ -139,7 +141,7 @@ public sealed class EffectiveRuleProfile
         {
             var identity = string.Join("\u001f",
                 contribution.Source.SlotId,
-                contribution.Source.OwnedInstanceId,
+                contribution.Source.SourceInstanceId,
                 contribution.RuleId,
                 contribution.RuleVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
             if (!identities.Add(identity))
@@ -179,8 +181,8 @@ public sealed class EffectiveRuleProfile
                 writer.Write(item.Source.SourceKind);
                 writer.Write(item.Source.DefinitionId);
                 writer.Write(item.Source.DefinitionVersion);
-                writer.Write(item.Source.OwnedInstanceId);
-                writer.Write(item.Source.ProgressionRevision);
+                writer.Write(item.Source.SourceInstanceId);
+                writer.Write(item.Source.SourceRevision);
                 writer.Write(item.Source.SlotId);
                 var parameters = item.Parameters.OrderBy(x => x.Name, StringComparer.Ordinal).ToArray();
                 writer.Write(parameters.Length);
