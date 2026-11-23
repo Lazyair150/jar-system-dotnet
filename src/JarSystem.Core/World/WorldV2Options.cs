@@ -60,6 +60,10 @@ public sealed class WorldV2Options
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorldV2BoardRuleProfileOptions? BoardRuleProfile { get; set; }
 
+    [JsonPropertyName("boardAssignmentSnapshot")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorldV2BoardAssignmentSnapshotOptions? BoardAssignmentSnapshot { get; set; }
+
     /// <summary>执行计划中每个操作步消耗的逻辑时间毫秒数；1000 = 1 个逻辑时间单位。</summary>
     [JsonPropertyName("executionLogicalTimePerUnit")]
     public long ExecutionLogicalTimePerUnit { get; set; } = 1000;
@@ -234,11 +238,11 @@ public sealed class WorldV2Options
 
         if (BoardRuleProfile != null)
         {
-            result.Errors.AddRange(BoardRuleProfile.Validate());
-            if (BoardRuleProfile.AssignmentSnapshot != null)
+            result.Errors.AddRange(BoardRuleProfile.Validate(BoardAssignmentSnapshot));
+            if (BoardAssignmentSnapshot != null)
             {
                 var assignments = new Dictionary<string, WorldV2BoardAssignmentEntryOptions>(StringComparer.Ordinal);
-                foreach (var assignment in BoardRuleProfile.AssignmentSnapshot.Assignments.Where(x => x != null))
+                foreach (var assignment in BoardAssignmentSnapshot.Assignments.Where(x => x != null))
                     assignments.TryAdd(assignment.SlotId, assignment);
                 var workshopOptions = Workshops ?? new List<WorldV2WorkshopOptions>();
                 foreach (var workshop in workshopOptions)
@@ -423,7 +427,7 @@ public static class WorldV2Factory
             options.LiquidFlowRatePerLogicalTime,
             shipLiquidInventory);
 
-        var effectiveBoardProfile = options.BoardRuleProfile?.BuildEffectiveRuleProfile();
+        var effectiveBoardProfile = options.BoardRuleProfile?.BuildEffectiveRuleProfile(options.BoardAssignmentSnapshot);
         var workshops = options.Workshops.Select(workshop =>
         {
             var initialRules = effectiveBoardProfile == null
