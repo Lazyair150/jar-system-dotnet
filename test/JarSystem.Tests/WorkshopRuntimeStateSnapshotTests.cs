@@ -55,6 +55,27 @@ public sealed class WorkshopRuntimeStateSnapshotTests
     }
 
     [Fact]
+    public void RestoreRejectsBannedFreeLiquidWithoutPartialMutation()
+    {
+        var workshop = new Workshop("禁酒主台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" }, maxJars: 4, maxLiquids: 5, vocabulary: Words);
+        var existing = new Jar("圆罐", vocabulary: Words);
+        workshop.AddJar(existing);
+        var invalidLiquids = new Dictionary<string, int>(workshop.LiquidStorage)
+        {
+            ["酒"] = 1
+        };
+        var invalid = new WorkshopRuntimeStateSnapshot(
+            "禁酒主台", 4, 5, workshop.LiquidStagingCapacity,
+            workshop.BaseMarks, workshop.AdditionalMarks, workshop.Ban,
+            new[] { existing }, invalidLiquids);
+
+        Assert.Throws<DomainValidationException>(() => workshop.RestoreRuntimeState(invalid));
+        Assert.Same(existing, Assert.Single(workshop.Jars));
+        Assert.Equal(0, workshop.LiquidStorage["酒"]);
+    }
+
+    [Fact]
     public void RestoreRejectsDuplicateJarIdentityWithoutPartialMutation()
     {
         var workshop = new Workshop("主台", new List<string> { "圆罐" },
