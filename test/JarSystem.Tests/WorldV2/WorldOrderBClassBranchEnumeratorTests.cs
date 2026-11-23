@@ -228,6 +228,48 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void TwoIdenticalSlavePreparationJarsCanFeedTwoLaterSlaveRequirements()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_OUT",
+            Reason = "主台不负责准备游离液体"
+        });
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐", "方罐" }, modifiers: masterRules);
+        var slave = new Workshop(
+            "从台", new List<string> { "圆罐", "方罐" },
+            liquidStagingCapacity: 2);
+        master.AddJar(new Jar("圆罐", "酒", id: 9871));
+        master.AddJar(new Jar("圆罐", "酒", id: 9872));
+        master.AddJar(new Jar("方罐", id: 9873));
+        master.AddJar(new Jar("方罐", id: 9874));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "方罐", Liquid = "酒" },
+            new Requirement { Shape = "方罐", Liquid = "酒" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            987, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Empty(plan.MasterSteps);
+        Assert.Equal(4, plan.TransferJarIds.Count);
+        Assert.Empty(plan.TransferLiquids);
+        Assert.Equal(4, plan.SlaveSteps.Count);
+        Assert.Equal(
+            new[] { "POUR_OUT", "POUR_OUT", "POUR_IN", "POUR_IN" },
+            plan.SlaveSteps.Select(step => step.Operation!.Type));
+        Assert.Equal(1, plan.SlaveSteps[0].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(2, plan.SlaveSteps[1].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(1, plan.SlaveSteps[2].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(0, plan.SlaveSteps[3].AfterLiquids.GetValueOrDefault("酒"));
+    }
+
+    [Fact]
     public void BClassCannotReuseOnePhysicalJarForTwoRequirementIdentities()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
