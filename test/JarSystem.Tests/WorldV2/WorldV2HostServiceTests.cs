@@ -197,7 +197,10 @@ public sealed class WorldV2HostServiceTests
         host.ExecuteExclusive(context =>
         {
             var session = Assert.Single(context.Runtime.ActiveExecutionSessions);
-            Assert.Equal(WorldOrderExecutionStage.MasterSteps, session.Stage);
+            // This B-class branch has no Master operation nodes: Master is only the
+            // boundary-resource provider, so the session correctly waits at the single
+            // atomic handoff rather than entering an empty MasterSteps phase.
+            Assert.Equal(WorldOrderExecutionStage.Transfer, session.Stage);
             var scopes = context.Admission.GetLiquidScopes(demandId)!.Value;
             Assert.Equal(2, scopes.Master.GetAmount("酒"));
             Assert.Equal(0, scopes.Slave!.GetAmount("酒"));
