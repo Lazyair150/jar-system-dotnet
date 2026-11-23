@@ -29,25 +29,22 @@ public sealed class WorldV2BoardRuleProfileOptions
     public string Fingerprint { get; set; } = "";
     [JsonPropertyName("contributions")]
     public List<WorldV2RuleContributionOptions> Contributions { get; set; } = new();
-    [JsonPropertyName("assignmentSnapshot")]
-    public WorldV2BoardAssignmentSnapshotOptions? AssignmentSnapshot { get; set; }
-
-    public IReadOnlyList<string> Validate()
+    public IReadOnlyList<string> Validate(WorldV2BoardAssignmentSnapshotOptions? assignmentSnapshot)
     {
         var errors = new List<string>();
         if (SchemaVersion != 1 || string.IsNullOrWhiteSpace(BoardId) || BoardDefinitionVersion <= 0)
             errors.Add("boardRuleProfile schema or Board identity is invalid");
         if (!IsSha256(AssignmentFingerprint) || !IsSha256(Fingerprint))
             errors.Add("boardRuleProfile requires SHA-256 assignment and profile fingerprints");
-        if (Contributions == null || AssignmentSnapshot == null)
+        if (Contributions == null || assignmentSnapshot == null)
         {
-            errors.Add("boardRuleProfile contributions and exact assignmentSnapshot are required");
+            errors.Add("boardRuleProfile contributions and exact boardAssignmentSnapshot are required");
             return errors;
         }
 
-        errors.AddRange(AssignmentSnapshot.Validate(BoardId, BoardDefinitionVersion, AssignmentFingerprint));
+        errors.AddRange(assignmentSnapshot.Validate(BoardId, BoardDefinitionVersion, AssignmentFingerprint));
         var assignmentsBySlot = new Dictionary<string, WorldV2BoardAssignmentEntryOptions>(StringComparer.Ordinal);
-        foreach (var assignment in AssignmentSnapshot.Assignments.Where(x => x != null))
+        foreach (var assignment in assignmentSnapshot.Assignments.Where(x => x != null))
             assignmentsBySlot.TryAdd(assignment.SlotId, assignment);
         var identities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var contribution in Contributions)
@@ -82,9 +79,9 @@ public sealed class WorldV2BoardRuleProfileOptions
         return errors;
     }
 
-    public EffectiveRuleProfile BuildEffectiveRuleProfile()
+    public EffectiveRuleProfile BuildEffectiveRuleProfile(WorldV2BoardAssignmentSnapshotOptions? assignmentSnapshot)
     {
-        var errors = Validate();
+        var errors = Validate(assignmentSnapshot);
         if (errors.Count != 0)
             throw new ArgumentException("Invalid boardRuleProfile: " + string.Join("; ", errors));
         var contributions = Contributions.Select(x => x.ToDomain()).ToArray();
