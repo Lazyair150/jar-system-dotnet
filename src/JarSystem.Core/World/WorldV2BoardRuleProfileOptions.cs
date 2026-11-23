@@ -44,8 +44,9 @@ public sealed class WorldV2BoardRuleProfileOptions
 
         errors.AddRange(assignmentSnapshot.Validate(BoardId, BoardDefinitionVersion, AssignmentFingerprint));
         var assignmentsBySlot = new Dictionary<string, WorldV2BoardAssignmentEntryOptions>(StringComparer.Ordinal);
-        foreach (var assignment in assignmentSnapshot.Assignments.Where(x => x != null))
-            assignmentsBySlot.TryAdd(assignment.SlotId, assignment);
+        if (assignmentSnapshot.Assignments != null)
+            foreach (var assignment in assignmentSnapshot.Assignments.Where(x => x != null))
+                assignmentsBySlot.TryAdd(assignment.SlotId, assignment);
         var identities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var contribution in Contributions)
         {
@@ -246,9 +247,10 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
                 errors.Add("board assignment contains invalid or duplicate slot/instance identity");
                 continue;
             }
-            if (!slots.TryGetValue(entry.SlotId, out var slot) || slot.ComponentKind != entry.ComponentKind ||
-                (slot.RoleId ?? "") != (entry.RoleId ?? ""))
+            if (!slots.TryGetValue(entry.SlotId, out var slot) || slot.ComponentKind != entry.ComponentKind)
                 errors.Add("board assignment does not match its frozen slot definition: " + entry.SlotId);
+            else if (entry.ComponentKind == "workshop" && (slot.RoleId ?? "") != (entry.RoleId ?? ""))
+                errors.Add("workshop assignment role does not match its frozen Board Slot: " + entry.SlotId);
         }
         foreach (var slot in BoardDefinition.Slots)
             if (slot.Required && !seenSlots.Contains(slot.SlotId))
