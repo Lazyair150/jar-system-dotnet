@@ -160,14 +160,22 @@ public sealed class WorldV2RuleContributionOptions
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();
-        if (string.IsNullOrWhiteSpace(RuleId) || RuleVersion <= 0 ||
+        if (string.IsNullOrWhiteSpace(RuleId) || RuleVersion != 1 ||
             string.IsNullOrWhiteSpace(Target) || string.IsNullOrWhiteSpace(Scope))
-            errors.Add("rule contribution identity, target or scope is invalid");
+            errors.Add("rule contribution identity, supported version 1, target or scope is invalid");
+        if (!new[] { "workshop", "parser", "production_device", "skill", "board", "order", "ship" }
+            .Contains(Scope, StringComparer.Ordinal))
+            errors.Add("rule contribution scope is unsupported: " + Scope);
         if (!Enum.TryParse<RuleContributionEffect>(Effect, ignoreCase: false, out var parsed) ||
             !Enum.IsDefined(parsed))
             errors.Add("rule contribution effect is unsupported: " + Effect);
         if (Source == null) errors.Add("rule contribution source is required");
-        else errors.AddRange(Source.Validate());
+        else
+        {
+            errors.AddRange(Source.Validate());
+            if (Source.SourceKind != "installed-component")
+                errors.Add("Board rule contribution must originate from an installed component instance");
+        }
         if (Parameters == null || Parameters.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value == null))
             errors.Add("rule contribution parameters must be canonical scalar strings");
         return errors;
