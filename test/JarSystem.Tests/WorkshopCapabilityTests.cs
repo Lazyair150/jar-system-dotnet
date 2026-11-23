@@ -97,26 +97,23 @@ public class WorkshopCapabilityTests
     }
 
     [Fact]
-    public void BanningALiquidThatIsStillInThePoolIsAllowedAndOnlyBlocksUse()
+    public void BanningALiquidThatIsStillInThePoolIsRejectedAtomically()
     {
-        // 2026-11 语义变更后，这是一个**合法且有意义的局面**：那 2 份蜜留在那一格里，
-        // 只是取不出来；解开禁令就又能用。旧守卫依据的 BANNED-LIQUID-STORED 已随语义一起删除。
         var sys = NewSystem();
         var bench = sys.Workshops[0];
         bench.AddLiquid("蜜", 2);
+        var beforeLog = sys.CommandLog.Count;
+        var beforeCapability = bench.Capability;
 
-        sys.SetWorkshopCapability(0, ban: new List<string> { "蜜" });
+        var ex = Assert.Throws<DomainValidationException>(() =>
+            sys.SetWorkshopCapability(0, ban: new List<string> { "蜜" }));
 
-        Assert.True(bench.IsBanned("蜜"));
-        Assert.Equal(2, bench.LiquidStorage["蜜"]);        // 液体还在（那一格仍然存在）
-        Assert.False(bench.HasUsableLiquid("蜜"));        // 但取不出来
-        Assert.Equal("工作台禁" + "蜜", bench.CheckLiquid("蜜").Reason);
-        Assert.Empty(WorldInvariants.Check(sys));         // 这是自洽的世界，不是违规
-
-        // 解开禁令后立刻恢复可用 —— 说明"禁"是可逆的规则，不是一次性销毁
-        sys.SetWorkshopCapability(0, ban: new List<string>());
+        Assert.Contains("仍存有游离液体", ex.Message);
+        Assert.Equal(2, bench.LiquidStorage["蜜"]);
         Assert.False(bench.IsBanned("蜜"));
-        Assert.True(bench.HasUsableLiquid("蜜"));
+        Assert.Same(beforeCapability, bench.Capability);
+        Assert.Equal(beforeLog, sys.CommandLog.Count);
+        Assert.Empty(WorldInvariants.Check(sys));
     }
 
     [Fact]
