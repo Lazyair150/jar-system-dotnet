@@ -87,7 +87,7 @@ public sealed class WorldV2FactoryTests
     public void FactoryAppliesBoardContributionsToExactMasterAndSlaveRuntimeSlots()
     {
         const string boardId = "board.test";
-        const string assignmentFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var assignmentFingerprint = "";
         var assignment = new WorldV2BoardAssignmentSnapshotOptions
         {
             SchemaVersion = 1,
@@ -96,22 +96,26 @@ public sealed class WorldV2FactoryTests
             AssignmentFingerprint = assignmentFingerprint,
             BoardDefinition = new WorldV2BoardDefinitionSnapshotOptions
             {
+                SchemaVersion = 1,
                 BoardId = boardId,
                 DefinitionVersion = 1,
+                DisplayName = "Demo Board",
                 Slots = new List<WorldV2BoardSlotSnapshotOptions>
                 {
-                    new() { SlotId = "slot.master", ComponentKind = "workshop", RoleId = "master", Required = true },
-                    new() { SlotId = "slot.slave", ComponentKind = "workshop", RoleId = "slave", Required = true },
-                    new() { SlotId = "slot.parser", ComponentKind = "ore_parser", RoleId = "none", Required = true }
+                    new() { SlotId = "slot.master", AreaId = "workshop", ComponentKind = "workshop", DisplayName = "Master", RoleId = "master", ControlArea = "none", Required = true },
+                    new() { SlotId = "slot.slave", AreaId = "workshop", ComponentKind = "workshop", DisplayName = "Slave", RoleId = "slave", ControlArea = "none", Required = true },
+                    new() { SlotId = "slot.parser", AreaId = "decomposition", ComponentKind = "ore_parser", DisplayName = "Parser", RoleId = "none", ControlArea = "none", Required = true }
                 }
             },
             Assignments = new List<WorldV2BoardAssignmentEntryOptions>
             {
                 new() { SlotId = "slot.master", ComponentKind = "workshop", RoleId = "master", OwnedInstanceId = "owned.master", DefinitionId = "workshop.master", DefinitionVersion = 1, SourceRevision = 1 },
-                new() { SlotId = "slot.slave", ComponentKind = "workshop", RoleId = "slave", OwnedInstanceId = "owned.slave", DefinitionId = "workshop.slave", DefinitionVersion = 1, SourceRevision = 1 },
-                new() { SlotId = "slot.parser", ComponentKind = "ore_parser", OwnedInstanceId = "owned.parser", DefinitionId = "parser.basic", DefinitionVersion = 1, SourceRevision = 1 }
+                new() { SlotId = "slot.parser", ComponentKind = "ore_parser", OwnedInstanceId = "owned.parser", DefinitionId = "parser.basic", DefinitionVersion = 1, SourceRevision = 1 },
+                new() { SlotId = "slot.slave", ComponentKind = "workshop", RoleId = "slave", OwnedInstanceId = "owned.slave", DefinitionId = "workshop.slave", DefinitionVersion = 1, SourceRevision = 1 }
             }
         };
+        assignmentFingerprint = assignment.ComputeCanonicalFingerprint();
+        assignment.AssignmentFingerprint = assignmentFingerprint;
         var profile = new WorldV2BoardRuleProfileOptions
         {
             SchemaVersion = 1,
