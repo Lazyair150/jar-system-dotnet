@@ -58,6 +58,88 @@ public sealed class WorldV2ApplicationServiceTests
     };
 
     [Fact]
+    public void AddJarDemandFromTemplateUsesTheImmutableWorldTemplate()
+    {
+        var options = Options();
+        var template = new OrderTemplateOptions
+        {
+            Name = "skill.offense.v1",
+            Type = "B",
+            Requirements = new List<RequirementOptions>
+            {
+                new() { Shape = "圆罐" },
+                new() { Shape = "方罐", Liquid = "酒" }
+            }
+        };
+        options.OrderTemplates = new List<OrderTemplateOptions> { template };
+
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(options);
+
+        // Mutating caller-owned config after world creation must not mutate Core's template library.
+        template.Requirements[0].Shape = "方罐";
+        template.Requirements[1].Liquid = "蜜";
+
+        var id = app.AddJarDemandFromTemplate(
+            "skill.offense.v1", DemandAreaKind.Active, 1_750, "skill:offense:instance-1");
+        var demand = Assert.Single(app.GetWorldSnapshot().Demands);
+
+        Assert.Equal(id, demand.Id);
+        Assert.Equal(DemandAreaKind.Active, demand.Area);
+        Assert.Equal("B", demand.SpecificationType);
+        Assert.Equal(1_750, demand.CooldownDurationLogicalMilli);
+        Assert.Equal("skill:offense:instance-1", demand.OrderDefinitionKey);
+        Assert.Collection(
+            demand.Requirements,
+            item =>
+            {
+                Assert.Equal("圆罐", item.Shape);
+                Assert.Null(item.Liquid);
+            },
+            item =>
+            {
+                Assert.Equal("方罐", item.Shape);
+                Assert.Equal("酒", item.Liquid);
+            });
+    }
+
+    [Fact]
+    public void AddJarDemandFromTemplateRejectsUnknownTemplateWithoutAddingDemand()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(Options());
+
+        Assert.Throws<KeyNotFoundException>(() =>
+            app.AddJarDemandFromTemplate("missing.template", DemandAreaKind.Active, 0));
+        Assert.Empty(app.GetWorldSnapshot().Demands);
+    }
+
+    [Fact]
+    public void WorldV2OptionsRejectOrderTemplatesOutsideItsVocabulary()
+    {
+        var options = Options();
+        options.OrderTemplates = new List<OrderTemplateOptions>
+        {
+            new()
+            {
+                Name = "invalid.shape",
+                Type = "A",
+                Requirements = new List<RequirementOptions>
+                {
+                    new() { Shape = "不存在的形状" }
+                }
+            }
+        };
+
+        var validation = options.Validate();
+
+        Assert.False(validation.IsValid);
+        Assert.Contains(validation.Errors, error => error.Contains("orderTemplates"));
+    }
+
+    [Fact]
     public void PausedWorldDoesNotRunAutomaticPassiveScheduling()
     {
         using var host = new WorldV2HostService();
