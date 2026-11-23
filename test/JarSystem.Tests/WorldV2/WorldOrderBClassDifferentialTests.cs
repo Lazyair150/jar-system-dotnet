@@ -34,8 +34,7 @@ public sealed class WorldOrderBClassDifferentialTests
             Constants.OrderType.B, Words);
         var demand = new OrderDemand(specification, 0);
 
-        // The legacy entry remains the differential oracle; it is intentionally not
-        // replaced by the concrete enumerator in this slice.
+        // Compare the new production branch against the retained legacy oracle.
         var legacy = new JarOrderSpecificationSolver(new StateSpaceSolver())
             .SolvePartitionOracleForDifferentialTesting(demand, world);
         var masterProfile = WorldOrderRuleCandidateCatalog.Build(
@@ -77,7 +76,7 @@ public sealed class WorldOrderBClassDifferentialTests
             Constants.OrderType.B, Words);
         var demand = new OrderDemand(specification, 0);
         var legacy = new JarOrderSpecificationSolver(new StateSpaceSolver())
-            .Solve(demand, world);
+            .SolvePartitionOracleForDifferentialTesting(demand, world);
         var masterProfile = WorldOrderRuleCandidateCatalog.Build(
             world, world.Master!, "Master", specification);
         var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
