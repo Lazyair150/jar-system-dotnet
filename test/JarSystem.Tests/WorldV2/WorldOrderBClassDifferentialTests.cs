@@ -67,35 +67,40 @@ public sealed class WorldOrderBClassDifferentialTests
         {
             Operation = "MATCH",
             Shape = "圆罐",
-            Reason = "强制主台从满罐倒出液体"
+            Reason = "主台不直接匹配圆罐"
+        });
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Reason = "主台不能用游离液体倒入罐子"
         });
         var slaveRules = new ModifierStack();
         slaveRules.Push(new SuppressModifier
         {
-            Operation = "POUR_OUT",
-            Reason = "从台只能使用主台交接的游离液体"
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Liquid = "蜜",
+            Reason = "从台不能直接交付已满蜜罐"
         });
         slaveRules.Push(new SuppressModifier
         {
             Operation = "RESHAPE",
             Shape = "圆罐",
-            Liquid = "酒",
-            Reason = "从台必须消耗交接的游离液体"
+            Liquid = "蜜",
+            Reason = "从台不能用满蜜罐改形"
         });
         var master = new Workshop("主台",
             new List<string> { "圆罐" }, modifiers: masterRules);
         var slave = new Workshop("从台",
-            new List<string> { "方罐" }, modifiers: slaveRules);
+            new List<string> { "圆罐" }, modifiers: slaveRules);
         master.AddJar(new Jar("圆罐", id: 9601));
-        master.AddJar(new Jar("圆罐", "酒", id: 9602));
+        master.AddJar(new Jar("圆罐", "蜜", id: 9602));
 
         var world = WorldSnapshotFactory.Capture(
             new WorkshopRoster(new[] { master, slave }, master, slave));
-        var specification = new JarOrderSpecification(new[]
-        {
-            new Requirement { Shape = "方罐" },
-            new Requirement { Shape = "圆罐" }
-        }, Constants.OrderType.B, Words);
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐", Liquid = "蜜" } },
+            Constants.OrderType.B, Words);
         var demand = new OrderDemand(specification, 0);
 
         var legacy = new JarOrderSpecificationSolver(new StateSpaceSolver())
@@ -111,13 +116,12 @@ public sealed class WorldOrderBClassDifferentialTests
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, concrete.Status);
         var legacyPlan = legacy.Plan!;
         var plan = concrete.Assembly!.CandidatePlan!;
-        Assert.Equal(new[] { 9601, 9602 }, legacyPlan.TransferJarIds.OrderBy(x => x));
-        Assert.Equal(legacyPlan.TransferJarIds.OrderBy(x => x),
-            plan.TransferJarIds.OrderBy(x => x));
-        Assert.Equal(1, legacyPlan.TransferLiquids.GetValueOrDefault("酒"));
-        Assert.Equal(1, plan.TransferLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(new[] { 9601 }, legacyPlan.TransferJarIds);
+        Assert.Equal(legacyPlan.TransferJarIds, plan.TransferJarIds);
+        Assert.Equal(1, legacyPlan.TransferLiquids.GetValueOrDefault("蜜"));
+        Assert.Equal(1, plan.TransferLiquids.GetValueOrDefault("蜜"));
         Assert.Equal("POUR_OUT", Assert.Single(plan.MasterSteps).Operation!.Type);
-        Assert.Equal("RESHAPE", Assert.Single(plan.SlaveSteps).Operation!.Type);
+        Assert.Equal("POUR_IN", Assert.Single(plan.SlaveSteps).Operation!.Type);
     }
 
     [Fact]
