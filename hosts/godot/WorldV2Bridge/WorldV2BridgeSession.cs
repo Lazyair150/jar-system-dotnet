@@ -97,6 +97,18 @@ public sealed class WorldV2BridgeSession : IDisposable
         return _application.AddJarDemand(request);
     }
 
+    /// <summary>Instantiate and add a demand using the world's exact Core-owned order template.</summary>
+    public int AddJarDemandFromTemplate(
+        string templateName,
+        DemandAreaKind area,
+        long cooldownDurationLogicalMilli,
+        string? orderDefinitionKey = null)
+    {
+        ThrowIfDisposed();
+        return _application.AddJarDemandFromTemplate(
+            templateName, area, cooldownDurationLogicalMilli, orderDefinitionKey);
+    }
+
     /// <summary>读取未确认的订单成功周期事件；重复读取不会消费事件。</summary>
     public IReadOnlyList<OrderCycleCompletedEvent> GetPendingOrderCycleEvents()
     {
