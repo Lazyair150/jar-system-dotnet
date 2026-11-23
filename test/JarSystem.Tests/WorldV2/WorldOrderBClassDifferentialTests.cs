@@ -77,6 +77,11 @@ public sealed class WorldOrderBClassDifferentialTests
         var slaveRules = new ModifierStack();
         slaveRules.Push(new SuppressModifier
         {
+            Operation = "POUR_OUT",
+            Reason = "从台不能通过自身倒液产生主台边界资源"
+        });
+        slaveRules.Push(new SuppressModifier
+        {
             Operation = "MATCH",
             Shape = "圆罐",
             Liquid = "蜜",
