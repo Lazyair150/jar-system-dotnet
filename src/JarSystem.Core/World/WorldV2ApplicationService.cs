@@ -36,6 +36,66 @@ public sealed class WorldV2ApplicationService
         _host.ExecuteExclusive(context => context.Runtime.Clock.SetSpeedRatio(ratio));
     }
 
+    /// <summary>
+    /// 原子更新一个已配置生产者的完整形状速率表。
+    /// 形状拓扑保持不变，因此生产线小数余数与检查点配置指纹继续有效。
+    /// 调用在 Host 独占区内执行，与世界时间推进串行。
+    /// </summary>
+    public void UpdateProducerRates(
+        string producerName,
+        IReadOnlyDictionary<string, double> rates)
+    {
+        if (string.IsNullOrWhiteSpace(producerName))
+            throw new ArgumentException("生产者名称不能为空", nameof(producerName));
+        if (rates == null)
+            throw new ArgumentNullException(nameof(rates));
+
+        // IReadOnlyDictionary 不保证底层不可变；在进入 Host 回调前复制调用方数据。
+        var requested = rates.ToDictionary(
+            pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        if (requested.Count == 0)
+            throw new DomainValidationException("生产者速率更新不能为空");
+
+        _host.ExecuteExclusive(context =>
+        {
+            var module = context.Resources.Producers;
+            if (!module.Producers.TryGetValue(producerName, out var producer))
+                throw new DomainValidationException("没有这个生产者: " + producerName);
+
+            if (!producer.Rates.Keys.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(requested.Keys))
+                throw new DomainValidationException(
+                    "速率更新必须提供与生产者配置完全一致的形状集合: " + producerName);
+
+            foreach (var pair in requested)
+            {
+                if (!module.Generators.ContainsKey(pair.Key))
+                    throw new DomainValidationException("没有这个形状: " + pair.Key);
+                if (double.IsNaN(pair.Value) || double.IsInfinity(pair.Value) ||
+                    pair.Value < 0 || pair.Value > Constants.MAX_PRODUCER_RATE)
+                    throw new DomainValidationException(
+                        $"速率必须是 0 到 {Constants.MAX_PRODUCER_RATE} 之间的有限数，收到: {pair.Value}");
+            }
+
+            var currentActive = producer.Rates.Values.Count(value => value > 0);
+            var requestedActive = requested.Values.Count(value => value > 0);
+            var projectedSlots = module.UsedSlots - currentActive + requestedActive;
+            if (module.ProducerSlots > 0 && projectedSlots > module.ProducerSlots)
+                throw new DomainValidationException(
+                    $"产线槽不足：当前更新需要 {projectedSlots} 个启用槽，容量为 {module.ProducerSlots}");
+
+            // 先关闭不再需要的产线释放槽位，再启用新产线；前面已完整预检，
+            // 因此下面的逐项更新不会因中途槽位不足而留下半套速率。
+            foreach (var pair in requested.Where(pair =>
+                producer.Rates[pair.Key] > 0 && pair.Value == 0))
+                module.UpdateRate(producerName, pair.Key, pair.Value);
+
+            foreach (var pair in requested.Where(pair =>
+                !(producer.Rates[pair.Key] > 0 && pair.Value == 0)))
+                module.UpdateRate(producerName, pair.Key, pair.Value);
+        });
+    }
+
     /// <summary>暂停世界时间。暂停期间 AdvanceWorld 不推进世界时钟、生产、冷却或执行。</summary>
     public void PauseWorld()
     {
