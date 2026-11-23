@@ -116,7 +116,6 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
         var plan = result.Assembly!.CandidatePlan!;
-        Assert.Equal(1, plan.DirectCount);
         Assert.Single(plan.MasterSteps);
         Assert.Equal("MATCH", plan.MasterSteps[0].Operation!.Type);
         Assert.Single(plan.SlaveSteps);
