@@ -113,6 +113,22 @@ public sealed class WorldOrderResourceManifest
         return CreateCore(result, snapshot, allowResourceVersionChange: true, replay: null);
     }
 
+    internal static WorldOrderResourceManifest CreateForResourceRebindWithReplay(
+        WorldOrderSolveResult result,
+        WorldSnapshot snapshot,
+        WorldOrderOrderedResourceReplayResult replay)
+    {
+        if (result == null) throw new ArgumentNullException(nameof(result));
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        if (replay == null) throw new ArgumentNullException(nameof(replay));
+        if (string.IsNullOrWhiteSpace(result.RuleSetVersion) ||
+            string.IsNullOrWhiteSpace(result.WorkshopProfileVersion) ||
+            !string.Equals(result.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) ||
+            !string.Equals(result.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal))
+            throw new InvalidOperationException("规则集或工作台 Profile 已变化，不能复用旧计划");
+        return CreateCore(result, snapshot, allowResourceVersionChange: true, replay);
+    }
+
     private static WorldOrderResourceManifest CreateCore(
         WorldOrderSolveResult result,
         WorldSnapshot snapshot,
@@ -146,7 +162,8 @@ public sealed class WorldOrderResourceManifest
 
         if (replay != null)
             return CreateFromOrderedReplay(
-                result, snapshot, plan, masterPathIds, transferIds, masterFinalJars, replay);
+                result, snapshot, plan, masterPathIds, transferIds, masterFinalJars, replay,
+                allowResourceVersionChange);
 
         Dictionary<string, int> transferLiquids;
         Dictionary<string, int> masterInitial;
@@ -237,7 +254,8 @@ public sealed class WorldOrderResourceManifest
         HashSet<int> masterPathIds,
         int[] transferIds,
         IReadOnlyList<WorldPlanJarState> masterFinalJars,
-        WorldOrderOrderedResourceReplayResult replay)
+        WorldOrderOrderedResourceReplayResult replay,
+        bool allowResourceVersionChange)
     {
         if (!replay.IsComplete)
             throw new InvalidOperationException("有序资源重放未完成，不能生成资源清单");
@@ -325,7 +343,7 @@ public sealed class WorldOrderResourceManifest
 
         return new WorldOrderResourceManifest(
             result.DemandId,
-            result.WorldVersion,
+            allowResourceVersionChange ? snapshot.Version : result.WorldVersion,
             plan.IsPartitioned,
             masterPathIds,
             transferIds,
