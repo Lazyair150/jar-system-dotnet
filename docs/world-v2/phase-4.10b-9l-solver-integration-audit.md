@@ -1,89 +1,126 @@
-# 4.10b 9l — Actual order-solver integration audit
+# Phase 4.10b 9l — Concrete solver integration and execution closure
 
 ## Status
 
-This change is an integration-boundary audit, not a claim that the symbolic branch model now drives executable orders. The current B-class execution path remains the legacy `PartitionSearch` path until a concrete resource binder and plan materializer are implemented and verified end to end.
+The concrete A/B solver path is integrated into the production JarOrderSpecificationSolver entry point. This document supersedes the earlier audit that described PartitionSearch as the active B-class path.
 
-Base: 9k multi-Jar operation ordering.
+The retained WorldOrderPartitionBClassOracle is differential-test-only. It is not authoritative for production feasibility and is not called by Solve().
 
-## Verified current call path
+## Production solve path
 
-`WorldOrderSolverRegistry.Solve`
-→ `JarOrderSpecificationSolver.Solve`
-→ A-class: `SnapshotProjectedSolver.Solve` → `ISolver.Solve` → `WorldOrderSolvePlan.SinglePhase`
-→ B-class: `PartitionSearch.Search` → `WorldOrderSolvePlan.Partitioned`.
+WorldOrderSolverRegistry.Solve
+→ WorldOrderSolveBook.Evaluate
+→ JarOrderSpecificationSolver.SolveCore
 
-The B-class method still reports `CheckMethod = "partition"`. This is the actual executable-plan source today.
+A class:
 
-Separately, `WorldOrderSolveBook.Evaluate` calls `CacheRuleCandidates` before invoking the registry. That method builds and caches Master/Slave `WorldOrderRuleCandidateProfile` instances and a `WorldOrderSymbolicSolutionSet`. The cache is analysis-side data; the registry/solver does not consume it to construct the returned plan.
+WorldOrderAClassBranchEnumerator
+→ Master-owned symbolic requirement branches
+→ optional independent Master preparation Jar assignments
+→ Master resource-operation schedule enumeration
+→ WorldOrderPhysicalJarBinder
+→ WorldOrderConcreteOperationMaterializer
+→ WorldOrderOrderedResourceReplay
+→ WorldOrderConcretePlanAssembler
+→ immutable WorldOrderSolvePlan + validated WorldOrderResourceManifest.
 
-## Why the 9f–9k output cannot be copied into a plan
+B class:
 
-The existing layers intentionally describe different things:
+WorldOrderBClassBranchEnumerator
+→ Slave-owned symbolic requirement branches
+→ optional Master/Slave preparation Jar assignments
+→ Master and Slave resource-operation schedule enumeration
+→ one physical identity binding against initial Master inventory
+→ exactly one Master→Slave handoff
+→ role-local ordered resource replay
+→ concrete materialization
+→ immutable plan + replay-validated Manifest.
 
-1. `WorldOrderRuleCandidateProfile` contains rule-legal single-operation candidates. Its Jar source shape/liquid are candidate facts, not physical Jar identity or current ownership.
-2. `WorldOrderSymbolicSolutionSet` combines one candidate per requirement across roles. Its own contract says it is not resource-bound and carries no Jar IDs.
-3. `WorldOrderSlaveRuleBranchEnumerator` expands Slave candidate alternatives, independent preparation Jars, and distinct-Jar operation schedules. It produces OR alternatives of boundary AND groups.
-4. `WorldOrderResourceRequirementGroup` describes the one Master→Slave boundary. `SlaveOperationOrder` is a symbolic node-ID witness, not a concrete `SolverStep` sequence.
-5. `WorldOrderSolvePlan` requires concrete before/after Jar snapshots and operation Jar indexes/IDs. Its constructor enforces one operation per physical Jar across the complete Master+Slave plan.
-6. `WorldOrderResourceManifest.Create` replays the concrete plan against the snapshot, derives exact Jar locks and liquid requirements, checks the one-time transfer and staging peaks, and is the admission input.
+Both paths report Feasible only after the complete concrete assembly and Manifest validation succeed. Budget exhaustion or opaque rule semantics remain Undetermined.
 
-Therefore, turning a boundary group directly into a `WorldOrderSolvePlan` would be unsound: the group does not identify which physical unmarked Jar satisfies each JarState, does not prove there are enough distinct Jar identities, and does not contain the Master-side concrete production path.
+## Resource-proof continuity
 
-## Integration contract
+The ordered replay result is retained on the concrete WorldOrderSolveResult as ResourceReplay.
 
-The new path must be a concrete planning pipeline, not another parallel report/cache:
+This proof contains:
+- exact Master initial and final free-liquid balances;
+- the one-time B-class transfer vector;
+- Master and Slave staging peaks;
+- per-step accepted production witnesses, including discarded output;
+- the Slave boundary group and its operation-order witness.
 
-1. **Profile acquisition** — reuse profiles only when rule-set, workshop-profile, and specification fingerprints match. Resource changes may reuse rule candidates, but never a previously bound Jar assignment without revalidation.
-2. **Candidate-to-physical-Jar binding** — bind each candidate to a real Jar in the order's initial Master inventory. Match exact shape/internal-liquid state, stable ID, ownership, and `IsMarked == false`. Reserve each physical ID at most once across all requirements and preparation operations, including both roles.
-3. **Operation selection** — retain the exact rule candidate and rule version selected for each bound Jar. Do not silently fall back to a different operation after the resource schedule is chosen.
-4. **Concrete schedule materialization** — translate the symbolic node schedule into concrete ordered operations and before/after snapshots. The symbolic Jar key → physical Jar ID mapping must be explicit and immutable.
-5. **Master-side execution proof** — prove all Master operations happen before the single handoff, apply consume-before-produce staging semantics, and produce every Jar/free-liquid resource required at the boundary. Master staging ban applies only to free liquid in Master staging; Jar-internal liquid remains independent.
-6. **Single atomic handoff** — transfer the complete set of Jars that Slave will operate, including independent preparation Jars, plus only the required free-liquid staging vector. No Slave initial inventory, no second handoff, and no reverse transfer.
-7. **Slave-side replay** — execute the exact retained `SlaveOperationOrder` after handoff. Every output liquid first enters Slave staging; rejection/overflow discards it. The one-operation-per-physical-Jar order mark survives revisions and handoff.
-8. **Plan and manifest validation** — construct the existing immutable `WorldOrderSolvePlan`; then require `WorldOrderResourceManifest.Create` to validate the complete plan against the same snapshot before it can be reported Feasible.
-9. **Budget semantics** — incomplete candidate, binding, or schedule enumeration is `Undetermined`; never turn a partial set of alternatives into `Infeasible` or `Complete`.
-10. **Actual entry-point tests** — exercise `WorldOrderSolverRegistry.Solve` / `JarOrderSpecificationSolver.Solve`, then manifest creation and execution admission. Enumerator-only tests are not integration proof.
+The same proof is used at each later boundary:
 
-## Required separation of responsibilities
+1. The assembler creates the Manifest with CreateWithReplay.
+2. Execution admission validates that same replay proof against the current immutable snapshot.
+3. Resource-only solve-result rebinding revalidates the same proof against the new resource supply and physical Jar state, while retaining the new WorldVersion.
+4. The execution session receives the resulting Manifest and immutable plan; it does not rerun a different solver or invent a new resource schedule.
 
-- The symbolic enumerator chooses legal rule branches and records boundary conditions/schedule witnesses.
-- The concrete binder allocates physical Jar identities and enforces the order-level operated mark.
-- The materializer creates the exact executable path and the one handoff.
-- The manifest is the final resource proof; it does not repair an incomplete symbolic plan.
-- The admission service remains the only point that reserves live resources.
+This prevents generic path simulation from silently treating every POUR_OUT as accepted when ordered staging replay discarded it because of policy or capacity.
 
-Do not merge these responsibilities into `WorldOrderSolveBook`. The solve book may cache rule profiles, but it must not become a second planner or resource reservation authority.
+A rule/Profile/specification change still invalidates the old plan. A resource-only change may reuse it only when the same physical Jar inputs, replay proof, liquid supply, and staging capacities remain valid.
 
-## Non-negotiable regression cases
+## Domain invariants enforced by the concrete path
 
-- A physical Jar can appear in at most one operation across Master and Slave, regardless of revision or handoff.
-- A preparation Jar is distinct from every requirement Jar and every other preparation Jar.
-- A high-index producer may need to precede a low-index consumer; the selected schedule must survive into the concrete plan.
-- Producer-first and consumer-first schedules may require different boundary free-liquid amounts.
-- Master ban rejects only banned free liquid that must cross the staging boundary; a Jar containing that liquid remains eligible for JarState handoff.
-- Slave-local produced liquid may satisfy a later Slave operation only when it was accepted into staging.
-- Slave reject and total staging capacity apply to free-liquid staging only.
-- One B-class order has exactly one Master→Slave batch handoff and starts with an empty Slave.
-- A-class plans have no Slave resources or handoff.
-- A completed symbolic alternative set is not proof of physical Jar availability, free-liquid balance, or execution admission.
+- Every B-class final requirement is solved under the Slave rule profile only.
+- The initial Slave must contain no Jar and no free liquid.
+- Every physical Jar originates in the initial Master inventory.
+- Each physical Jar identity is bound once and can be operated at most once per order, across both roles.
+- Preparation Jars are distinct from requirement Jars and from other preparation Jars.
+- Master preparation produces only free liquid needed at the Slave boundary; Master requirement solving is not merged into the B-class demand set.
+- The B-class handoff is one-way and occurs exactly once.
+- The handoff contains every Jar required by Slave operations and only the free-liquid vector proven by replay.
+- Master and Slave staging accounts remain independent.
+- Each operation consumes before producing; output is accepted only by its owning staging policy and capacity.
+- Jar-internal liquid is not a staging balance. Full-Jar self-consumption is governed by the current workshop's Jar-operation rules.
+- A Master-banned free liquid cannot cross as staging liquid, while a full Jar's internal liquid is not reclassified during physical handoff.
+- A-class plans contain no Slave steps or transfer resources.
 
-## Next implementation slice
+## Admission, execution, settlement, and recovery
 
-Implement a dedicated concrete binder/materializer with explicit inputs:
+The production execution path is:
 
-- immutable `WorldSnapshot`;
-- selected rule candidate branch and its schedule witness;
-- actual Master Jar inventory and initial order-level marks;
-- Master/Slave staging capacities and policies;
-- Master liquid supply/prefill accounts.
+WorldOrderExecutionAdmission.TryAdmit
+→ Manifest revalidation
+→ physical Jar/liquid reservation
+→ WorldOrderExecutionSession
+→ ordered Master steps
+→ B-class transfer preflight and single commit
+→ ordered Slave steps
+→ delivery validation/removal
+→ resource settlement
+→ reservation release
+→ successful-cycle event.
 
-Its output must be either a fully materialized `WorldOrderSolvePlan` plus a successful manifest validation, or a typed `Infeasible` / `Undetermined` result. Only after that path exists should `JarOrderSpecificationSolver` switch its B-class primary path. Keep `PartitionSearch` as a differential oracle during rollout; do not delete it until the new path has parity coverage for supported cases.
+The transfer service checks the complete Jar batch, liquid batch, role ownership, capacity, and lease stage before committing. It marks rollback ownership before the first mutation; failures after that point are cleaned up by the session rather than being reported as an untouched preflight rejection.
 
-## Explicitly not changed
+The session checkpoint stores its execution cursor and immutable plan/Manifest. World checkpoint restore validates the cursor against the same checkpoint's Master/Slave Jar snapshots and admission/reservation state. Restore does not re-admit, withdraw ship liquid again, repeat the handoff, replay completed steps, or clear order marks.
 
-- No change to current solver behavior or feasibility claims.
-- No merge of Master/Slave liquid accounts.
-- No change to Jar internal-liquid vs free-liquid staging semantics.
-- No relaxation of the one-operation-per-physical-Jar rule.
-- No claim that PR #45 or its base PR #44 is merged.
+Success and failure settlement remain separate:
+- success validates all delivery Jars before removing any, settles liquid resources, releases reservations, then publishes fulfillment and the cycle event;
+- failure preserves completed work, returns only resources owned by a committed Slave handoff, settles remaining order-scoped liquid, releases reservations, and invalidates the solve result.
+
+## Legacy oracle boundary
+
+WorldOrderPartitionBClassOracle.Solve is retained only behind SolvePartitionOracleForDifferentialTesting. It may be compared on overlapping supported cases, but historical Master/Slave requirement partitioning is not a correctness oracle for the Slave-owned B-class contract.
+
+Do not route production solving or execution admission back through the oracle.
+
+## Required regression coverage
+
+The 9l test families cover:
+- A-class and B-class candidate enumeration and physical Jar multiplicity;
+- identical preparation Jars and distinct requirement identities;
+- one-operation-per-physical-Jar;
+- Master-banned full Jars crossing as JarState but not being operated on by Master;
+- Master/Slave ban and explicit reject behavior;
+- staging capacity, rejected output, and consume-before-produce order;
+- one-way handoff and empty initial Slave;
+- concrete materialization, ordered replay, and Manifest agreement;
+- execution admission, Jar/liquid reservation, and role exclusivity;
+- Master execution, transfer preflight/commit, Slave execution, delivery, failure, interruption, rollback, settlement, and cooldown;
+- checkpoint restore at Master, transfer, and Slave boundaries without repeating funding or transfer.
+
+## Completion gate
+
+4.10b is complete only when the branch's full verification workflow is green and the production-entry, admission, execution, settlement, and checkpoint regressions pass together. A successful build alone or an enumerator-only test is not sufficient.
