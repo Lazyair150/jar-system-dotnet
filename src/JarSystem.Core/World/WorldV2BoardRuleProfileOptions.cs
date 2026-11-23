@@ -170,15 +170,16 @@ public sealed class WorldV2RuleContributionOptions
         // Other component scopes remain authored data, but cannot enter a runtime that would ignore them.
         if (!string.Equals(Scope, "workshop", StringComparison.Ordinal))
             errors.Add("rule contribution scope has no World V2 Core runtime consumer yet: " + Scope);
+        var parameters = Parameters ?? new Dictionary<string, string>();
         if (!Enum.TryParse<RuleContributionEffect>(Effect, ignoreCase: false, out var parsed) ||
             !Enum.IsDefined(parsed))
             errors.Add("rule contribution effect is unsupported: " + Effect);
         else if (parsed == RuleContributionEffect.RetimeProcess &&
-            (!Parameters.TryGetValue("ticksPerStep", out var ticksText) ||
+            (!parameters.TryGetValue("ticksPerStep", out var ticksText) ||
              !int.TryParse(ticksText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks) || ticks <= 0))
             errors.Add("RetimeProcess requires a positive invariant ticksPerStep integer");
         else if (parsed == RuleContributionEffect.ModifyIntensity &&
-            (!Parameters.TryGetValue("factorPerMille", out var factorText) ||
+            (!parameters.TryGetValue("factorPerMille", out var factorText) ||
              !int.TryParse(factorText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var factor) || factor < 0))
             errors.Add("ModifyIntensity requires a non-negative invariant factorPerMille integer");
         if (Source == null) errors.Add("rule contribution source is required");
