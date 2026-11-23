@@ -262,7 +262,7 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
-    public void BSpecificationUsesMasterSlavePartitionSearch()
+    public void BSpecificationUsesConcreteMixedRoleBranchAssembler()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
         var slave = new Workshop("从台");
@@ -273,25 +273,18 @@ public sealed class WorldOrderSolverTests
         var result = Registry().Solve(demand, snapshot);
 
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
-        Assert.Equal("partition", result.CheckMethod);
+        Assert.Equal("9l_concrete_plan", result.CheckMethod);
         Assert.Equal(1, result.DirectCount);
         Assert.NotNull(result.Plan);
         Assert.True(result.Plan.IsPartitioned);
-        Assert.NotNull(result.PartitionReport);
-        var report = result.PartitionReport!;
-        Assert.True(report.OutcomeFound);
-        Assert.True(report.MasksVisited > 0);
-        Assert.True(report.UniquePartitions > 0);
-        Assert.Equal(report.UniquePartitions, report.MasterSolveCount);
-        Assert.Contains(report.Events, item => item.Stage == "partition-selected");
-        Assert.Equal(
-            report.MasterSolveCount,
-            report.Events.Count(item => item.Stage == "master-solve-started"));
+        Assert.Null(result.PartitionReport);
+        Assert.Single(result.Plan.MasterSteps);
+        Assert.Empty(result.Plan.SlaveSteps);
 
         var repeated = Registry().Solve(demand, snapshot);
-        Assert.Equal(report.Events, repeated.PartitionReport!.Events);
-        Assert.Equal(report.MasterSolveCount, repeated.PartitionReport.MasterSolveCount);
-        Assert.Equal(report.SlaveSolveCount, repeated.PartitionReport.SlaveSolveCount);
+        Assert.Equal(result.Plan.MasterSteps.Select(x => x.Operation!.RuleId),
+            repeated.Plan!.MasterSteps.Select(x => x.Operation!.RuleId));
+        Assert.Equal(result.Plan.TransferJarIds, repeated.Plan.TransferJarIds);
     }
 
     [Fact]
@@ -312,7 +305,7 @@ public sealed class WorldOrderSolverTests
         var result = Registry().Solve(demand, Snapshot(master, slave));
 
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
-        Assert.Equal("partition", result.CheckMethod);
+        Assert.Equal("9l_concrete_plan", result.CheckMethod);
         Assert.Equal(new[] { 8201 }, result.Plan!.TransferJarIds);
         Assert.DoesNotContain(result.Plan.TransferLiquids, item => item.Value > 0);
         var step = Assert.Single(result.Plan.SlaveSteps);
@@ -372,12 +365,9 @@ public sealed class WorldOrderSolverTests
         var master = new Workshop("主台", new List<string> { "圆罐" });
         master.AddJar(new Jar("圆罐"));
         var slave = new Workshop("从台");
-        var registry = new WorldOrderSolverRegistry(new[]
-        {
-            new JarOrderSpecificationSolver(new FeasibleWithoutPathSolver())
-        });
-
-        var result = registry.Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+        var solver = new JarOrderSpecificationSolver(new FeasibleWithoutPathSolver());
+        var result = solver.SolvePartitionOracleForDifferentialTesting(
+            Demand(Constants.OrderType.B), Snapshot(master, slave));
 
         Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
         Assert.NotNull(result.PartitionReport);
@@ -391,12 +381,9 @@ public sealed class WorldOrderSolverTests
         var master = new Workshop("主台", new List<string> { "圆罐" });
         master.AddJar(new Jar("圆罐"));
         var slave = new Workshop("从台");
-        var registry = new WorldOrderSolverRegistry(new[]
-        {
-            new JarOrderSpecificationSolver(new FeasibleWithoutFinalLiquidsSolver())
-        });
-
-        var result = registry.Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+        var solver = new JarOrderSpecificationSolver(new FeasibleWithoutFinalLiquidsSolver());
+        var result = solver.SolvePartitionOracleForDifferentialTesting(
+            Demand(Constants.OrderType.B), Snapshot(master, slave));
 
         Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
         Assert.NotNull(result.PartitionReport);
@@ -413,7 +400,8 @@ public sealed class WorldOrderSolverTests
         var solver = new JarOrderSpecificationSolver(new StateSpaceSolver()) { NodeBudget = 1 };
         var registry = new WorldOrderSolverRegistry(new[] { solver });
 
-        var result = registry.Solve(Demand(Constants.OrderType.B), Snapshot(master, slave));
+        var result = solver.SolvePartitionOracleForDifferentialTesting(
+            Demand(Constants.OrderType.B), Snapshot(master, slave));
 
         Assert.Equal(WorldOrderSolveStatus.Undetermined, result.Status);
         Assert.NotNull(result.PartitionReport);
