@@ -342,6 +342,56 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BClassEntryPointKeepsExplicitSlaveRejectSeparateFromJarInternalLiquid()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", "酒", id: 8203));
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "方罐" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var registry = new WorldOrderSolverRegistry(new[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver(), new[] { "酒" })
+        });
+
+        var result = registry.Solve(demand, Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Contains("酒", result.ResourceReplay!.ExplicitSlaveRejectedLiquids);
+        Assert.Empty(result.Plan!.TransferLiquids);
+        var step = Assert.Single(result.Plan.SlaveSteps);
+        Assert.Equal("RESHAPE", step.Operation!.Type);
+        Assert.True(step.Operation.FullReshape);
+    }
+
+    [Fact]
+    public void BClassEntryPointRejectsExplicitlyRejectedFreeLiquidBoundary()
+    {
+        var master = new Workshop("主台", new List<string> { "方罐" });
+        var slave = new Workshop("从台", new List<string> { "方罐" });
+        master.AddJar(new Jar("方罐", id: 8204));
+        master.AddLiquid("酒", 1);
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "方罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var registry = new WorldOrderSolverRegistry(new[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver(), new[] { "酒" })
+        });
+
+        var result = registry.Solve(demand, Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
+        Assert.Equal("9l_concrete_b", result.CheckMethod);
+        Assert.Null(result.Plan);
+    }
+
+    [Fact]
     public void BClassEntryPointTransfersMasterPreparationOutputForSlavePourIn()
     {
         var masterRules = new ModifierStack();
