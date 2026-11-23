@@ -75,6 +75,8 @@ A rule/Profile/specification change still invalidates the old plan. A resource-o
 - Jar-internal liquid is not a staging balance. Full-Jar self-consumption is governed by the current workshop's Jar-operation rules.
 - A Master-banned free liquid cannot cross as staging liquid, while a full Jar's internal liquid is not reclassified during physical handoff.
 - A-class plans contain no Slave steps or transfer resources.
+- Opaque Master rules make only branches with actual Master rule-operation nodes Undetermined; a Slave-only B branch is not blocked by unrelated Master rules.
+- B-class Slave rules must be statically known because the Slave owns every final requirement operation.
 
 ## Admission, execution, settlement, and recovery
 
