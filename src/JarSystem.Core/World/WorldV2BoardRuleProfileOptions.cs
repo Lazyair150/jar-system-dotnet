@@ -318,14 +318,20 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
     }
 
     private static bool IsValidSlotShape(WorldV2BoardSlotSnapshotOptions slot) =>
-        (slot.AreaId == "workshop" && slot.ComponentKind == "workshop" &&
-            (slot.RoleId == "master" || slot.RoleId == "slave") && slot.ControlArea == "none") ||
-        (slot.AreaId == "decomposition" && slot.ComponentKind == "ore_parser" &&
-            slot.RoleId == "none" && slot.ControlArea == "none") ||
-        (slot.AreaId == "orders" && slot.ComponentKind == "skill" &&
-            slot.RoleId == "none" && (slot.ControlArea == "Active" || slot.ControlArea == "Passive")) ||
-        (slot.AreaId == "production" && slot.ComponentKind == "production_device" &&
-            slot.RoleId == "none" && slot.ControlArea == "none");
+        slot.ComponentKind switch
+        {
+            "workshop" => slot.AreaId == "workshop" &&
+                (slot.RoleId == "master" || slot.RoleId == "slave") && slot.ControlArea == "none",
+            "ore_parser" => slot.AreaId == "decomposition" &&
+                slot.RoleId == "none" && slot.ControlArea == "none",
+            "skill" => slot.AreaId == "orders" &&
+                slot.RoleId == "none" && (slot.ControlArea == "Active" || slot.ControlArea == "Passive"),
+            "production_device" => slot.AreaId == "production" &&
+                slot.RoleId == "none" && slot.ControlArea == "none",
+            // Board structure is extensible. Unsupported assigned component kinds are
+            // rejected by the runtime projection validator, not by Board schema parsing.
+            _ => true
+        };
 
     public string ComputeCanonicalFingerprint()
     {
