@@ -331,3 +331,18 @@ Rule Profile fingerprint 至少应覆盖：
 - 新增 Core 测试：Profile canonical fingerprint、同 Definition 不同 Owned Instance、重复贡献身份拒绝、成长 revision 影响 fingerprint、Rule Scope 隔离、WorkshopCapability/ModifierStack 适配、opaque Require 保持 Undetermined。
 - 新增 Space authored Probe：Assignment exact instance、同 Definition 两份独立实例、重复 Owned Instance 拒绝、component kind 不匹配拒绝、Assignment 顺序规范化。
 - 测试与 Probe 代码已提交，但本轮没有执行 `dotnet test`、Godot 4.7.1 .NET、GDScript parse 或 runtime Probe。不能宣称运行通过。
+
+
+## 12. Space 侧精确贡献快照已开始产出（2026-11-24）
+
+- Space Demo 新增 `SpaceRuleContributionDefinition`，允许 Workshop / Parser / Production Device / Skill Definition 声明稳定 RuleId/version、Effect、Scope、Target、Priority、参数与成长属性绑定。
+- Space 的 `SpaceRuleContributionResolver` 会从 Board Assignment 精确解析 Owned Instance 与 Definition，输出携带 Definition/version、Owned Instance ID、progression revision、slot ID 的贡献记录；Workshop 原有 base/additional marks 与 Ban 也转成同一数据形态。
+- Owned Loadout Snapshot 现在冻结 `boardRuleProfile`，并验证其 fingerprint、Board/Assignment fingerprint、来源槽位和 Owned Instance/Definition 身份一致。
+- **该 Profile 尚未进入 Jar Core WorldV2Bridge 的正式输入协议。** Core 当前仍通过 `WorkshopRuleContributionAdapter` 从旧 WorkshopCapability/ModifierStack 生成兼容 Profile。不能将 Space 侧产出误称为跨仓库消费已完成。
+
+### 下一项 Core 接入任务
+1. 扩展 WorldV2Bridge 的 versioned input DTO，显式接收 Board Definition identity、Assignment fingerprint 和 `boardRuleProfile.contributions`。
+2. Core 验证每条贡献来源是否与冻结 Owned Assignment / Definition / progression revision 精确匹配；未知 Effect、Scope 或 RuleVersion 必须拒绝或 Undetermined，不能忽略。
+3. 按 scope 构造 EffectiveRuleProfile；Master/Slave 的角色由 Board Slot 投影，两个工作台的贡献分别进入对应 workshop scope。
+4. 让 WorldSnapshot 捕获真实 EffectiveRuleProfile；兼容旧输入仅通过显式 legacy adapter，不允许静默混合新旧两种来源。
+5. 在旧/新 Profile 上做差分测试，确保基础 Jar 操作、Ban、临时 Modifier、A/B 单向资源语义一致后，再迁移候选枚举器。
