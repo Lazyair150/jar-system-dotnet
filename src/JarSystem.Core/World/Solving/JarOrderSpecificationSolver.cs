@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Domain;
@@ -12,7 +11,7 @@ namespace JarSystem.Core.World.Solving;
 
 /// <summary>
 /// 当前罐子玩法的订单规格适配器。
-/// A 类经规则候选、物理 Jar 绑定、有序资源重放与 Manifest 物化；B 类暂保留 PartitionSearch。
+/// A/B 类均经规则候选、物理 Jar 绑定、有序资源重放与 Manifest 物化。PartitionSearch 仅保留为差分对照器。
 /// 输入只来自 WorldSnapshot；不会读取实时 Workshop、Jar 或 ModifierStack。
 /// </summary>
 public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareSolver
@@ -57,10 +56,6 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
         if (snapshot.Master == null)
             return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
                 reason: "当前世界没有主工作台");
-
-        var masterInfo = snapshot.Master.CreateWorkshopInfo();
-        var slaveInfo = snapshot.Slave?.CreateWorkshopInfo();
-        var requirements = RequirementOrdering.FullFirst(specification.Requirements);
 
         if (specification.Type == Constants.OrderType.A)
         {
@@ -127,18 +122,6 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
                 : WorldOrderSolveStatus.Undetermined,
             "9l_concrete_b",
             enumeration.Reason ?? "B 类具体规则分支没有得到确定结论");
-
-    }
-
-    private static Dictionary<string, int> CreateMasterSupplyLiquids(WorldSnapshot snapshot)
-    {
-        var balances = snapshot.ShipLiquidInventory == null
-            ? snapshot.Master!.CreateSolverLiquids()
-            : snapshot.ShipLiquidInventory.Balances.ToDictionary(
-                item => item.Key, item => item.Value, StringComparer.Ordinal);
-        foreach (var item in snapshot.MasterPrefillLiquidBalances)
-            balances[item.Key] = checked(balances.GetValueOrDefault(item.Key) + item.Value);
-        return balances;
     }
 
     private static WorldOrderSolveResult Result(
@@ -156,6 +139,5 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
             demand.Specification is JarOrderSpecification specification
                 ? WorldOrderRuleCandidateCatalog.Fingerprint(specification)
                 : string.Empty);
-
 
 }
