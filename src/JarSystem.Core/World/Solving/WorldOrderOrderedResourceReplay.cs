@@ -84,8 +84,6 @@ public static class WorldOrderOrderedResourceReplay
 
         if (world.Master == null)
             return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "缺少主台快照");
-        if (world.Master.HasOpaqueSolverRules)
-            return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "主台存在无法静态重放的规则");
         if (program.IsBClass && (world.Slave == null || world.Slave.HasOpaqueSolverRules))
             return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "B 类订单缺少从台快照或从台规则不可静态重放");
 
@@ -133,6 +131,9 @@ public static class WorldOrderOrderedResourceReplay
                         x.WorkshopRole == program.SlaveRole)
             .OrderBy(x => x.Sequence)
             .ToArray();
+        if (world.Master.HasOpaqueSolverRules && masterNodes.Length > 0)
+            return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined,
+                "主台存在无法静态重放的规则，且当前 B 类程序需要执行主台操作");
         var capacity = world.Master.LiquidStagingCapacity;
         var initial = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var maxReplays = masterNodes.Length + transfer.Count + 2;
