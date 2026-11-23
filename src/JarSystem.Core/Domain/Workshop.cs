@@ -161,6 +161,8 @@ public class Workshop
     public void ReplaceCapability(WorkshopCapability capability)
     {
         ArgumentNullException.ThrowIfNull(capability);
+        if (_rules.EffectiveProfile != null)
+            throw new InvalidOperationException("Board-owned workshop rules can only change through a new frozen Board Assignment profile.");
         var newlyBannedStored = _liquidStorage
             .Where(item => item.Value > 0 && capability.IsBanned(item.Key))
             .Select(item => item.Key)
@@ -175,7 +177,12 @@ public class Workshop
     }
 
     /// <summary>绑定到世界的修饰器栈（宿主把外部构造的工作台纳入世界时调用）。</summary>
-    internal void AttachRuleStack(ModifierStack stack) => _rules = new RuleContext(_capability, stack);
+    internal void AttachRuleStack(ModifierStack stack)
+    {
+        if (_rules.EffectiveProfile != null)
+            throw new InvalidOperationException("Cannot replace the Board-owned workshop rule context with a legacy modifier stack.");
+        _rules = new RuleContext(_capability, stack);
+    }
 
     // ============================================================
     // 规则查询
