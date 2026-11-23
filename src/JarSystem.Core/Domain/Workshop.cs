@@ -106,6 +106,8 @@ public class Workshop
             snapshot.LiquidStorage.Keys.Any(key => !_liquidStorage.ContainsKey(key)) ||
             snapshot.LiquidStorage.Any(item => item.Value < 0 || item.Value > MaxLiquids))
             throw new DomainValidationException("工作台快照的游离液体键或数量不符合当前容量配置。");
+        if (snapshot.LiquidStorage.Any(item => item.Value > 0 && _capability.IsBanned(item.Key)))
+            throw new DomainValidationException("工作台快照包含本台禁用的游离液体。");
 
     }
 
@@ -151,13 +153,22 @@ public class Workshop
     /// 语义边界（重要，别和"切换主台"混）：
     /// <list type="bullet">
     /// <item>只换**规则参数**，**不动**罐子与游离液体；资源搬迁是 <c>JarSystem.SetMaster</c> 切换事件的职责；</item>
-    /// <item>换完允许存在"形状不在新标记里"的罐子：标记约束的是**操作合法性**（<c>PourIn</c>/改形），
-    /// 不是存储合法性（这与重构前一致）；</item>
+    /// <item>换完允许存在"形状不在新标记里"的 Jar：标记约束操作合法性，不是 Jar 持有合法性；</item>
+    /// <item>若新禁令命中当前非零游离液体余额，则拒绝替换；Jar 内部液体不参与这项检查。</item>
     /// <item>进行中的 Case2 临时附加标记作用域不受影响（临时标记叠在新能力之上，作用域结束照常回收）。</item>
     /// </list>
     /// </summary>
     public void ReplaceCapability(WorkshopCapability capability)
     {
+        ArgumentNullException.ThrowIfNull(capability);
+        var newlyBannedStored = _liquidStorage
+            .Where(item => item.Value > 0 && capability.IsBanned(item.Key))
+            .Select(item => item.Key)
+            .ToArray();
+        if (newlyBannedStored.Length > 0)
+            throw new DomainValidationException(
+                "不能对仍存有游离液体的工作台施加对应禁令：" + string.Join("、", newlyBannedStored));
+
         _capability = capability;
         // 换的是**能力参数**，修饰器栈照旧（栈属世界，不属这一次替换）
         _rules = new RuleContext(capability, _rules.Stack);
