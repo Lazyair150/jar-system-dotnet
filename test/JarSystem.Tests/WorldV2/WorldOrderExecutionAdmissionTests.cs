@@ -65,6 +65,40 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
+    public void AdmissionUsesOrderedReplayWhenLaterPourOutIsDiscardedByStagingCapacity()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            vocabulary: Words, liquidStagingCapacity: 1);
+        master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
+        master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐" },
+                    new Requirement { Shape = "圆罐" }
+                },
+                Constants.OrderType.A, Words),
+            0, new SequentialIdGenerator());
+        var setup = Prepare(master, demand);
+        var solved = setup.Book.Find(demand.Id)!.Result;
+
+        Assert.NotNull(solved);
+        Assert.True(solved!.IsFeasible, solved.Reason);
+        Assert.NotNull(solved.ResourceReplay);
+        Assert.Equal(new string?[] { "酒", null }, solved.ResourceReplay!.MasterAcceptedProducedLiquids);
+        Assert.Equal(1, solved.ResourceReplay.MasterStagingPeakCapacity);
+        Assert.Equal(1, solved.ResourceReplay.MasterFinalLiquids["酒"]);
+
+        var admitted = setup.Admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(1, admitted.Manifest!.MasterStagingPeakCapacity);
+        Assert.Equal(1, admitted.Manifest.MasterFinalLiquidBalances["酒"]);
+    }
+
+    [Fact]
     public void AdmissionReservesJarAndInitialLiquidThenReleaseMakesThemAvailable()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
