@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Serialization;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
 using JarSystem.Core.Solver;
 using JarSystem.Core.World.Demands;
@@ -48,6 +49,11 @@ public sealed class WorldV2Options
     public string MasterWorkshopName { get; set; } = "";
     [JsonPropertyName("slaveWorkshopName")]
     public string? SlaveWorkshopName { get; set; }
+
+    /// <summary>当前 World v2 世界提供的不可变订单模板；null 表示旧配置没有模板库。</summary>
+    [JsonPropertyName("orderTemplates")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OrderTemplateOptions>? OrderTemplates { get; set; }
 
     /// <summary>执行计划中每个操作步消耗的逻辑时间毫秒数；1000 = 1 个逻辑时间单位。</summary>
     [JsonPropertyName("executionLogicalTimePerUnit")]
@@ -203,6 +209,21 @@ public sealed class WorldV2Options
                     result.Errors.Add("slaveWorkshopName 必须指向已配置的工作台");
                 if (string.Equals(MasterWorkshopName, SlaveWorkshopName, StringComparison.Ordinal))
                     result.Errors.Add("主工作台和从工作台不能是同一台");
+            }
+        }
+
+        if (OrderTemplates != null)
+        {
+            try
+            {
+                _ = OrderTemplateLibrary.FromOptions(
+                    OrderTemplates,
+                    Shapes ?? new List<string>(),
+                    Liquids ?? new List<string>());
+            }
+            catch (DomainValidationException ex)
+            {
+                result.Errors.Add("orderTemplates 无效：" + ex.Message);
             }
         }
 
@@ -401,6 +422,7 @@ public static class WorldV2Factory
             shipLiquidInventory,
             WorldV2ConfigurationFingerprint.Compute(options),
             options.Shapes,
-            options.Liquids);
+            options.Liquids,
+            OrderTemplateLibrary.FromOptions(options.OrderTemplates, options.Shapes, options.Liquids));
     }
 }
