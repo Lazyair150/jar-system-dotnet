@@ -2,7 +2,7 @@
 
 ## Scope
 
-A-class Jar specifications now use the concrete 9l path at the actual solver registry entry point. B-class remains on `PartitionSearch` as a differential oracle; this slice does not claim B-class migration is complete.
+A-class Jar specifications use the concrete 9l path at the actual solver registry entry point. The stacked B-class integration now also routes production solving through `WorldOrderBClassBranchEnumerator`; `PartitionSearch` is retained only as an explicit differential oracle.
 
 ## A-class pipeline
 
@@ -16,6 +16,10 @@ A-class Jar specifications now use the concrete 9l path at the actual solver reg
 8. Freeze the immutable solve plan, create its resource Manifest, and compare Manifest balances/capacity/transfer evidence against the ordered replay witness.
 
 Only step 8 can produce a Feasible solve result. A symbolic solution, a physical binding, or a completed materialization alone is not sufficient.
+
+## Physical preparation multiplicity
+
+Rule profiles are inventory-independent and contain one preparation candidate per source Jar state. At world-bound enumeration time, each candidate is expanded to the number of distinct unmarked physical Jars with that exact source state. This is required for orders that need multiple identical Jars to produce the same free liquid. The concrete binder still assigns distinct physical IDs and rejects any attempt to reuse one Jar. When only preparation multiplicity changes, cached requirement solutions remain reusable if the ordered requirement candidate lists are unchanged.
 
 ## Schedule contract
 
@@ -39,5 +43,5 @@ The solve book passes its immutable `WorldOrderRuleCandidateBook` through the so
 
 ## Deliberate remaining work
 
-- B-class still uses `PartitionSearch`; its replacement needs full assignment enumeration across Master and Slave, one atomic handoff, role-local ordered staging replay, physical Jar binding, and end-to-end parity.
-- Runtime admission and execution continue to consume only immutable plans and their Manifest proofs; this PR does not change the execution session protocol.
+- Run the expanded differential and execution-session matrix against the concrete B-class entry point. Keep `PartitionSearch` as a differential oracle until parity coverage is broad enough to retire it deliberately.
+- Runtime admission and execution continue to consume only immutable plans and their Manifest proofs; this integration preserves the existing execution-session protocol.
