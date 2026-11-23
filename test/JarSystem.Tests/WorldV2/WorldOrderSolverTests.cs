@@ -404,8 +404,8 @@ public sealed class WorldOrderSolverTests
         {
             Operation = "RESHAPE",
             Shape = "圆罐",
-            Liquid = "酒",
-            Reason = "禁止满酒罐直接改形，但允许先倒出再使用游离酒"
+            Liquid = "蜜",
+            Reason = "仅抑制另一种满罐改形；酒罐倒出后可供空罐改形"
         });
         var slave = new Workshop("从台",
             new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
