@@ -85,7 +85,9 @@ public static class WorldOrderAClassBranchEnumerator
             return Result(WorldOrderAClassBranchEnumerationStatus.Infeasible,
                 null, 0, 0, 0, "至少一项订单需求没有可绑定的未标记物理 Jar 初态");
 
-        var reusableSolutions = ReferenceEquals(profile, masterProfile)
+        // Inventory filtering may expand preparation candidates by physical Jar
+        // multiplicity without changing the requirement candidate Cartesian product.
+        var reusableSolutions = SameRequirements(profile.Requirements, masterProfile.Requirements)
             ? precomputedSolutions
             : null;
         var symbolic = reusableSolutions ?? WorldOrderSymbolicSolutionBuilder.Build(
@@ -278,6 +280,24 @@ public static class WorldOrderAClassBranchEnumerator
 
     }
 
+    private static bool SameRequirements(
+        IReadOnlyList<WorldOrderRequirementCandidates> left,
+        IReadOnlyList<WorldOrderRequirementCandidates> right)
+    {
+        if (left.Count != right.Count) return false;
+        for (var index = 0; index < left.Count; index++)
+        {
+            var a = left[index];
+            var b = right[index];
+            if (a.RequirementIndex != b.RequirementIndex ||
+                !string.Equals(a.TargetShape, b.TargetShape, StringComparison.Ordinal) ||
+                !string.Equals(a.TargetLiquid, b.TargetLiquid, StringComparison.Ordinal) ||
+                !a.Candidates.SequenceEqual(b.Candidates))
+                return false;
+        }
+        return true;
+    }
+
     private static WorldOrderRuleCandidateProfile FilterToAvailablePhysicalJarStates(
         WorldOrderRuleCandidateProfile profile,
         WorkshopSolveSnapshot master)
@@ -297,11 +317,19 @@ public static class WorldOrderAClassBranchEnumerator
                 requirement.TargetLiquid,
                 requirement.Candidates.Where(Exists)))
             .ToArray();
-        var preparations = profile.PreparatoryOperations.Where(Exists).ToArray();
+        // The rule profile contains one preparation candidate per source state.
+        // Expand it to the count of distinct unmarked physical Jars so multiple
+        // identical Jars can be used independently as preparation resources.
+        var preparations = profile.PreparatoryOperations
+            .SelectMany(candidate => Enumerable.Repeat(
+                candidate,
+                available.GetValueOrDefault((candidate.SourceShape, candidate.SourceLiquid))))
+            .ToArray();
 
         if (requirements.Select((item, index) =>
                 item.Candidates.Count == profile.Requirements[index].Candidates.Count).All(x => x) &&
-            preparations.Length == profile.PreparatoryOperations.Count)
+            preparations.Length == profile.PreparatoryOperations.Count &&
+            preparations.SequenceEqual(profile.PreparatoryOperations))
             return profile;
 
         return new WorldOrderRuleCandidateProfile(
