@@ -100,32 +100,22 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
-    public void BAdmissionUsesSlaveReplayWhenOverflowDiscardsLaterPreparationOutput()
+    public void BAdmissionUsesSlaveReplayWhenRequiredOutputsOverflowStaging()
     {
-        var masterRules = new ModifierStack();
-        masterRules.Push(new SuppressModifier
-        {
-            Operation = "POUR_OUT",
-            Reason = "本测试要求从台准备液体"
-        });
         var master = new Workshop(
-            "主台", new List<string> { "圆罐", "方罐" },
-            vocabulary: Words, modifiers: masterRules, liquidStagingCapacity: 2);
+            "主台", new List<string> { "圆罐" }, vocabulary: Words);
         var slave = new Workshop(
-            "从台", new List<string> { "圆罐", "方罐" },
+            "从台", new List<string> { "圆罐" },
             vocabulary: Words, liquidStagingCapacity: 1);
         master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
         master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
-        master.AddJar(new Jar("方罐", vocabulary: Words));
-        master.AddJar(new Jar("方罐", vocabulary: Words));
-        master.AddLiquid("酒", 1);
 
         var demand = new OrderDemand(
             new JarOrderSpecification(
                 new[]
                 {
-                    new Requirement { Shape = "方罐", Liquid = "酒" },
-                    new Requirement { Shape = "方罐", Liquid = "酒" }
+                    new Requirement { Shape = "圆罐" },
+                    new Requirement { Shape = "圆罐" }
                 },
                 Constants.OrderType.B, Words),
             0, new SequentialIdGenerator());
@@ -147,19 +137,22 @@ public sealed class WorldOrderExecutionAdmissionTests
         Assert.True(solved!.IsFeasible, solved.Reason);
         Assert.NotNull(solved.ResourceReplay);
         Assert.Equal(1, solved.ResourceReplay!.SlaveAcceptedProducedLiquids.Count(x => x == "酒"));
-        Assert.Equal(1, solved.ResourceReplay.TransferLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(1, solved.ResourceReplay.SlaveAcceptedProducedLiquids.Count(x => x == null));
+        Assert.Empty(solved.ResourceReplay.TransferLiquids);
         Assert.Equal(1, solved.ResourceReplay.SlaveStagingPeakCapacity);
-        Assert.Equal(4, solved.Plan!.SlaveSteps.Count);
+        Assert.Equal(2, solved.Plan!.SlaveSteps.Count);
+        Assert.All(solved.Plan.SlaveSteps, step => Assert.Equal("POUR_OUT", step.Operation!.Type));
 
         var admission = new WorldOrderExecutionAdmission(
             board, book, roster, new WorldResourceReservationBook());
         var admitted = admission.TryAdmit(demand.Id);
 
         Assert.True(admitted.Success, admitted.Reason);
-        Assert.Equal(1, admitted.Manifest!.TransferLiquids.GetValueOrDefault("酒"));
+        Assert.Empty(admitted.Manifest!.TransferLiquids);
         Assert.Equal(1, admitted.Manifest.SlaveStagingPeakCapacity);
-        Assert.Equal(4, admitted.Manifest.TransferJarIds.Count);
+        Assert.Equal(2, admitted.Manifest.TransferJarIds.Count);
     }
+
 
     [Fact]
     public void AdmissionReservesJarAndInitialLiquidThenReleaseMakesThemAvailable()
