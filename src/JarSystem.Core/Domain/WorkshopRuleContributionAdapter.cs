@@ -32,7 +32,7 @@ public static class WorkshopRuleContributionAdapter
         var index = 0;
         foreach (var modifier in modifiers.CaptureEffectiveModifiers())
         {
-            if (!includeExecutionModifiers && modifier is RetimeModifier or IntensityModifier)
+            if (!includeExecutionModifiers && (modifier is RetimeModifier or IntensityModifier))
                 continue;
             var source = new RuleContributionSource(
                 "temporary-modifier",
