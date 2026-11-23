@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.Config;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
@@ -36,6 +37,7 @@ public sealed class WorldV2Context : IDisposable
     public string? ConfigurationFingerprint { get; }
     public IReadOnlyList<string> Shapes { get; }
     public IReadOnlyList<string> Liquids { get; }
+    public OrderTemplateLibrary OrderTemplates { get; }
     public WorldOrderSolveBook SolveBook { get; }
     /// <summary>
     /// 可跨资源库存变化复用的规则候选缓存。它是派生数据，不进入执行检查点；Restore 后可重建。
@@ -60,7 +62,8 @@ public sealed class WorldV2Context : IDisposable
         WorldOrderScheduler scheduler,
         string? configurationFingerprint,
         IReadOnlyList<string> shapes,
-        IReadOnlyList<string> liquids)
+        IReadOnlyList<string> liquids,
+        OrderTemplateLibrary orderTemplates)
     {
         Resources = resources;
         ShipLiquidInventory = shipLiquidInventory;
@@ -76,6 +79,7 @@ public sealed class WorldV2Context : IDisposable
         ConfigurationFingerprint = configurationFingerprint;
         Shapes = Array.AsReadOnly(shapes.ToArray());
         Liquids = Array.AsReadOnly(liquids.ToArray());
+        OrderTemplates = orderTemplates ?? throw new ArgumentNullException(nameof(orderTemplates));
     }
 
     /// <summary>
@@ -96,7 +100,8 @@ public sealed class WorldV2Context : IDisposable
         ShipLiquidInventory? shipLiquidInventory = null,
         string? configurationFingerprint = null,
         IEnumerable<string>? shapeVocabulary = null,
-        IEnumerable<string>? liquidVocabulary = null)
+        IEnumerable<string>? liquidVocabulary = null,
+        OrderTemplateLibrary? orderTemplates = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -150,7 +155,7 @@ public sealed class WorldV2Context : IDisposable
         return new WorldV2Context(
             resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
             solveBook, reservations, admission, runtime, scheduler, configurationFingerprint,
-            shapes, liquids);
+            shapes, liquids, orderTemplates ?? OrderTemplateLibrary.Empty);
     }
 
     /// <summary>
