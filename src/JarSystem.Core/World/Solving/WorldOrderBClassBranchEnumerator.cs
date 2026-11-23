@@ -94,9 +94,9 @@ public static class WorldOrderBClassBranchEnumerator
         // rules, not a second source inventory. Filter both profiles against Master IDs.
         var master = FilterToAvailablePhysicalJarStates(masterProfile, world.Master);
         var slave = FilterToAvailablePhysicalJarStates(slaveProfile, world.Master);
-        if (slave.Requirements.Count != masterProfile.Requirements.Count ||
+        if (slave.Requirements.Count != slaveProfile.Requirements.Count ||
             slave.Requirements.Select((item, index) =>
-                item.RequirementIndex != masterProfile.Requirements[index].RequirementIndex ||
+                item.RequirementIndex != slaveProfile.Requirements[index].RequirementIndex ||
                 item.Candidates.Count == 0).Any(x => x))
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, 0, 0, "从台规则环境无法为每项订单需求找到可绑定的物理 Jar 初态");
