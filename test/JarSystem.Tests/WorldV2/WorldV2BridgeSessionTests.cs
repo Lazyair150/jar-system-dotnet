@@ -105,6 +105,9 @@ public sealed class WorldV2BridgeSessionTests
 
         Assert.Throws<System.ObjectDisposedException>(() => _ = session.HasWorld);
         Assert.Throws<System.ObjectDisposedException>(() => session.GetWorldSnapshot());
+        Assert.Throws<System.ObjectDisposedException>(() => session.ImportProducedJars(
+            "disposed-parser-batch",
+            new Dictionary<string, int> { ["圆罐"] = 1 }));
     }
 
     [Fact]
