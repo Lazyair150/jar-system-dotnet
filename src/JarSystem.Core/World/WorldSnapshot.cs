@@ -124,12 +124,10 @@ public sealed class WorkshopSolveSnapshot
 
         _modifiers = Array.AsReadOnly(modifiers.ToArray());
         HasOpaqueSolverRules = _modifiers.Any(x => x.IsOpaque);
-        var staticModifiers = ModifierStack.CreateReadOnlySnapshot(workshop.Rules.Stack.CaptureEffectiveModifiers()
-            .Where(modifier => modifier is not RetimeModifier and not IntensityModifier));
         var source = new RuleContributionSource(
             "legacy-workshop-runtime", "legacy.workshop", 1, workshop.Name, 1, workshop.Name);
         EffectiveRuleProfile = WorkshopRuleContributionAdapter.Build(
-            "legacy.runtime", 1, 1, source, Capability, staticModifiers);
+            "legacy.runtime", 1, 1, source, Capability, workshop.Rules.Stack, includeExecutionModifiers: false);
     }
 
     /// <summary>每次返回独立的可变求解器输入，防止求解器修改共享快照。</summary>
