@@ -127,3 +127,8 @@ Do not implement multi-parser by changing `parser_count == 1`, copying the singl
 4. Split Board contribution resolution by runtime consumer before enabling parser/skill/device contributions.
 5. Only then design the multi-parser router/scheduler and its persistence model.
 6. Keep parser runtime in Space unless a future architecture explicitly transfers finite pickup processing ownership to Core. Core remains the authority for produced-Jar warehouse admission and all Jar-world semantics.
+
+
+### Space-side fail-closed ingress refinement (2026-11-24)
+
+The Space Core-facing resolver now rejects any authored Rule Contribution from Parser, Skill, or Production Device slots before loadout freeze, and rejects any resolved contribution whose scope is not `workshop`. Such data no longer reaches Core ingress to fail only during World construction. Consumer-specific profiles remain future work.
