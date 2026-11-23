@@ -374,3 +374,10 @@ Rule Profile fingerprint 至少应覆盖：
 - 新增 Core 工厂测试覆盖 Master/Slave Slot 隔离、Ban 隔离、真实来源保留以及 Solver RuleContext 与 Workshop runtime 的一致性。
 - 新增/更新的 Space Assignment 验证覆盖 progression revision；SpaceBattleLoadoutSnapshot 对照 owned snapshots、Assignment 与 Contribution 的 revision。
 - 本文档提交时 GitHub Actions 验证仍在运行；未将 CI 标记为通过。Space GDScript Probe 仍未运行。
+
+
+### 13.1 CI 结果更正（2026-11-24）
+
+- GitHub Actions run 45224300866 对应提交 52c2537，Core 主项目与 Godot Host build 阶段通过；测试项目编译因新增工厂测试中两处可空 Rules 访问未处理而失败，测试本身未执行。
+- 已在后续提交 4808ea4 将两处访问改为显式 null-forgiving；该修复提交尚无新的 GitHub Actions run，因此不能宣称 CI 或 xUnit 已通过。
+- 之前的 RuleSetVersion/ProfileVersion 分界错误也已修正：Board Profile 原始 fingerprint 只进入 WorkshopProfileVersion；临时 Modifier 仍由 RuleSetVersion 跟踪。
