@@ -128,7 +128,7 @@ public sealed class WorkshopSolveSnapshot
         HasOpaqueSolverRules = _modifiers.Any(x => x.IsOpaque) || workshop.Rules.HasUnresolvableRequirements();
         var source = new RuleContributionSource(
             "legacy-workshop-runtime", "legacy.workshop", 1, workshop.Name, 1, workshop.Name);
-        EffectiveRuleProfile = workshop.Rules.EffectiveProfile ?? WorkshopRuleContributionAdapter.Build(
+        EffectiveRuleProfile = workshop.Rules.CaptureEffectiveProfile() ?? WorkshopRuleContributionAdapter.Build(
             "legacy.runtime", 1, 1, source, Capability, workshop.Rules.Stack, includeExecutionModifiers: false);
     }
 
