@@ -205,8 +205,9 @@ public sealed class WorldV2RuleContributionOptions
             foreach (var key in Parameters.Keys)
                 if (!allowed.Contains(key, StringComparer.Ordinal))
                     errors.Add("rule contribution contains an unsupported parameter for " + Effect + ": " + key);
-            if (parsed is RuleContributionEffect.GrantBaseMark or RuleContributionEffect.GrantAdditionalMark or RuleContributionEffect.BanLiquid &&
-                Parameters.Count != 0)
+            if ((parsed == RuleContributionEffect.GrantBaseMark ||
+                 parsed == RuleContributionEffect.GrantAdditionalMark ||
+                 parsed == RuleContributionEffect.BanLiquid) && Parameters.Count != 0)
                 errors.Add(Effect + " does not accept parameters in this Core contract");
             if (parsed == RuleContributionEffect.SuppressOperation &&
                 !new[] { "operation", "shape", "liquid" }.Any(key =>
