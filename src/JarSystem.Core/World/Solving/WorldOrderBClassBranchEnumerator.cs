@@ -177,16 +177,13 @@ public static class WorldOrderBClassBranchEnumerator
                 lastReason = masterProfile.Reason ??
                     "主台规则不透明，无法确定是否存在满足从台游离液体需求的准备操作";
             }
-            var masterNeeds = solution.Steps
-                .Where(x => x.WorkshopRole == "Master" && x.Candidate.ConsumedFreeLiquid != null)
-                .GroupBy(x => x.Candidate.ConsumedFreeLiquid!, StringComparer.Ordinal)
-                .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
+            // Every final requirement belongs to Slave. Master preparation exists
+            // solely to satisfy this Slave-owned free-liquid demand vector.
             var slaveNeeds = solution.Steps
-                .Where(x => x.WorkshopRole == "Slave" && x.Candidate.ConsumedFreeLiquid != null)
+                .Where(x => x.Candidate.ConsumedFreeLiquid != null)
                 .GroupBy(x => x.Candidate.ConsumedFreeLiquid!, StringComparer.Ordinal)
                 .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
-            var allMasterPrepNeeds = new HashSet<string>(
-                masterNeeds.Keys.Concat(slaveNeeds.Keys), StringComparer.Ordinal);
+            var allMasterPrepNeeds = new HashSet<string>(slaveNeeds.Keys, StringComparer.Ordinal);
             var masterPrepChoices = master.PreparatoryOperations
                 .Where(x => x.ProducedFreeLiquid != null &&
                             allMasterPrepNeeds.Contains(x.ProducedFreeLiquid))
@@ -369,9 +366,7 @@ public static class WorldOrderBClassBranchEnumerator
 
                 var item = prepChoices[position];
                 var liquid = item.Candidate.ProducedFreeLiquid!;
-                var demandCount = item.Role == "Master"
-                    ? checked(masterNeeds.GetValueOrDefault(liquid) + slaveNeeds.GetValueOrDefault(liquid))
-                    : slaveNeeds.GetValueOrDefault(liquid);
+                var demandCount = slaveNeeds.GetValueOrDefault(liquid);
                 var selectedCount = selectedPreparations.Count(x =>
                     x.WorkshopRole == item.Role &&
                     x.Candidate.ProducedFreeLiquid == liquid);
