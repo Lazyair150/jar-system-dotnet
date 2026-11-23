@@ -31,6 +31,27 @@ public sealed class EffectiveRuleProfileTests
     }
 
     [Fact]
+    public void RuleContextOnlyProjectsContributionsFromItsRequestedScope()
+    {
+        var workshop = Contribution("rule.workshop-mark", "instance.workshop", "slot.workshop", 1);
+        var ship = workshop with
+        {
+            RuleId = "rule.ship-ban",
+            Effect = RuleContributionEffect.BanLiquid,
+            Target = "酒",
+            Scope = "ship",
+            Source = workshop.Source with { SourceInstanceId = "instance.ship", SlotId = "ship.core" }
+        };
+        var profile = EffectiveRuleProfile.Create("board.demo", 1, 1, [workshop, ship]);
+
+        var context = RuleContext.From(profile, "workshop");
+
+        Assert.True(context.IsAdditionalMarked("circle"));
+        Assert.False(context.IsBanned("酒"));
+        Assert.Equal("workshop", context.RuleScope);
+    }
+
+    [Fact]
     public void DuplicateContributionIdentityIsRejected()
     {
         var contribution = Contribution("rule.alpha", "instance.a", "slot.a", 1);
