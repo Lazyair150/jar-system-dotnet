@@ -115,13 +115,13 @@ public sealed class WorldV2ApplicationService
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => new ResourceLedgerMutation(
                     ResourceCauses.Production, ResourceKinds.Jar, pair.Key, pair.Value,
-                    from: "Space 原石解析器", to: "Jar 中央仓库"))
+                    From: "Space 原石解析器", To: "Jar 中央仓库"))
                 .Concat(discardedByShape
                     .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                     .Select(pair => new ResourceLedgerMutation(
                         ResourceCauses.Discard, ResourceKinds.Jar, pair.Key, pair.Value,
-                        from: "Space 原石解析器", to: "容量溢出",
-                        reason: "中央仓库容量已满")))
+                        From: "Space 原石解析器", To: "容量溢出",
+                        Reason: "中央仓库容量已满")))
                 .ToArray();
 
             if (!context.ResourceLedger.RecordBatchOnce(
