@@ -370,6 +370,41 @@ public sealed class WorldV2ApplicationService
         return demandId;
     }
 
+    /// <summary>
+    /// 从当前世界配置的不可变模板实例化一张订单。调用方只提交模板键，
+    /// 需求列表和订单类型由 Core 的 OrderTemplateLibrary 唯一提供。
+    /// </summary>
+    public int AddJarDemandFromTemplate(
+        string templateName,
+        DemandAreaKind area,
+        long cooldownDurationLogicalMilli,
+        string? orderDefinitionKey = null)
+    {
+        if (string.IsNullOrWhiteSpace(templateName))
+            throw new ArgumentException("订单模板名不能为空", nameof(templateName));
+        if (cooldownDurationLogicalMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(cooldownDurationLogicalMilli));
+        if (orderDefinitionKey != null && string.IsNullOrWhiteSpace(orderDefinitionKey))
+            throw new ArgumentException("订单定义 key 不能是空白字符串", nameof(orderDefinitionKey));
+
+        int demandId = 0;
+        _host.ExecuteExclusive(context =>
+        {
+            if (!context.OrderTemplates.TryGet(templateName, out var template))
+                throw new KeyNotFoundException("当前 World v2 未配置订单模板: " + templateName);
+
+            var vocabulary = new Vocabulary(context.Shapes, context.Liquids);
+            var specification = new JarOrderSpecification(
+                template.Instantiate(), template.Type, vocabulary: vocabulary);
+            var demand = new OrderDemand(
+                specification, cooldownDurationLogicalMilli, orderDefinitionKey, context.DemandIdGenerator);
+            context.DemandBoard.AddDemand(demand, area);
+            demandId = demand.Id;
+        });
+
+        return demandId;
+    }
+
     /// <summary>将已登记订单移动到主动区或被动区；返回 false 表示订单不存在。</summary>
     public bool MoveDemand(int demandId, DemandAreaKind targetArea)
     {
