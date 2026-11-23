@@ -133,7 +133,7 @@ public sealed class EffectiveRuleProfile
             .OrderBy(x => x.Priority)
             .ThenBy(x => x.Source.SlotId, StringComparer.Ordinal)
             .ThenBy(x => x.RuleId, StringComparer.Ordinal)
-            .ThenBy(x => x.Source.OwnedInstanceId, StringComparer.Ordinal)
+            .ThenBy(x => x.Source.SourceInstanceId, StringComparer.Ordinal)
             .ToArray();
 
         var identities = new HashSet<string>(StringComparer.Ordinal);
@@ -143,9 +143,10 @@ public sealed class EffectiveRuleProfile
                 contribution.Source.SlotId,
                 contribution.Source.SourceInstanceId,
                 contribution.RuleId,
-                contribution.RuleVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                contribution.RuleVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                contribution.Target);
             if (!identities.Add(identity))
-                throw new ArgumentException($"Duplicate contribution identity: {contribution.RuleId} from {contribution.Source.OwnedInstanceId}.");
+                throw new ArgumentException($"Duplicate contribution identity: {contribution.RuleId} from {contribution.Source.SourceInstanceId}.");
         }
 
         var readOnly = Array.AsReadOnly(canonical);
