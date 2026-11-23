@@ -144,6 +144,11 @@ public static class WorldOrderRuleCandidateCatalog
                 isUndetermined: true, reason: "工作台包含无法静态重建的规则（无法静态投影）");
 
         var rules = workshop.CreateRuleContext();
+        if (rules.HasUnresolvableRequirements())
+            return new WorldOrderRuleCandidateProfile(
+                workshop.Name, role, world.RuleSetVersion, world.WorkshopProfileVersion,
+                specificationVersion, Array.Empty<WorldOrderRequirementCandidates>(),
+                isUndetermined: true, reason: "有效规则 Profile 含有当前求解器无法解释的贡献");
         var sourceShapes = new SortedSet<string>(Constants.SHAPES, StringComparer.Ordinal);
         sourceShapes.UnionWith(rules.Capability.BaseMarks);
         sourceShapes.UnionWith(rules.Capability.AdditionalMarks);
