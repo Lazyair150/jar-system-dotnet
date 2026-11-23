@@ -294,7 +294,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         {
             new Requirement { Shape = "圆罐" }
         });
-        var match = Assert.Single(input.Slave.Requirements.Single().Candidates,
+        Assert.Single(input.Slave.Requirements.Single().Candidates,
             candidate => candidate.Operation == "MATCH");
         var symbolic = WorldOrderSymbolicSolutionBuilder.Build(new[] { input.Slave });
         var matchSolution = Assert.Single(symbolic.Solutions,
