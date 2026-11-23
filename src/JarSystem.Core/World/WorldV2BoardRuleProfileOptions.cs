@@ -284,10 +284,10 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
                 errors.Add("skill assignment control area does not match its frozen Board Slot: " + entry.SlotId);
         }
         foreach (var slot in BoardDefinition.Slots)
-            if (slot.Required && !seenSlots.Contains(slot.SlotId))
+            if (slot != null && slot.Required && !seenSlots.Contains(slot.SlotId))
                 errors.Add("required Board Slot is not assigned: " + slot.SlotId);
-        if (Assignments.Select(x => x.SlotId).SequenceEqual(
-            Assignments.Select(x => x.SlotId).OrderBy(x => x, StringComparer.Ordinal)) == false)
+        if (Assignments.All(x => x != null) && !Assignments.Select(x => x.SlotId).SequenceEqual(
+            Assignments.Select(x => x.SlotId).OrderBy(x => x, StringComparer.Ordinal)))
             errors.Add("boardAssignmentSnapshot assignments must be ordered by stable slotId");
         if (errors.Count == 0 && !string.Equals(
             ComputeCanonicalFingerprint(), AssignmentFingerprint, StringComparison.OrdinalIgnoreCase))
