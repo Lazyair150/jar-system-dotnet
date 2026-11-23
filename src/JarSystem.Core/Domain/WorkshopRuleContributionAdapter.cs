@@ -13,7 +13,8 @@ public static class WorkshopRuleContributionAdapter
         long assignmentRevision,
         RuleContributionSource workshopSource,
         WorkshopCapability capability,
-        ModifierStack modifiers)
+        ModifierStack modifiers,
+        bool includeExecutionModifiers = true)
     {
         ArgumentNullException.ThrowIfNull(workshopSource);
         ArgumentNullException.ThrowIfNull(capability);
@@ -31,6 +32,8 @@ public static class WorkshopRuleContributionAdapter
         var index = 0;
         foreach (var modifier in modifiers.CaptureEffectiveModifiers())
         {
+            if (!includeExecutionModifiers && modifier is RetimeModifier or IntensityModifier)
+                continue;
             var source = new RuleContributionSource(
                 "temporary-modifier",
                 modifier.Kind.ToString().ToLowerInvariant(),
