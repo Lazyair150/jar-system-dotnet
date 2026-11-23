@@ -40,6 +40,6 @@ Budget exhaustion and opaque rule input produce `Undetermined`; they are never c
 
 ## Remaining work
 
-- Add differential tests comparing this concrete enumerator with `PartitionSearch` over targeted and generated small worlds.
-- Prove parity for Master/Slave assignment, Jar transfer IDs, staging balances, capacity peaks, and reject/ban cases.
+- Expand differential tests against `PartitionSearch` only over the overlapping behavior both paths can represent; do not force parity where the legacy oracle lacks a preparation path.
+- Add direct concrete-path coverage for Master preparation output crossing as free liquid, Slave-local producer/consumer schedules, Jar transfer IDs, staging balances, capacity peaks, and reject/ban cases.
 - Only then route B-class entry-point solving through this enumerator. Until then, the existing solver registry path remains unchanged.
