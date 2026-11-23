@@ -18,16 +18,25 @@ public sealed class RuleContext
     private readonly WorkshopCapability _capability;
     private readonly EffectiveRuleProfile? _effectiveProfile;
     private readonly string _ruleScope;
+    private readonly string? _ruleSlotId;
 
     /// <summary>由基础能力构造（无修饰器：与改造前的规则判定逐项相同）。</summary>
     public static RuleContext From(WorkshopCapability capability) => new(capability, ModifierStack.Empty);
 
     /// <summary>Builds a frozen rule context from contributions already filtered to their capture-time active window.</summary>
-    public static RuleContext From(EffectiveRuleProfile profile, string scope = "workshop")
+    public static RuleContext From(
+        EffectiveRuleProfile profile,
+        string scope = "workshop",
+        string? sourceSlotId = null,
+        bool mutableStack = false)
     {
         ArgumentNullException.ThrowIfNull(profile);
         if (string.IsNullOrWhiteSpace(scope)) throw new ArgumentException("Rule scope is required.", nameof(scope));
-        var scoped = profile.Contributions.Where(x => x.Scope == scope).ToArray();
+        if (sourceSlotId is not null && string.IsNullOrWhiteSpace(sourceSlotId))
+            throw new ArgumentException("Rule slot identity cannot be whitespace.", nameof(sourceSlotId));
+        var scoped = profile.Contributions
+            .Where(x => x.Scope == scope && (sourceSlotId is null || x.Source.SlotId == sourceSlotId))
+            .ToArray();
         var baseMarks = scoped.Where(x => x.Effect == RuleContributionEffect.GrantBaseMark).Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
         var additionalMarks = scoped.Where(x => x.Effect == RuleContributionEffect.GrantAdditionalMark)
             .Where(x => x.Source.SourceKind != "temporary-modifier")
@@ -58,19 +67,28 @@ public sealed class RuleContext
                     break;
             }
         }
-        return new RuleContext(capability, ModifierStack.CreateReadOnlySnapshot(modifiers), profile, scope);
+        var stack = mutableStack
+            ? ModifierStack.CreateSeeded(modifiers)
+            : ModifierStack.CreateReadOnlySnapshot(modifiers);
+        return new RuleContext(capability, stack, profile, scope, sourceSlotId);
     }
 
     private static string Parameter(IReadOnlyDictionary<string, string> parameters, string key, string fallback) =>
         parameters.TryGetValue(key, out var value) ? value : fallback;
 
     /// <summary>由基础能力 + 修饰器栈构造。</summary>
-    public RuleContext(WorkshopCapability capability, ModifierStack stack, EffectiveRuleProfile? effectiveProfile = null, string ruleScope = "workshop")
+    public RuleContext(
+        WorkshopCapability capability,
+        ModifierStack stack,
+        EffectiveRuleProfile? effectiveProfile = null,
+        string ruleScope = "workshop",
+        string? ruleSlotId = null)
     {
         _capability = capability;
         Stack = stack;
         _effectiveProfile = effectiveProfile;
         _ruleScope = ruleScope;
+        _ruleSlotId = ruleSlotId;
     }
 
     /// <summary>基础能力（只读；快照与对外投影仍读它）。</summary>
@@ -82,6 +100,7 @@ public sealed class RuleContext
     public EffectiveRuleProfile? EffectiveProfile => _effectiveProfile;
 
     public string RuleScope => _ruleScope;
+    public string? RuleSlotId => _ruleSlotId;
 
     public bool IsBaseMarked(string shape) => _capability.IsBaseMarked(shape);
 
@@ -113,7 +132,10 @@ public sealed class RuleContext
         Stack.SuppressionReason(operation, shape, liquid);
 
     public bool HasUnresolvableRequirements() => Stack.HasUnresolvableRequirements() ||
-        (_effectiveProfile?.Contributions.Any(x => x.Scope == _ruleScope && x.Effect == RuleContributionEffect.ModifyCapacity) ?? false);
+        (_effectiveProfile?.Contributions.Any(x =>
+            x.Scope == _ruleScope &&
+            (_ruleSlotId is null || x.Source.SlotId == _ruleSlotId) &&
+            x.Effect == RuleContributionEffect.ModifyCapacity) ?? false);
 
     public string? RequiredViolation() => Stack.RequiredViolation();
 }
