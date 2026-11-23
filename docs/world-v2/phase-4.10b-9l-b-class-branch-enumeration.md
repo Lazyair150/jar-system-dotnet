@@ -26,6 +26,12 @@ The Master may perform only legal preparatory operations needed to produce free 
 
 The Master profile's requirement candidates are deliberately excluded from the symbolic demand solution set. The Master profile contributes only its preparatory-operation candidates. The Slave profile owns every final requirement step.
 
+## Physical preparation multiplicity
+
+A rule profile contains one preparation candidate per source Jar state; it is not an inventory list and must not be mistaken for one physical Jar. During world-bound enumeration, each preparation candidate is expanded to the count of distinct, unmarked physical Jars in the initial Master inventory with that exact source state. This permits multiple identical Jars to independently produce the same liquid while preserving one-operation-per-physical-Jar. The concrete binder remains the final authority and rejects any assignment that attempts to reuse a physical Jar.
+
+When only preparation multiplicity changes, the cached Slave requirement solution set remains reusable because its ordered requirement candidate lists are unchanged; physical preparation expansion does not alter the requirement Cartesian product.
+
 ## Physical ownership and operation mark
 
 All physical Jars originate in the initial Master inventory. Slave inventory must be empty at B-class admission; it cannot be used as a second source. The single handoff contains every Jar needed by Slave requirement and preparation steps.
