@@ -94,6 +94,10 @@ public sealed class EffectiveRuleProfile
     public string BoardId { get; }
     public int BoardDefinitionVersion { get; }
     public long AssignmentRevision { get; }
+    /// <summary>Exact Assignment fingerprint supplied by the Space Board ingress; null for legacy profiles.</summary>
+    public string? AssignmentFingerprint { get; }
+    /// <summary>Exact source Profile fingerprint supplied by Space; null for legacy profiles.</summary>
+    public string? SourceProfileFingerprint { get; }
     public IReadOnlyList<RuleContribution> Contributions { get; }
     public string Fingerprint { get; }
 
@@ -101,6 +105,8 @@ public sealed class EffectiveRuleProfile
         string boardId,
         int boardDefinitionVersion,
         long assignmentRevision,
+        string? assignmentFingerprint,
+        string? sourceProfileFingerprint,
         IReadOnlyList<RuleContribution> contributions,
         string fingerprint)
     {
@@ -108,6 +114,8 @@ public sealed class EffectiveRuleProfile
         BoardId = boardId;
         BoardDefinitionVersion = boardDefinitionVersion;
         AssignmentRevision = assignmentRevision;
+        AssignmentFingerprint = assignmentFingerprint;
+        SourceProfileFingerprint = sourceProfileFingerprint;
         Contributions = contributions;
         Fingerprint = fingerprint;
     }
@@ -116,10 +124,15 @@ public sealed class EffectiveRuleProfile
         string boardId,
         int boardDefinitionVersion,
         long assignmentRevision,
-        IEnumerable<RuleContribution> contributions)
+        IEnumerable<RuleContribution> contributions,
+        string? assignmentFingerprint = null,
+        string? sourceProfileFingerprint = null)
     {
         if (string.IsNullOrWhiteSpace(boardId) || boardDefinitionVersion <= 0 || assignmentRevision <= 0)
             throw new ArgumentException("Effective rule profile requires exact Board identity and positive assignment revision.");
+        if ((assignmentFingerprint is null) != (sourceProfileFingerprint is null) ||
+            (assignmentFingerprint != null && (!IsSha256(assignmentFingerprint) || !IsSha256(sourceProfileFingerprint!))))
+            throw new ArgumentException("Ingress Effective Rule Profile must retain both exact SHA-256 source fingerprints.");
         ArgumentNullException.ThrowIfNull(contributions);
 
         var canonical = contributions.ToArray();
@@ -150,17 +163,27 @@ public sealed class EffectiveRuleProfile
         }
 
         var readOnly = Array.AsReadOnly(canonical);
-        var fingerprint = ComputeFingerprint(boardId, boardDefinitionVersion, assignmentRevision, canonical);
-        return new EffectiveRuleProfile(boardId, boardDefinitionVersion, assignmentRevision, readOnly, fingerprint);
+        var fingerprint = ComputeFingerprint(
+            boardId, boardDefinitionVersion, assignmentRevision,
+            assignmentFingerprint, sourceProfileFingerprint, canonical);
+        return new EffectiveRuleProfile(
+            boardId, boardDefinitionVersion, assignmentRevision,
+            assignmentFingerprint, sourceProfileFingerprint, readOnly, fingerprint);
     }
 
     public IReadOnlyList<RuleContribution> Find(RuleContributionEffect effect) =>
         Array.AsReadOnly(Contributions.Where(x => x.Effect == effect).ToArray());
 
+    private static bool IsSha256(string value) =>
+        value.Length == 64 && value.All(c =>
+            c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F');
+
     private static string ComputeFingerprint(
         string boardId,
         int boardDefinitionVersion,
         long assignmentRevision,
+        string? assignmentFingerprint,
+        string? sourceProfileFingerprint,
         IReadOnlyList<RuleContribution> contributions)
     {
         using var stream = new MemoryStream();
@@ -170,6 +193,12 @@ public sealed class EffectiveRuleProfile
             writer.Write(boardId);
             writer.Write(boardDefinitionVersion);
             writer.Write(assignmentRevision);
+            if (assignmentFingerprint != null && sourceProfileFingerprint != null)
+            {
+                writer.Write("SpaceBoardIngress.v1");
+                writer.Write(assignmentFingerprint);
+                writer.Write(sourceProfileFingerprint);
+            }
             writer.Write(contributions.Count);
             foreach (var item in contributions)
             {
