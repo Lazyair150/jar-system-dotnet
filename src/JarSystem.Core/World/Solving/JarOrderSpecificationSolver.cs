@@ -102,7 +102,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
                 snapshot, snapshot.Slave, "Slave", specification);
         var maxNodes = Math.Max(1, NodeBudget);
         var bPrecomputedSolutions = candidateBook?.GetOrBuildSolutions(
-            new[] { bMasterProfile, bSlaveProfile },
+            new[] { bSlaveProfile },
             maxSolutions: 256,
             maxNodes: maxNodes);
         var bEnumeration = WorldOrderBClassBranchEnumerator.Enumerate(
