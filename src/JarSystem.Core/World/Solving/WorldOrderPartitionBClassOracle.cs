@@ -42,7 +42,7 @@ public static class WorldOrderPartitionBClassOracle
         // PartitionSearch remains the B-class differential oracle until the full B-class
         // concrete branch enumerator and entry-point parity suite are complete.
         var snapshotSolver = new SnapshotProjectedSolver(
-            _innerSolver, masterInfo, snapshot.Master, slaveInfo, snapshot.Slave);
+            innerSolver, masterInfo, snapshot.Master, slaveInfo, snapshot.Slave);
         if (snapshotSolver is IWorkBudgetedSolver budgeted)
             budgeted.BeginCheck(nodeBudget);
 
