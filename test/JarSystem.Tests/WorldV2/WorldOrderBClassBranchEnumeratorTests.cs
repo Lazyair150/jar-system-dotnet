@@ -166,6 +166,65 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void MasterPreparationOutputCanCrossAsFreeLiquidForSlavePourIn()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "主台不直接匹配圆罐"
+        });
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Reason = "主台不执行倒入操作"
+        });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_OUT",
+            Reason = "从台不执行倒出操作"
+        });
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Liquid = "蜜",
+            Reason = "从台不直接交付满蜜罐"
+        });
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "RESHAPE",
+            Shape = "圆罐",
+            Liquid = "蜜",
+            Reason = "从台不使用满蜜罐改形"
+        });
+        var master = new Workshop("主台",
+            new List<string> { "圆罐" }, modifiers: masterRules);
+        var slave = new Workshop("从台",
+            new List<string> { "圆罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", id: 9851));
+        master.AddJar(new Jar("圆罐", "蜜", id: 9852));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐", Liquid = "蜜" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            985, input.Master, input.Slave, input.World);
+
+        Assert.True(result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible, result.Reason);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Equal(new[] { 9851 }, plan.TransferJarIds);
+        Assert.Equal(1, plan.TransferLiquids.GetValueOrDefault("蜜"));
+        Assert.Equal("POUR_OUT", Assert.Single(plan.MasterSteps).Operation!.Type);
+        Assert.Equal("POUR_IN", Assert.Single(plan.SlaveSteps).Operation!.Type);
+        Assert.Equal(9851, plan.SlaveSteps[0].Before![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Equal("蜜", plan.SlaveSteps[0].After![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Liquid);
+    }
+
+    [Fact]
     public void BClassCannotReuseOnePhysicalJarForTwoRequirementIdentities()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
