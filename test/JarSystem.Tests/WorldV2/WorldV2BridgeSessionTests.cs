@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.World;
 using JarSystem.Core.World.Demands;
 using JarSystem.WorldV2Bridge;
@@ -236,5 +237,52 @@ public sealed class WorldV2BridgeSessionTests
         Assert.Empty(session.GetPendingOrderCycleEvents());
     }
 
+
+
+    [Fact]
+    public void ProducerRateUpdatesAreAtomicAndPreserveProgressAcrossCheckpointRestore()
+    {
+        using var session = new WorldV2BridgeSession();
+        var options = Options();
+        session.CreateOrReplaceWorld(options);
+
+        // 0.5 logical time at rate 1.0 leaves half a Jar in the production accumulator.
+        var partial = session.AdvanceWorld(500);
+        Assert.Equal(0, partial.ProducedJarCount);
+
+        var checkpointJson = session.CaptureExecutionCheckpointJson();
+        var nextRates = new Dictionary<string, double> { ["圆罐"] = 2.0 };
+        session.UpdateProducerRates("陶工", nextRates);
+
+        // The previous half-progress is retained: another quarter time at rate 2.0 completes one Jar.
+        var completed = session.AdvanceWorld(250);
+        Assert.Equal(1, completed.ProducedJarCount);
+        Assert.Equal(0, completed.FlowedJarCount);
+
+        // Restore returns both the original rate and its fractional production state.
+        session.RestoreExecutionCheckpointJson(options, checkpointJson);
+        session.UpdateProducerRates("陶工", nextRates);
+        var restored = session.AdvanceWorld(250);
+        Assert.Equal(1, restored.ProducedJarCount);
+        Assert.Equal(0, restored.FlowedJarCount);
+    }
+
+    [Fact]
+    public void InvalidProducerRateBatchDoesNotPartiallyChangeConfiguredRates()
+    {
+        using var session = new WorldV2BridgeSession();
+        session.CreateOrReplaceWorld(Options());
+
+        Assert.Throws<DomainValidationException>(() =>
+            session.UpdateProducerRates("陶工", new Dictionary<string, double>
+            {
+                ["圆罐"] = 0.0,
+                ["方罐"] = 1.0
+            }));
+
+        var advance = session.AdvanceWorld(1_000);
+        Assert.Equal(1, advance.ProducedJarCount);
+        Assert.Equal(1, advance.FlowedJarCount);
+    }
 
 }
