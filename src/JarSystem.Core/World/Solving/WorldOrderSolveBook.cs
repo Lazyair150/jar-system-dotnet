@@ -271,14 +271,22 @@ public sealed class WorldOrderSolveBook : IDisposable
             return;
         }
 
-        var profiles = new List<WorldOrderRuleCandidateProfile>
+        var masterProfile = RuleCandidates.GetOrBuild(
+            snapshot, snapshot.Master, "Master", specification);
+        if (specification.Type == Constants.OrderType.A)
         {
-            RuleCandidates.GetOrBuild(snapshot, snapshot.Master, "Master", specification)
-        };
-        if (specification.Type == Constants.OrderType.B)
-            profiles.Add(RuleCandidates.GetOrBuild(snapshot, snapshot.Slave!, "Slave", specification));
+            _symbolicSolutions[demand.Id] =
+                RuleCandidates.GetOrBuildSolutions(new[] { masterProfile });
+            return;
+        }
 
-        _symbolicSolutions[demand.Id] = RuleCandidates.GetOrBuildSolutions(profiles);
+        var slaveProfile = RuleCandidates.GetOrBuild(
+            snapshot, snapshot.Slave!, "Slave", specification);
+        // B-class requirement decomposition belongs exclusively to the Slave rules.
+        // The Master profile remains cached for boundary preparation, but it must not
+        // enter the symbolic requirement solution set.
+        _symbolicSolutions[demand.Id] =
+            RuleCandidates.GetOrBuildSolutions(new[] { slaveProfile });
     }
 
     private void OnBoardChanged(OrderDemandBoardChange change)
