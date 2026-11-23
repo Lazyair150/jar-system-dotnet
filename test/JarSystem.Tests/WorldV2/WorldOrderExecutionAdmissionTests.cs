@@ -99,6 +99,68 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
+    public void BAdmissionUsesSlaveReplayWhenOverflowDiscardsLaterPreparationOutput()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_OUT",
+            Reason = "本测试要求从台准备液体"
+        });
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐", "方罐" },
+            vocabulary: Words, modifiers: masterRules, liquidStagingCapacity: 2);
+        var slave = new Workshop(
+            "从台", new List<string> { "圆罐", "方罐" },
+            vocabulary: Words, liquidStagingCapacity: 1);
+        master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
+        master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        master.AddJar(new Jar("方罐", vocabulary: Words));
+        master.AddLiquid("酒", 1);
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "方罐", Liquid = "酒" },
+                    new Requirement { Shape = "方罐", Liquid = "酒" }
+                },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot,
+            DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+        var solvedRecord = book.Evaluate(demand.Id, snapshot, registry);
+        var solved = solvedRecord.Result;
+
+        Assert.NotNull(solved);
+        Assert.True(solved!.IsFeasible, solved.Reason);
+        Assert.NotNull(solved.ResourceReplay);
+        Assert.Equal(1, solved.ResourceReplay!.SlaveAcceptedProducedLiquids.Count(x => x == "酒"));
+        Assert.Equal(1, solved.ResourceReplay.TransferLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(1, solved.ResourceReplay.SlaveStagingPeakCapacity);
+        Assert.Equal(4, solved.Plan!.SlaveSteps.Count);
+
+        var admission = new WorldOrderExecutionAdmission(
+            board, book, roster, new WorldResourceReservationBook());
+        var admitted = admission.TryAdmit(demand.Id);
+
+        Assert.True(admitted.Success, admitted.Reason);
+        Assert.Equal(1, admitted.Manifest!.TransferLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(1, admitted.Manifest.SlaveStagingPeakCapacity);
+        Assert.Equal(4, admitted.Manifest.TransferJarIds.Count);
+    }
+
+    [Fact]
     public void AdmissionReservesJarAndInitialLiquidThenReleaseMakesThemAvailable()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
