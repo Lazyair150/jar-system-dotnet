@@ -68,6 +68,17 @@ public sealed class WorldV2BridgeSession : IDisposable
         _application.SetWorldSpeedRatio(ratio);
     }
 
+    /// <summary>
+    /// 原子更新已配置生产者的完整形状速率表；生产拓扑不变，速率状态由 Jar 检查点保存。
+    /// </summary>
+    public void UpdateProducerRates(
+        string producerName,
+        IReadOnlyDictionary<string, double> rates)
+    {
+        ThrowIfDisposed();
+        _application.UpdateProducerRates(producerName, rates);
+    }
+
     public int AddJarDemand(WorldV2AddJarDemandRequest request)
     {
         ThrowIfDisposed();
