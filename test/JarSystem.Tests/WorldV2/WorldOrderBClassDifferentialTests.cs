@@ -37,7 +37,7 @@ public sealed class WorldOrderBClassDifferentialTests
         // The legacy entry remains the differential oracle; it is intentionally not
         // replaced by the concrete enumerator in this slice.
         var legacy = new JarOrderSpecificationSolver(new StateSpaceSolver())
-            .Solve(demand, world);
+            .SolvePartitionOracleForDifferentialTesting(demand, world);
         var masterProfile = WorldOrderRuleCandidateCatalog.Build(
             world, world.Master!, "Master", specification);
         var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
