@@ -193,7 +193,14 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var master = new Workshop(
             "主台", new List<string> { "圆罐", "方罐" },
             liquidStagingCapacity: 2);
-        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_OUT",
+            Reason = "本测试要求由主台完成准备"
+        });
+        var slave = new Workshop(
+            "从台", new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
         master.AddJar(new Jar("圆罐", "酒", id: 9861));
         master.AddJar(new Jar("圆罐", "酒", id: 9862));
         master.AddJar(new Jar("方罐", id: 9863));
