@@ -172,9 +172,26 @@ public static class WorldOrderConcretePlanAssembler
                 plan, materialization, replay);
         }
 
+        // Keep the exact policy-aware replay witness attached to the solve result.
+        // Admission and resource-only rebinding must validate this same proof rather than
+        // recomputing a generic path that treats every POUR_OUT as accepted.
+        var completed = new WorldOrderSolveResult(
+            demandId,
+            world.Version,
+            WorldOrderSolveStatus.Feasible,
+            "9l_concrete_plan",
+            directCount: directCount,
+            operationCount: operationCount,
+            plan: plan,
+            ruleSetVersion: world.RuleSetVersion,
+            workshopProfileVersion: world.WorkshopProfileVersion,
+            resourceVersion: world.ResourceVersion,
+            specificationVersion: masterProfile.SpecificationVersion,
+            resourceReplay: replay);
+
         return new WorldOrderConcretePlanAssemblyResult(
             WorldOrderSolveStatus.Feasible,
-            provisional,
+            completed,
             plan,
             manifest,
             materialization,
