@@ -30,6 +30,8 @@ public sealed class WorldOrderOrderedResourceReplayResult
     public IReadOnlyList<string?> MasterAcceptedProducedLiquids { get; }
     /// <summary>Per-Slave-step accepted free-liquid output; null means no output or policy/capacity discard.</summary>
     public IReadOnlyList<string?> SlaveAcceptedProducedLiquids { get; }
+    /// <summary>Explicit Slave staging rejects, kept separate from the Slave workshop Ban.</summary>
+    public IReadOnlyList<string> ExplicitSlaveRejectedLiquids { get; }
     public string? Reason { get; }
     public bool IsComplete => Status == WorldOrderOrderedResourceReplayStatus.Complete;
 
@@ -43,6 +45,7 @@ public sealed class WorldOrderOrderedResourceReplayResult
         WorldOrderResourceRequirementGroup? slaveBoundary,
         IEnumerable<string?>? masterAcceptedProducedLiquids,
         IEnumerable<string?>? slaveAcceptedProducedLiquids,
+        IEnumerable<string>? explicitSlaveRejectedLiquids,
         string? reason)
     {
         Status = status;
@@ -54,6 +57,9 @@ public sealed class WorldOrderOrderedResourceReplayResult
         SlaveBoundaryGroup = slaveBoundary;
         MasterAcceptedProducedLiquids = Array.AsReadOnly((masterAcceptedProducedLiquids ?? Array.Empty<string?>()).ToArray());
         SlaveAcceptedProducedLiquids = Array.AsReadOnly((slaveAcceptedProducedLiquids ?? Array.Empty<string?>()).ToArray());
+        ExplicitSlaveRejectedLiquids = Array.AsReadOnly(
+            (explicitSlaveRejectedLiquids ?? Array.Empty<string>())
+            .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray());
         Reason = reason;
     }
 
@@ -81,6 +87,12 @@ public static class WorldOrderOrderedResourceReplay
         if (world == null) throw new ArgumentNullException(nameof(world));
         if (string.IsNullOrWhiteSpace(boundaryGroupId))
             throw new ArgumentException("资源边界组身份不能为空", nameof(boundaryGroupId));
+        var explicitRejected = (slaveRejectedLiquids ?? Array.Empty<string>()).ToArray();
+        if (explicitRejected.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("从台拒收液体名称不能为空", nameof(slaveRejectedLiquids));
+        var explicitRejectedSnapshot = Array.AsReadOnly(
+            explicitRejected.Distinct(StringComparer.Ordinal)
+                .OrderBy(x => x, StringComparer.Ordinal).ToArray());
 
         if (world.Master == null)
             return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "缺少主台快照");
@@ -92,12 +104,8 @@ public static class WorldOrderOrderedResourceReplay
         // Explicit rejects add policy; they never replace the workshop's own ban.
         var rejected = new HashSet<string>(
             world.Slave?.Capability.Ban ?? Array.Empty<string>(), StringComparer.Ordinal);
-        foreach (var liquid in slaveRejectedLiquids ?? Array.Empty<string>())
-        {
-            if (string.IsNullOrWhiteSpace(liquid))
-                throw new ArgumentException("从台拒收液体名称不能为空", nameof(slaveRejectedLiquids));
+        foreach (var liquid in explicitRejectedSnapshot)
             rejected.Add(liquid);
-        }
 
         WorldOrderResourceRequirementGroup? boundary = null;
         var slavePeak = 0;
@@ -234,6 +242,7 @@ public static class WorldOrderOrderedResourceReplay
                 boundary,
                 acceptedMasterOutputs,
                 acceptedSlaveOutputs,
+                explicitRejectedSnapshot,
                 null);
         }
 
@@ -242,7 +251,8 @@ public static class WorldOrderOrderedResourceReplay
 
         WorldOrderOrderedResourceReplayResult Failure(
             WorldOrderOrderedResourceReplayStatus status, string reason) =>
-            new(status, null, null, null, 0, 0, null, null, null, reason);
+            new(status, null, null, null, 0, 0, null, null, null,
+                explicitRejectedSnapshot, reason);
     }
 
     private static (bool IsComplete, string? Reason, IReadOnlyList<string?> AcceptedOutputs, int PeakCapacity)
