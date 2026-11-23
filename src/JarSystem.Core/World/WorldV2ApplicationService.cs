@@ -384,6 +384,8 @@ public sealed class WorldV2ApplicationService
             throw new ArgumentException("订单模板名不能为空", nameof(templateName));
         if (cooldownDurationLogicalMilli < 0)
             throw new ArgumentOutOfRangeException(nameof(cooldownDurationLogicalMilli));
+        if (!Enum.IsDefined(area))
+            throw new ArgumentOutOfRangeException(nameof(area));
         if (orderDefinitionKey != null && string.IsNullOrWhiteSpace(orderDefinitionKey))
             throw new ArgumentException("订单定义 key 不能是空白字符串", nameof(orderDefinitionKey));
 
