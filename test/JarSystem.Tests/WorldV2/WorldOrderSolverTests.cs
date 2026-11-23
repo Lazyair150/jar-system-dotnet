@@ -263,7 +263,7 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
-    public void BSpecificationUsesConcreteMixedRoleBranchAssembler()
+    public void BSpecificationRequiresConcreteSlaveParticipation()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
         var slave = new Workshop("从台");
@@ -279,12 +279,12 @@ public sealed class WorldOrderSolverTests
         Assert.NotNull(result.Plan);
         Assert.True(result.Plan.IsPartitioned);
         Assert.Null(result.PartitionReport);
-        Assert.Single(result.Plan.MasterSteps);
-        Assert.Empty(result.Plan.SlaveSteps);
+        Assert.Empty(result.Plan.MasterSteps);
+        Assert.Single(result.Plan.SlaveSteps);
 
         var repeated = Registry().Solve(demand, snapshot);
-        Assert.Equal(result.Plan.MasterSteps.Select(x => x.Operation!.RuleId),
-            repeated.Plan!.MasterSteps.Select(x => x.Operation!.RuleId));
+        Assert.Equal(result.Plan.SlaveSteps.Select(x => x.Operation!.RuleId),
+            repeated.Plan!.SlaveSteps.Select(x => x.Operation!.RuleId));
         Assert.Equal(result.Plan.TransferJarIds, repeated.Plan.TransferJarIds);
     }
 
