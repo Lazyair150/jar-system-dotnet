@@ -109,7 +109,7 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
             demand.Id, bMasterProfile, bSlaveProfile, snapshot,
             maxBranches: 256,
             maxNodes: maxNodes,
-            bPrecomputedSolutions: bPrecomputedSolutions);
+            precomputedSolutions: bPrecomputedSolutions);
 
         if (bEnumeration.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
             return bEnumeration.Assembly?.SolveResult
