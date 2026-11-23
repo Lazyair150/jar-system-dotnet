@@ -55,6 +55,11 @@ public sealed class WorldV2Options
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OrderTemplateOptions>? OrderTemplates { get; set; }
 
+    /// <summary>Exact frozen Space Board rule profile and assignment provenance; null preserves legacy configuration.</summary>
+    [JsonPropertyName("boardRuleProfile")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorldV2BoardRuleProfileOptions? BoardRuleProfile { get; set; }
+
     /// <summary>执行计划中每个操作步消耗的逻辑时间毫秒数；1000 = 1 个逻辑时间单位。</summary>
     [JsonPropertyName("executionLogicalTimePerUnit")]
     public long ExecutionLogicalTimePerUnit { get; set; } = 1000;
@@ -227,6 +232,35 @@ public sealed class WorldV2Options
             }
         }
 
+        if (BoardRuleProfile != null)
+        {
+            result.Errors.AddRange(BoardRuleProfile.Validate());
+            if (BoardRuleProfile.AssignmentSnapshot != null)
+            {
+                var assignments = BoardRuleProfile.AssignmentSnapshot.Assignments
+                    .Where(x => x != null).ToDictionary(x => x.SlotId, StringComparer.Ordinal);
+                var workshopOptions = Workshops ?? new List<WorldV2WorkshopOptions>();
+                foreach (var workshop in workshopOptions)
+                {
+                    if (string.IsNullOrWhiteSpace(workshop.BoardSlotId) ||
+                        !assignments.TryGetValue(workshop.BoardSlotId, out var assignment) ||
+                        assignment.ComponentKind != "workshop")
+                    {
+                        result.Errors.Add("每个 World V2 工作台必须绑定到确切的 Board workshop Slot: " + workshop.Name);
+                        continue;
+                    }
+                    var expectedRole = string.Equals(workshop.Name, MasterWorkshopName, StringComparison.Ordinal)
+                        ? "master"
+                        : string.Equals(workshop.Name, SlaveWorkshopName, StringComparison.Ordinal) ? "slave" : "";
+                    if (expectedRole.Length == 0 || !string.Equals(assignment.RoleId, expectedRole, StringComparison.Ordinal))
+                        result.Errors.Add("World V2 主从工作台角色必须由 Board Slot roleId 决定: " + workshop.Name);
+                }
+                if (workshopOptions.Count != 2 ||
+                    workshopOptions.Select(x => x.BoardSlotId).Distinct(StringComparer.Ordinal).Count() != workshopOptions.Count)
+                    result.Errors.Add("当前 World V2 runtime 仅接受两个不同的已分配 workshop Board Slot");
+            }
+        }
+
         return result;
     }
 
@@ -330,6 +364,8 @@ public sealed class WorldV2ProducerOptions
 public sealed class WorldV2WorkshopOptions
 {
     public string Name { get; set; } = "";
+    [JsonPropertyName("boardSlotId")]
+    public string BoardSlotId { get; set; } = "";
     public List<string> BaseMarks { get; set; } = new();
     public List<string> AdditionalMarks { get; set; } = new();
     public List<string> Ban { get; set; } = new();
@@ -386,15 +422,27 @@ public static class WorldV2Factory
             options.LiquidFlowRatePerLogicalTime,
             shipLiquidInventory);
 
-        var workshops = options.Workshops.Select(workshop => new Workshop(
-            workshop.Name,
-            new List<string>(workshop.BaseMarks),
-            new List<string>(workshop.AdditionalMarks),
-            new List<string>(workshop.Ban),
-            workshop.MaxJars,
-            workshop.MaxLiquids,
-            vocabulary: vocabulary,
-            liquidStagingCapacity: workshop.LiquidStagingCapacity ?? workshop.MaxLiquids)).ToList();
+        var effectiveBoardProfile = options.BoardRuleProfile?.BuildEffectiveRuleProfile();
+        var workshops = options.Workshops.Select(workshop =>
+        {
+            var initialRules = effectiveBoardProfile == null
+                ? null
+                : RuleContext.From(
+                    effectiveBoardProfile,
+                    "workshop",
+                    workshop.BoardSlotId,
+                    mutableStack: true);
+            return new Workshop(
+                workshop.Name,
+                new List<string>(workshop.BaseMarks),
+                new List<string>(workshop.AdditionalMarks),
+                new List<string>(workshop.Ban),
+                workshop.MaxJars,
+                workshop.MaxLiquids,
+                vocabulary: vocabulary,
+                liquidStagingCapacity: workshop.LiquidStagingCapacity ?? workshop.MaxLiquids,
+                initialRules: initialRules);
+        }).ToList();
 
         var master = workshops.Single(workshop =>
             string.Equals(workshop.Name, options.MasterWorkshopName, StringComparison.Ordinal));
