@@ -277,6 +277,65 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void OpaqueMasterRulesDoNotBlockBClassBranchThatNeedsNoMasterOperation()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new RequireModifier
+        {
+            Text = "主台外部条件",
+            Violation = () => null
+        });
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐", "方罐" }, modifiers: masterRules);
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", id: 9881));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            988, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.Empty(result.Assembly!.CandidatePlan!.MasterSteps);
+        Assert.Single(result.Assembly.CandidatePlan.SlaveSteps);
+    }
+
+    [Fact]
+    public void OpaqueMasterRulesMakeMissingMasterPreparationUndetermined()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new RequireModifier
+        {
+            Text = "主台外部条件",
+            Violation = () => null
+        });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "POUR_OUT",
+            Reason = "从台不能自行准备游离液体"
+        });
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐", "方罐" }, modifiers: masterRules);
+        var slave = new Workshop(
+            "从台", new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", "酒", id: 9891));
+        master.AddJar(new Jar("方罐", id: 9892));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "方罐", Liquid = "酒" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            989, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Undetermined, result.Status);
+        Assert.Null(result.Assembly);
+    }
+
+    [Fact]
     public void BClassCannotReuseOnePhysicalJarForTwoRequirementIdentities()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
