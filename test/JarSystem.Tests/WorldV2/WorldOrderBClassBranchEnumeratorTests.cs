@@ -218,10 +218,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var plan = result.Assembly!.CandidatePlan!;
         // Master preparation Jars stay on Master after producing staging liquid;
         // only the two Slave-operated requirement Jars cross the one-way handoff.
-        Assert.Equal(2, plan.TransferJarIds.Count);
-        Assert.Equal(2, plan.TransferLiquids.GetValueOrDefault("酒"));
-        Assert.Equal(2, plan.MasterSteps.Count);
-        Assert.Equal(2, plan.SlaveSteps.Count);
+        Assert.Equal(2, plan.TransferJarIds.Count, $"transferJarIds=[{string.Join(',', plan.TransferJarIds)}]; transferLiquids={string.Join(',', plan.TransferLiquids.Select(x => x.Key + '=' + x.Value))}; masterSteps={plan.MasterSteps.Count}; slaveSteps={plan.SlaveSteps.Count}");
+        Assert.Equal(2, plan.TransferLiquids.GetValueOrDefault("酒"), "Master-produced liquid transferred to Slave");
+        Assert.Equal(2, plan.MasterSteps.Count, "Master preparation operation count");
+        Assert.Equal(2, plan.SlaveSteps.Count, "Slave requirement operation count");
         Assert.All(plan.MasterSteps, step => Assert.Equal("POUR_OUT", step.Operation!.Type));
         Assert.All(plan.SlaveSteps, step => Assert.Equal("POUR_IN", step.Operation!.Type));
         Assert.Equal(
