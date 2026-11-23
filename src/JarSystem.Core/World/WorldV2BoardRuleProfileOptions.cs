@@ -244,7 +244,8 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
         var errors = new List<string>();
         if (SchemaVersion != 1 || BoardId != boardId || DefinitionVersion != boardVersion ||
             AssignmentFingerprint != assignmentFingerprint || BoardDefinition == null ||
-            BoardDefinition.BoardId != BoardId || BoardDefinition.DefinitionVersion != DefinitionVersion)
+            BoardDefinition.SchemaVersion != 1 || BoardDefinition.BoardId != BoardId ||
+            BoardDefinition.DefinitionVersion != DefinitionVersion || string.IsNullOrWhiteSpace(BoardDefinition.DisplayName))
             errors.Add("boardRuleProfile assignment snapshot identity does not match its frozen Board");
         if (Assignments == null || BoardDefinition?.Slots == null)
         {
@@ -254,8 +255,13 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
         var slots = new Dictionary<string, WorldV2BoardSlotSnapshotOptions>(StringComparer.Ordinal);
         foreach (var slot in BoardDefinition.Slots)
         {
-            if (slot == null || string.IsNullOrWhiteSpace(slot.SlotId) || !slots.TryAdd(slot.SlotId, slot))
+            if (slot == null || string.IsNullOrWhiteSpace(slot.SlotId) ||
+                string.IsNullOrWhiteSpace(slot.AreaId) || string.IsNullOrWhiteSpace(slot.ComponentKind) ||
+                string.IsNullOrWhiteSpace(slot.DisplayName) || string.IsNullOrWhiteSpace(slot.RoleId) ||
+                string.IsNullOrWhiteSpace(slot.ControlArea) || !slots.TryAdd(slot.SlotId, slot))
                 errors.Add("Board Definition contains an invalid or duplicate slot identity");
+            else if (!IsValidSlotShape(slot))
+                errors.Add("Board Definition slot has an unsupported area/component/role/control-area combination: " + slot.SlotId);
         }
         var seenInstances = new HashSet<string>(StringComparer.Ordinal);
         var seenSlots = new HashSet<string>(StringComparer.Ordinal);
@@ -274,27 +280,101 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
                 errors.Add("board assignment does not match its frozen slot definition: " + entry.SlotId);
             else if (entry.ComponentKind == "workshop" && (slot.RoleId ?? "") != (entry.RoleId ?? ""))
                 errors.Add("workshop assignment role does not match its frozen Board Slot: " + entry.SlotId);
+            else if (entry.ComponentKind == "skill" && (slot.ControlArea ?? "") != (entry.ControlArea ?? ""))
+                errors.Add("skill assignment control area does not match its frozen Board Slot: " + entry.SlotId);
         }
         foreach (var slot in BoardDefinition.Slots)
             if (slot.Required && !seenSlots.Contains(slot.SlotId))
                 errors.Add("required Board Slot is not assigned: " + slot.SlotId);
+        if (errors.Count == 0 && !string.Equals(
+            ComputeAssignmentFingerprint(), AssignmentFingerprint, StringComparison.OrdinalIgnoreCase))
+            errors.Add("boardAssignmentSnapshot fingerprint does not match its exact frozen content");
         return errors;
+    }
+
+    private static bool IsValidSlotShape(WorldV2BoardSlotSnapshotOptions slot) =>
+        (slot.AreaId == "workshop" && slot.ComponentKind == "workshop" &&
+            slot.RoleId is "master" or "slave" && slot.ControlArea == "none") ||
+        (slot.AreaId == "decomposition" && slot.ComponentKind == "ore_parser" &&
+            slot.RoleId == "none" && slot.ControlArea == "none") ||
+        (slot.AreaId == "orders" && slot.ComponentKind == "skill" &&
+            slot.RoleId == "none" && slot.ControlArea is "Active" or "Passive") ||
+        (slot.AreaId == "production" && slot.ComponentKind == "production_device" &&
+            slot.RoleId == "none" && slot.ControlArea == "none");
+
+    private string ComputeAssignmentFingerprint()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("schemaVersion", SchemaVersion);
+            writer.WriteString("boardId", BoardId);
+            writer.WriteNumber("definitionVersion", DefinitionVersion);
+            writer.WritePropertyName("boardDefinition");
+            writer.WriteStartObject();
+            writer.WriteNumber("schemaVersion", BoardDefinition!.SchemaVersion);
+            writer.WriteString("boardId", BoardDefinition.BoardId);
+            writer.WriteNumber("definitionVersion", BoardDefinition.DefinitionVersion);
+            writer.WriteString("displayName", BoardDefinition.DisplayName);
+            writer.WritePropertyName("slots");
+            writer.WriteStartArray();
+            foreach (var slot in BoardDefinition.Slots)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("slotId", slot.SlotId);
+                writer.WriteString("areaId", slot.AreaId);
+                writer.WriteString("componentKind", slot.ComponentKind);
+                writer.WriteString("displayName", slot.DisplayName);
+                writer.WriteString("roleId", slot.RoleId);
+                writer.WriteString("controlArea", slot.ControlArea);
+                writer.WriteBoolean("required", slot.Required);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+            writer.WritePropertyName("assignments");
+            writer.WriteStartArray();
+            foreach (var entry in Assignments)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("slotId", entry.SlotId);
+                writer.WriteString("componentKind", entry.ComponentKind);
+                writer.WriteString("ownedInstanceId", entry.OwnedInstanceId);
+                writer.WriteString("definitionId", entry.DefinitionId);
+                writer.WriteNumber("definitionVersion", entry.DefinitionVersion);
+                writer.WriteNumber("sourceRevision", entry.SourceRevision);
+                if (entry.ComponentKind == "workshop")
+                    writer.WriteString("roleId", entry.RoleId);
+                if (entry.ComponentKind == "skill")
+                    writer.WriteString("controlArea", entry.ControlArea);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant();
     }
 }
 
 public sealed class WorldV2BoardDefinitionSnapshotOptions
 {
+    [JsonPropertyName("schemaVersion")] public int SchemaVersion { get; set; }
     [JsonPropertyName("boardId")] public string BoardId { get; set; } = "";
     [JsonPropertyName("definitionVersion")] public int DefinitionVersion { get; set; }
+    [JsonPropertyName("displayName")] public string DisplayName { get; set; } = "";
     [JsonPropertyName("slots")] public List<WorldV2BoardSlotSnapshotOptions> Slots { get; set; } = new();
 }
 
 public sealed class WorldV2BoardSlotSnapshotOptions
 {
     [JsonPropertyName("slotId")] public string SlotId { get; set; } = "";
+    [JsonPropertyName("areaId")] public string AreaId { get; set; } = "";
     [JsonPropertyName("componentKind")] public string ComponentKind { get; set; } = "";
+    [JsonPropertyName("displayName")] public string DisplayName { get; set; } = "";
+    [JsonPropertyName("roleId")] public string RoleId { get; set; } = "";
+    [JsonPropertyName("controlArea")] public string ControlArea { get; set; } = "";
     [JsonPropertyName("required")] public bool Required { get; set; }
-    [JsonPropertyName("roleId")] public string? RoleId { get; set; }
 }
 
 public sealed class WorldV2BoardAssignmentEntryOptions
@@ -306,4 +386,5 @@ public sealed class WorldV2BoardAssignmentEntryOptions
     [JsonPropertyName("definitionVersion")] public int DefinitionVersion { get; set; }
     [JsonPropertyName("sourceRevision")] public int SourceRevision { get; set; }
     [JsonPropertyName("roleId")] public string? RoleId { get; set; }
+    [JsonPropertyName("controlArea")] public string? ControlArea { get; set; }
 }
