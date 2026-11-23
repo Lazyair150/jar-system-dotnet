@@ -354,7 +354,6 @@ public static class WorldSnapshotFactory
         writer.Write(workshop != null);
         if (workshop == null) return;
 
-        writer.Write(workshop.EffectiveRuleProfile.Fingerprint);
         writer.Write(workshop.SolverModifiers.Count);
         foreach (var modifier in workshop.SolverModifiers)
         {
