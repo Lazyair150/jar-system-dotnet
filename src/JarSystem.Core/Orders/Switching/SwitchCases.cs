@@ -118,7 +118,7 @@ internal sealed class DifferentBansCase : ISwitchCase
                     {
                         var sourceJar = oldMaster.Jars
                             .FirstOrDefault(j => j.IsEmpty() && !j.IsMarked &&
-                                j.Shape != target &&
+                                !newMaster.BaseMarks.Contains(j.Shape) &&
                                 oldMaster.CanTransform(j.Shape, target));
                         if (sourceJar == null) break;
 
@@ -139,7 +139,7 @@ internal sealed class DifferentBansCase : ISwitchCase
                 {
                     var fullJar = oldMaster.Jars
                         .FirstOrDefault(j => j.IsFull() && !j.IsMarked &&
-                            j.Shape != target &&
+                            !newMaster.BaseMarks.Contains(j.Shape) &&
                             !oldMaster.IsBanned(j.Liquid!) &&
                             oldMaster.CanTransform(j.Shape, target));
                     if (fullJar == null) break;
@@ -159,7 +159,7 @@ internal sealed class DifferentBansCase : ISwitchCase
                 {
                     var emptySource = oldMaster.Jars
                         .FirstOrDefault(j => j.IsEmpty() && !j.IsMarked &&
-                            j.Shape != target &&
+                            !newMaster.BaseMarks.Contains(j.Shape) &&
                             oldMaster.CanTransform(j.Shape, target));
                     if (emptySource == null) break;
 
