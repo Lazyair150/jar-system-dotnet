@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -172,6 +173,14 @@ public sealed class WorldV2RuleContributionOptions
         if (!Enum.TryParse<RuleContributionEffect>(Effect, ignoreCase: false, out var parsed) ||
             !Enum.IsDefined(parsed))
             errors.Add("rule contribution effect is unsupported: " + Effect);
+        else if (parsed == RuleContributionEffect.RetimeProcess &&
+            (!Parameters.TryGetValue("ticksPerStep", out var ticksText) ||
+             !int.TryParse(ticksText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks) || ticks <= 0))
+            errors.Add("RetimeProcess requires a positive invariant ticksPerStep integer");
+        else if (parsed == RuleContributionEffect.ModifyIntensity &&
+            (!Parameters.TryGetValue("factorPerMille", out var factorText) ||
+             !int.TryParse(factorText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var factor) || factor < 0))
+            errors.Add("ModifyIntensity requires a non-negative invariant factorPerMille integer");
         if (Source == null) errors.Add("rule contribution source is required");
         else
         {
