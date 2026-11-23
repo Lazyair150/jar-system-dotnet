@@ -107,9 +107,9 @@ public sealed class WorldV2FactoryTests
             },
             Assignments = new List<WorldV2BoardAssignmentEntryOptions>
             {
-                new() { SlotId = "slot.master", ComponentKind = "workshop", RoleId = "master", OwnedInstanceId = "owned.master", DefinitionId = "workshop.master", DefinitionVersion = 1 },
-                new() { SlotId = "slot.slave", ComponentKind = "workshop", RoleId = "slave", OwnedInstanceId = "owned.slave", DefinitionId = "workshop.slave", DefinitionVersion = 1 },
-                new() { SlotId = "slot.parser", ComponentKind = "ore_parser", OwnedInstanceId = "owned.parser", DefinitionId = "parser.basic", DefinitionVersion = 1 }
+                new() { SlotId = "slot.master", ComponentKind = "workshop", RoleId = "master", OwnedInstanceId = "owned.master", DefinitionId = "workshop.master", DefinitionVersion = 1, SourceRevision = 1 },
+                new() { SlotId = "slot.slave", ComponentKind = "workshop", RoleId = "slave", OwnedInstanceId = "owned.slave", DefinitionId = "workshop.slave", DefinitionVersion = 1, SourceRevision = 1 },
+                new() { SlotId = "slot.parser", ComponentKind = "ore_parser", OwnedInstanceId = "owned.parser", DefinitionId = "parser.basic", DefinitionVersion = 1, SourceRevision = 1 }
             }
         };
         var profile = new WorldV2BoardRuleProfileOptions
