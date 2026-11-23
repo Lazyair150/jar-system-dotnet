@@ -44,7 +44,7 @@ public static class WorldOrderPartitionBClassOracle
         var snapshotSolver = new SnapshotProjectedSolver(
             _innerSolver, masterInfo, snapshot.Master, slaveInfo, snapshot.Slave);
         if (snapshotSolver is IWorkBudgetedSolver budgeted)
-            budgeted.BeginCheck(NodeBudget);
+            budgeted.BeginCheck(nodeBudget);
 
         var slaveSnapshot = snapshot.Slave;
         if (slaveSnapshot == null || slaveInfo == null)
