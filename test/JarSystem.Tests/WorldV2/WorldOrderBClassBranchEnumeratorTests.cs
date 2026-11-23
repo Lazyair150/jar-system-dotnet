@@ -297,7 +297,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             988, input.Master, input.Slave, input.World);
 
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.True(
+            result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible,
+            $"status={result.Status}; reason={result.Reason}; branches={result.ExploredBranches}; " +
+            $"nodes={result.ExploredNodes}; rejected={result.RejectedBranches}");
         Assert.Empty(result.Assembly!.CandidatePlan!.MasterSteps);
         Assert.Single(result.Assembly.CandidatePlan.SlaveSteps);
     }
