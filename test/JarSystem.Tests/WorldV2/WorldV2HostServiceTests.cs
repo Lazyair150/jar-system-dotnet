@@ -221,6 +221,9 @@ public sealed class WorldV2HostServiceTests
         // Checkpoint B：交接已提交、从台拥有订单液体。恢复不得再次泵送。
         var afterPump = application.CaptureExecutionResourceCheckpoint();
         var afterPumpSession = Assert.Single(afterPump.Sessions);
+        // The 1,000 ms advance completes exactly the transfer unit. No Slave step has run yet.
+        Assert.Equal(0, afterPumpSession.CompletedSlaveSteps);
+        Assert.Equal(2, afterPump.Admission.SlaveStaging!.Accounts[demandId]["酒"]);
         var transferJarIds = afterPumpSession.Manifest.TransferJarIds.ToHashSet();
         var slaveStepJarIds = afterPumpSession.Plan.SlaveSteps
             .Select(step => step.Before![step.Operation!.JarIndex!.Value].Id!.Value)
@@ -249,7 +252,7 @@ public sealed class WorldV2HostServiceTests
             Assert.Equal(WorldOrderExecutionStage.SlaveSteps, session.Stage);
             Assert.True(session.CaptureProgress().SlaveTransferCommitted);
             Assert.Equal(0, context.Admission.GetLiquidScopes(demandId)!.Value.Master.GetAmount("酒"));
-            Assert.Equal(1, context.Admission.GetLiquidScopes(demandId)!.Value.Slave!.GetAmount("酒"));
+            Assert.Equal(2, context.Admission.GetLiquidScopes(demandId)!.Value.Slave!.GetAmount("酒"));
             Assert.Equal(transferEventsBeforeOrder + 1,
                 context.ResourceLedger.For(ResourceCauses.Transfer).Count(item => item.Kind == ResourceKinds.Liquid));
             Assert.Equal(1, context.ShipLiquidInventory!.GetAmount("酒"));
