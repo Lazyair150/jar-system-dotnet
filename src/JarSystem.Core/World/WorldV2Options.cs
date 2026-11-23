@@ -251,6 +251,8 @@ public sealed class WorldV2Options
                     .ToArray();
                 foreach (var unsupported in unsupportedAssignments)
                     result.Errors.Add("当前 World V2 runtime projection does not support assigned Board component kind: " + unsupported.ComponentKind);
+                if (assignedComponents.Count(x => x.ComponentKind == "workshop") != 2)
+                    result.Errors.Add("当前 World V2 runtime projection requires exactly two assigned workshop slots");
                 if (assignedComponents.Count(x => x.ComponentKind == "ore_parser") != 1)
                     result.Errors.Add("当前 World V2 runtime projection requires exactly one assigned ore_parser slot");
                 foreach (var workshop in workshopOptions)
