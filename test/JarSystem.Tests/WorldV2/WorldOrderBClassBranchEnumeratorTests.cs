@@ -353,6 +353,49 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void ExplicitSlaveRejectDoesNotRejectLiquidInsideTransferredJar()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", "酒", id: 9901));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "方罐" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            990, input.Master, input.Slave, input.World,
+            slaveRejectedLiquids: new[] { "酒" });
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.Empty(result.Assembly!.CandidatePlan!.TransferLiquids);
+        var step = Assert.Single(result.Assembly.CandidatePlan.SlaveSteps);
+        Assert.Equal("RESHAPE", step.Operation!.Type);
+        Assert.True(step.Operation.FullReshape);
+        Assert.Equal("酒", step.Before![step.Operation.JarIndex!.Value].Liquid);
+    }
+
+    [Fact]
+    public void ExplicitSlaveRejectBlocksFreeLiquidBoundaryEvenWhenMasterHasSupply()
+    {
+        var master = new Workshop("主台", new List<string> { "方罐" });
+        var slave = new Workshop("从台", new List<string> { "方罐" });
+        master.AddJar(new Jar("方罐", id: 9911));
+        master.AddLiquid("酒", 1);
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "方罐", Liquid = "酒" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            991, input.Master, input.Slave, input.World,
+            slaveRejectedLiquids: new[] { "酒" });
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, result.Status);
+        Assert.Null(result.Assembly);
+    }
+
+    [Fact]
     public void BClassCannotReuseOnePhysicalJarForTwoRequirementIdentities()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
