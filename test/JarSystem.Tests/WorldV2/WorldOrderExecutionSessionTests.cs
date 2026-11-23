@@ -538,13 +538,18 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(slave.HasResources, "测试必须先越过 B 类全量转移边界");
         Assert.Equal(2, slave.LiquidStorage["酒"]);
 
-        // 先成功执行一个 POUR_IN，再让第二个 POUR_IN 因新禁令失败。
+        // 先成功执行一个 POUR_IN，再用操作级 Suppress 让第二个 POUR_IN 失败。
+        // 不能在仍有游离酒库存时施加 ban：ban 同时禁止存储，不能留下非法余额。
         runtime.AdvanceWorldTime(1_000);
         Assert.Equal(1, slave.Jars.Count(item => item.Liquid == "酒"));
         Assert.Equal(1, slave.LiquidStorage["酒"]);
 
-        slave.ReplaceCapability(new WorkshopCapability(
-            slave.BaseMarks, slave.AdditionalMarks, new[] { "酒" }));
+        using var suppressSecondPourIn = slave.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：第二次灌注被抑制"
+        });
         runtime.AdvanceWorldTime(1_000);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
@@ -610,9 +615,14 @@ public sealed class WorldOrderExecutionSessionTests
             runtime.AdvanceWorldTime(1_000);
         Assert.True(slave.HasResources, "必须先完成主从资源转移，触发第一次账本 tick");
 
-        // 第二次 tick 在失败结算开始前抛出。资源仍留在从台，归属结果不能再被当作普通失败。
-        slave.ReplaceCapability(new WorkshopCapability(
-            slave.BaseMarks, slave.AdditionalMarks, new[] { "酒" }));
+        // 操作级抑制使订单进入失败结算；第二次 tick 在结算前抛出。
+        // 用 Suppress 而不是临时 ban，避免把仍有库存的液体变成非法存储状态。
+        using var suppressPourIn = slave.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：灌注被抑制"
+        });
         Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
 
         Assert.True(runtime.IsFaulted);
