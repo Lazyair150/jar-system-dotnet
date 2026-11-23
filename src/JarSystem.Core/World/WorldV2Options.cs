@@ -247,6 +247,7 @@ public sealed class WorldV2Options
                 var workshopOptions = Workshops ?? new List<WorldV2WorkshopOptions>();
                 foreach (var workshop in workshopOptions)
                 {
+                    if (workshop == null) continue;
                     if (string.IsNullOrWhiteSpace(workshop.BoardSlotId) ||
                         !assignments.TryGetValue(workshop.BoardSlotId, out var assignment) ||
                         assignment.ComponentKind != "workshop")
@@ -261,8 +262,27 @@ public sealed class WorldV2Options
                         result.Errors.Add("World V2 主从工作台角色必须由 Board Slot roleId 决定: " + workshop.Name);
                 }
                 if (workshopOptions.Count != 2 ||
-                    workshopOptions.Select(x => x.BoardSlotId).Distinct(StringComparer.Ordinal).Count() != workshopOptions.Count)
+                    workshopOptions.Where(x => x != null).Select(x => x.BoardSlotId).Distinct(StringComparer.Ordinal).Count() != workshopOptions.Count)
                     result.Errors.Add("当前 World V2 runtime 仅接受两个不同的已分配 workshop Board Slot");
+
+                foreach (var contribution in BoardRuleProfile.Contributions.Where(x => x != null))
+                {
+                    if (!Enum.TryParse<RuleContributionEffect>(contribution.Effect, false, out var effect) ||
+                        !Enum.IsDefined(effect)) continue;
+                    if ((effect == RuleContributionEffect.GrantBaseMark || effect == RuleContributionEffect.GrantAdditionalMark) &&
+                        !shapeSet.Contains(contribution.Target))
+                        result.Errors.Add("Board rule contribution references an unknown shape: " + contribution.Target);
+                    if (effect == RuleContributionEffect.BanLiquid && !liquidSet.Contains(contribution.Target))
+                        result.Errors.Add("Board rule contribution references an unknown liquid: " + contribution.Target);
+                    if (effect == RuleContributionEffect.SuppressOperation)
+                    {
+                        var parameters = contribution.Parameters ?? new Dictionary<string, string>();
+                        if (parameters.TryGetValue("shape", out var shape) && !string.IsNullOrEmpty(shape) && !shapeSet.Contains(shape))
+                            result.Errors.Add("SuppressOperation references an unknown shape: " + shape);
+                        if (parameters.TryGetValue("liquid", out var liquid) && !string.IsNullOrEmpty(liquid) && !liquidSet.Contains(liquid))
+                            result.Errors.Add("SuppressOperation references an unknown liquid: " + liquid);
+                    }
+                }
             }
         }
         else if (BoardAssignmentSnapshot != null)
