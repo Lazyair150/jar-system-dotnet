@@ -82,10 +82,14 @@ public static class WorldOrderBClassBranchEnumerator
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
                 null, 0, 0, 0, "主从规则候选 Profile 与当前世界/订单规格不一致");
 
-        if (masterProfile.IsUndetermined || slaveProfile.IsUndetermined)
+        // Slave rules are required to decompose every B-class requirement. Master
+        // rules are only relevant if the selected Slave branch needs Master-side
+        // preparation; an opaque Master rule must not block a proof that uses no
+        // Master operation at all (Jar handoff itself is not an operation). 
+        if (slaveProfile.IsUndetermined)
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
                 null, 0, 0, 0,
-                masterProfile.Reason ?? slaveProfile.Reason ?? "主从规则候选 Profile 未能确定");
+                slaveProfile.Reason ?? "从台规则候选 Profile 未能确定");
         if (world.Slave.Jars.Count != 0 || world.Slave.Liquids.Values.Any(amount => amount != 0))
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, 0, 0, "B 类从台初始库存必须为空；从台不能用自有 Jar 或游离液体补订单");
@@ -163,6 +167,16 @@ public static class WorldOrderBClassBranchEnumerator
         foreach (var solution in orderedSolutions)
         {
             if (budgetExceeded || foundAssembly != null) break;
+            if (masterProfile.IsUndetermined &&
+                solution.Steps.Any(x => x.Candidate.ConsumedFreeLiquid != null))
+            {
+                // If the Slave branch consumes free liquid, an opaque Master rule
+                // profile may hide a legal Master preparation candidate. Unless a
+                // concrete branch succeeds without it, failure is inconclusive.
+                sawUndetermined = true;
+                lastReason = masterProfile.Reason ??
+                    "主台规则不透明，无法确定是否存在满足从台游离液体需求的准备操作";
+            }
             var masterNeeds = solution.Steps
                 .Where(x => x.WorkshopRole == "Master" && x.Candidate.ConsumedFreeLiquid != null)
                 .GroupBy(x => x.Candidate.ConsumedFreeLiquid!, StringComparer.Ordinal)
