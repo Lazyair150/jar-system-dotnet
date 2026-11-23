@@ -105,7 +105,7 @@ public sealed class WorldV2BoardRuleProfileOptions
         };
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload, JsonOptions));
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
             WriteCanonical(document.RootElement, writer);
         return Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant();
     }
@@ -308,7 +308,7 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
     public string ComputeCanonicalFingerprint()
     {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStartObject();
             writer.WriteNumber("schemaVersion", SchemaVersion);
