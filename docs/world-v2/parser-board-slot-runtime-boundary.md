@@ -85,7 +85,7 @@ Therefore:
 - parser contribution data must not be inserted into a workshop RuleContext;
 - if a future shared transport envelope carries multiple consumer scopes, each scope needs an explicit consumer and must be rejected until that consumer exists.
 
-The existing generic Space resolver currently walks every assigned component's authored `rule_contributions`. Its output is the Core-facing Board profile, so non-workshop contributions remain intentionally rejected by Core. Before parser contributions are authored for production, Space must split consumer-specific profiles or introduce a typed parser-runtime composition step. Do not broaden Core's workshop DTO to accept data it cannot execute.
+The Space Core-facing resolver now rejects authored contributions from Parser, Skill, and Production Device slots before loadout freeze, and rejects any resolved contribution whose scope is not `workshop`. It does not forward unsupported component scopes to Core. Before parser contributions are authored for production, Space must split consumer-specific profiles or introduce a typed parser-runtime composition step. Do not broaden Core's workshop DTO to accept data it cannot execute.
 
 ## 6. Multi-parser is a separate runtime feature
 
