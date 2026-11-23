@@ -67,7 +67,8 @@ public sealed class WorldV2BoardRuleProfileOptions
                 errors.Add("workshop-scoped contribution must originate from a workshop Board Slot: " + contribution.Source.SlotId);
             if (assignment.OwnedInstanceId != contribution.Source.SourceInstanceId ||
                 assignment.DefinitionId != contribution.Source.DefinitionId ||
-                assignment.DefinitionVersion != contribution.Source.DefinitionVersion)
+                assignment.DefinitionVersion != contribution.Source.DefinitionVersion ||
+                assignment.SourceRevision != contribution.Source.SourceRevision)
             {
                 errors.Add("rule contribution provenance differs from its exact Board Assignment: " + contribution.Source.SlotId);
             }
@@ -263,6 +264,7 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
             if (entry == null || string.IsNullOrWhiteSpace(entry.SlotId) ||
                 string.IsNullOrWhiteSpace(entry.OwnedInstanceId) ||
                 string.IsNullOrWhiteSpace(entry.DefinitionId) || entry.DefinitionVersion <= 0 ||
+                entry.SourceRevision <= 0 ||
                 !seenSlots.Add(entry.SlotId) || !seenInstances.Add(entry.OwnedInstanceId))
             {
                 errors.Add("board assignment contains invalid or duplicate slot/instance identity");
@@ -302,5 +304,6 @@ public sealed class WorldV2BoardAssignmentEntryOptions
     [JsonPropertyName("ownedInstanceId")] public string OwnedInstanceId { get; set; } = "";
     [JsonPropertyName("definitionId")] public string DefinitionId { get; set; } = "";
     [JsonPropertyName("definitionVersion")] public int DefinitionVersion { get; set; }
+    [JsonPropertyName("sourceRevision")] public int SourceRevision { get; set; }
     [JsonPropertyName("roleId")] public string? RoleId { get; set; }
 }
