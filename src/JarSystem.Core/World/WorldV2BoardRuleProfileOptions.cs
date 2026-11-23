@@ -90,7 +90,9 @@ public sealed class WorldV2BoardRuleProfileOptions
         if (errors.Count != 0)
             throw new ArgumentException("Invalid boardRuleProfile: " + string.Join("; ", errors));
         var contributions = Contributions.Select(x => x.ToDomain()).ToArray();
-        return EffectiveRuleProfile.Create(BoardId, BoardDefinitionVersion, 1, contributions);
+        return EffectiveRuleProfile.Create(
+            BoardId, BoardDefinitionVersion, 1, contributions,
+            AssignmentFingerprint, Fingerprint);
     }
 
     public string ComputeCanonicalFingerprint()
