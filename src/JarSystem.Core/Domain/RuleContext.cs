@@ -19,6 +19,7 @@ public sealed class RuleContext
     private readonly EffectiveRuleProfile? _effectiveProfile;
     private readonly string _ruleScope;
     private readonly string? _ruleSlotId;
+    private readonly HashSet<IRuleModifier> _profileModifiers;
 
     /// <summary>由基础能力构造（无修饰器：与改造前的规则判定逐项相同）。</summary>
     public static RuleContext From(WorkshopCapability capability) => new(capability, ModifierStack.Empty);
@@ -70,7 +71,7 @@ public sealed class RuleContext
         var stack = mutableStack
             ? ModifierStack.CreateSeeded(modifiers)
             : ModifierStack.CreateReadOnlySnapshot(modifiers);
-        return new RuleContext(capability, stack, profile, scope, sourceSlotId);
+        return new RuleContext(capability, stack, profile, scope, sourceSlotId, modifiers);
     }
 
     private static string Parameter(IReadOnlyDictionary<string, string> parameters, string key, string fallback) =>
@@ -82,13 +83,17 @@ public sealed class RuleContext
         ModifierStack stack,
         EffectiveRuleProfile? effectiveProfile = null,
         string ruleScope = "workshop",
-        string? ruleSlotId = null)
+        string? ruleSlotId = null,
+        IEnumerable<IRuleModifier>? profileModifiers = null)
     {
         _capability = capability;
         Stack = stack;
         _effectiveProfile = effectiveProfile;
         _ruleScope = ruleScope;
         _ruleSlotId = ruleSlotId;
+        _profileModifiers = new HashSet<IRuleModifier>(
+            profileModifiers ?? Array.Empty<IRuleModifier>(),
+            ReferenceEqualityComparer.Instance);
     }
 
     /// <summary>基础能力（只读；快照与对外投影仍读它）。</summary>
@@ -130,6 +135,41 @@ public sealed class RuleContext
     /// <summary>该操作现在是否被修饰器抑制（返回原因或 null）。</summary>
     public string? SuppressionReason(string? operation, string? shape, string? liquid) =>
         Stack.SuppressionReason(operation, shape, liquid);
+
+    /// <summary>
+    /// Rebuilds the captured profile with runtime modifiers added after the installed Board rules.
+    /// Installed profile modifiers are not duplicated or relabeled as temporary modifiers.
+    /// </summary>
+    public EffectiveRuleProfile? CaptureEffectiveProfile()
+    {
+        if (_effectiveProfile == null) return null;
+        var runtimeModifiers = Stack.CaptureEffectiveModifiers()
+            .Where(modifier => !_profileModifiers.Contains(modifier))
+            .ToArray();
+        if (runtimeModifiers.Length == 0) return _effectiveProfile;
+
+        var slotId = _ruleSlotId ??
+            _effectiveProfile.Contributions.FirstOrDefault()?.Source.SlotId ??
+            "runtime.workshop";
+        var source = new RuleContributionSource(
+            "runtime-modifier", "runtime.workshop", 1,
+            "runtime:" + slotId, 1, slotId);
+        var emptyCapability = new WorkshopCapability(
+            new List<string>(), new List<string>(), new List<string>());
+        var runtimeProfile = WorkshopRuleContributionAdapter.Build(
+            _effectiveProfile.BoardId,
+            _effectiveProfile.BoardDefinitionVersion,
+            _effectiveProfile.AssignmentRevision,
+            source,
+            emptyCapability,
+            ModifierStack.CreateReadOnlySnapshot(runtimeModifiers),
+            includeExecutionModifiers: false);
+        return EffectiveRuleProfile.Create(
+            _effectiveProfile.BoardId,
+            _effectiveProfile.BoardDefinitionVersion,
+            _effectiveProfile.AssignmentRevision,
+            _effectiveProfile.Contributions.Concat(runtimeProfile.Contributions));
+    }
 
     public bool HasUnresolvableRequirements() => Stack.HasUnresolvableRequirements() ||
         (_effectiveProfile?.Contributions.Any(x =>
