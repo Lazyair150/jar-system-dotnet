@@ -142,7 +142,27 @@ public static class WorldOrderBClassBranchEnumerator
         string? lastReason = null;
         WorldOrderConcretePlanAssemblyResult? foundAssembly = null;
 
-        foreach (var solution in symbolic.Solutions)
+        // A B-class order must actually use the Slave role. Among legal mixed-role
+        // assignments, prefer the greatest Slave participation first; Master remains
+        // available for requirements that cannot be satisfied at Slave. This preserves
+        // the one-way handoff as a real execution boundary instead of accepting a
+        // degenerate "B" plan that completes entirely on Master.
+        var orderedSolutions = symbolic.Solutions
+            .Select((solution, index) => (
+                Solution: solution,
+                Index: index,
+                SlaveRequirementCount: solution.Steps.Count(x => x.WorkshopRole == "Slave")))
+            .Where(x => x.SlaveRequirementCount > 0)
+            .OrderByDescending(x => x.SlaveRequirementCount)
+            .ThenBy(x => x.Index)
+            .Select(x => x.Solution)
+            .ToArray();
+        if (orderedSolutions.Length == 0)
+            return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
+                null, 0, exploredNodes, 0,
+                "B 类订单至少需要一项由从台执行的需求；主台不能独自完成 B 类订单");
+
+        foreach (var solution in orderedSolutions)
         {
             if (budgetExceeded || foundAssembly != null) break;
             var masterNeeds = solution.Steps
