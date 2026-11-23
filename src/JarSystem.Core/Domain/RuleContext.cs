@@ -21,7 +21,7 @@ public sealed class RuleContext
     /// <summary>由基础能力构造（无修饰器：与改造前的规则判定逐项相同）。</summary>
     public static RuleContext From(WorkshopCapability capability) => new(capability, ModifierStack.Empty);
 
-    /// <summary>Builds the same rule context from a frozen, declarative effective profile.</summary>
+    /// <summary>Builds a frozen rule context from contributions already filtered to their capture-time active window.</summary>
     public static RuleContext From(EffectiveRuleProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -38,7 +38,7 @@ public sealed class RuleContext
             switch (contribution.Effect)
             {
                 case RuleContributionEffect.GrantAdditionalMark:
-                    modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName", "grant"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Shape = contribution.Target, Window = ReadWindow(parameters) });
+                    modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName", "grant"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Shape = contribution.Target });
                     break;
                 case RuleContributionEffect.SuppressOperation:
                     modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName", "suppress"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation", "") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape", "") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid", "") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason", "此刻不得进行该操作"), Window = ReadWindow(parameters) });
@@ -59,13 +59,6 @@ public sealed class RuleContext
 
     private static string Parameter(IReadOnlyDictionary<string, string> parameters, string key, string fallback) =>
         parameters.TryGetValue(key, out var value) ? value : fallback;
-
-    private static (int From, int? To)? ReadWindow(IReadOnlyDictionary<string, string> parameters)
-    {
-        if (!parameters.TryGetValue("windowFrom", out var fromText) || !int.TryParse(fromText, out var from)) return null;
-        int? to = parameters.TryGetValue("windowTo", out var toText) && int.TryParse(toText, out var parsed) ? parsed : null;
-        return (from, to);
-    }
 
     /// <summary>由基础能力 + 修饰器栈构造。</summary>
     public RuleContext(WorkshopCapability capability, ModifierStack stack, EffectiveRuleProfile? effectiveProfile = null)
