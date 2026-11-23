@@ -415,11 +415,20 @@ public static class WorldOrderBClassBranchEnumerator
                 requirement.TargetLiquid,
                 requirement.Candidates.Where(Exists)))
             .ToArray();
-        var preparations = profile.PreparatoryOperations.Where(Exists).ToArray();
+        // A profile stores one rule candidate per Jar state, not one candidate per
+        // physical Jar. Expand each preparation candidate to the number of distinct
+        // unmarked physical Jars with that exact source state. Otherwise two identical
+        // full Jars could never both be selected as independent preparation resources.
+        var preparations = profile.PreparatoryOperations
+            .SelectMany(candidate => Enumerable.Repeat(
+                candidate,
+                available.GetValueOrDefault((candidate.SourceShape, candidate.SourceLiquid))))
+            .ToArray();
 
         if (requirements.Select((item, index) =>
                 item.Candidates.Count == profile.Requirements[index].Candidates.Count).All(x => x) &&
-            preparations.Length == profile.PreparatoryOperations.Count)
+            preparations.Length == profile.PreparatoryOperations.Count &&
+            preparations.SequenceEqual(profile.PreparatoryOperations))
             return profile;
 
         return new WorldOrderRuleCandidateProfile(
