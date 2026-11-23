@@ -104,6 +104,32 @@ public sealed class WorkshopReplacementTests
     }
 
     [Fact]
+    public void MasterReplacementTransfersFullJarEvenWhenTargetBansItsInternalLiquid()
+    {
+        var oldMaster = new Workshop("允许酒的旧主台",
+            new List<string> { "圆罐", "方罐" });
+        var newMaster = new Workshop("禁酒新主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        var slave = new Workshop("从台");
+        var jar = new Jar("圆罐", "酒", id: 781);
+        oldMaster.AddJar(jar);
+        var roster = new WorkshopRoster(new[] { oldMaster, newMaster, slave }, oldMaster, slave);
+        var process = new WorkshopReplacementProcess(
+            roster, WorkshopRole.Master, newMaster, new NoOrderInterruption(), 1_000);
+
+        Assert.True(process.Begin().Success);
+        process.AdvanceLogicalTime(1_000);
+        process.AdvanceLogicalTime(1_000);
+
+        Assert.True(process.Succeeded);
+        Assert.Same(jar, Assert.Single(newMaster.Jars));
+        Assert.Equal("酒", jar.Liquid);
+        Assert.True(newMaster.IsBanned("酒"));
+        Assert.False(newMaster.CanOperateJarLiquid("酒"));
+    }
+
+    [Fact]
     public void CancelAfterReshapeRestoresResourcesButDoesNotUndoInterruption()
     {
         var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" });
