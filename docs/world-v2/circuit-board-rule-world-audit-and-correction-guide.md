@@ -297,3 +297,37 @@ Rule Profile fingerprint 至少应覆盖：
 本次审查没有判定现有 Jar Core 应推倒重写。正确的路线是保留已经建立的规则评估、资源分账、符号求解、物理绑定、Admission/Lease/Execution/Settlement 边界，并把“可替换零件贡献 -> Effective Rule Profile -> Solver”这条缺失的主链补齐。
 
 **下一步实施优先级：先完成 Space 统一 Board Assignment，再建立 Core Rule Contribution Contract 和 Effective Rule Profile；然后让现有候选生成器从 Profile 取规则，逐步替换固定候选来源。** 在这条主链完成前，不能将系统描述为已经是可组合电路板规则世界。
+
+
+## 11. 第一轮实现进展（2026-11-24）
+
+### 已落地的 Core 主链切片
+- 新增 `RuleContribution` / `RuleContributionSource` / `RuleContributionParameter` 声明式契约，保留 RuleId/version、Effect、Target、Scope、Priority、来源 Definition/Source Instance/Revision/Slot 和规范化参数。
+- 新增不可变 `EffectiveRuleProfile`：按 Priority、Slot、RuleId、SourceInstance 确定性排序；拒绝重复贡献身份；对 Board 身份、Assignment revision、贡献来源和参数计算 SHA-256 fingerprint。
+- 新增 `WorkshopRuleContributionAdapter`，将现有 WorkshopCapability 的 BaseMark / AdditionalMark / Ban 与活跃 ModifierStack 声明式投影成 Rule Contributions。该适配器是迁移桥，不是最终任意零件 Definition catalog。
+- `RuleContext.From(EffectiveRuleProfile, scope)` 已能从 Profile 重建对应作用域的基础能力与 Suppress / Grant / Require / Retime / Intensity 修饰器。无法重建的 Require 仍然是 Undetermined；未支持的容量贡献保守返回无法判定。
+- `WorkshopSolveSnapshot` 现在冻结 EffectiveRuleProfile；`CreateRuleContext()` 通过 Profile 构造规则上下文；World RuleSet fingerprint 纳入 Profile fingerprint。现有 `WorldOrderRuleCandidateCatalog` 经 `WorkshopSolveSnapshot.CreateRuleContext()` 间接消费 EffectiveRuleProfile，而不是再从快照字段单独重建规则。
+- 静态求解 Profile 排除仅影响执行/生产的 Retime / Intensity；有效窗口在捕获时过滤，Profile 保存窗口来源元数据，冻结 RuleContext 不会在本地重新启动窗口时钟。
+
+### 已落地的 Space 装配主链切片
+- 新增 `SpaceHangarBoardAssignment`，Assignment entry 固定保存 slotId、componentKind、ownedInstanceId、exact definitionId/version。
+- 新增验证：槽位存在、元件类别匹配、Owned Instance 必须在玩家库存、Definition/version 精确匹配、同一实例不能重复安装、必需槽必须填充。
+- Assignment 快照包含 exact Board Definition 和规范化排序的 Assignment 数组，并计算独立 SHA-256 assignment fingerprint。
+- `SpaceHangarSelectionDraft` 现在将 Assignment Map 作为可安装组件的主数据源。原 parser/master/slave/device/skill 字段由 Assignment Map 重新生成，作为当前 Core runtime adapter 的兼容投影，不再由它们分别保存选择状态。
+- 现有 Parser、主/从工作台、生产设备、技能 picker 的选择事件已改为写入 Assignment Map；新增通用 `assign_instance` / `unassign_slot` / `get_assignment` API，并由 Controller 暴露。
+- Owned Loadout Assembler 冻结 Assignment snapshot，重新对照玩家 Owned Instance、exact Definition/version、角色槽和当前旧 runtime projection；Loadout fingerprint 因而包含安装身份。
+- `SpaceBattleLoadoutSnapshot` 验证 Board Assignment schema、required slots、slot-kind、重复身份、fingerprint，以及它与 `assemblyBoard` 的 Board Definition 版本一致性。
+- Board Definition 本身仍只定义槽位；玩家安装关系仍单独保存在 Assignment Map。
+
+### 当前仍未完成 / 不得误报
+- Space UI 仍保留专用 Parser/Master/Slave 控件布局；虽然这些事件已经写入统一 Assignment Map，但尚未完成完全由 Board Slot 数据动态生成的统一槽位面板与通用替换交互。
+- Space -> Core 仍未传输每个真实 Owned Instance 的精确 RuleContributionDefinition、Definition/version、progression revision 和 slot provenance。当前 Core 的 `WorkshopSolveSnapshot` 使用 `legacy.runtime` / `legacy-workshop-runtime` 合成来源身份，目的是先让既有工作台规则经统一 Profile 路径执行；不能将其误认为跨仓库 Owned Assignment 已贯通。
+- 当前 Core Profile Adapter 只把现有 WorkshopCapability / ModifierStack 迁移到贡献契约；尚未把所有类型的安装元件（Parser、Skill/Order、Production Device、World component）声明的规则合并成完整 Board Profile。
+- `WorldOrderRuleCandidateCatalog` 仍枚举固定四种基础 Jar 操作与 MATCH；这轮只是让它消费统一 Profile-backed RuleContext，尚未移除固定候选生成器。
+- A/B 订单岗位/资源阶段策略保留；它们仍是资源流和阶段约束，不应被误解为最终通用算子搜索。
+- 多 Parser、通用 Slot UI、Space-to-Core exact provenance、完全数据驱动的任意 Rule Contribution 候选枚举尚未完成。
+
+### 本轮验证状态
+- 新增 Core 测试：Profile canonical fingerprint、同 Definition 不同 Owned Instance、重复贡献身份拒绝、成长 revision 影响 fingerprint、Rule Scope 隔离、WorkshopCapability/ModifierStack 适配、opaque Require 保持 Undetermined。
+- 新增 Space authored Probe：Assignment exact instance、同 Definition 两份独立实例、重复 Owned Instance 拒绝、component kind 不匹配拒绝、Assignment 顺序规范化。
+- 测试与 Probe 代码已提交，但本轮没有执行 `dotnet test`、Godot 4.7.1 .NET、GDScript parse 或 runtime Probe。不能宣称运行通过。
