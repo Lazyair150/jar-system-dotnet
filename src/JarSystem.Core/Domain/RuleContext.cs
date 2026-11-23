@@ -32,13 +32,14 @@ public sealed class RuleContext
         var bans = profile.Find(RuleContributionEffect.BanLiquid).Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
         var capability = new WorkshopCapability(baseMarks, additionalMarks, bans);
         var modifiers = new List<IRuleModifier>();
-        foreach (var contribution in profile.Contributions.Where(x => x.Source.SourceKind == "temporary-modifier"))
+        foreach (var contribution in profile.Contributions)
         {
             var parameters = contribution.Parameters.ToDictionary(x => x.Name, x => x.Value, StringComparer.Ordinal);
             switch (contribution.Effect)
             {
                 case RuleContributionEffect.GrantAdditionalMark:
-                    modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName", "grant"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Shape = contribution.Target });
+                    if (contribution.Source.SourceKind == "temporary-modifier")
+                        modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName", "grant"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Shape = contribution.Target });
                     break;
                 case RuleContributionEffect.SuppressOperation:
                     modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName", "suppress"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation", "") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape", "") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid", "") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason", "此刻不得进行该操作") });
