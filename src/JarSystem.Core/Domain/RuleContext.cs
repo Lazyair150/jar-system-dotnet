@@ -169,7 +169,9 @@ public sealed class RuleContext
             _effectiveProfile.BoardId,
             _effectiveProfile.BoardDefinitionVersion,
             _effectiveProfile.AssignmentRevision,
-            _effectiveProfile.Contributions.Concat(runtimeProfile.Contributions));
+            _effectiveProfile.Contributions.Concat(runtimeProfile.Contributions),
+            _effectiveProfile.AssignmentFingerprint,
+            _effectiveProfile.SourceProfileFingerprint);
     }
 
     public bool HasUnresolvableRequirements() => Stack.HasUnresolvableRequirements() ||
