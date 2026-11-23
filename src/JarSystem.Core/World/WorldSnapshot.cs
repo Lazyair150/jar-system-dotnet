@@ -73,6 +73,8 @@ public sealed class WorkshopSolveSnapshot
     public IReadOnlyList<WorldRuleModifierSnapshot> SolverModifiers => _modifiers;
     /// <summary>Frozen declarative profile consumed by the solver's RuleContext adapter.</summary>
     public EffectiveRuleProfile EffectiveRuleProfile { get; }
+    /// <summary>Fingerprint of the installed Board profile before transient runtime modifiers are layered on top.</summary>
+    public string BoardRuleProfileFingerprint { get; }
     public string? RuleSlotId { get; }
 
     /// <summary>
@@ -89,6 +91,7 @@ public sealed class WorkshopSolveSnapshot
         LiquidStagingCapacity = workshop.LiquidStagingCapacity;
         Capability = workshop.Capability;
         RuleSlotId = workshop.Rules.RuleSlotId;
+        BoardRuleProfileFingerprint = workshop.Rules.EffectiveProfile?.Fingerprint ?? "";
 
         _jars = Array.AsReadOnly(workshop.Jars
             .Select(JarStateMapper.From)
@@ -321,7 +324,11 @@ public static class WorldSnapshotFactory
         writer.Write(workshop.MaxJars);
         writer.Write(workshop.MaxLiquids);
         writer.Write(workshop.LiquidStagingCapacity);
-        writer.Write(workshop.EffectiveRuleProfile.Fingerprint);
+        if (!string.IsNullOrEmpty(workshop.BoardRuleProfileFingerprint))
+        {
+            writer.Write("BoardRuleProfile.v1");
+            writer.Write(workshop.BoardRuleProfileFingerprint);
+        }
         WriteStrings(writer, workshop.Capability.BaseMarks);
         WriteStrings(writer, workshop.Capability.AdditionalMarks);
         WriteStrings(writer, workshop.Capability.Ban);
