@@ -201,6 +201,20 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, result.Status);
         Assert.Null(result.Assembly);
+
+        var emptyMaster = new Workshop("主台", new List<string> { "圆罐", "方罐" });
+        var fundedSlave = new Workshop("已有游离液体的从台", new List<string> { "圆罐", "方罐" });
+        emptyMaster.AddJar(new Jar("圆罐", id: 9803));
+        fundedSlave.AddLiquid("酒", 1);
+        var liquidInput = Profiles(emptyMaster, fundedSlave, new[]
+        {
+            new Requirement { Shape = "圆罐" }
+        });
+        var liquidResult = WorldOrderBClassBranchEnumerator.Enumerate(
+            981, liquidInput.Master, liquidInput.Slave, liquidInput.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, liquidResult.Status);
+        Assert.Null(liquidResult.Assembly);
     }
 
     [Fact]
