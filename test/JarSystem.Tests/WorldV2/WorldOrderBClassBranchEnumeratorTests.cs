@@ -294,6 +294,20 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         {
             new Requirement { Shape = "圆罐" }
         });
+        var match = Assert.Single(input.Slave.Requirements.Single().Candidates,
+            candidate => candidate.Operation == "MATCH");
+        var symbolic = WorldOrderSymbolicSolutionBuilder.Build(new[] { input.Slave });
+        var matchSolution = Assert.Single(symbolic.Solutions,
+            solution => solution.Steps.Single().Candidate.Operation == "MATCH");
+        var program = WorldOrderPreparatoryProgramBuilder.Build(
+            matchSolution, Array.Empty<WorldOrderPreparatoryOperationAssignment>(),
+            true, "Master", "Slave");
+        var binding = WorldOrderPhysicalJarBinder.Bind(program, input.World.Master!);
+        var directAssembly = WorldOrderConcretePlanAssembler.Assemble(
+            988, program, binding, input.World, input.Master, input.Slave);
+        Assert.True(directAssembly.IsFeasible,
+            "A Slave-only MATCH branch must not depend on opaque Master rules: " + directAssembly.Reason);
+
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             988, input.Master, input.Slave, input.World);
 
