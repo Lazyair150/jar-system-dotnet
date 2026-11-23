@@ -239,7 +239,7 @@ public sealed class WorldV2Options
         if (BoardRuleProfile != null)
         {
             result.Errors.AddRange(BoardRuleProfile.Validate(BoardAssignmentSnapshot));
-            if (BoardAssignmentSnapshot != null)
+            if (BoardAssignmentSnapshot != null && BoardAssignmentSnapshot.Assignments != null)
             {
                 var assignments = new Dictionary<string, WorldV2BoardAssignmentEntryOptions>(StringComparer.Ordinal);
                 foreach (var assignment in BoardAssignmentSnapshot.Assignments.Where(x => x != null))
@@ -264,6 +264,10 @@ public sealed class WorldV2Options
                     workshopOptions.Select(x => x.BoardSlotId).Distinct(StringComparer.Ordinal).Count() != workshopOptions.Count)
                     result.Errors.Add("当前 World V2 runtime 仅接受两个不同的已分配 workshop Board Slot");
             }
+        }
+        else if (BoardAssignmentSnapshot != null)
+        {
+            result.Errors.Add("boardAssignmentSnapshot requires boardRuleProfile");
         }
 
         return result;
