@@ -52,6 +52,16 @@ public sealed class ModifierStack : IIntensitySource
         return snapshot;
     }
 
+    /// <summary>Seeds a mutable workshop-owned stack with installed component rules.</summary>
+    public static ModifierStack CreateSeeded(IEnumerable<IRuleModifier> modifiers)
+    {
+        if (modifiers == null) throw new ArgumentNullException(nameof(modifiers));
+        var stack = new ModifierStack();
+        stack._active.AddRange(modifiers);
+        stack._revision = stack._active.Count == 0 ? 0 : 1;
+        return stack;
+    }
+
     /// <summary>当前活跃修饰器（只读视图，活视图；包含尚未到 From 的未来修饰器）。</summary>
     public IReadOnlyList<IRuleModifier> Active => _view;
 
