@@ -28,16 +28,9 @@ A checkpoint restore therefore reconstructs the configured producer topology and
 
 ## Space integration boundary
 
-The Space energy-stone parser may calculate a rate for each configured Jar shape and submit the complete table before advancing the Jar world for that same simulation interval. Jar remains responsible for its existing production accumulation, warehouse storage, warehouse-to-Master flow, and all downstream order rules.
+This API is for an external system that genuinely controls an existing time-driven Jar Producer. It is not the energy-stone parser ingress. The Space energy-stone path is a finite typed-input parser that owns pickup consumption and per-shape fractional progress; after it completes whole empty Jars, those Jars must enter Jar through a separate discrete produced-Jar import boundary. Do not reinterpret stone input or parser percentage as a dynamic time-based producer rate.
 
-The API deliberately does not define:
-
-- energy-stone types, size units, or conversion ratios;
-- percentage allocation among output shapes;
-- processor scheduling or stone depletion;
-- ship liquid production values or capacity values.
-
-Those are Space-side profile/runtime decisions. They must be settled and validated there before being passed through this generic producer interface.
+The API deliberately does not define energy-stone types, sizes, parser attributes, parser scheduling, stone depletion, or ship liquid production. Those are Space-side concerns and are not represented by this rate table.
 
 ## Regression coverage
 
