@@ -417,7 +417,8 @@ public sealed class WorldOrderSolverTests
                 Constants.OrderType.B, Words),
             0, new SequentialIdGenerator());
 
-        var result = Registry().Solve(demand, snapshot);
+        var result = new JarOrderSpecificationSolver(new StateSpaceSolver())
+            .SolvePartitionOracleForDifferentialTesting(demand, snapshot);
 
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
         Assert.NotNull(result.PartitionReport);
@@ -473,8 +474,6 @@ public sealed class WorldOrderSolverTests
         master.AddJar(new Jar("圆罐"));
         var slave = new Workshop("从台");
         var solver = new JarOrderSpecificationSolver(new StateSpaceSolver()) { NodeBudget = 1 };
-        var registry = new WorldOrderSolverRegistry(new[] { solver });
-
         var result = solver.SolvePartitionOracleForDifferentialTesting(
             Demand(Constants.OrderType.B), Snapshot(master, slave));
 
@@ -722,7 +721,8 @@ public sealed class WorldOrderSolverTests
                 }, Constants.OrderType.B, Words),
             0, new SequentialIdGenerator());
 
-        var result = Registry().Solve(demand, snapshot);
+        var result = new JarOrderSpecificationSolver(new StateSpaceSolver())
+            .SolvePartitionOracleForDifferentialTesting(demand, snapshot);
 
         Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
         Assert.Contains("主台订单液体路径及从台交接预留", result.Reason ?? string.Empty);
