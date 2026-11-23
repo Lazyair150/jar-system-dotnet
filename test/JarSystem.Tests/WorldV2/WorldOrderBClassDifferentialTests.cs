@@ -45,7 +45,7 @@ public sealed class WorldOrderBClassDifferentialTests
         var concrete = WorldOrderBClassBranchEnumerator.Enumerate(
             demand.Id, masterProfile, slaveProfile, world);
 
-        Assert.Equal(WorldOrderSolveStatus.Feasible, legacy.Status);
+        Assert.True(legacy.Status == WorldOrderSolveStatus.Feasible, legacy.Reason);
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, concrete.Status);
         Assert.NotNull(legacy.Plan);
         Assert.NotNull(concrete.Assembly);
