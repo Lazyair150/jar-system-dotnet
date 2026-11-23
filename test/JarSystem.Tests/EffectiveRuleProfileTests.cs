@@ -83,6 +83,32 @@ public sealed class EffectiveRuleProfileTests
     }
 
     [Fact]
+    public void CapturedRuntimeModifiersExtendRatherThanReplaceInstalledBoardProvenance()
+    {
+        var installed = Contribution("rule.installed-mark", "owned.workshop", "slot.master", 1);
+        var profile = EffectiveRuleProfile.Create("board.demo", 1, 1, [installed]);
+        var context = RuleContext.From(profile, "workshop", "slot.master", mutableStack: true);
+
+        using (context.Stack.Push(new SuppressModifier
+        {
+            Name = "temporary-ban-pour",
+            Source = "runtime-event",
+            Operation = "pour",
+            Reason = "event restriction"
+        }))
+        {
+            var captured = context.CaptureEffectiveProfile()!;
+            Assert.Contains(captured.Contributions, x =>
+                x.RuleId == "rule.installed-mark" &&
+                x.Source.SourceInstanceId == "owned.workshop" &&
+                x.Source.SlotId == "slot.master");
+            Assert.Contains(captured.Contributions, x =>
+                x.Effect == RuleContributionEffect.SuppressOperation &&
+                x.Source.SourceKind == "temporary-modifier");
+        }
+    }
+
+    [Fact]
     public void DuplicateContributionIdentityIsRejected()
     {
         var contribution = Contribution("rule.alpha", "instance.a", "slot.a", 1);
