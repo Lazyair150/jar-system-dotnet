@@ -111,9 +111,9 @@ public static class WorldOrderBClassBranchEnumerator
         var symbolic = reusable ?? WorldOrderSymbolicSolutionBuilder.Build(
             new[] { slave }, maxBranches, maxNodes);
 
-        if (symbolic.RuleSetVersion != master.RuleSetVersion ||
-            symbolic.WorkshopProfileVersion != master.WorkshopProfileVersion ||
-            symbolic.SpecificationVersion != master.SpecificationVersion ||
+        if (symbolic.RuleSetVersion != slave.RuleSetVersion ||
+            symbolic.WorkshopProfileVersion != slave.WorkshopProfileVersion ||
+            symbolic.SpecificationVersion != slave.SpecificationVersion ||
             symbolic.Solutions.Any(solution => solution.Steps.Any(step =>
                 step.WorkshopRole != "Master" && step.WorkshopRole != "Slave")))
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
@@ -127,7 +127,7 @@ public static class WorldOrderBClassBranchEnumerator
         if (symbolic.Status != WorldOrderSymbolicSolutionStatus.EnumerationComplete)
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, symbolic.ExploredNodes, 0,
-                symbolic.Reason ?? "主从两侧均没有完整的规则候选组合");
+                symbolic.Reason ?? "从台规则环境没有完整的订单需求候选组合");
 
         var effectiveSlaveRejects = new SortedSet<string>(
             world.Slave.Capability.Ban, StringComparer.Ordinal);
