@@ -152,7 +152,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             970, input.Master, input.Slave, input.World);
 
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.True(result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible, result.Reason);
         var plan = result.Assembly!.CandidatePlan!;
         Assert.Empty(plan.MasterSteps);
         Assert.Equal(new[] { 9701, 9702 }, plan.TransferJarIds.OrderBy(x => x));
