@@ -605,11 +605,19 @@ public sealed class WorldV2ApplicationServiceTests
         var app = new WorldV2ApplicationService(host);
         app.CreateOrReplaceWorld(Options());
 
+        var beforeSnapshot = app.GetWorldSnapshot();
+        var beforeLedger = app.GetResourceLedger();
+
         Assert.Throws<DomainValidationException>(() =>
             app.ImportProducedJars("stone-batch-invalid",
                 new Dictionary<string, int> { ["未知罐"] = 1 }));
-        Assert.Empty(app.GetWorldSnapshot().ResourceJars);
-        Assert.Empty(app.GetResourceLedger().Events);
+
+        var afterSnapshot = app.GetWorldSnapshot();
+        var afterLedger = app.GetResourceLedger();
+        Assert.Equal(beforeSnapshot.ResourceJars, afterSnapshot.ResourceJars);
+        Assert.Equal(beforeLedger.LastSeq, afterLedger.LastSeq);
+        Assert.Equal(beforeLedger.Dropped, afterLedger.Dropped);
+        Assert.Equal(beforeLedger.Events, afterLedger.Events);
     }
 
 
