@@ -169,7 +169,9 @@ public sealed class WorldOrderExecutionAdmission
         WorldOrderResourceManifest manifest;
         try
         {
-            manifest = WorldOrderResourceManifest.Create(result, snapshot);
+            manifest = result.ResourceReplay is { IsComplete: true } replay
+                ? WorldOrderResourceManifest.CreateWithReplay(result, snapshot, replay)
+                : WorldOrderResourceManifest.Create(result, snapshot);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or OverflowException)
         {
