@@ -44,9 +44,10 @@ public sealed class WorldOrderBClassBranchEnumerationResult
 }
 
 /// <summary>
-/// Enumerates mixed Master/Slave candidate assignments, independent preparation Jars,
-/// and both role-local staging schedules. Every selected Jar originates in the initial
-/// Master inventory, crosses at most one atomic handoff, and is operated at most once.
+/// Enumerates the order's requirements exclusively in the Slave rule environment,
+/// while the Master may prepare only the free-liquid resources demanded by the Slave
+/// boundary. Slave-local preparation is also allowed. Every selected Jar originates
+/// in the initial Master inventory, crosses at most one atomic handoff, and is operated at most once.
 /// </summary>
 public static class WorldOrderBClassBranchEnumerator
 {
@@ -93,19 +94,22 @@ public static class WorldOrderBClassBranchEnumerator
         // rules, not a second source inventory. Filter both profiles against Master IDs.
         var master = FilterToAvailablePhysicalJarStates(masterProfile, world.Master);
         var slave = FilterToAvailablePhysicalJarStates(slaveProfile, world.Master);
-        if (master.Requirements.Count != slave.Requirements.Count ||
-            master.Requirements.Select((item, index) =>
-                item.RequirementIndex != slave.Requirements[index].RequirementIndex ||
-                item.Candidates.Count == 0 && slave.Requirements[index].Candidates.Count == 0).Any(x => x))
+        if (slave.Requirements.Count != masterProfile.Requirements.Count ||
+            slave.Requirements.Select((item, index) =>
+                item.RequirementIndex != masterProfile.Requirements[index].RequirementIndex ||
+                item.Candidates.Count == 0).Any(x => x))
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
-                null, 0, 0, 0, "至少一项订单需求在主从两侧都没有可绑定的物理 Jar 初态");
+                null, 0, 0, 0, "从台规则环境无法为每项订单需求找到可绑定的物理 Jar 初态");
 
-        var reusable = ReferenceEquals(master, masterProfile) &&
-                       ReferenceEquals(slave, slaveProfile)
+        // The demand branch is built from Slave rules only. Master requirements are
+        // deliberately not merged into this set: Master is a boundary-resource provider,
+        // not a second requirement-solving role. Reuse is valid when physical filtering
+        // leaves the Slave profile object unchanged.
+        var reusable = ReferenceEquals(slave, slaveProfile)
             ? precomputedSolutions
             : null;
         var symbolic = reusable ?? WorldOrderSymbolicSolutionBuilder.Build(
-            new[] { master, slave }, maxBranches, maxNodes);
+            new[] { slave }, maxBranches, maxNodes);
 
         if (symbolic.RuleSetVersion != master.RuleSetVersion ||
             symbolic.WorkshopProfileVersion != master.WorkshopProfileVersion ||
@@ -142,26 +146,16 @@ public static class WorldOrderBClassBranchEnumerator
         string? lastReason = null;
         WorldOrderConcretePlanAssemblyResult? foundAssembly = null;
 
-        // A B-class order must actually use the Slave role. Among legal mixed-role
-        // assignments, prefer the greatest Slave participation first; Master remains
-        // available for requirements that cannot be satisfied at Slave. This preserves
-        // the one-way handoff as a real execution boundary instead of accepting a
-        // degenerate "B" plan that completes entirely on Master.
+        // Every symbolic requirement step must belong to Slave. This is a defensive
+        // assertion at the boundary: the Master profile contributes only preparation
+        // operations used to satisfy the Slave's projected free-liquid requirements.
         var orderedSolutions = symbolic.Solutions
-            .Select((solution, index) => (
-                Solution: solution,
-                Index: index,
-                SlaveRequirementCount: solution.Steps.Count(x => x.WorkshopRole == "Slave")))
-            .Where(x => x.SlaveRequirementCount > 0)
-            .OrderByDescending(x => x.SlaveRequirementCount)
-            .ThenBy(x => x.Index)
-            .Select(x => x.Solution)
+            .Where(solution => solution.Steps.All(x => x.WorkshopRole == "Slave"))
             .ToArray();
         if (orderedSolutions.Length == 0)
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, exploredNodes, 0,
-                "B 类订单至少需要一项由从台执行的需求；主台不能独自完成 B 类订单");
-
+                "从台规则环境没有可执行的完整订单需求分支");
         foreach (var solution in orderedSolutions)
         {
             if (budgetExceeded || foundAssembly != null) break;
