@@ -71,6 +71,8 @@ public sealed class WorkshopSolveSnapshot
     public IReadOnlyList<WorldJarState> Jars => _jars;
     public IReadOnlyDictionary<string, int> Liquids => _liquids;
     public IReadOnlyList<WorldRuleModifierSnapshot> SolverModifiers => _modifiers;
+    /// <summary>Frozen declarative profile consumed by the solver's RuleContext adapter.</summary>
+    public EffectiveRuleProfile EffectiveRuleProfile { get; }
 
     /// <summary>
     /// true 表示存在求解器不能静态投影的规则（例如带任意委托的 Require）。
@@ -122,6 +124,12 @@ public sealed class WorkshopSolveSnapshot
 
         _modifiers = Array.AsReadOnly(modifiers.ToArray());
         HasOpaqueSolverRules = _modifiers.Any(x => x.IsOpaque);
+        var staticModifiers = ModifierStack.CreateReadOnlySnapshot(workshop.Rules.Stack.CaptureEffectiveModifiers()
+            .Where(modifier => modifier is not RetimeModifier and not IntensityModifier));
+        var source = new RuleContributionSource(
+            "legacy-workshop-runtime", "legacy.workshop", 1, workshop.Name, 1, workshop.Name);
+        EffectiveRuleProfile = WorkshopRuleContributionAdapter.Build(
+            "legacy.runtime", 1, 1, source, Capability, staticModifiers);
     }
 
     /// <summary>每次返回独立的可变求解器输入，防止求解器修改共享快照。</summary>
@@ -140,6 +148,10 @@ public sealed class WorkshopSolveSnapshot
         if (HasOpaqueSolverRules)
             throw new InvalidOperationException("工作台快照包含不可静态重建的规则");
 
+        return RuleContext.From(EffectiveRuleProfile);
+
+        // Kept below temporarily as a differential reference while the profile adapter
+        // replaces the former snapshot-specific reconstruction path.
         var modifiers = new List<IRuleModifier>(_modifiers.Count);
         foreach (var modifier in _modifiers)
         {
@@ -182,7 +194,7 @@ public sealed class WorkshopSolveSnapshot
     public WorkshopInfo CreateWorkshopInfo() => new()
     {
         Capability = Capability,
-        Rules = HasOpaqueSolverRules ? RuleContext.From(Capability) : CreateRuleContext(),
+        Rules = RuleContext.From(EffectiveRuleProfile),
         MaxJars = MaxJars,
         MaxLiquids = MaxLiquids,
         MaxLiquidCapacity = LiquidStagingCapacity
