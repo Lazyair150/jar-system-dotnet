@@ -286,23 +286,26 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
         foreach (var slot in BoardDefinition.Slots)
             if (slot.Required && !seenSlots.Contains(slot.SlotId))
                 errors.Add("required Board Slot is not assigned: " + slot.SlotId);
+        if (Assignments.Select(x => x.SlotId).SequenceEqual(
+            Assignments.Select(x => x.SlotId).OrderBy(x => x, StringComparer.Ordinal)) == false)
+            errors.Add("boardAssignmentSnapshot assignments must be ordered by stable slotId");
         if (errors.Count == 0 && !string.Equals(
-            ComputeAssignmentFingerprint(), AssignmentFingerprint, StringComparison.OrdinalIgnoreCase))
+            ComputeCanonicalFingerprint(), AssignmentFingerprint, StringComparison.OrdinalIgnoreCase))
             errors.Add("boardAssignmentSnapshot fingerprint does not match its exact frozen content");
         return errors;
     }
 
     private static bool IsValidSlotShape(WorldV2BoardSlotSnapshotOptions slot) =>
         (slot.AreaId == "workshop" && slot.ComponentKind == "workshop" &&
-            slot.RoleId is "master" or "slave" && slot.ControlArea == "none") ||
+            (slot.RoleId == "master" || slot.RoleId == "slave") && slot.ControlArea == "none") ||
         (slot.AreaId == "decomposition" && slot.ComponentKind == "ore_parser" &&
             slot.RoleId == "none" && slot.ControlArea == "none") ||
         (slot.AreaId == "orders" && slot.ComponentKind == "skill" &&
-            slot.RoleId == "none" && slot.ControlArea is "Active" or "Passive") ||
+            slot.RoleId == "none" && (slot.ControlArea == "Active" || slot.ControlArea == "Passive")) ||
         (slot.AreaId == "production" && slot.ComponentKind == "production_device" &&
             slot.RoleId == "none" && slot.ControlArea == "none");
 
-    private string ComputeAssignmentFingerprint()
+    public string ComputeCanonicalFingerprint()
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
