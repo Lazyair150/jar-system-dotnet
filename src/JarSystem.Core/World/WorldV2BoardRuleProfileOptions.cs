@@ -192,6 +192,27 @@ public sealed class WorldV2RuleContributionOptions
         }
         if (Parameters == null || Parameters.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value == null))
             errors.Add("rule contribution parameters must be canonical scalar strings");
+        else if (Enum.TryParse<RuleContributionEffect>(Effect, ignoreCase: false, out parsed) && Enum.IsDefined(parsed))
+        {
+            var allowed = parsed switch
+            {
+                RuleContributionEffect.SuppressOperation => new[] { "modifierName", "modifierSource", "operation", "shape", "liquid", "reason" },
+                RuleContributionEffect.RetimeProcess => new[] { "modifierName", "modifierSource", "ticksPerStep" },
+                RuleContributionEffect.ModifyIntensity => new[] { "modifierName", "modifierSource", "factorPerMille" },
+                RuleContributionEffect.RequireCondition or RuleContributionEffect.ModifyCapacity => Parameters.Keys.ToArray(),
+                _ => Array.Empty<string>()
+            };
+            foreach (var key in Parameters.Keys)
+                if (!allowed.Contains(key, StringComparer.Ordinal))
+                    errors.Add("rule contribution contains an unsupported parameter for " + Effect + ": " + key);
+            if (parsed is RuleContributionEffect.GrantBaseMark or RuleContributionEffect.GrantAdditionalMark or RuleContributionEffect.BanLiquid &&
+                Parameters.Count != 0)
+                errors.Add(Effect + " does not accept parameters in this Core contract");
+            if (parsed == RuleContributionEffect.SuppressOperation &&
+                !new[] { "operation", "shape", "liquid" }.Any(key =>
+                    Parameters.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)))
+                errors.Add("SuppressOperation must identify an operation, shape or liquid target");
+        }
         return errors;
     }
 
