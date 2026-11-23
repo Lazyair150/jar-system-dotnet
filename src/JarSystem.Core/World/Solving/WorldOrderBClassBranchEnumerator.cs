@@ -105,7 +105,11 @@ public static class WorldOrderBClassBranchEnumerator
         // deliberately not merged into this set: Master is a boundary-resource provider,
         // not a second requirement-solving role. Reuse is valid when physical filtering
         // leaves the Slave profile object unchanged.
-        var reusable = ReferenceEquals(slave, slaveProfile)
+        // Physical filtering may expand preparation candidates by Jar multiplicity.
+        // The symbolic requirement set is still reusable when every requirement and its
+        // ordered candidate list is unchanged; preparation multiplicity is not part of
+        // the requirement Cartesian product.
+        var reusable = SameRequirements(slave.Requirements, slaveProfile.Requirements)
             ? precomputedSolutions
             : null;
         var symbolic = reusable ?? WorldOrderSymbolicSolutionBuilder.Build(
@@ -394,6 +398,24 @@ public static class WorldOrderBClassBranchEnumerator
             exploredNodes++;
             return true;
         }
+    }
+
+    private static bool SameRequirements(
+        IReadOnlyList<WorldOrderRequirementCandidates> left,
+        IReadOnlyList<WorldOrderRequirementCandidates> right)
+    {
+        if (left.Count != right.Count) return false;
+        for (var index = 0; index < left.Count; index++)
+        {
+            var a = left[index];
+            var b = right[index];
+            if (a.RequirementIndex != b.RequirementIndex ||
+                !string.Equals(a.TargetShape, b.TargetShape, StringComparison.Ordinal) ||
+                !string.Equals(a.TargetLiquid, b.TargetLiquid, StringComparison.Ordinal) ||
+                !a.Candidates.SequenceEqual(b.Candidates))
+                return false;
+        }
+        return true;
     }
 
     private static WorldOrderRuleCandidateProfile FilterToAvailablePhysicalJarStates(
