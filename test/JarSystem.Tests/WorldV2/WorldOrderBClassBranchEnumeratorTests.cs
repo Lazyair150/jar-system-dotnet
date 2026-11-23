@@ -209,7 +209,9 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
         var plan = result.Assembly!.CandidatePlan!;
-        Assert.Equal(4, plan.TransferJarIds.Count);
+        // Master preparation Jars stay on Master after producing staging liquid;
+        // only the two Slave-operated requirement Jars cross the one-way handoff.
+        Assert.Equal(2, plan.TransferJarIds.Count);
         Assert.Equal(2, plan.TransferLiquids.GetValueOrDefault("酒"));
         Assert.Equal(2, plan.MasterSteps.Count);
         Assert.Equal(2, plan.SlaveSteps.Count);
