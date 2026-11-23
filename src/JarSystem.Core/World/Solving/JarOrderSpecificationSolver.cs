@@ -36,6 +36,15 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
         WorldOrderRuleCandidateBook candidateBook) =>
         SolveCore(demand, snapshot, candidateBook);
 
+    /// <summary>
+    /// Runs the retained legacy B-class PartitionSearch path for differential tests only.
+    /// Production Solve() always uses the concrete 9l branch enumerator.
+    /// </summary>
+    public WorldOrderSolveResult SolvePartitionOracleForDifferentialTesting(
+        OrderDemand demand,
+        WorldSnapshot snapshot) =>
+        WorldOrderPartitionBClassOracle.Solve(demand, snapshot, _innerSolver, NodeBudget);
+
     private WorldOrderSolveResult SolveCore(
         OrderDemand demand,
         WorldSnapshot snapshot,
@@ -80,47 +89,45 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
                 enumeration.Reason ?? "A 类具体规则分支没有得到确定结论");
         }
 
-        // PartitionSearch remains the B-class differential oracle until the full B-class
-        // concrete branch enumerator and entry-point parity suite are complete.
-        var snapshotSolver = new SnapshotProjectedSolver(
-            _innerSolver, masterInfo, snapshot.Master, slaveInfo, snapshot.Slave);
-        if (snapshotSolver is IWorkBudgetedSolver budgeted)
-            budgeted.BeginCheck(NodeBudget);
-
-        var slaveSnapshot = snapshot.Slave;
-        if (slaveSnapshot == null || slaveInfo == null)
+        if (snapshot.Slave == null)
             return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
                 reason: "B 类订单需要主台和从台两个岗位");
-
-        if (slaveSnapshot.Jars.Count != 0 || slaveSnapshot.Liquids.Values.Any(amount => amount != 0))
+        if (snapshot.Slave.Jars.Count != 0 ||
+            snapshot.Slave.Liquids.Values.Any(amount => amount != 0))
             return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
                 reason: "B 类订单开始求解时，从台必须为空");
 
-        var partition = new PartitionSearch(snapshotSolver);
-        var outcome = partition.Search(new PartitionSearchRequest
-        {
-            Requirements = requirements,
-            MasterInfo = masterInfo,
-            SlaveInfo = slaveInfo,
-            MasterJars = snapshot.Master.CreateSolverJars(),
-            MasterLiquids = CreateMasterSupplyLiquids(snapshot)
-        }, out var blockage, out var inconclusiveReason, out var partitionReport);
+        var masterProfile = candidateBook?.GetOrBuild(
+                snapshot, snapshot.Master, "Master", specification)
+            ?? WorldOrderRuleCandidateCatalog.Build(
+                snapshot, snapshot.Master, "Master", specification);
+        var slaveProfile = candidateBook?.GetOrBuild(
+                snapshot, snapshot.Slave, "Slave", specification)
+            ?? WorldOrderRuleCandidateCatalog.Build(
+                snapshot, snapshot.Slave, "Slave", specification);
+        var maxNodes = Math.Max(1, NodeBudget);
+        var precomputedSolutions = candidateBook?.GetOrBuildSolutions(
+            new[] { masterProfile, slaveProfile },
+            maxSolutions: 256,
+            maxNodes: maxNodes);
+        var enumeration = WorldOrderBClassBranchEnumerator.Enumerate(
+            demand.Id, masterProfile, slaveProfile, snapshot,
+            maxBranches: 256,
+            maxNodes: maxNodes,
+            precomputedSolutions: precomputedSolutions);
 
-        if (snapshotSolver.BudgetExceeded || inconclusiveReason != null)
-            return Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
-                "partition", inconclusiveReason ?? snapshotSolver.InconclusiveReason ?? "分析超出预算",
-                partitionReport: partitionReport);
+        if (enumeration.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
+            return enumeration.Assembly?.SolveResult
+                ?? Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
+                    "9l_concrete_b", "B 类分支报告可行但未返回具体计划");
 
-        if (outcome == null)
-            return Result(demand, snapshot, WorldOrderSolveStatus.Infeasible,
-                "partition", blockage ?? "没有找到可行的主从需求划分",
-                partitionReport: partitionReport);
+        return Result(demand, snapshot,
+            enumeration.Status == WorldOrderBClassBranchEnumerationStatus.Infeasible
+                ? WorldOrderSolveStatus.Infeasible
+                : WorldOrderSolveStatus.Undetermined,
+            "9l_concrete_b",
+            enumeration.Reason ?? "B 类具体规则分支没有得到确定结论");
 
-        return Result(demand, snapshot, WorldOrderSolveStatus.Feasible,
-            "partition", directCount: outcome.DirectCount,
-            operationCount: outcome.OperationCount,
-            plan: WorldOrderSolvePlan.Partitioned(outcome),
-            partitionReport: partitionReport);
     }
 
     private static Dictionary<string, int> CreateMasterSupplyLiquids(WorldSnapshot snapshot)
@@ -150,79 +157,5 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
                 ? WorldOrderRuleCandidateCatalog.Fingerprint(specification)
                 : string.Empty);
 
-    /// <summary>
-    /// 把快照中的静态修饰器投影到一次求解输入。
-    /// 规则无法精确表达时中止为未判定；绝不忽略规则后给出错误的可行/不可行结论。
-    /// </summary>
-    private sealed class SnapshotProjectedSolver : ISolver, IWorkBudgetedSolver
-    {
-        private readonly ISolver _inner;
-        private readonly WorkshopInfo _masterInfo;
-        private readonly WorkshopSolveSnapshot _master;
-        private readonly WorkshopInfo? _slaveInfo;
-        private readonly WorkshopSolveSnapshot? _slave;
-        private string? _inconclusive;
 
-        public SnapshotProjectedSolver(
-            ISolver inner,
-            WorkshopInfo masterInfo,
-            WorkshopSolveSnapshot master,
-            WorkshopInfo? slaveInfo,
-            WorkshopSolveSnapshot? slave)
-        {
-            _inner = inner;
-            _masterInfo = masterInfo;
-            _master = master;
-            _slaveInfo = slaveInfo;
-            _slave = slave;
-        }
-
-        public bool BudgetExceeded =>
-            _inconclusive != null || (_inner as IWorkBudgetedSolver)?.BudgetExceeded == true;
-
-        public string? InconclusiveReason =>
-            _inconclusive ?? (_inner as IWorkBudgetedSolver)?.InconclusiveReason;
-
-        public void BeginCheck(int nodeBudget)
-        {
-            _inconclusive = null;
-            (_inner as IWorkBudgetedSolver)?.BeginCheck(nodeBudget);
-        }
-
-        public SolverResult Solve(
-            List<Requirement> requirements,
-            WorkshopInfo workshopInfo,
-            List<JarState> jars,
-            Dictionary<string, int> liquids,
-            int transferBudget = int.MaxValue)
-        {
-            WorkshopSolveSnapshot? source;
-            if (ReferenceEquals(workshopInfo, _masterInfo))
-                source = _master;
-            else if (_slaveInfo != null && ReferenceEquals(workshopInfo, _slaveInfo))
-                source = _slave;
-            else
-            {
-                _inconclusive = "求解请求没有对应的世界快照工作台";
-                return new SolverResult { Feasible = false };
-            }
-
-            if (source == null)
-            {
-                _inconclusive = "求解请求对应的工作台快照不存在";
-                return new SolverResult { Feasible = false };
-            }
-
-            if (source.HasOpaqueSolverRules)
-            {
-                _inconclusive = "工作台包含无法静态投影的规则";
-                return new SolverResult { Feasible = false };
-            }
-
-            // WorkshopSolveSnapshot 已经重建出只读 RuleContext。
-            // 规则在规则引擎内精确求值，不再被压扁成 Ban/AdditionalMarks，
-            // 更不能把“禁止某形状操作”错误地解释成“删除该形状的 Jar”。
-            return _inner.Solve(requirements, workshopInfo, jars, liquids, transferBudget);
-        }
-    }
 }
