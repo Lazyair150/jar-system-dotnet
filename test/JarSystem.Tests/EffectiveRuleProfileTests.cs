@@ -52,6 +52,37 @@ public sealed class EffectiveRuleProfileTests
     }
 
     [Fact]
+    public void RuleContextProjectsOnlyTheRequestedBoardSlotAndCanSeedRuntimeModifiers()
+    {
+        var masterMark = Contribution("rule.master-mark", "owned.master", "slot.master", 1);
+        var slaveBan = Contribution("rule.slave-ban", "owned.slave", "slot.slave", 1) with
+        {
+            Effect = RuleContributionEffect.BanLiquid,
+            Target = "酒"
+        };
+        var profile = EffectiveRuleProfile.Create("board.demo", 1, 1, [masterMark, slaveBan]);
+
+        var master = RuleContext.From(profile, "workshop", "slot.master", mutableStack: true);
+        var slave = RuleContext.From(profile, "workshop", "slot.slave", mutableStack: true);
+
+        Assert.True(master.IsAdditionalMarked("circle"));
+        Assert.False(master.IsBanned("酒"));
+        Assert.False(slave.IsAdditionalMarked("circle"));
+        Assert.True(slave.IsBanned("酒"));
+
+        using (master.Stack.Push(new SuppressModifier
+        {
+            Name = "runtime-suppress",
+            Operation = "pour",
+            Reason = "暂时禁止"
+        }))
+        {
+            Assert.Equal("暂时禁止", master.SuppressionReason("pour", null, null));
+        }
+        Assert.Null(master.SuppressionReason("pour", null, null));
+    }
+
+    [Fact]
     public void DuplicateContributionIdentityIsRejected()
     {
         var contribution = Contribution("rule.alpha", "instance.a", "slot.a", 1);
