@@ -43,3 +43,12 @@ Budget exhaustion and opaque rule input produce `Undetermined`; they are never c
 - Add differential tests comparing this concrete enumerator with `PartitionSearch` over targeted and generated small worlds.
 - Prove parity for Master/Slave assignment, Jar transfer IDs, staging balances, capacity peaks, and reject/ban cases.
 - Only then route B-class entry-point solving through this enumerator. Until then, the existing solver registry path remains unchanged.
+
+
+## 9l B-class production entry point
+
+The B-class branch enumerator is now wired into `JarOrderSpecificationSolver.Solve`. Production B-class solving follows the same concrete proof chain as A-class: Master/Slave rule profiles → mixed-role symbolic branches → physical Jar binding from the initial Master inventory → role-local operation ordering → one atomic Master→Slave handoff → ordered staging replay → concrete step materialization → immutable plan and Manifest validation.
+
+The former `PartitionSearch` path is extracted as `WorldOrderPartitionBClassOracle`. It is callable only through the explicitly named `SolvePartitionOracleForDifferentialTesting` adapter method and is no longer the production decision path. Differential tests must compare the concrete enumerator/entry point against this oracle only for overlapping semantics; new preparation and staging-order behavior is tested directly.
+
+Entry-point results use `9l_concrete_plan` for a successfully assembled plan and `9l_concrete_b` for an enumeration-level Infeasible/Undetermined result. Search-budget exhaustion remains Undetermined. A B-class world with no Slave role or a non-empty initial Slave inventory remains InvalidWorld.
