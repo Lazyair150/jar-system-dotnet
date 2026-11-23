@@ -62,6 +62,8 @@ public sealed class WorldV2BoardRuleProfileOptions
                 errors.Add("rule contribution references an unassigned Board Slot: " + contribution.Source.SlotId);
                 continue;
             }
+            if (assignment.ComponentKind != "workshop")
+                errors.Add("workshop-scoped contribution must originate from a workshop Board Slot: " + contribution.Source.SlotId);
             if (assignment.OwnedInstanceId != contribution.Source.SourceInstanceId ||
                 assignment.DefinitionId != contribution.Source.DefinitionId ||
                 assignment.DefinitionVersion != contribution.Source.DefinitionVersion)
@@ -163,9 +165,10 @@ public sealed class WorldV2RuleContributionOptions
         if (string.IsNullOrWhiteSpace(RuleId) || RuleVersion != 1 ||
             string.IsNullOrWhiteSpace(Target) || string.IsNullOrWhiteSpace(Scope))
             errors.Add("rule contribution identity, supported version 1, target or scope is invalid");
-        if (!new[] { "workshop", "parser", "production_device", "skill", "board", "order", "ship" }
-            .Contains(Scope, StringComparer.Ordinal))
-            errors.Add("rule contribution scope is unsupported: " + Scope);
+        // This ingress revision has a real consumer only for workshop-scoped rules.
+        // Other component scopes remain authored data, but cannot enter a runtime that would ignore them.
+        if (!string.Equals(Scope, "workshop", StringComparison.Ordinal))
+            errors.Add("rule contribution scope has no World V2 Core runtime consumer yet: " + Scope);
         if (!Enum.TryParse<RuleContributionEffect>(Effect, ignoreCase: false, out var parsed) ||
             !Enum.IsDefined(parsed))
             errors.Add("rule contribution effect is unsupported: " + Effect);
