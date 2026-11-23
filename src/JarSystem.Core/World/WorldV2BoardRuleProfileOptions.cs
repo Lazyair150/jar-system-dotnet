@@ -64,8 +64,7 @@ public sealed class WorldV2BoardRuleProfileOptions
                 errors.Add("rule contribution references an unassigned Board Slot: " + contribution.Source.SlotId);
                 continue;
             }
-            if (assignment.ComponentKind != contribution.Source.SourceKindComponentKind() ||
-                assignment.OwnedInstanceId != contribution.Source.SourceInstanceId ||
+            if (assignment.OwnedInstanceId != contribution.Source.SourceInstanceId ||
                 assignment.DefinitionId != contribution.Source.DefinitionId ||
                 assignment.DefinitionVersion != contribution.Source.DefinitionVersion)
             {
@@ -209,12 +208,6 @@ public sealed class WorldV2RuleContributionSourceOptions
 
     public RuleContributionSource ToDomain() =>
         new(SourceKind, DefinitionId, DefinitionVersion, SourceInstanceId, SourceRevision, SlotId);
-
-    public string SourceKindComponentKind() => SourceKind switch
-    {
-        "installed-component" => "",
-        _ => SourceKind
-    };
 }
 
 public sealed class WorldV2BoardAssignmentSnapshotOptions
@@ -238,7 +231,12 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
             errors.Add("board assignment snapshot requires slots and assignment entries");
             return errors;
         }
-        var slots = BoardDefinition.Slots.ToDictionary(x => x.SlotId, StringComparer.Ordinal);
+        var slots = new Dictionary<string, WorldV2BoardSlotSnapshotOptions>(StringComparer.Ordinal);
+        foreach (var slot in BoardDefinition.Slots)
+        {
+            if (slot == null || string.IsNullOrWhiteSpace(slot.SlotId) || !slots.TryAdd(slot.SlotId, slot))
+                errors.Add("Board Definition contains an invalid or duplicate slot identity");
+        }
         var seenInstances = new HashSet<string>(StringComparer.Ordinal);
         var seenSlots = new HashSet<string>(StringComparer.Ordinal);
         foreach (var entry in Assignments)
