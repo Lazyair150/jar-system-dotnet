@@ -246,7 +246,11 @@ public sealed class WorldOrderSolveBook : IDisposable
         {
             // 先验证旧计划引用的 Jar 初态、液体最低供给与容量仍成立。
             // 只有具体资源绑定失效才退回完整求解；规则/Profile/规格变化则绝不复用。
-            _ = WorldOrderResourceManifest.CreateForResourceRebind(previous, snapshot);
+            if (previous.ResourceReplay is { IsComplete: true } replay)
+                _ = WorldOrderResourceManifest.CreateForResourceRebindWithReplay(
+                    previous, snapshot, replay);
+            else
+                _ = WorldOrderResourceManifest.CreateForResourceRebind(previous, snapshot);
             var rebound = previous.RebindTo(snapshot);
             reboundRecord = new WorldOrderSolveRecord(
                 demand.Id, WorldOrderSolveState.Current, rebound, null, null);
