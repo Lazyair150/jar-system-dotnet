@@ -46,9 +46,9 @@ public sealed class WorldV2BoardRuleProfileOptions
         }
 
         errors.AddRange(AssignmentSnapshot.Validate(BoardId, BoardDefinitionVersion, AssignmentFingerprint));
-        var assignmentsBySlot = AssignmentSnapshot.Assignments
-            .Where(x => x != null)
-            .ToDictionary(x => x.SlotId, StringComparer.Ordinal);
+        var assignmentsBySlot = new Dictionary<string, WorldV2BoardAssignmentEntryOptions>(StringComparer.Ordinal);
+        foreach (var assignment in AssignmentSnapshot.Assignments.Where(x => x != null))
+            assignmentsBySlot.TryAdd(assignment.SlotId, assignment);
         var identities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var contribution in Contributions)
         {
