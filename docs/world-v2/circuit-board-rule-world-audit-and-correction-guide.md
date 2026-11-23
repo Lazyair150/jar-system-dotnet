@@ -346,3 +346,31 @@ Rule Profile fingerprint 至少应覆盖：
 3. 按 scope 构造 EffectiveRuleProfile；Master/Slave 的角色由 Board Slot 投影，两个工作台的贡献分别进入对应 workshop scope。
 4. 让 WorldSnapshot 捕获真实 EffectiveRuleProfile；兼容旧输入仅通过显式 legacy adapter，不允许静默混合新旧两种来源。
 5. 在旧/新 Profile 上做差分测试，确保基础 Jar 操作、Ban、临时 Modifier、A/B 单向资源语义一致后，再迁移候选枚举器。
+
+
+## 13. World V2 Board Profile 跨仓库 ingress（2026-11-24）
+
+### 已实现的 Core 输入与执行链
+
+- 新增 WorldV2BoardRuleProfileOptions 版本化输入 DTO。WorldV2Options 显式接收 boardRuleProfile 与 boardAssignmentSnapshot 两个独立字段；Assignment Snapshot 不嵌入 Profile hash payload，避免改变 Space 已冻结的 Profile fingerprint。
+- Core 按 Space 的紧凑 UTF-8 JSON 口径重算 Board Assignment SHA-256，并按规范化键序重算 Rule Profile SHA-256。拒绝缺字段、重复 slot/instance、未填 required slot、槽位类别不兼容、Board/Definition 版本不匹配和 fingerprint 不匹配。
+- Assignment entry 现在携带 sourceRevision。Core 对每条 Rule Contribution 校验 slot、Owned Instance ID、Definition ID/version、progression revision 均与该 Assignment entry 完全一致。
+- Space inventory choice 现在暴露 progressionRevision；Assignment snapshot 将其冻结；Space Loadout Snapshot 再对照 ownedInstanceSnapshots 验证 Assignment 与 Contribution revision 相同。
+- WorldV2WorkshopOptions.boardSlotId 将当前 Master/Slave runtime projection 绑定到精确 Board Slot。Core 依据 Slot 的 roleId 验证 Master/Slave，不再从工作台 Definition 推断角色。
+- WorldV2Factory 在新协议存在时构造 Board EffectiveRuleProfile，并通过 RuleContext.From(profile, workshop, boardSlotId, mutableStack: true) 为每个工作台创建独立规则上下文。Master 与 Slave 不会互相读取对方工作台槽位贡献。
+- WorkshopSolveSnapshot 捕获真实 Board Profile 来源；同时把安装后新增的运行时临时 Modifier 合并为独立 temporary-modifier 贡献，避免快照退回 synthetic legacy.runtime 来源或丢失临时规则。
+- Solver 的 CreateRuleContext() 与工作台执行规则都从同一 Profile 解释；Board-owned Workshop 禁止通过旧 ReplaceCapability 或 AttachRuleStack 脱离 Profile。
+- Profile fingerprint 归入 WorkshopProfileVersion，不进入 RuleSetVersion；保留 RuleSet / WorkshopProfile / Resource 三类版本的原有语义边界。
+
+### 本阶段明确的能力边界
+
+- 当前 ingress 仅接受 scope = workshop 且来源为 workshop Board Slot 的 Rule Contribution。Parser、Skill、Production Device 等其他 scope 在 Core 尚无执行消费者，因此当前明确拒绝，不会静默忽略或误塞进主/从工作台。
+- 当前支持 RuleVersion 1。未知 Effect / Scope / RuleVersion 拒绝；RequireCondition 和尚无执行器的 ModifyCapacity 保守保持 Undetermined。
+- 当前 runtime 仍只投影一个 Master、一个 Slave 和一个 Parser。Board 可描述更多槽位不代表多 Parser 输入分配/调度/产出归属已经实现。
+- Space root frozen snapshot 与 jarWorldOptions 中的 Profile / Assignment 两份数据必须完全一致；Core 不接收旧字段与新 Profile 混合解释规则。
+
+### 验收状态
+
+- 新增 Core 工厂测试覆盖 Master/Slave Slot 隔离、Ban 隔离、真实来源保留以及 Solver RuleContext 与 Workshop runtime 的一致性。
+- 新增/更新的 Space Assignment 验证覆盖 progression revision；SpaceBattleLoadoutSnapshot 对照 owned snapshots、Assignment 与 Contribution 的 revision。
+- 本文档提交时 GitHub Actions 验证仍在运行；未将 CI 标记为通过。Space GDScript Probe 仍未运行。
