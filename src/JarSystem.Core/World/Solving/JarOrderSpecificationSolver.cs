@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Domain;
@@ -17,13 +18,26 @@ namespace JarSystem.Core.World.Solving;
 public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareSolver
 {
     private readonly ISolver _innerSolver;
+    private readonly IReadOnlyList<string> _slaveRejectedLiquids;
 
     public Type SpecificationType => typeof(JarOrderSpecification);
+    /// <summary>
+    /// Immutable, explicit Slave staging-receive policy. It is separate from the
+    /// Slave workshop Ban and never applies to Jar-internal liquid or Jar transfer.
+    /// </summary>
+    public IReadOnlyList<string> SlaveRejectedLiquids => _slaveRejectedLiquids;
     public int NodeBudget { get; set; } = SolverLimits.DefaultNodeBudget;
 
-    public JarOrderSpecificationSolver(ISolver innerSolver)
+    public JarOrderSpecificationSolver(
+        ISolver innerSolver,
+        IEnumerable<string>? slaveRejectedLiquids = null)
     {
         _innerSolver = innerSolver ?? throw new ArgumentNullException(nameof(innerSolver));
+        var rejected = (slaveRejectedLiquids ?? Array.Empty<string>()).ToArray();
+        if (rejected.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("从台拒收液体名称不能为空", nameof(slaveRejectedLiquids));
+        _slaveRejectedLiquids = Array.AsReadOnly(
+            rejected.Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray());
     }
 
     public WorldOrderSolveResult Solve(OrderDemand demand, WorldSnapshot snapshot) =>
@@ -109,7 +123,8 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
             demand.Id, bMasterProfile, bSlaveProfile, snapshot,
             maxBranches: 256,
             maxNodes: maxNodes,
-            precomputedSolutions: bPrecomputedSolutions);
+            precomputedSolutions: bPrecomputedSolutions,
+            slaveRejectedLiquids: _slaveRejectedLiquids);
 
         if (bEnumeration.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
             return bEnumeration.Assembly?.SolveResult
