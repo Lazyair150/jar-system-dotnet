@@ -140,6 +140,38 @@ public sealed class WorldV2ApplicationServiceTests
     }
 
     [Fact]
+    public void WorldV2OptionsRejectNullTemplateEntriesAsValidationErrors()
+    {
+        var options = Options();
+        options.OrderTemplates = new List<OrderTemplateOptions> { null! };
+
+        var validation = options.Validate();
+
+        Assert.False(validation.IsValid);
+        Assert.Contains(validation.Errors, error => error.Contains("orderTemplates"));
+    }
+
+    [Fact]
+    public void WorldV2OptionsRejectNullTemplateRequirementsAsValidationErrors()
+    {
+        var options = Options();
+        options.OrderTemplates = new List<OrderTemplateOptions>
+        {
+            new()
+            {
+                Name = "invalid.null-requirement",
+                Type = "A",
+                Requirements = new List<RequirementOptions> { null! }
+            }
+        };
+
+        var validation = options.Validate();
+
+        Assert.False(validation.IsValid);
+        Assert.Contains(validation.Errors, error => error.Contains("orderTemplates"));
+    }
+
+    [Fact]
     public void PausedWorldDoesNotRunAutomaticPassiveScheduling()
     {
         using var host = new WorldV2HostService();
