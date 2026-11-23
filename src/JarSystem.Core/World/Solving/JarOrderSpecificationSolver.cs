@@ -92,36 +92,36 @@ public sealed class JarOrderSpecificationSolver : IWorldOrderCandidateBookAwareS
             return Result(demand, snapshot, WorldOrderSolveStatus.InvalidWorld,
                 reason: "B 类订单开始求解时，从台必须为空");
 
-        var masterProfile = candidateBook?.GetOrBuild(
+        var bMasterProfile = candidateBook?.GetOrBuild(
                 snapshot, snapshot.Master, "Master", specification)
             ?? WorldOrderRuleCandidateCatalog.Build(
                 snapshot, snapshot.Master, "Master", specification);
-        var slaveProfile = candidateBook?.GetOrBuild(
+        var bSlaveProfile = candidateBook?.GetOrBuild(
                 snapshot, snapshot.Slave, "Slave", specification)
             ?? WorldOrderRuleCandidateCatalog.Build(
                 snapshot, snapshot.Slave, "Slave", specification);
         var maxNodes = Math.Max(1, NodeBudget);
-        var precomputedSolutions = candidateBook?.GetOrBuildSolutions(
-            new[] { masterProfile, slaveProfile },
+        var bPrecomputedSolutions = candidateBook?.GetOrBuildSolutions(
+            new[] { bMasterProfile, bSlaveProfile },
             maxSolutions: 256,
             maxNodes: maxNodes);
-        var enumeration = WorldOrderBClassBranchEnumerator.Enumerate(
-            demand.Id, masterProfile, slaveProfile, snapshot,
+        var bEnumeration = WorldOrderBClassBranchEnumerator.Enumerate(
+            demand.Id, bMasterProfile, bSlaveProfile, snapshot,
             maxBranches: 256,
             maxNodes: maxNodes,
-            precomputedSolutions: precomputedSolutions);
+            bPrecomputedSolutions: bPrecomputedSolutions);
 
-        if (enumeration.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
-            return enumeration.Assembly?.SolveResult
+        if (bEnumeration.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
+            return bEnumeration.Assembly?.SolveResult
                 ?? Result(demand, snapshot, WorldOrderSolveStatus.Undetermined,
                     "9l_concrete_b", "B 类分支报告可行但未返回具体计划");
 
         return Result(demand, snapshot,
-            enumeration.Status == WorldOrderBClassBranchEnumerationStatus.Infeasible
+            bEnumeration.Status == WorldOrderBClassBranchEnumerationStatus.Infeasible
                 ? WorldOrderSolveStatus.Infeasible
                 : WorldOrderSolveStatus.Undetermined,
             "9l_concrete_b",
-            enumeration.Reason ?? "B 类具体规则分支没有得到确定结论");
+            bEnumeration.Reason ?? "B 类具体规则分支没有得到确定结论");
     }
 
     private static WorldOrderSolveResult Result(
