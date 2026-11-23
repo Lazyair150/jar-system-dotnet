@@ -381,3 +381,9 @@ Rule Profile fingerprint 至少应覆盖：
 - GitHub Actions run 45224300866 对应提交 52c2537，Core 主项目与 Godot Host build 阶段通过；测试项目编译因新增工厂测试中两处可空 Rules 访问未处理而失败，测试本身未执行。
 - 已在后续提交 4808ea4 将两处访问改为显式 null-forgiving；该修复提交尚无新的 GitHub Actions run，因此不能宣称 CI 或 xUnit 已通过。
 - 之前的 RuleSetVersion/ProfileVersion 分界错误也已修正：Board Profile 原始 fingerprint 只进入 WorkshopProfileVersion；临时 Modifier 仍由 RuleSetVersion 跟踪。
+
+### 13.2 Core ingress CI 验收（2026-11-24）
+
+- 最新 Core head `fda4a40f0d5b43b7dcab006b4dc5767468892e76` 对应 Actions run `45224859217` 已完成且 conclusion=success。
+- 本轮成功是在 nullable Rules 测试访问修正之后取得。该 run 的完整验证 job 通过；此前 `52c2537` 的失败 run 不代表当前 head 状态。
+- PR #60 仍为 Draft/Open，未合并。
