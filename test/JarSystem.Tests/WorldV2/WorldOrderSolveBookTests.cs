@@ -304,7 +304,7 @@ public sealed class WorldOrderSolveBookTests
     }
 
     [Fact]
-    public void BOrderSymbolicCandidatesIncludeBothRolesWhileAOrderBypassesSlave()
+    public void BOrderSymbolicRequirementsUseSlaveRulesWhileAOrderUsesMasterRules()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
         var slave = new Workshop("从台", new List<string> { "圆罐" });
@@ -322,10 +322,9 @@ public sealed class WorldOrderSolveBookTests
         book.Evaluate(bDemand.Id, snapshot, Registry());
         var bCandidates = book.GetSymbolicSolutions(bDemand.Id, snapshot);
         Assert.NotNull(bCandidates);
-        Assert.Contains(bCandidates!.Solutions.SelectMany(x => x.Steps),
-            step => step.WorkshopRole == "Master");
-        Assert.Contains(bCandidates.Solutions.SelectMany(x => x.Steps),
-            step => step.WorkshopRole == "Slave");
+        Assert.NotEmpty(bCandidates!.Solutions);
+        Assert.All(bCandidates.Solutions.SelectMany(x => x.Steps),
+            step => Assert.Equal("Slave", step.WorkshopRole));
 
         var aDemand = Demand();
         var aBoard = Board();
