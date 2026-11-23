@@ -461,7 +461,7 @@ public sealed class WorldOrderSolverTests
 
         var result = Registry().Solve(demand, Snapshot(master, slave));
 
-        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.True(result.IsFeasible, result.Reason);
         var plan = result.Plan!;
         Assert.Empty(plan.MasterSteps);
         Assert.Equal(new[] { "POUR_OUT", "RESHAPE" },
