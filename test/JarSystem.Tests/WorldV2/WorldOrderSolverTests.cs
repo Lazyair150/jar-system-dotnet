@@ -394,6 +394,88 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void BClassEntryPointMaterializesMixedMasterAndSlaveAssignments()
+    {
+        var master = new Workshop("禁酒主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Reason = "从台不直接匹配圆罐"
+        });
+        var slave = new Workshop("从台",
+            new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", id: 8271));
+        master.AddJar(new Jar("圆罐", "酒", id: 8272));
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[]
+                {
+                    new Requirement { Shape = "圆罐" },
+                    new Requirement { Shape = "方罐" }
+                },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Equal("9l_concrete_plan", result.CheckMethod);
+        var plan = result.Plan!;
+        Assert.Equal("MATCH", Assert.Single(plan.MasterSteps).Operation!.Type);
+        Assert.Equal("RESHAPE", Assert.Single(plan.SlaveSteps).Operation!.Type);
+        Assert.Equal(new[] { 8271, 8272 }, plan.TransferJarIds.OrderBy(x => x));
+        Assert.Equal(8271, plan.MasterSteps[0]
+            .Before![plan.MasterSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Equal(8272, plan.SlaveSteps[0]
+            .Before![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Empty(plan.TransferLiquids);
+    }
+
+    [Fact]
+    public void BClassEntryPointAllowsSlaveLocalPreparationOutputToFeedLaterSlaveStep()
+    {
+        var master = new Workshop("禁酒主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "RESHAPE",
+            Shape = "圆罐",
+            Liquid = "酒",
+            Reason = "禁止满酒罐直接改形，但允许先倒出再使用游离酒"
+        });
+        var slave = new Workshop("从台",
+            new List<string> { "圆罐", "方罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", id: 8281));
+        master.AddJar(new Jar("圆罐", "酒", id: 8282));
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "方罐" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+
+        var result = Registry().Solve(demand, Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        var plan = result.Plan!;
+        Assert.Empty(plan.MasterSteps);
+        Assert.Equal(new[] { "POUR_OUT", "RESHAPE" },
+            plan.SlaveSteps.Select(x => x.Operation!.Type));
+        Assert.Equal(8282, plan.SlaveSteps[0]
+            .Before![plan.SlaveSteps[0].Operation!.JarIndex!.Value].Id);
+        Assert.Equal(8281, plan.SlaveSteps[1]
+            .Before![plan.SlaveSteps[1].Operation!.JarIndex!.Value].Id);
+        Assert.Equal(1, plan.SlaveSteps[0].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.Equal(0, plan.SlaveSteps[1].AfterLiquids.GetValueOrDefault("酒"));
+        Assert.Empty(plan.TransferLiquids);
+    }
+
+    [Fact]
     public void BPartitionBacktracksWhenAllSlaveAssignmentViolatesSlaveRule()
     {
         var slaveRules = new ModifierStack();
