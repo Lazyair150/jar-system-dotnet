@@ -86,6 +86,40 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void TwoIdenticalPreparationJarsCanFundTwoAClassRequirements()
+    {
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐", "方罐" },
+            liquidStagingCapacity: 2);
+        master.AddJar(new Jar("圆罐", "酒", id: 7251));
+        master.AddJar(new Jar("圆罐", "酒", id: 7252));
+        master.AddJar(new Jar("方罐", id: 7253));
+        master.AddJar(new Jar("方罐", id: 7254));
+
+        var result = Solve(master, new[]
+        {
+            new Requirement { Shape = "方罐", Liquid = "酒" },
+            new Requirement { Shape = "方罐", Liquid = "酒" }
+        });
+
+        Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Feasible, result.Status);
+        var steps = result.Assembly!.CandidatePlan!.MasterSteps;
+        Assert.Equal(4, steps.Count);
+        Assert.Equal(2, steps.Count(step => step.Operation!.Type == "POUR_OUT"));
+        Assert.Equal(2, steps.Count(step => step.Operation!.Type == "POUR_IN"));
+        Assert.Equal(
+            new[] { 7251, 7252 },
+            steps.Where(step => step.Operation!.Type == "POUR_OUT")
+                .Select(step => step.Before![step.Operation!.JarIndex!.Value].Id!.Value)
+                .OrderBy(id => id));
+        Assert.Equal(
+            new[] { 7253, 7254 },
+            steps.Where(step => step.Operation!.Type == "POUR_IN")
+                .Select(step => step.Before![step.Operation!.JarIndex!.Value].Id!.Value)
+                .OrderBy(id => id));
+    }
+
+    [Fact]
     public void MasterBanBlocksFullJarSelfConsumeAtSolverCandidateBoundary()
     {
         var master = new Workshop("禁酒主台",
