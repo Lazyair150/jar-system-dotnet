@@ -133,12 +133,16 @@ public static class WorldOrderConcreteOperationMaterializer
         }
 
         if (masterProfile.SpecificationVersion.Length == 0 ||
-            masterProfile.IsUndetermined || (program.IsBClass && slaveProfile!.IsUndetermined))
+            (program.IsBClass && slaveProfile!.IsUndetermined))
             return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
-                masterProfile.Reason ?? slaveProfile?.Reason ?? "规则候选 Profile 未确定");
+                slaveProfile?.Reason ?? "订单规则候选 Profile 未确定");
 
         var nodes = program.Nodes.OrderBy(x => x.Sequence).ToArray();
         var ruleNodes = nodes.Where(x => x.Kind == WorldOrderSymbolicOperationKind.Rule).ToArray();
+        var hasMasterOperations = ruleNodes.Any(x => x.WorkshopRole == program.MasterRole);
+        if (masterProfile.IsUndetermined && (!program.IsBClass || hasMasterOperations))
+            return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
+                masterProfile.Reason ?? "主台规则候选 Profile 未确定");
         foreach (var node in ruleNodes)
         {
             var candidate = node.Candidate!;
