@@ -44,13 +44,13 @@ public sealed class RuleContext
                     modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName", "suppress"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation", "") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape", "") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid", "") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason", "此刻不得进行该操作") });
                     break;
                 case RuleContributionEffect.RequireCondition:
-                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName", "require"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Text = contribution.Target, Violation = null, Window = ReadWindow(parameters) });
+                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName", "require"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Text = contribution.Target, Violation = null });
                     break;
                 case RuleContributionEffect.RetimeProcess:
-                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName", "retime"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.TryParse(Parameter(parameters, "ticksPerStep", "1"), out var ticks) ? ticks : 1, Window = ReadWindow(parameters) });
+                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName", "retime"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.TryParse(Parameter(parameters, "ticksPerStep", "1"), out var ticks) ? ticks : 1 });
                     break;
                 case RuleContributionEffect.ModifyIntensity:
-                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName", "intensity"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.TryParse(Parameter(parameters, "factorPerMille", "1000"), out var factor) ? factor : 1000, Window = ReadWindow(parameters) });
+                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName", "intensity"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.TryParse(Parameter(parameters, "factorPerMille", "1000"), out var factor) ? factor : 1000 });
                     break;
             }
         }
