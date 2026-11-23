@@ -16,15 +16,63 @@ namespace JarSystem.Core.Domain;
 public sealed class RuleContext
 {
     private readonly WorkshopCapability _capability;
+    private readonly EffectiveRuleProfile? _effectiveProfile;
 
     /// <summary>由基础能力构造（无修饰器：与改造前的规则判定逐项相同）。</summary>
     public static RuleContext From(WorkshopCapability capability) => new(capability, ModifierStack.Empty);
 
+    /// <summary>Builds the same rule context from a frozen, declarative effective profile.</summary>
+    public static RuleContext From(EffectiveRuleProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        var baseMarks = profile.Find(RuleContributionEffect.GrantBaseMark).Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
+        var additionalMarks = profile.Find(RuleContributionEffect.GrantAdditionalMark)
+            .Where(x => x.Source.SourceKind != "temporary-modifier")
+            .Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
+        var bans = profile.Find(RuleContributionEffect.BanLiquid).Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
+        var capability = new WorkshopCapability(baseMarks, additionalMarks, bans);
+        var modifiers = new List<IRuleModifier>();
+        foreach (var contribution in profile.Contributions.Where(x => x.Source.SourceKind == "temporary-modifier"))
+        {
+            var parameters = contribution.Parameters.ToDictionary(x => x.Name, x => x.Value, StringComparer.Ordinal);
+            switch (contribution.Effect)
+            {
+                case RuleContributionEffect.GrantAdditionalMark:
+                    modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName", "grant"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Shape = contribution.Target, Window = ReadWindow(parameters) });
+                    break;
+                case RuleContributionEffect.SuppressOperation:
+                    modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName", "suppress"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation", "") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape", "") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid", "") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason", "此刻不得进行该操作"), Window = ReadWindow(parameters) });
+                    break;
+                case RuleContributionEffect.RequireCondition:
+                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName", "require"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Text = contribution.Target, Violation = null, Window = ReadWindow(parameters) });
+                    break;
+                case RuleContributionEffect.RetimeProcess:
+                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName", "retime"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.TryParse(Parameter(parameters, "ticksPerStep", "1"), out var ticks) ? ticks : 1, Window = ReadWindow(parameters) });
+                    break;
+                case RuleContributionEffect.ModifyIntensity:
+                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName", "intensity"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.TryParse(Parameter(parameters, "factorPerMille", "1000"), out var factor) ? factor : 1000, Window = ReadWindow(parameters) });
+                    break;
+            }
+        }
+        return new RuleContext(capability, ModifierStack.CreateReadOnlySnapshot(modifiers), profile);
+    }
+
+    private static string Parameter(IReadOnlyDictionary<string, string> parameters, string key, string fallback) =>
+        parameters.TryGetValue(key, out var value) ? value : fallback;
+
+    private static (int From, int? To)? ReadWindow(IReadOnlyDictionary<string, string> parameters)
+    {
+        if (!parameters.TryGetValue("windowFrom", out var fromText) || !int.TryParse(fromText, out var from)) return null;
+        int? to = parameters.TryGetValue("windowTo", out var toText) && int.TryParse(toText, out var parsed) ? parsed : null;
+        return (from, to);
+    }
+
     /// <summary>由基础能力 + 修饰器栈构造。</summary>
-    public RuleContext(WorkshopCapability capability, ModifierStack stack)
+    public RuleContext(WorkshopCapability capability, ModifierStack stack, EffectiveRuleProfile? effectiveProfile = null)
     {
         _capability = capability;
         Stack = stack;
+        _effectiveProfile = effectiveProfile;
     }
 
     /// <summary>基础能力（只读；快照与对外投影仍读它）。</summary>
@@ -32,6 +80,8 @@ public sealed class RuleContext
 
     /// <summary>活跃修饰器栈（与工作台、过程系统共用同一实例：一处入栈，处处生效）。</summary>
     public ModifierStack Stack { get; }
+
+    public EffectiveRuleProfile? EffectiveProfile => _effectiveProfile;
 
     public bool IsBaseMarked(string shape) => _capability.IsBaseMarked(shape);
 
@@ -62,7 +112,8 @@ public sealed class RuleContext
     public string? SuppressionReason(string? operation, string? shape, string? liquid) =>
         Stack.SuppressionReason(operation, shape, liquid);
 
-    public bool HasUnresolvableRequirements() => Stack.HasUnresolvableRequirements();
+    public bool HasUnresolvableRequirements() => Stack.HasUnresolvableRequirements() ||
+        (_effectiveProfile?.Contributions.Any(x => x.Effect == RuleContributionEffect.ModifyCapacity) ?? false);
 
     public string? RequiredViolation() => Stack.RequiredViolation();
 }
