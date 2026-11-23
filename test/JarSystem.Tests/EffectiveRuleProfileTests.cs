@@ -86,7 +86,9 @@ public sealed class EffectiveRuleProfileTests
     public void CapturedRuntimeModifiersExtendRatherThanReplaceInstalledBoardProvenance()
     {
         var installed = Contribution("rule.installed-mark", "owned.workshop", "slot.master", 1);
-        var profile = EffectiveRuleProfile.Create("board.demo", 1, 1, [installed]);
+        var profile = EffectiveRuleProfile.Create(
+            "board.demo", 1, 1, [installed],
+            new string('a', 64), new string('b', 64));
         var context = RuleContext.From(profile, "workshop", "slot.master", mutableStack: true);
 
         using (context.Stack.Push(new SuppressModifier
