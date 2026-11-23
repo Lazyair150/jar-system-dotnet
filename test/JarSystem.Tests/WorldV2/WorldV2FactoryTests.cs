@@ -160,8 +160,8 @@ public sealed class WorldV2FactoryTests
             x => x.Source.SourceInstanceId == "owned.master");
         Assert.Contains(slaveSnapshot.EffectiveRuleProfile.Contributions,
             x => x.Source.SourceInstanceId == "owned.slave");
-        Assert.True(masterSnapshot.CreateWorkshopInfo().Rules.IsBanned("酒"));
-        Assert.False(slaveSnapshot.CreateWorkshopInfo().Rules.IsBanned("酒"));
+        Assert.True(masterSnapshot.CreateWorkshopInfo().Rules!.IsBanned("酒"));
+        Assert.False(slaveSnapshot.CreateWorkshopInfo().Rules!.IsBanned("酒"));
     }
 
     private static WorldV2RuleContributionOptions Contribution(
