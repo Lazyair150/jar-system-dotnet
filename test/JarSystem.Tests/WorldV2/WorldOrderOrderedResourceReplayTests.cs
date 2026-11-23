@@ -152,6 +152,40 @@ public sealed class WorldOrderOrderedResourceReplayTests
     }
 
     [Fact]
+    public void SlaveWorkshopBanRejectsProducedStagingLiquidWithoutExplicitRejectOverride()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐", "酒", id: 952));
+        var slave = new Workshop("禁酒从台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" });
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(
+            new[] { master, slave }, master, slave));
+
+        var candidate = new WorldOrderRuleCandidate(
+            -1, "圆罐", "酒", "PREPARE_POUR_OUT", "slave.pour-out", 1,
+            "圆罐", null, null, null, "酒", null);
+        var input = new WorldOrderSymbolicJarVersion("tool", 0, "Master", "圆罐", "酒");
+        var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff", 0, "Master", "Slave", new[] { input });
+        var output = new WorldOrderSymbolicJarVersion(
+            "tool", 2, "Slave", "圆罐", null, true);
+        var pourOut = WorldOrderSymbolicOperationNode.Rule(
+            "slave-pour-out", 1, "Slave", null, candidate, handoff.OutputJars.Single(), output);
+        var program = new WorldOrderSymbolicOperationProgram(
+            true, "Master", "Slave", new[] { handoff, pourOut },
+            new[] { WorldOrderSymbolicOperationDependency.JarState(
+                handoff.NodeId, pourOut.NodeId, "tool", 1) });
+
+        // No explicit reject list is supplied: the workshop's own ban is authoritative.
+        var result = WorldOrderOrderedResourceReplay.Replay(program, world);
+
+        Assert.Equal(WorldOrderOrderedResourceReplayStatus.Complete, result.Status);
+        Assert.Empty(result.TransferLiquids);
+        Assert.Null(Assert.Single(result.SlaveAcceptedProducedLiquids));
+        Assert.Equal(0, result.SlaveStagingPeakCapacity);
+    }
+
+    [Fact]
     public void MasterBanDoesNotConvertTransferredJarLiquidIntoAFreeLiquidBoundaryRequirement()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
