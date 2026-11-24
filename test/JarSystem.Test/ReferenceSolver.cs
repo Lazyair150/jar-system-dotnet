@@ -127,8 +127,9 @@ internal sealed class ReferenceSolver : ISolver
                         };
             }
 
+            // 满罐改形消耗 Jar 自有内部液体，不经过 staging；Ban 不适用于这条自耗路径。
             for (int i = 0; i < s.Jars.Count; i++)
-                if (s.Jars[i].Liquid != null && !s.Jars[i].IsMarked && !cap.IsBanned(s.Jars[i].Liquid!)
+                if (s.Jars[i].Liquid != null && !s.Jars[i].IsMarked
                     && cap.CanTransform(s.Jars[i].Shape, req.Shape))
                     yield return new SolverOperation
                     {
@@ -177,7 +178,7 @@ internal sealed class ReferenceSolver : ISolver
                 }
                 else
                 {
-                    if (info.Capability.IsBanned(s.Jars[i].Liquid!)) return false;
+                    // 仅在 Jar 内部完成自耗；不读取/写入工作台游离液体暂存区，因此不检查 staging Ban。
                     s.Jars[i].Liquid = null;
                 }
                 s.Jars[i].Shape = op.TargetShape!;
