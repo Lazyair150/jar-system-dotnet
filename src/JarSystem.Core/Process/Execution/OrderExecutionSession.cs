@@ -346,7 +346,9 @@ internal sealed class OrderExecutionSession
         }
 
         _event.AdvanceToSlavePhase();
-        _slave.ClearMarks();
+        // Mark belongs to the whole order lifecycle, not to one workshop stage.
+        // The order start clears stale marks and terminal settlement clears participants;
+        // clearing here would let a Jar be operated twice in the same order after handoff.
 
         if (_slaveSteps.Count > 0)
         {
