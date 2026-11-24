@@ -88,17 +88,37 @@ public sealed record RuleResourceEffect(
     }
 }
 
+/// <summary>Canonical immutable snapshot of the facts consumed or produced by a rule.</summary>
+public sealed class RuleStateSnapshot
+{
+    public IReadOnlyDictionary<string, string> Values { get; }
+
+    public RuleStateSnapshot(IEnumerable<KeyValuePair<string, string>> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        var canonical = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in values)
+        {
+            if (string.IsNullOrWhiteSpace(item.Key) || item.Value is null)
+                throw new ArgumentException("Rule state fields require non-empty keys and canonical string values.");
+            if (!canonical.TryAdd(item.Key, item.Value))
+                throw new ArgumentException("Duplicate rule state field: " + item.Key);
+        }
+        Values = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(canonical);
+    }
+}
+
 /// <summary>
-/// Pure state transition emitted by a rule evaluator. State payloads are domain-owned immutable
-/// values; resource effects are explicit and account-addressed. No external state is mutated here.
+/// Pure state transition emitted by a rule evaluator. State payloads are canonical immutable
+/// snapshots; resource effects are explicit and account-addressed. No external state is mutated here.
 /// </summary>
 public sealed record RuleTransition(
     string RuleId,
     int RuleVersion,
     string Scope,
     string Target,
-    object Before,
-    object After,
+    RuleStateSnapshot Before,
+    RuleStateSnapshot After,
     IReadOnlyList<RuleResourceEffect> ResourceEffects)
 {
     public void Validate()
@@ -119,6 +139,15 @@ public sealed record RuleTransition(
 /// </summary>
 public static class WorkshopRuleTransitionAdapter
 {
+
+    private static RuleStateSnapshot Snapshot(in JarFacts facts) =>
+        new(new[]
+        {
+            new KeyValuePair<string, string>("shape", facts.Shape),
+            new KeyValuePair<string, string>("liquid", facts.Liquid ?? string.Empty),
+            new KeyValuePair<string, string>("marked", facts.IsMarked ? "true" : "false")
+        });
+
     public static RuleEvaluationResult Evaluate(
         WorkshopRulebook.WorkshopOperationEvaluation evaluation,
         in JarFacts before,
@@ -166,8 +195,8 @@ public static class WorkshopRuleTransitionAdapter
             transition.RuleVersion,
             scope,
             operation.Kind.ToString(),
-            before,
-            transition.After,
+            Snapshot(before),
+            Snapshot(transition.After),
             Array.AsReadOnly(effects.ToArray()));
         resultTransition.Validate();
 
