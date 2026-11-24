@@ -238,19 +238,10 @@ internal sealed class OrderTransferService
 
         if (masterScope == null)
         {
-            foreach (var item in manifest.TransferLiquids)
+            LegacyWorkshopLiquidTransfer.Execute(master, slave, manifest.TransferLiquids);
+            if (ledger != null)
             {
-                if (item.Value == 0) continue;
-                if (!slave.AddLiquid(item.Key, item.Value))
-                    throw new InvalidOperationException($"从台液体「{item.Key}」在转移提交阶段违反预检结果");
-
-                if (!master.RemoveLiquid(item.Key, item.Value))
-                {
-                    if (!slave.RemoveLiquid(item.Key, item.Value))
-                        throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
-                    throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
-                }
-                if (ledger != null)
+                foreach (var item in manifest.TransferLiquids.Where(item => item.Value > 0))
                     ledgerMutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
                         From: master.Name, To: slave.Name));
