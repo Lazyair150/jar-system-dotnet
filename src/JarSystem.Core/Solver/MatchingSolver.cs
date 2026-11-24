@@ -288,21 +288,21 @@ namespace JarSystem.Core.Solver
             for (var j = 0; j < jars.Count; j++)
             {
                 var jar = jars[j];
-                if (req.Liquid != null)
+                if (req.Polarity != JarPolarity.Neutral)
                 {
                     // 满罐需求：形状必须已经是它自己 —— 改形 + 灌液是两次操作。
                     if (jar.Shape != req.Shape) continue;
 
                     // MATCH 是无条件的：禁令只拦「新倒入」，不拦「罐里本来就是这种液体」。
                     if (jar.Liquid == req.Liquid) slots.Add(new Slot(j, Role.MatchFull, null));
-                    else if (jar.Liquid == null && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid))
+                    else if (jar.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid))
                         slots.Add(new Slot(j, Role.PourIn, req.Liquid));
                 }
                 else
                 {
                     if (jar.Shape == req.Shape && jar.Liquid == null)
                         slots.Add(new Slot(j, Role.MatchEmpty, null));
-                    else if (jar.Shape == req.Shape && jar.Liquid != null)
+                    else if (jar.Shape == req.Shape && jar.Polarity != JarPolarity.Neutral)
                     {
                         if (!cap.IsBanned(jar.Liquid))
                             slots.Add(new Slot(j, Role.PourOut, jar.Liquid));
@@ -544,7 +544,7 @@ namespace JarSystem.Core.Solver
                     break;
 
                 case Role.ReshapeFull:
-                    if (jar.Liquid == null || cap.IsBanned(jar.Liquid)) return false;
+                    if (jar.Polarity == JarPolarity.Neutral) return false;
                     if (!cap.CanTransform(jar.Shape, req.Shape)) return false;
                     type = "RESHAPE";
                     targetShape = req.Shape;
