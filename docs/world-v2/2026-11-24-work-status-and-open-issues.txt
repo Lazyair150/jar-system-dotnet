@@ -207,3 +207,12 @@ Not yet complete: scoped/legacy liquid transfer fault injection; settlement boun
 Space PR #2 remains Draft/Open/unmerged. Owned Hangar assembly now rejects field-only selections without a complete frozen Board Assignment; regression probe is authored but not run under Godot 4.7.1 .NET.
 
 Do not mark Core source head 8e29f19 CI green until run 45405814473 completes.
+
+CHECKPOINT 14 — 2026-11-24 23:00 +08:00
+
+- Re-queried exact source run 45405814473 for source SHA 8e29f19b93d16f527f9f1a3dfb8916f10054d321: completed / success. Its verify job completed all steps successfully. It does not validate later source commits.
+- New source commit aa28d1b6 introduced exception compensation around the final order-liquid allocation phase. New source commit 407def0bcc6839932e2dfe29b2791a3f664a186b corrected the failure path so a compensation attempt that itself throws is not blindly replayed a second time.
+- Allocation compensation drains any partially populated order staging accounts, releases slave/master peak-capacity reservations, returns only the ship-funded remainder to ShipLiquidInventory, and restores the prefill-funded portion to the master prefill account. This preserves the distinction between prefill ownership and ship inventory ownership.
+- This is a defensive code-path improvement, not yet a proven all-or-nothing transaction: no injected exception test has been added for TryReceiveExact / AttachLiquidScopes / rollback failure, and no exact-head CI run was returned for 407def0 at the time of this update.
+- Latest Core PR #60 branch head is expected to include 407def0 plus this documentation update; query the live PR head before further writes. PR remains Draft/Open/unmerged.
+- Next immediate tasks: add a minimal deterministic failure-injection seam and tests for allocation exception/compensation; add scoped and legacy liquid-transfer transaction seams; then exercise settlement Drain/Return/receipt/ledger/stage/release boundaries with checkpoint restore. Do not claim allocation all-or-nothing until those tests pass.
