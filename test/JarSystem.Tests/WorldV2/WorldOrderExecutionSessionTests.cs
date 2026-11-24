@@ -72,6 +72,20 @@ public sealed class WorldOrderExecutionSessionTests
         }
     }
 
+    private sealed class ThrowOnSecondJarMovePort : IOrderJarTransferPort
+    {
+        private int _moveCount;
+
+        public bool Move(Workshop source, Workshop destination, Jar jar)
+        {
+            if (!ReferenceEquals(source.TransferOut(jar), jar)) return false;
+            _moveCount++;
+            if (_moveCount == 2)
+                throw new InvalidOperationException("Injected failure on second Jar move");
+            return destination.TransferIn(jar);
+        }
+    }
+
     private static void ReevaluateWithShip(
         WorldOrderSolveBook book, WorkshopRoster roster, ShipLiquidInventory ship,
         params int[] demandIds)
@@ -576,6 +590,43 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Same(jar, Assert.Single(master.Jars));
         Assert.Empty(slave.Jars);
         Assert.False(jar.IsMarked);
+        Assert.Equal(0, setup.Reservations.Count);
+        Assert.Empty(ledger.For(ResourceCauses.Transfer));
+    }
+
+    [Fact]
+    public void BTransferRollsBackEarlierJarMovesWhenTheNthJarMoveFails()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var firstJar = new Jar("圆罐", "酒", id: 9883, vocabulary: Words);
+        var secondJar = new Jar("圆罐", "蜜", id: 9884, vocabulary: Words);
+        Assert.True(master.AddJar(firstJar));
+        Assert.True(master.AddJar(secondJar));
+        var demand = new OrderDemand(new JarOrderSpecification(
+            new[] { new Requirement { Shape = "圆罐" }, new Requirement { Shape = "圆罐" } },
+            Constants.OrderType.B, Words), 0, new SequentialIdGenerator());
+        var setup = Prepare(master, slave, demand);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster,
+            1_000, ledger, () => 1, new ThrowOnSecondJarMovePort());
+
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+        Assert.Equal(WorldOrderExecutionStage.Transfer, session.Stage);
+        Assert.Equal(2, session.CompletedMasterSteps);
+        var error = Assert.Throws<InvalidOperationException>(() => session.AdvanceLogicalTime(1_000));
+        Assert.Contains("second Jar move", error.Message);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.Contains(master.Jars, item => ReferenceEquals(item, firstJar));
+        Assert.Contains(master.Jars, item => ReferenceEquals(item, secondJar));
+        Assert.Empty(slave.Jars);
+        Assert.False(firstJar.IsMarked);
+        Assert.False(secondJar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Empty(ledger.For(ResourceCauses.Transfer));
     }
