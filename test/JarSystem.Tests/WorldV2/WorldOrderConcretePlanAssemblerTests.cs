@@ -152,7 +152,7 @@ public sealed class WorldOrderConcretePlanAssemblerTests
     }
 
     [Fact]
-    public void MasterStagingBanDoesNotExcludeFullReshapeCandidateForJarInternalLiquid()
+    public void MasterPolarityRejectsOppositeFullReshapeJar()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
             ban: new List<string> { "酒" });
@@ -163,7 +163,7 @@ public sealed class WorldOrderConcretePlanAssemblerTests
         var profile = WorldOrderRuleCandidateCatalog.Build(
             world, world.Master!, "Master", specification);
 
-        Assert.Contains(profile.Requirements.Single().Candidates,
+        Assert.DoesNotContain(profile.Requirements.Single().Candidates,
             x => x.Operation == "RESHAPE_FULL" && x.SourceShape == "圆罐" && x.SourceLiquid == "酒");
     }
 
@@ -183,7 +183,7 @@ public sealed class WorldOrderConcretePlanAssemblerTests
         var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
             world, world.Slave!, "Slave", specification);
 
-        Assert.Contains(masterProfile.Requirements.Single().Candidates,
+        Assert.DoesNotContain(masterProfile.Requirements.Single().Candidates,
             x => x.Operation == "RESHAPE_FULL" && x.SourceLiquid == "酒");
         var candidate = Assert.Single(slaveProfile.Requirements.Single().Candidates,
             x => x.Operation == "RESHAPE_FULL" && x.SourceShape == "圆罐" && x.SourceLiquid == "酒");
