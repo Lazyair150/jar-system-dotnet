@@ -88,6 +88,8 @@ Adapter 从旧 `WorkshopOperationEvaluation` 读取判定和转换，不重新�
 6. 只有这些语义可被共享契约完整表达并由现有执行事务正确应用后，才开始把 evaluator 接入求解器与执行器。
 7. 更新架构模型与本记录，随后再进入 Circuit Compiler；不提前宣称编译器或通用前驱求解已完成。
 
+当前额外的语义修正已递增 RuleContractVersion / 对应 RuleVersion；所有旧快照、缓存和契约 golden data 必须按版本隔离，不能把旧 Ban 语义的产物当成新语义复用。
+
 ## 6. 评审与验收清单
 
 - [ ] Allowed 必有 Transition；Rejected / Undetermined 没有 Transition。
