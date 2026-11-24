@@ -408,3 +408,11 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - Writer allowlist 检查曾因新增领域 helper `Domain/LiquidResourceAccounts.cs` 未登记而失败；已在 `WorkshopWritersTests.AllowedWriters` 记录其正式写入职责。该失败属于白名单维护，不是编译错误或业务测试失败。
 - CI 记录：`45408441187`（`f64f351`）与 `45408478221`（`c3b007a`）因同一 writer allowlist 遗漏失败；修正提交 `95d727b` 对应 run `45408955115`。`e4ec144` 的 run `45408382098` 已 success；`151d18e`、`9020f1f`、`b20655b` 的 runs 当时仍在运行；`5b23607` 精确 run 尚未返回。
 - 最新 PR head 后续需重新读取；不能以较早 run 的成功替代最终 head 验证。PR #60 保持 Draft/Open/未合并。
+
+
+### 17.1 CI 失败归因与测试夹具修正
+
+- `45408417704`（`151d18e`）、`45408441187`（`f64f351`）、`45408478221`（`c3b007a`）因 `Domain/LiquidResourceAccounts.cs` 未登记到 `WorkshopWritersTests.AllowedWriters` 失败；该 allowlist 已在 `95d727b` 补齐。
+- `45408756749`（`9020f1f`）因同一 writer allowlist 遗漏失败；`45408814064`（`b20655b`）同时出现 writer allowlist 与新增 restore 测试准入失败。后者的测试 fixture 没有任何液体供给，`TryStart` 自身被拒绝，不能归因于生产 restore guard。
+- `45408955115`（`95d727b`）只剩测试 fixture 供给不足；现已改为 ShipLiquidInventory-backed solve/admission，提交 `5b23607b1b74e3df242df729ae91effa68ecf451`。
+- 精确 head run `45409037632` 对应 `5b23607`，记录时仍 in_progress。只有它完成后才能判定最新源/测试组合；PR #60 当前 head 为文档提交 `d360501...`，仍 Draft/Open/未合并。
