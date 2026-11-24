@@ -58,6 +58,68 @@ public sealed class WorldOrderBClassDifferentialTests
         Assert.True(plan.SlaveSteps[0].Operation!.FullReshape);
     }
 
+    [Theory]
+    [InlineData(null, WorkshopPolarityMode.Unrestricted, true)]
+    [InlineData(null, WorkshopPolarityMode.Cathode, true)]
+    [InlineData(null, WorkshopPolarityMode.Anode, true)]
+    [InlineData(null, WorkshopPolarityMode.NeutralOnly, true)]
+    [InlineData("酒", WorkshopPolarityMode.Unrestricted, true)]
+    [InlineData("酒", WorkshopPolarityMode.Cathode, true)]
+    [InlineData("酒", WorkshopPolarityMode.Anode, false)]
+    [InlineData("酒", WorkshopPolarityMode.NeutralOnly, false)]
+    [InlineData("蜜", WorkshopPolarityMode.Unrestricted, true)]
+    [InlineData("蜜", WorkshopPolarityMode.Cathode, false)]
+    [InlineData("蜜", WorkshopPolarityMode.Anode, true)]
+    [InlineData("蜜", WorkshopPolarityMode.NeutralOnly, false)]
+    public void AAndBEnumeratorsShareTheSameWorkshopPolarityGate(
+        string? liquid, WorkshopPolarityMode mode, bool expected)
+    {
+        var bans = mode switch
+        {
+            WorkshopPolarityMode.Unrestricted => new List<string>(),
+            WorkshopPolarityMode.Cathode => new List<string> { "蜜" },
+            WorkshopPolarityMode.Anode => new List<string> { "酒" },
+            WorkshopPolarityMode.NeutralOnly => new List<string> { "酒", "蜜" },
+            _ => throw new System.ArgumentOutOfRangeException(nameof(mode))
+        };
+        var polarity = JarPolarityResolver.Resolve(liquid);
+        Assert.Equal(expected, WorkshopCapability.CanOperateJar(mode, polarity));
+
+        var masterA = new Workshop("A主台", new List<string> { "圆罐", "方罐" }, ban: bans);
+        masterA.AddJar(new Jar("圆罐", liquid, id: 9601));
+        var worldA = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { masterA }, masterA));
+        var specificationA = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "方罐" } }, Constants.OrderType.A, Words);
+        var profileA = WorldOrderRuleCandidateCatalog.Build(
+            worldA, worldA.Master!, "Master", specificationA);
+        var resultA = WorldOrderAClassBranchEnumerator.Enumerate(
+            960, profileA, worldA);
+
+        var masterB = new Workshop("B主台", new List<string> { "圆罐", "方罐" }, ban: bans);
+        var slaveB = new Workshop("B从台", new List<string> { "圆罐", "方罐" }, ban: bans);
+        masterB.AddJar(new Jar("圆罐", liquid, id: 9602));
+        var worldB = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { masterB, slaveB }, masterB, slaveB));
+        var specificationB = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "方罐" } }, Constants.OrderType.B, Words);
+        var masterProfile = WorldOrderRuleCandidateCatalog.Build(
+            worldB, worldB.Master!, "Master", specificationB);
+        var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
+            worldB, worldB.Slave!, "Slave", specificationB);
+        var resultB = WorldOrderBClassBranchEnumerator.Enumerate(
+            961, masterProfile, slaveProfile, worldB);
+
+        var expectedStatusA = expected
+            ? WorldOrderAClassBranchEnumerationStatus.Feasible
+            : WorldOrderAClassBranchEnumerationStatus.Infeasible;
+        var expectedStatusB = expected
+            ? WorldOrderBClassBranchEnumerationStatus.Feasible
+            : WorldOrderBClassBranchEnumerationStatus.Infeasible;
+        Assert.Equal(expectedStatusA, resultA.Status);
+        Assert.Equal(expectedStatusB, resultB.Status);
+    }
+
     [Fact]
     public void ConcreteEnumeratorAndPartitionOracleRejectJarOppositeToBothWorkshopPolarities()
     {
