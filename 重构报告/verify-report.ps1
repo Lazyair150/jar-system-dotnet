@@ -18,7 +18,7 @@ $keyPatterns = @(
     ' error ', 'FAIL ', 'bugs /', 'exit=', 'schema ', 'loose=',
     'CONFIG-WORLD', 'world ', 'contract dumped', 'PROTOCOL-',
     'protocol ', 'script ascii', 'types dumped', 'types dts',
-    'SOLVER-', 'MODDIFF-', 'REPLAY-', 'SNAPSHOT-', 'STEP-FAILED',
+    'SOLVER-', 'mismatch detail:', 'MODDIFF-', 'REPLAY-', 'SNAPSHOT-', 'STEP-FAILED',
     'JS-', 'DOC-', 'SCENARIO-', 'QUALITY-', 'SEC-',
     'JarSystem.Tests', 'Total:'
 )
