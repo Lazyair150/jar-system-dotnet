@@ -570,7 +570,7 @@ public sealed class WorldOrderExecutionSessionTests
         var session = started.Session!;
         Assert.Equal(WorldOrderExecutionStage.Transfer, session.Stage);
         var error = Assert.Throws<InvalidOperationException>(() => session.AdvanceLogicalTime(1_000));
-        Assert.Contains("Injected failure", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Injected failure", error.Message);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
         Assert.Same(jar, Assert.Single(master.Jars));
