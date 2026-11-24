@@ -170,3 +170,17 @@ NEXT WORK (ordered)
 7. Only then perform repository-wide reference audit, documentation retirement, dead/temp-file cleanup and naming standardization. Preserve Oracle, historical decisions, schema/replay fixtures and active verification scripts.
 
 Verification rule: run 45402867828 validates only exact head b8cde3e; every subsequent source commit needs its own exact-head Actions result.
+CONTINUATION AUDIT — 2026-11-24 21:45 +08:00
+
+- PR #60 current inspected head: d64a2b319bb096318a66211883dc91783ee25131; base a52f9465ad4febdcfb821227f7b2e03b2ddc012c; Draft/Open/unmerged.
+- Exact-head verify run 45403667537 was in_progress when queried. Older successful run 45402867828 validates only b8cde3e and must not be used for d64a2b3.
+- Transfer implementation currently performs full preflight, calls commitStarted before first entity mutation, moves exact Jar identities/liquid, verifies postconditions, then publishes one RecordBatchOnce ledger batch. Session failure cleanup compensates Slave-owned temporary resources and releases settlement/reservation state.
+- This is a synchronous compensation protocol, not an atomic transaction across Workshop, staging, lease, reservation and ledger. Failure injection at Nth Jar move/liquid transfer/postcondition/ledger publication and checkpoint/restore consistency are still open.
+- RestoreProgress cross-checks execution stage, lease stage, locked Jar IDs, manifest liquid/capacity values and Master/Slave staging reservations. A complete crash-consistency proof at transfer boundary remains open.
+- Settlement sequence is Drain -> Ship Return -> settlement receipt -> RecordBatchOnce -> mark ledger stage -> release reservation. Retry/checkpoint tests must cover each boundary.
+- Polarity audit: actual operations check WorkshopRulebook.CanOperateJar(jar.Polarity); Jar handoff does not apply polarity/Ban checks. Cross-polarity receiver-only B-class integration test exists.
+- Shared ChatGPT URL could not be retrieved; do not claim its full content was read. This continuation is based on current repository state and available conversation continuity.
+
+NEXT: (1) minimal injectable transfer port; (2) Nth-move/liquid/postcondition/ledger failure tests and restore tests; (3) settlement boundary replay tests; (4) A/B shared polarity/RuleTransition parity audit; (5) seeded resource-conservation matrices; (6) Board/Assignment/Definition/Owned Instance/runtime capability matrix; (7) Space template/schema-3 integration; (8) repository-wide cleanup last.
+
+Exact-head verification rule: run 45403667537 was still running for d64a2b3; every later commit needs its own Actions result.
