@@ -302,3 +302,12 @@ CHECKPOINT 21 — 恢复结算状态的暂存余额一致性（2026-11-24）
 - 扩展 `RestoreRejectsLedgerRecordedSettlementWithoutMatchingLedgerReceipt`：先构造 ResourcesReturned receipt 但保留从台余额，验证因暂存余额未清空而拒绝；随后清空两侧订单子账、推进 LedgerRecorded 阶段，再验证缺少 Settlement operation receipt 仍被拒绝。
 - 源码提交 `25e8044b8a6840f371a71c37b498ce8ae94e8503` 对应 Actions run `45409669395`；扩展测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 尚未返回精确 run。需以测试提交的最新 head 验证。
 - 前一精确 head `5b23607b1b74e3df242df729ae91effa68ecf451` 的 run `45409037632` 已 success，覆盖新旧交接批次补偿、writer allowlist 与 settlement receipt guard 基础测试。
+
+
+CHECKPOINT 22 — Settlement ledger receipt 的 live release guard（2026-11-24）
+
+- 除 checkpoint RestoreProgress 外，`OrderResourceSettlementService.SettleAndRelease` 本身也必须保护 live lease：若 Lease 阶段已是 `LedgerRecorded`，但当前 ResourceLedger 不包含 `SettlementOperationId`，不得直接释放 reservation。
+- 已增加 service 前置校验；在 `ResourcesReturned` 阶段仍允许 `RecordBatchOnce` 重试，在 `LedgerRecorded` 阶段则必须能证明账本 operation receipt 已存在。
+- 扩展同一恢复测试：人为构造两侧 staging 已 Drain、Lease 已 LedgerRecorded 但账本缺 settlement receipt，先验证 live SettleAndRelease 拒绝释放，再验证 RestoreProgress 也拒绝恢复。
+- 源码提交 `13f645248b824a9866051327e33f59c81f44acdc`，测试提交 `3702fb60bad251fd8cbce734a075e87e1c31b868`；精确 Actions run 尚未查询到，后续必须以最新测试 head 的 run 为准。
+- 上一测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 的 run `45409693136` 仍待最终结果查询。
