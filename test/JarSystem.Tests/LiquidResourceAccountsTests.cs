@@ -52,6 +52,46 @@ public sealed class LiquidResourceAccountsTests
         Assert.Equal(3, ship.UsedCapacity);
     }
 
+    [Theory]
+    [InlineData(20261124)]
+    [InlineData(7919)]
+    [InlineData(104729)]
+    [InlineData(65537)]
+    public void FixedSeedShipReturnsConserveRequestedAcceptedAndDiscardedAmounts(int seed)
+    {
+        var random = new Random(seed ^ 0x5A17);
+        var liquids = new[] { "酒", "蜜", "盐" };
+        for (var sample = 0; sample < 200; sample++)
+        {
+            var initial = liquids.ToDictionary(
+                liquid => liquid, _ => random.Next(0, 5), StringComparer.Ordinal);
+            var initialTotal = initial.Values.Sum();
+            var requested = liquids.ToDictionary(
+                liquid => liquid, _ => random.Next(0, 7), StringComparer.Ordinal);
+            var requestedTotal = requested.Values.Sum();
+            var capacity = checked(initialTotal + random.Next(0, requestedTotal + 1));
+            var ship = new ShipLiquidInventory(capacity, initial);
+
+            var receipt = ship.Return(requested);
+
+            foreach (var liquid in liquids)
+            {
+                var amount = requested[liquid];
+                var accepted = receipt.Accepted.GetValueOrDefault(liquid);
+                var discarded = receipt.Discarded.GetValueOrDefault(liquid);
+                Assert.Equal(amount, accepted + discarded);
+                Assert.Equal(initial.GetValueOrDefault(liquid) + accepted, ship.GetAmount(liquid));
+            }
+
+            Assert.Equal(requestedTotal, receipt.RequestedTotal);
+            Assert.Equal(requestedTotal, receipt.AcceptedTotal + receipt.DiscardedTotal);
+            Assert.Equal(initialTotal + receipt.AcceptedTotal, ship.UsedCapacity);
+            Assert.Equal(initialTotal + requestedTotal,
+                ship.UsedCapacity + receipt.DiscardedTotal);
+            Assert.InRange(ship.UsedCapacity, 0, ship.Capacity);
+        }
+    }
+
     [Fact]
     public void NegativeAmountsAndOverCapacityInitialStateAreRejected()
     {
