@@ -223,6 +223,7 @@ public static class SolverPrecheck
     private static bool CanServeFree(Requirement req, JarState jar, WorkshopInfo info)
     {
         var cap = info.Capability;
+        if (!cap.CanOperateJar(jar.Polarity)) return false;
 
         if (req.Polarity != JarPolarity.Neutral)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
@@ -231,8 +232,8 @@ public static class SolverPrecheck
         if (jar.Polarity == JarPolarity.Neutral)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
 
-        // 满罐改形消耗 Jar 自有内部液体，不经过 staging；只有倒液才受 Ban。
-        if (cap.CanTransform(jar.Shape, req.Shape)) return true;
+        // Full-Jar reshape spends Jar-owned liquid, but it still requires polarity compatibility.
+        if (cap.CanOperateJar(jar.Polarity) && cap.CanTransform(jar.Shape, req.Shape)) return true;
         return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
             && !cap.IsBanned(jar.Liquid!);
     }
@@ -275,8 +276,8 @@ public static class SolverPrecheck
             return cap.CanTransform(jar.Shape, req.Shape) && anyCostLiquid;
         }
 
-        // ③ 满罐改形：自耗 Jar 内部液体，不经过 staging，故不检查 Ban。
-        if (cap.CanTransform(jar.Shape, req.Shape)) return true;
+        // ③ 满罐改形：资源从 Jar 内部扣除，但工作台仍须有权操作该 Jar 极性。
+        if (cap.CanOperateJar(jar.Polarity) && cap.CanTransform(jar.Shape, req.Shape)) return true;
         // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH；此路径进入 staging，仍受 Ban。
         return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
             && !cap.IsBanned(jar.Liquid!);
@@ -310,7 +311,7 @@ public static class SolverPrecheck
             for (int i = 0; i < st.Count && !applied; i++)
             {
                 var j = st[i];
-                if (j.IsMarked) continue;
+                if (j.IsMarked || !cap.CanOperateJar(j.Polarity)) continue;
 
                 if (req.Polarity != JarPolarity.Neutral)
                 {
@@ -343,9 +344,9 @@ public static class SolverPrecheck
                     break;
                 }
                 // 满罐改形（自耗）
-                if (j.Polarity != JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
+                if (j.Polarity != JarPolarity.Neutral && cap.CanOperateJar(j.Polarity) && cap.CanTransform(j.Shape, req.Shape))
                 {
-                    // Full reshape consumes Jar-owned liquid; staging Ban is irrelevant.
+                    // Liquid is consumed from the Jar, while Workshop polarity authority still applies.
                     j.Liquid = null;
                     j.Shape = req.Shape;
                     j.IsMarked = true;
