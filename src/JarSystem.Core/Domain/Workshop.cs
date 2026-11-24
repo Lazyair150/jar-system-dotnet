@@ -321,6 +321,25 @@ public class Workshop
         return cur;
     }
 
+    /// <summary>
+    /// 仅用于同一同步交接事务失败时恢复该工作台原有游离液体账户。
+    /// 恢复已存在状态，不经过普通产出 Ban 规则；仍严格验证已知液种与逐液种容量。
+    /// </summary>
+    internal void RestoreLiquidStorageSnapshot(IReadOnlyDictionary<string, int> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Keys.Any(key => !_liquidStorage.ContainsKey(key)))
+            throw new InvalidOperationException("游离液体回滚快照包含当前工作台未知液种。");
+        foreach (var key in _liquidStorage.Keys.ToArray())
+        {
+            var amount = snapshot.GetValueOrDefault(key);
+            if (amount < 0 || amount > MaxLiquids)
+                throw new InvalidOperationException("游离液体回滚快照违反工作台容量不变量：" + key);
+        }
+        foreach (var key in _liquidStorage.Keys.ToArray())
+            _liquidStorage[key] = snapshot.GetValueOrDefault(key);
+    }
+
     /// <summary>调整罐位上限：超出的罐子被移除，返回被移除（丢弃）的数量。</summary>
     public int ResizeJarCapacity(int maxJars)
     {
