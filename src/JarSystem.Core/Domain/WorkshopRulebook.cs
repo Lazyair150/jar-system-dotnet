@@ -210,7 +210,8 @@ public static class WorkshopRulebook
                 definition.RuleId,
                 definition.RuleVersion,
                 new JarFacts(jar.Shape, jar.Liquid, true),
-                null, null, null));
+                null, null, null)
+            { WorkshopPolarityMode = rules.PolarityMode });
     }
 
     /// <summary>
@@ -374,7 +375,10 @@ public static class WorkshopRulebook
         JarFacts After,
         string? ConsumedFreeLiquid,
         string? ProducedFreeLiquid,
-        string? ConsumedJarLiquid);
+        string? ConsumedJarLiquid)
+    {
+        public WorkshopPolarityMode WorkshopPolarityMode { get; init; }
+    }
 
     public readonly record struct WorkshopOperationEvaluation(
         WorkshopRuleDecision Decision,
@@ -392,7 +396,7 @@ public static class WorkshopRulebook
         var decision = Evaluate(rules, maxLiquids, jar, op, liquids);
         return new WorkshopOperationEvaluation(
             decision,
-            decision.IsAllowed ? CreateTransitionCore(jar, op) : null);
+            decision.IsAllowed ? CreateTransitionCore(jar, op, rules.PolarityMode) : null);
     }
 
     public static WorkshopOperationTransition? CreateTransition(
@@ -401,17 +405,17 @@ public static class WorkshopRulebook
         EvaluateTransition(rules, maxLiquids, jar, op, liquids).Transition;
 
     private static WorkshopOperationTransition? CreateTransitionCore(
-        in JarFacts jar, in WorkshopOperation op) =>
+        in JarFacts jar, in WorkshopOperation op, WorkshopPolarityMode polarityMode) =>
         op.Kind switch
         {
             WorkshopOperationKind.PourIn => Transition(WorkshopOperationKind.PourIn,
-                new JarFacts(jar.Shape, op.TargetLiquid, true), op.TargetLiquid, null, null),
+                new JarFacts(jar.Shape, op.TargetLiquid, true), op.TargetLiquid, null, null, polarityMode),
             WorkshopOperationKind.PourOut => Transition(WorkshopOperationKind.PourOut,
-                new JarFacts(jar.Shape, null, true), null, jar.Liquid, null),
+                new JarFacts(jar.Shape, null, true), null, jar.Liquid, null, polarityMode),
             WorkshopOperationKind.ReshapeEmpty => Transition(WorkshopOperationKind.ReshapeEmpty,
-                new JarFacts(op.TargetShape!, null, true), op.CostLiquid, null, null),
+                new JarFacts(op.TargetShape!, null, true), op.CostLiquid, null, null, polarityMode),
             WorkshopOperationKind.ReshapeFull => Transition(WorkshopOperationKind.ReshapeFull,
-                new JarFacts(op.TargetShape!, null, true), null, null, jar.Liquid),
+                new JarFacts(op.TargetShape!, null, true), null, null, jar.Liquid, polarityMode),
             _ => null
         };
 
@@ -420,12 +424,14 @@ public static class WorkshopRulebook
         JarFacts after,
         string? consumedFreeLiquid,
         string? producedFreeLiquid,
-        string? consumedJarLiquid)
+        string? consumedJarLiquid,
+        WorkshopPolarityMode polarityMode)
     {
         var definition = DefinitionFor(kind);
         return new WorkshopOperationTransition(
             definition.RuleId, definition.RuleVersion, after,
-            consumedFreeLiquid, producedFreeLiquid, consumedJarLiquid);
+            consumedFreeLiquid, producedFreeLiquid, consumedJarLiquid)
+        { WorkshopPolarityMode = polarityMode };
     }
 
     /// <summary>
