@@ -77,7 +77,9 @@ public sealed class WorkshopCapability
         }
     }
 
-    public bool CanOperateJar(JarPolarity polarity) => PolarityMode switch
+    public bool CanOperateJar(JarPolarity polarity) => CanOperateJar(PolarityMode, polarity);
+
+    public static bool CanOperateJar(WorkshopPolarityMode mode, JarPolarity polarity) => mode switch
     {
         WorkshopPolarityMode.Unrestricted => true,
         WorkshopPolarityMode.NeutralOnly => polarity == JarPolarity.Neutral,
