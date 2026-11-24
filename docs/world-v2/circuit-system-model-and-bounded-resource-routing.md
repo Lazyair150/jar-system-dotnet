@@ -351,3 +351,18 @@ MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命�
 工作台 Ban 约束该工作台游离液体暂存账户的取用与接收。Jar 内部液体属于 Jar 自身资源，满罐改形自耗不读取工作台 staging，也不因 staging Ban 而失败。PourIn 与空罐改形成本仍然从 staging 取用液体，因此受 Ban；PourOut 产液进入 staging 时也必须接受目标 staging 的 Ban/容量准入。
 
 这条边界不允许把 staging 液体装入 Jar 后再绕过其原本应接受的 staging 准入；但它也不把一个从未经过该 staging 账户的 Jar 内部液体错误计入 staging 库存。
+
+
+### 11.2 Jar 的三态极性（派生状态）
+
+当前液体词汇为两种，连同空罐构成三种 Jar 离散状态：
+
+- 空罐 `null` → `Neutral`（中性）；
+- 酒液 → `Cathode`（阴极）；
+- 蜜液 → `Anode`（阳极）。
+
+这是 Jar 内部液体身份的**派生分类**，不是额外资源，也不是独立可变字段。Core 通过 `JarPolarityResolver` 唯一映射；未知非空液体必须显式失败，不能猜测极性。规则转换快照同时记录实际 `liquid` 与派生 `polarity`，使求解模型可以使用统一的三态分类，同时保留实际资源身份。
+
+极性状态只回答“Jar 当前属于哪一类”，不回答液体数量、账户所有权、所在工作台或可否被某个规则接收。所有资源流仍由 Jar/Liquid ResourceEffect 表达，工作台 Ban 仍只作用于该工作台的游离液体 staging。
+
+这里借用 Neutral / Cathode / Anode 作为游戏领域术语，不模拟真实电学或电化学。不要据此引入电压、电流强度、电阻或把极性推广成液体数量。未来若新增液体类型，必须先明确其极性映射或扩展状态模型，未知类型不能自动落入已有三态。
