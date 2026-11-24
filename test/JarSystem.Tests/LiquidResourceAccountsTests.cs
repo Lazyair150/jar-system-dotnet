@@ -83,7 +83,7 @@ public sealed class LiquidResourceAccountsTests
                 Assert.Equal(initial.GetValueOrDefault(liquid) + accepted, ship.GetAmount(liquid));
             }
 
-            Assert.Equal(requestedTotal, receipt.RequestedTotal);
+            Assert.Equal(requestedTotal, receipt.RequestedAmount);
             Assert.Equal(requestedTotal, receipt.AcceptedTotal + receipt.DiscardedTotal);
             Assert.Equal(initialTotal + receipt.AcceptedTotal, ship.UsedCapacity);
             Assert.Equal(initialTotal + requestedTotal,
