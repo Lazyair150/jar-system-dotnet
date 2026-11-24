@@ -454,3 +454,9 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 
 - 测试 SHA `c9eb44533efab55f1a3fbe5e238741f9791a595f` 对应 run `45409693136` 已 success，覆盖 settlement receipt 状态与主从订单暂存余额一致性恢复检查。
 - 随后的 live settlement receipt guard 与 LedgerRecorded 必须携带 ResourceLedger 规则由后续提交引入，最新测试 SHA `d5cd828...` 对应 run `45410074563` 仍在运行，不由前一 success 代替。
+
+
+### 19.2 Live release guard 精确验证
+
+- `13f645248b824a9866051327e33f59c81f44acdc` 对应 run `45409859456` 已 success，覆盖 live settlement 在 LedgerRecorded 但账本缺 operation receipt 时拒绝释放。
+- 最新更严格的“LedgerRecorded 必须提供 ResourceLedger 对象”与其测试提交 `d5cd82823fed353d95e254ec2a9fa270e9ec2828` 的 run `45410074563` 仍 in_progress，需以后者完成结果为准。
