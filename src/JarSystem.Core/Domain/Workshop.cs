@@ -37,6 +37,9 @@ public class Workshop
 
     public string Name { get; }
 
+    /// <summary>Exact player-owned Board Assignment identity; null only for legacy/non-Board fixtures.</summary>
+    public string? OwnedInstanceId { get; }
+
     /// <summary>能力参数（标记/禁令）。整体更换请用 <see cref="ReplaceCapability"/>。</summary>
     public WorkshopCapability Capability => _capability;
 
@@ -129,9 +132,13 @@ public class Workshop
     public Workshop(string name, List<string>? baseMarks = null, List<string>? additionalMarks = null,
         List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null,
         Vocabulary? vocabulary = null, ModifierStack? modifiers = null,
-        int? liquidStagingCapacity = null, RuleContext? initialRules = null)
+        int? liquidStagingCapacity = null, RuleContext? initialRules = null,
+        string? ownedInstanceId = null)
     {
+        if (ownedInstanceId != null && string.IsNullOrWhiteSpace(ownedInstanceId))
+            throw new ArgumentException("Owned workshop instance identity cannot be blank.", nameof(ownedInstanceId));
         Name = name;
+        OwnedInstanceId = ownedInstanceId;
         _capability = initialRules?.Capability ?? new WorkshopCapability(baseMarks, additionalMarks, ban);
         _rules = initialRules ?? new RuleContext(_capability, modifiers ?? new ModifierStack());
         MaxJars = maxJars ?? Constants.DEFAULT_MAX_JARS;
