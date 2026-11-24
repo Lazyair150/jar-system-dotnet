@@ -7,7 +7,7 @@ namespace JarSystem.Core.Domain;
 
 /// <summary>
 /// Builds the explicit one-way Master/Slave resource handoff proof after a read-only preflight.
-/// It enforces source staging Ban, destination staging Ban/capacity, and destination Jar-polarity compatibility.
+/// It enforces source staging Ban and destination staging Ban/capacity. Jar ownership transfer is polarity-independent.
 /// It does not move resources; the owning transfer transaction remains responsible for commit/rollback.
 /// </summary>
 public static class WorkshopRoleTransferTransitionAdapter
@@ -24,8 +24,7 @@ public static class WorkshopRoleTransferTransitionAdapter
         int destinationJarCount,
         int destinationJarCapacity,
         int destinationStagingUsedCapacity,
-        int destinationStagingCapacity,
-        IReadOnlyDictionary<int, JarFacts>? transferJarFacts = null)
+        int destinationStagingCapacity)
     {
         if (string.IsNullOrWhiteSpace(sourceWorkshopInstanceId))
             throw new ArgumentException("Exact source workshop instance identity is required.", nameof(sourceWorkshopInstanceId));
@@ -46,26 +45,8 @@ public static class WorkshopRoleTransferTransitionAdapter
             jarIds.Distinct().Count() != jarIds.Length || jarIds.Any(id => !sourceIds.Contains(id)))
             throw new ArgumentException("Transfer Jar identities must be unique positive IDs owned by the exact source workshop.");
 
-        if (jarIds.Length > 0 && transferJarFacts == null)
-            throw new ArgumentException("Exact Jar facts are required to validate destination polarity compatibility.", nameof(transferJarFacts));
-        if (transferJarFacts != null &&
-            (!transferJarFacts.Keys.OrderBy(x => x).SequenceEqual(jarIds.OrderBy(x => x)) ||
-             transferJarFacts.Keys.Any(id => id <= 0)))
-            throw new ArgumentException("Transfer Jar facts must map exactly the transferred Jar identities.", nameof(transferJarFacts));
-
         var sourceBans = sourceBannedLiquids.ToHashSet(StringComparer.Ordinal);
         var destinationBans = destinationBannedLiquids.ToHashSet(StringComparer.Ordinal);
-        var sourceCapability = new WorkshopCapability(ban: sourceBans);
-        var destinationCapability = new WorkshopCapability(ban: destinationBans);
-        if (transferJarFacts != null)
-        {
-            foreach (var item in transferJarFacts)
-            {
-                if (!destinationCapability.CanOperateJar(item.Value.Polarity))
-                    throw new ArgumentException("Destination Workshop cannot operate transferred Jar polarity: " + item.Key);
-            }
-        }
-
         if (destinationJarCount < 0 || destinationJarCapacity < destinationJarCount ||
             jarIds.Length > destinationJarCapacity - destinationJarCount)
             throw new ArgumentException("Destination workshop does not have enough Jar capacity.");
@@ -122,21 +103,10 @@ public static class WorkshopRoleTransferTransitionAdapter
         {
             new("sourceWorkshopInstanceId", sourceWorkshopInstanceId),
             new("destinationWorkshopInstanceId", destinationWorkshopInstanceId),
-            new("sourcePolarityMode", sourceCapability.PolarityMode.ToString()),
-            new("destinationPolarityMode", destinationCapability.PolarityMode.ToString()),
             new("sourceJarCount", sourceIds.Count.ToString(CultureInfo.InvariantCulture)),
             new("destinationJarCount", destinationJarCount.ToString(CultureInfo.InvariantCulture)),
             new("destinationStagingUsedCapacity", destinationStagingUsedCapacity.ToString(CultureInfo.InvariantCulture))
         };
-        foreach (var jarId in jarIds.OrderBy(id => id))
-        {
-            var facts = transferJarFacts![jarId];
-            var prefix = "transferJar." + jarId.ToString(CultureInfo.InvariantCulture) + ".";
-            beforeValues.Add(new(prefix + "shape", facts.Shape));
-            beforeValues.Add(new(prefix + "liquid", facts.Liquid ?? string.Empty));
-            beforeValues.Add(new(prefix + "polarity", facts.Polarity.ToString()));
-            beforeValues.Add(new(prefix + "marked", facts.IsMarked ? "true" : "false"));
-        }
         var afterValues = beforeValues
             .Where(item => item.Key != "sourceJarCount" &&
                            item.Key != "destinationJarCount" &&
