@@ -24,21 +24,21 @@ public class WorkshopRulebookTests
 {
 
     [Fact]
-    public void RuleVersionsTrackTheStagingOnlyBanContract()
+    public void RuleVersionsTrackTheWorkshopPolarityContract()
     {
         var full = WorkshopRulebook.Definitions.Single(x => x.Operator == "RESHAPE_FULL");
         var match = WorkshopRulebook.Definitions.Single(x => x.Operator == "MATCH");
 
-        Assert.Equal(3, WorkshopRulebook.RuleContractVersion);
+        Assert.Equal(4, WorkshopRulebook.RuleContractVersion);
         Assert.Equal("jar.workshop.reshape-full", full.RuleId);
-        Assert.Equal(2, full.RuleVersion);
+        Assert.Equal(3, full.RuleVersion);
         Assert.Equal("jar.workshop.match", match.RuleId);
-        Assert.Equal(3, match.RuleVersion);
+        Assert.Equal(4, match.RuleVersion);
     }
 
 
     [Fact]
-    public void MatchCanOperateOnAJarContainingLiquidBannedOnlyFromWorkshopStaging()
+    public void MatchRejectsAJarWhosePolarityIsOppositeTheWorkshopFocus()
     {
         var capability = new WorkshopCapability(
             new[] { "圆罐", "方罐" }, new string[0], new[] { "酒" });
@@ -47,10 +47,56 @@ public class WorkshopRulebookTests
 
         var decision = WorkshopRulebook.EvaluateMatch(rules, facts);
 
-        Assert.True(decision.IsAllowed);
-        Assert.Equal("rule.allowed", decision.ReasonCode);
+        Assert.True(decision.IsRejected);
+        Assert.Equal("workshop.jar-polarity-incompatible", decision.ReasonCode);
     }
 
+
+    [Fact]
+    public void BanDefinesWorkshopPolarityAndNeutralJarsRemainCompatible()
+    {
+        var anodeBench = new WorkshopCapability(ban: new[] { "酒" });
+        Assert.Equal(WorkshopPolarityMode.Anode, anodeBench.PolarityMode);
+        Assert.False(anodeBench.CanOperateJar(JarPolarity.Cathode));
+        Assert.True(anodeBench.CanOperateJar(JarPolarity.Anode));
+        Assert.True(anodeBench.CanOperateJar(JarPolarity.Neutral));
+
+        var cathodeBench = new WorkshopCapability(ban: new[] { "蜜" });
+        Assert.Equal(WorkshopPolarityMode.Cathode, cathodeBench.PolarityMode);
+        Assert.True(cathodeBench.CanOperateJar(JarPolarity.Cathode));
+        Assert.False(cathodeBench.CanOperateJar(JarPolarity.Anode));
+        Assert.True(cathodeBench.CanOperateJar(JarPolarity.Neutral));
+
+        var neutralOnlyBench = new WorkshopCapability(ban: new[] { "酒", "蜜" });
+        Assert.Equal(WorkshopPolarityMode.NeutralOnly, neutralOnlyBench.PolarityMode);
+        Assert.True(neutralOnlyBench.CanOperateJar(JarPolarity.Neutral));
+        Assert.False(neutralOnlyBench.CanOperateJar(JarPolarity.Cathode));
+        Assert.False(neutralOnlyBench.CanOperateJar(JarPolarity.Anode));
+
+        Assert.Equal(WorkshopPolarityMode.Unrestricted, new WorkshopCapability().PolarityMode);
+    }
+
+    [Fact]
+    public void OppositePolarityIsRejectedForFullReshapeButMatchingAndNeutralJarsRemainOperable()
+    {
+        var anodeRules = RuleContext.From(new WorkshopCapability(
+            new[] { "圆罐", "方罐" }, ban: new[] { "酒" }));
+
+        var opposite = WorkshopRulebook.Evaluate(
+            anodeRules, 3, new JarFacts("圆罐", "酒", false),
+            WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
+        Assert.Equal("workshop.jar-polarity-incompatible", opposite.ReasonCode);
+
+        var same = WorkshopRulebook.Evaluate(
+            anodeRules, 3, new JarFacts("圆罐", "蜜", false),
+            WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
+        Assert.True(same.IsAllowed);
+
+        var neutral = WorkshopRulebook.Evaluate(
+            anodeRules, 3, new JarFacts("圆罐", null, false),
+            WorkshopOperation.ReshapeEmpty("方罐", "蜜"), new Dictionary<string, int> { ["蜜"] = 1 });
+        Assert.True(neutral.IsAllowed);
+    }
 
     [Fact]
     public void PourOutBanIsEvaluatedAtTheDestinationStagingAccount()
@@ -64,13 +110,13 @@ public class WorkshopRulebookTests
         var ordinary = WorkshopRulebook.Evaluate(
             rules, 3, fullJar, operation, new Dictionary<string, int>());
         Assert.True(ordinary.IsRejected);
-        Assert.Equal("liquid.banned", ordinary.ReasonCode);
+        Assert.Equal("workshop.jar-polarity-incompatible", ordinary.ReasonCode);
 
         var staging = new WorkshopLiquidStaging(3, new[] { "酒" });
         var scope = new OrderLiquidScope(41, staging);
         var orderScoped = WorkshopRulebook.Evaluate(rules, scope, fullJar, operation);
         Assert.True(orderScoped.IsRejected);
-        Assert.Equal("liquid.banned", orderScoped.ReasonCode);
+        Assert.Equal("workshop.jar-polarity-incompatible", orderScoped.ReasonCode);
     }
 
     private sealed class Cfg
