@@ -310,7 +310,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     private List<SolverOperation> GenOps(Requirement req, SolverState st)
     {
         var ops = new List<SolverOperation>();
-        if (req.Liquid != null) FullOps(req.Shape, req.Liquid, st, ops);
+        if (req.Polarity != JarPolarity.Neutral) FullOps(req.Shape, req.Liquid!, st, ops);
         else EmptyOps(req.Shape, st, ops);
         // 倒出候选按**罐子描述符**去重：两个描述符相同的满罐（同形状/同液体/同标记/同来源）
         // 互为同构，倒出任一个得到的后续状态只是罐子下标置换 ⇒ 只需保留第一个代表。
