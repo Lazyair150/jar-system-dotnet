@@ -68,6 +68,41 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void BClassCanCompleteRequirementOnMasterWhenSlaveCannotOperateThatJar()
+    {
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Liquid = "酒",
+            Reason = "从台不能匹配阴极 Jar"
+        });
+        var master = new Workshop("阴极主台",
+            new List<string> { "圆罐" }, ban: new List<string> { "蜜" },
+            ownedInstanceId: "owned.master.cathode");
+        var slave = new Workshop("阳极从台",
+            new List<string> { "圆罐" }, ban: new List<string> { "酒" },
+            modifiers: slaveRules, ownedInstanceId: "owned.slave.anode");
+        master.AddJar(new Jar("圆罐", "酒", id: 9131));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐", Liquid = "酒" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            913, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Contains(plan.MasterSteps, step =>
+            step.Operation?.Type == "MATCH" &&
+            step.Before![step.Operation.JarIndex!.Value].Id == 9131);
+        Assert.Empty(plan.SlaveSteps);
+        Assert.Empty(plan.TransferJarIds);
+    }
+
+    [Fact]
     public void BClassRejectsFullJarOppositeToBothWorkshopPolarities()
     {
         var master = new Workshop("禁酒主台",
