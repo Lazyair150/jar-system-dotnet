@@ -1,0 +1,66 @@
+# World V2 文档索引与过期文件治理
+
+> 更新：2026-11-24  
+> 目的：区分当前规范、实现记录、历史快照与已废弃语义，避免旧文档继续指导新代码。
+
+## 1. 当前规范入口（优先阅读）
+
+以下文件描述当前目标模型和领域边界；代码变更若与其冲突，应先判断代码是否仍承载兼容责任，再修正并更新文档。
+
+| 文档 | 职责 |
+|---|---|
+| [电路系统模型与有界资源通路](circuit-system-model-and-bounded-resource-routing.md) | 总体模型：Board、Component、Rule Algebra、Compiler、Solver、Runtime；Jar/液体资源流；订单反向求解与换台正向迁移 |
+| [规则转换契约实施记录](rule-transition-contract-implementation-log.md) | 当前已实现的共享契约、Adapter、测试、未完成事项和验收清单 |
+| [订单漏斗与工作台替换契约](order-funnel-and-workshop-replacement-contract.md) | A/B 订单约束、资源路径、工作台替换边界 |
+| [Circuit Board 规则审计与修正指南](circuit-board-rule-world-audit-and-correction-guide.md) | Board Assignment、规则贡献、Core ingress 的身份与作用域约束 |
+| [Parser Board Slot Runtime Boundary](parser-board-slot-runtime-boundary.md) | Parser 输入、处理、outbox 与 Core Warehouse 的资源边界 |
+
+## 2. 历史实现记录：保留，不作为最新规范
+
+以下文件是阶段性交付记录，保留它们用于追溯提交、测试和设计演变。文件名中的阶段号不是当前完成度，也不意味着所有结论仍有效。
+
+- `phase-1-time-and-resource-area.md`
+- `phase-2-workshop-roles.md`
+- `phase-3-demand-areas.md`
+- `phase-4-*.md`
+- `phase-4.10b-*.md`
+- `phase-4.10c-*.md`
+- `phase-4.11a-*.md`
+- `phase-4.11b-*.md`
+
+阅读历史文件时必须同时对照第 1 节的当前规范和当前分支代码。PR 编号、head SHA、CI 状态、旧字段和旧事务顺序都只代表当时的记录。
+
+## 3. 已标记废弃的旧语义
+
+### `docs/资源流入优先级与归属.md`
+
+保留原文作为 2026-11-03 的历史设计记录，但已在文件顶部标记为废弃语义。旧文档中“B 类订单结束后从台资源全部回落主台”等结论不得再作为当前实现依据。当前主从资源流应按订单阶段契约和资源账户所有权处理。
+
+### `phase-4-resource-lifecycle-and-master-prefill.md`
+
+保留 PR #28 阶段的 Master Prefill 事务快照。其 PR 状态和阶段结论为历史信息，不能覆盖当前 Board Assignment、Owned Instance 和 Jar/液体账户模型。
+
+## 4. 尚待逐项审查的旧文档
+
+`docs/` 下其余早期中文设计文档与决策记录暂不批量删除。仅凭文件日期、名称或语言不能证明其内容已失效；其中可能仍包含有效的安全约束、领域决策或 UI 契约。
+
+后续按以下顺序治理：
+
+1. 搜索代码、测试和当前规范对该文档的引用；
+2. 对照当前领域不变量，标记有效段落、过期段落和未决段落；
+3. 若整份文档已被新规范替代，顶部加 Deprecated / Historical 标识并链接替代文档；
+4. 只有确认没有当前引用、没有独立历史价值且无恢复/迁移责任时，才删除文件；
+5. 删除前先把仍有效的决策迁移到当前规范，避免“清理”造成规则丢失。
+
+## 5. 本轮领域语义校正记录
+
+- 电路中的电流就是 Jar 与液体资源本身，不是第三种资源。
+- Jar 是离散、有身份、带形状/内部液体/Mark 状态的资源；液体区分 Jar 内部液体与工作台游离液体暂存账户。
+- 工作台 Ban 约束游离液体暂存账户，不得把 Jar 内部液体自耗错误地当作 staging 取用。
+- 满罐改形自耗只消耗 Jar 内部液体；PourIn 和空罐改形成本仍取用 staging。
+- PourOut 进入 staging 时必须接受接收 Ban/容量检查，后续统一 Staging Admission 仍待实现。
+- MATCH 是独立生命周期规则：只标记具体 Jar，不伪造液体流量。
+
+## 6. 清理纪律
+
+禁止按“旧文件多”进行大规模删除。阶段记录、差分 Oracle 依据、存档 schema、恢复契约和安全决策可能仍是必要证据。过期的是旧语义的规范效力，不一定是文件本身的历史价值。
