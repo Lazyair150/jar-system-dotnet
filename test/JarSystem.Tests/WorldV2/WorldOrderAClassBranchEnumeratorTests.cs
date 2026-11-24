@@ -40,8 +40,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
             new Requirement { Shape = "圆罐" }
         });
 
-        Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Infeasible, result.Status);
-        Assert.Null(result.Assembly);
+        Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.NotNull(result.Assembly);
         Assert.Equal(WorldOrderSolveStatus.Feasible, result.Assembly!.Status);
         var steps = result.Assembly.CandidatePlan!.MasterSteps;
         Assert.Equal(new[] { "POUR_OUT", "RESHAPE" },
@@ -132,8 +132,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
             new Requirement { Shape = "方罐" }
         });
 
-        Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Feasible, result.Status);
-        Assert.NotNull(result.Assembly);
+        Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Infeasible, result.Status);
+        Assert.Null(result.Assembly);
     }
 
     [Fact]
