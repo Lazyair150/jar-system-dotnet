@@ -226,3 +226,69 @@ public static class WorkshopRuleTransitionAdapter
         return allowed;
     }
 }
+
+
+/// <summary>
+/// Adapts the authoritative MATCH lifecycle proof. MATCH is deliberately separate from
+/// WorkshopOperation: it marks one exact Jar but does not perform a chemical operation
+/// or move liquid between resource accounts.
+/// </summary>
+public static class MatchRuleTransitionAdapter
+{
+    private static RuleStateSnapshot Snapshot(in JarFacts facts) =>
+        new(new[]
+        {
+            new KeyValuePair<string, string>("shape", facts.Shape),
+            new KeyValuePair<string, string>("liquid", facts.Liquid ?? string.Empty),
+            new KeyValuePair<string, string>("marked", facts.IsMarked ? "true" : "false")
+        });
+
+    public static RuleEvaluationResult Evaluate(
+        WorkshopRulebook.WorkshopOperationEvaluation evaluation,
+        in JarFacts before,
+        string workshopInstanceId,
+        string jarInstanceId,
+        string scope = "workshop")
+    {
+        if (string.IsNullOrWhiteSpace(workshopInstanceId))
+            throw new ArgumentException("Exact workshop instance identity is required.", nameof(workshopInstanceId));
+        if (string.IsNullOrWhiteSpace(jarInstanceId))
+            throw new ArgumentException("Exact Jar instance identity is required.", nameof(jarInstanceId));
+        if (string.IsNullOrWhiteSpace(scope))
+            throw new ArgumentException("Rule scope is required.", nameof(scope));
+
+        var decision = evaluation.Decision;
+        if (!decision.IsAllowed)
+        {
+            var rejected = new RuleEvaluationResult(
+                decision.IsUndetermined ? RuleDecisionKind.Undetermined : RuleDecisionKind.Rejected,
+                decision.ReasonCode, decision.Reason, null);
+            rejected.Validate();
+            return rejected;
+        }
+
+        if (evaluation.Transition is not { } transition)
+            throw new ArgumentException("Allowed MATCH proof is missing its lifecycle transition.", nameof(evaluation));
+        if (!string.Equals(transition.RuleId, "jar.workshop.match", StringComparison.Ordinal))
+            throw new ArgumentException("MATCH adapter received a proof for another rule.", nameof(evaluation));
+        if (transition.After.Shape != before.Shape ||
+            !string.Equals(transition.After.Liquid, before.Liquid, StringComparison.Ordinal) ||
+            transition.After.IsMarked != true || before.IsMarked)
+            throw new ArgumentException("MATCH proof does not represent the expected mark-only lifecycle transition.", nameof(evaluation));
+
+        var resultTransition = new RuleTransition(
+            transition.RuleId,
+            transition.RuleVersion,
+            scope,
+            jarInstanceId,
+            Snapshot(before),
+            Snapshot(transition.After),
+            Array.Empty<RuleResourceEffect>());
+        resultTransition.Validate();
+
+        var allowed = new RuleEvaluationResult(
+            RuleDecisionKind.Allowed, "rule.allowed", null, resultTransition);
+        allowed.Validate();
+        return allowed;
+    }
+}
