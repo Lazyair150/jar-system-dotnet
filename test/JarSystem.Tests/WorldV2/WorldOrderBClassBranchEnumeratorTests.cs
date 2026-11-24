@@ -89,13 +89,13 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         var input = Profiles(master, slave, new[]
         {
-            new Requirement { Shape = "圆罐", Liquid = "酒" },
-            new Requirement { Shape = "方罐" }
+            new Requirement { Shape = "方罐" },
+            new Requirement { Shape = "圆罐", Liquid = "酒" }
         });
-        Assert.Contains(input.Master.Requirements[0].Candidates,
+        Assert.Contains(input.Master.Requirements[1].Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Empty(input.Slave.Requirements[0].Candidates);
-        Assert.Contains(input.Slave.Requirements[1].Candidates,
+        Assert.Empty(input.Slave.Requirements[1].Candidates);
+        Assert.Contains(input.Slave.Requirements[0].Candidates,
             candidate => candidate.Operation == "MATCH");
 
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
@@ -570,15 +570,15 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         var input = Profiles(master, slave, new[]
         {
-            new Requirement { Shape = "圆罐", Liquid = "酒" },
-            new Requirement { Shape = "方罐" }
+            new Requirement { Shape = "方罐" },
+            new Requirement { Shape = "圆罐", Liquid = "酒" }
         });
-        Assert.Contains(input.Master.Requirements[0].Candidates,
+        Assert.Empty(input.Master.Requirements[0].Candidates);
+        Assert.Contains(input.Slave.Requirements[0].Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Empty(input.Slave.Requirements[0].Candidates);
-        Assert.Empty(input.Master.Requirements[1].Candidates);
-        Assert.Contains(input.Slave.Requirements[1].Candidates,
+        Assert.Contains(input.Master.Requirements[1].Candidates,
             candidate => candidate.Operation == "MATCH");
+        Assert.Empty(input.Slave.Requirements[1].Candidates);
 
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             914, input.Master, input.Slave, input.World);
