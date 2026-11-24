@@ -289,7 +289,7 @@ Implemented in Core:
 - `RuleTransition` carries stable RuleId/version, scope, target, before/after state payloads and explicit resource effects.
 - `RuleResourceEffect` carries resource kind/identity/amount and exact account endpoints. Consume, Produce, Transfer and Discard have distinct endpoint invariants.
 - `RuleResourceAccount` addresses a concrete owner identity; role labels and display names are not accepted as account ownership.
-- `WorkshopRuleTransitionAdapter` adapts the existing four Workshop chemical operation proofs to the shared contract. PourIn and ReshapeEmpty consume Workshop free-liquid staging; PourOut produces into the current Workshop staging account; ReshapeFull consumes the liquid owned by that exact Jar. It does not confuse Jar-internal self-consumption with Workshop free-liquid balance.
+- `WorkshopRuleTransitionAdapter` adapts the existing four Workshop chemical operation proofs to the shared contract. PourIn and ReshapeEmpty consume Workshop free-liquid staging; PourOut transfers Jar-internal liquid into an exact order output boundary; a separate staging-admission transition settles accepted and discarded amounts; ReshapeFull consumes the liquid owned by that exact Jar. It does not confuse Jar-internal self-consumption with Workshop free-liquid balance.
 
 Tests authored for these invariants in `RuleTransitionContractTests`. This is a compatibility adapter slice, not yet a replacement for WorkshopRulebook, not yet the Circuit Compiler, and not yet a universal evaluator. MATCH remains outside `WorkshopOperationKind` and is now consumed by the separate `MatchRuleTransitionAdapter`; this does not yet make it the universal execution entry point.
 - State before/after is represented by `RuleStateSnapshot`, a sorted, immutable key/value snapshot; mutable domain object references are not embedded in the transition contract.
@@ -322,7 +322,7 @@ Tests authored for these invariants in `RuleTransitionContractTests`. This is a 
 
 `WorkshopRuleTransitionAdapter` 目前适配旧 WorkshopRulebook 的四种化学操作，并将旧规则判定和状态转换转译为共享契约。它没有重新实现规则，也没有提交资源账本。
 
-特别注意：PourOut 的 Produce 指向当前工作台暂存账户，只表达“尝试产出到此账户”的转换意图；staging admission、容量、接收拒绝和溢出丢弃仍须由后续独立规则/事务表达。不能把 Produce 记录当作已经成功入账。
+特别注意：PourOut 的操作 Transition 先把液体从 Jar 内部账户 Transfer 到精确订单 output boundary；Staging Admission 再把接收部分 Transfer 到 staging，把 Ban 拒收/容量溢出部分 Discard。不能把 Jar→output boundary 误认为已经成功进入 staging。
 
 MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命周期证明。Mark 周期验证、Transfer、Staging admission、Ban/Capacity 的完整事务表达仍是后续工作，不得根据契约类型已存在而推断完成。
 
@@ -349,7 +349,7 @@ MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命�
 
 ### 11.1 Ban 的电路边界
 
-工作台 Ban 同时决定工作台专注极性与暂存类别：Ban 酒 => 阳极工作台；Ban 蜜 => 阴极工作台。同极 Jar 可操作，异极 Jar 不可，中性 Jar 对两者均可操作。无 Ban 的旧配置保留双极性兼容；两种液体都 Ban 时只允许中性 Jar。PourIn 与空罐改形成本从 staging 取用液体，受对应类别 Ban 与库存约束；PourOut 先要求 Jar 极性兼容，再检查目标 staging 的类别与容量。满罐改形虽从 Jar 内部账户自耗，但仍受工作台极性操作权限约束。
+工作台 Ban 同时决定工作台专注极性与暂存类别：Ban 酒 => 阳极工作台；Ban 蜜 => 阴极工作台。同极 Jar 可操作，异极 Jar 不可，中性 Jar 对两者均可操作。无 Ban 的旧配置保留双极性兼容；两种液体都 Ban 时只允许中性 Jar。PourIn 与空罐改形成本从 staging 取用液体，受对应类别 Ban 与库存约束；PourOut 先要求 Jar 极性兼容，再把液体转入 output boundary；随后 staging 按类别与容量部分接收，剩余部分丢弃，不回滚 Jar 化学操作。满罐改形虽从 Jar 内部账户自耗，但仍受工作台极性操作权限约束。
 
 这条边界不允许把 staging 液体装入 Jar 后再绕过其原本应接受的 staging 准入；但它也不把一个从未经过该 staging 账户的 Jar 内部液体错误计入 staging 库存。
 
@@ -385,14 +385,14 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 
 求解器的 `JarState` 与 `Requirement` 暴露只读派生 `Polarity`，StateSpaceSolver、MatchingSolver 与 SolverPrecheck 用它区分空/满状态。精确液体身份仍用于需求匹配、数量核算和 staging admission。状态键继续只编码实际液体 ID，不重复编码其派生极性。
 
-**关键极性区分**：满罐自耗改形只消费 Jar 内部资源，但必须先满足工作台与 Jar 的极性兼容；PourOut 同样要求极性兼容，之后才把液体送入 staging 并检查类别与容量。主从 Jar 转移只改变 Jar 库存账户归属，不检查来源或目标工作台极性；即使两台专注极性不同，Jar 仍可移动。只有目标台随后实际对该 Jar 执行化学操作时，才检查目标台的极性兼容。
+**关键极性区分**：满罐自耗改形只消费 Jar 内部资源，但必须先满足工作台与 Jar 的极性兼容；PourOut 同样要求极性兼容，之后先把 Jar 液体送入 output boundary，再由 staging 按类别与容量结算接收/丢弃。主从 Jar 转移只改变 Jar 库存账户归属，不检查来源或目标工作台极性；即使两台专注极性不同，Jar 仍可移动。只有目标台随后实际对该 Jar 执行化学操作时，才检查目标台的极性兼容。
 
 
 ### 10.6 本轮新增：非 Jar 状态转换与 staging admission
 
 共享 Transition 现在允许两种明确状态形态：Jar 转换必须绑定 exact Jar identity 并带派生极性；非 Jar 转换不得伪造 polarity。Staging Admission 使用非 Jar 快照表达工作台暂存占用与订单子账余额。
 
-`StagingAdmissionTransitionAdapter` 消费 `WorkshopLiquidStaging.Receive` 的真实 receipt，将请求量、接收量和丢弃量拆成可守恒的资源效果：临时订单输出边界 Produce、接收部分 Transfer 到当前工作台 staging、拒收/溢出部分 Discard。新增 `WorkshopLiquidStaging.ReceiveWithTransition` 将权威 Receive 与该 Transition 配对返回；旧 `Receive` 保留兼容，其他生产输出入口仍需迁移。Adapter 本身不写入资源账户。
+`StagingAdmissionTransitionAdapter` 消费 `WorkshopLiquidStaging.Receive` 的真实 receipt，将请求量、接收量和丢弃量拆成可守恒的资源效果：Jar 操作先 Transfer 到临时订单输出边界，接收部分再 Transfer 到当前工作台 staging，拒收/溢出部分 Discard。新增 `WorkshopLiquidStaging.ReceiveWithTransition` 将权威 Receive 与该 Transition 配对返回；订单 `Workshop.PourOutWithSettlement` 已接入，并由 `WorldPlanStepApplier` 校验接收余额增量、执行会话收集操作与 staging 两份 Transition。旧 `Receive` 保留兼容，其他生产输出入口仍需迁移。Adapter 本身不写入资源账户。
 
 本轮还校正了差分参考求解器：其旧版满罐改形路径曾错误套用 staging Ban。现在参考实现与“Ban 定义工作台专注极性及暂存类别”的领域契约一致；异极 Jar 的 MATCH、PourOut 与满罐改形均拒绝，同极 Jar 的内部液体自耗仍从 Jar 账户扣除。Mark 跨主从交接保留、成功终态清理与失败终态清理也增加了执行会话回归断言。
 
