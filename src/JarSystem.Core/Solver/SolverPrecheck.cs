@@ -233,7 +233,7 @@ public static class SolverPrecheck
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
 
         // Full-Jar reshape spends Jar-owned liquid, but it still requires polarity compatibility.
-        if (cap.CanOperateJar(jar.Polarity) && cap.CanTransform(jar.Shape, req.Shape)) return true;
+        if (cap.CanTransform(jar.Shape, req.Shape)) return true;
         return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
             && !cap.IsBanned(jar.Liquid!);
     }
@@ -251,13 +251,14 @@ public static class SolverPrecheck
         Func<string, bool> canObtainLiquid, bool anyCostLiquid)
     {
         var cap = info.Capability;
+        if (!cap.CanOperateJar(jar.Polarity)) return false;
 
         if (req.Polarity != JarPolarity.Neutral)
         {
-            // 满罐需求：形状必须已经是 req.Shape
+            // 满罐需求：形状必须已经是 req.Shape，且工作台必须能操作该 Jar 极性
             if (!string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return false;
 
-            // ① 已经是 S/l 满罐 ⇒ MATCH（**不看禁令**：液体已经在罐子里，MatchJar 是唯一不受禁的路径）
+            // ① 已经是 S/l 满罐 ⇒ MATCH（仍须满足工作台与 Jar 的极性兼容）
             if (string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal)) return true;
 
             // ② 是空 S 罐 ⇒ POUR_IN（要求 S 在基础标记内、液体未被禁、且还弄得一份）
@@ -277,7 +278,7 @@ public static class SolverPrecheck
         }
 
         // ③ 满罐改形：资源从 Jar 内部扣除，但工作台仍须有权操作该 Jar 极性。
-        if (cap.CanOperateJar(jar.Polarity) && cap.CanTransform(jar.Shape, req.Shape)) return true;
+        if (cap.CanTransform(jar.Shape, req.Shape)) return true;
         // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH；此路径进入 staging，仍受 Ban。
         return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
             && !cap.IsBanned(jar.Liquid!);
