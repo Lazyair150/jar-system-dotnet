@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using JarSystem.Core.Domain;
 using Xunit;
 
@@ -84,6 +87,86 @@ public sealed class LiquidResourceAccountsTests
         Assert.Equal(0, staging.GetAmount(102, "酒"));
         Assert.False(staging.TryConsume(102, "酒", 1));
         Assert.Equal(2, staging.GetAmount(101, "酒"));
+    }
+
+    [Theory]
+    [InlineData(20261124)]
+    [InlineData(7919)]
+    [InlineData(104729)]
+    [InlineData(65537)]
+    public void FixedSeedOrderLiquidTransfersPreserveEveryAccountAndResourceTotal(int seed)
+    {
+        var random = new Random(seed);
+        var successCount = 0;
+        var rejectionCount = 0;
+        var liquids = new[] { "酒", "蜜", "盐" };
+
+        for (var sample = 0; sample < 200; sample++)
+        {
+            var master = new WorkshopLiquidStaging(30);
+            var source = liquids.ToDictionary(
+                liquid => liquid, _ => random.Next(1, 7), StringComparer.Ordinal);
+            foreach (var item in source)
+                Assert.Equal(item.Value,
+                    master.Receive(101, item.Key, item.Value).AcceptedAmount);
+
+            var scenario = sample % 4;
+            var otherOrderAmount = random.Next(1, 7);
+            var slaveCapacity = scenario == 3 ? otherOrderAmount : 40;
+            var banned = scenario == 2 ? new[] { "蜜" } : Array.Empty<string>();
+            var slave = new WorkshopLiquidStaging(slaveCapacity, banned);
+            Assert.Equal(otherOrderAmount,
+                slave.Receive(202, "外来液", otherOrderAmount).AcceptedAmount);
+
+            var requested = source.ToDictionary(
+                item => item.Key,
+                item => random.Next(1, item.Value + 1),
+                StringComparer.Ordinal);
+            if (scenario == 1)
+                requested["酒"] = checked(source["酒"] + 1);
+            if (scenario == 2)
+                requested["蜜"] = Math.Max(1, requested["蜜"]);
+
+            var masterBefore = master.GetBalance(101);
+            var slaveBefore = slave.GetBalance(101);
+            var unrelatedBefore = slave.GetBalance(202);
+            var totalsBefore = liquids.ToDictionary(
+                liquid => liquid,
+                liquid => master.GetAmount(101, liquid) + slave.GetAmount(101, liquid),
+                StringComparer.Ordinal);
+
+            var moved = OrderLiquidTransfer.TryExecute(
+                101, master, slave, requested, out _);
+
+            if (moved)
+            {
+                successCount++;
+                foreach (var liquid in liquids)
+                {
+                    Assert.Equal(totalsBefore[liquid],
+                        master.GetAmount(101, liquid) + slave.GetAmount(101, liquid));
+                    Assert.Equal(masterBefore.GetValueOrDefault(liquid) - requested.GetValueOrDefault(liquid),
+                        master.GetAmount(101, liquid));
+                    Assert.Equal(slaveBefore.GetValueOrDefault(liquid) + requested.GetValueOrDefault(liquid),
+                        slave.GetAmount(101, liquid));
+                }
+            }
+            else
+            {
+                rejectionCount++;
+                Assert.Equal(masterBefore.OrderBy(item => item.Key), master.GetBalance(101).OrderBy(item => item.Key));
+                Assert.Equal(slaveBefore.OrderBy(item => item.Key), slave.GetBalance(101).OrderBy(item => item.Key));
+            }
+
+            Assert.Equal(unrelatedBefore.OrderBy(item => item.Key),
+                slave.GetBalance(202).OrderBy(item => item.Key));
+            Assert.InRange(master.UsedCapacity, 0, master.Capacity);
+            Assert.InRange(slave.UsedCapacity, 0, slave.Capacity);
+        }
+
+        Assert.True(successCount > 0, "固定样本必须覆盖成功交接");
+        Assert.True(rejectionCount > 0, "固定样本必须覆盖拒绝交接");
+        Assert.Equal(800, successCount + rejectionCount);
     }
 
     [Fact]
