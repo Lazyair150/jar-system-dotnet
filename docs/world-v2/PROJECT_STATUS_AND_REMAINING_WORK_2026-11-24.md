@@ -224,3 +224,13 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - `StagingAdmissionTransitionAdapter` 是纯证明构造器；`WorkshopLiquidStaging.ReceiveWithTransition` 先执行权威 Receive，再根据同一调用的前后余额构造 transition；若证明构造失败，会撤销本次已接收数量。订单操作的 `TryReceiveExact` 则坚持全量接收，不允许部分成功。
 - `OrderResourceSettlementService` 先 Drain 订单子账，再执行 Ship inventory Return，记录一次性 settlement receipt，并通过 operation ID 批量写账本；重复结算读取已有 receipt，不再次 Drain。仍需测试 Return/账本写入/租约释放之间的异常恢复边界。
 - 重要限制：当前 Adapter 的 Jar Transfer proof 在提交前构造，提交后核对源/目标 Jar 数量和目标 staging 容量；后续应加强为按 exact Jar ID 的提交后账户快照校验，并增加注入式故障测试，证明第 N 个 Jar 转移失败时前 N-1 个已移动 Jar、液体账户和租约都能被补偿到一致状态。
+
+
+### 精确 Jar 身份交接审计与修复（2026-11-24）
+
+- 在 `OrderTransferService` 中发现一个真实边界风险：交接预检逐个构建 `Dictionary<int, Jar>`，但没有在整个来源库存层面拒绝无效/重复 Jar ID，也没有在进入字典前拒绝 Manifest 中重复的 transfer ID。重复 Manifest ID 可能以 `Dictionary.Add` 异常离开预检路径，而不是稳定的领域拒绝。
+- 已在 commit `ca06af670d152f91ee1a9cc58ff4a0fe0ed56510` 修复：预检开始先验证来源 Jar ID 全部为正数且唯一，再验证 transfer 清单全部为正数且唯一；不满足时返回明确拒绝原因，不触碰资源。
+- 同一修复还加强提交后核对：不能只用来源/目标 Jar 数量证明交接正确，因为同数量可能掩盖身份替换。现在会确认 transfer 清单中的每个 exact Jar ID 已从 Master 消失，并且 Slave 持有的清单内 ID 集合与 Manifest 完全一致。此校验发生在交接提交后；若不一致则抛出提交异常，交给会话失败收尾补偿。
+- commit `7a1c4a7307274645a4d811458d64ef5921347871` 为真实 B 类会话测试补充精确归属断言：Master 两只 Jar 全部移出，Slave 的 Jar ID 集合恰好等于 Manifest 的两只 Jar，不多不少。该测试也同时保留源 Jar 由 Master 操作后标记、工具 Jar 留给 Slave 操作的断言。
+- 两个提交都已触发 GitHub Actions；在精确 head 的两条 Actions 完成前，不把它们标记为通过。
+- 当前交接实现仍是“预检 → commitStarted → 顺序移动 → 提交后身份核对 → 异常补偿”的同步补偿事务，不是持久化数据库原子事务。下一项必须增加可控故障注入，在第 N 个 Jar 转移或液体账本写入失败时验证资源归属、液体账户、lease、reservation 和 ledger 的补偿一致性。
