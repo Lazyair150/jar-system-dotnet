@@ -353,3 +353,12 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - 暂存区取用按 Ban/库存校验；产液进入 staging 时按 Ban/容量部分接收，其余 Discard。Jar 内部液体自耗只改变 Jar 内部账户，但仍受工作台极性操作权限约束。
 - 主从交接不能改变 Jar 的极性，也不能清除一次订单操作 Mark；Jar 可以跨不同极性的工作台角色转移。只有后续某个工作台实际对该 Jar 执行 MATCH/化学操作时，才检查该工作台的极性兼容。
 
+
+## 2026-11-24 — Clarify polarity vs physical Jar handoff; B-class solver limitation
+
+- **Jar transfer is not a workshop operation.** Master→Slave physical Jar movement does not consult source/target workshop polarity, staging Ban, or liquid staging admission. It preserves exact Jar identity, shape, internal liquid, and Mark state; it changes only the owning resource account.
+- **Workshop polarity controls operations, not possession.** MATCH, POUR_IN, POUR_OUT, and RESHAPE are checked against the operating Workshop's polarity compatibility. A workshop may hold a Jar it cannot currently operate. This is not an invalid inventory state and must not be rejected at transfer admission.
+- **Staging Ban is separate from operation polarity.** Ban determines staging liquid category/admission. Jar polarity is derived from its internal liquid; workshop polarity is derived from the workshop's Ban configuration. Their compatibility governs operation permission. Ban does not directly prohibit transferring a Jar containing that liquid.
+- The inducing assumption was found in `WorldOrderBClassBranchEnumerator`: its current demand compiler requires all order requirement steps to belong to Slave (see the slave-only branch checks and comments around lines 85–166). This is a bounded solver design limitation, not a transfer contract. It must not be described as “Slave cannot receive a Jar it cannot operate.”
+- A future solver expansion may assign order work across both roles when the order semantics allow it; do not weaken polarity operation checks to accomplish this. Conversely, do not add polarity checks to the Jar handoff.
+- Regression coverage must keep these cases distinct: (a) cross-polarity Jar handoff is allowed and preserves identity/state; (b) operation by the receiving Workshop is independently rejected when incompatible; (c) order feasibility is determined by a valid role/operation schedule, not a blanket transfer rejection.
