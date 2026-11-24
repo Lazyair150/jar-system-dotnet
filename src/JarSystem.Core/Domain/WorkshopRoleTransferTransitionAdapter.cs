@@ -7,6 +7,7 @@ namespace JarSystem.Core.Domain;
 
 /// <summary>
 /// Builds the explicit one-way Master/Slave resource handoff proof after a read-only preflight.
+/// It enforces source staging Ban, destination staging Ban/capacity, and destination Jar-polarity compatibility.
 /// It does not move resources; the owning transfer transaction remains responsible for commit/rollback.
 /// </summary>
 public static class WorkshopRoleTransferTransitionAdapter
@@ -53,6 +54,7 @@ public static class WorkshopRoleTransferTransitionAdapter
             throw new ArgumentException("Transfer Jar facts must map exactly the transferred Jar identities.", nameof(transferJarFacts));
 
         var destinationBans = destinationBannedLiquids.ToHashSet(StringComparer.Ordinal);
+        var sourceCapability = new WorkshopCapability(ban: sourceBans);
         var destinationCapability = new WorkshopCapability(ban: destinationBans);
         if (transferJarFacts != null)
         {
@@ -116,24 +118,35 @@ public static class WorkshopRoleTransferTransitionAdapter
                 item.Key, item.Value, sourceStagingAccount, destinationStagingAccount));
 
         var target = sourceWorkshopInstanceId + "->" + destinationWorkshopInstanceId;
-        var before = new RuleStateSnapshot(new[]
+        var beforeValues = new List<KeyValuePair<string, string>>
         {
-            new KeyValuePair<string, string>("sourceWorkshopInstanceId", sourceWorkshopInstanceId),
-            new KeyValuePair<string, string>("destinationWorkshopInstanceId", destinationWorkshopInstanceId),
-            new KeyValuePair<string, string>("sourceJarCount", sourceIds.Count.ToString(CultureInfo.InvariantCulture)),
-            new KeyValuePair<string, string>("destinationJarCount", destinationJarCount.ToString(CultureInfo.InvariantCulture)),
-            new KeyValuePair<string, string>("destinationStagingUsedCapacity", destinationStagingUsedCapacity.ToString(CultureInfo.InvariantCulture))
-        });
-        var after = new RuleStateSnapshot(new[]
+            new("sourceWorkshopInstanceId", sourceWorkshopInstanceId),
+            new("destinationWorkshopInstanceId", destinationWorkshopInstanceId),
+            new("sourcePolarityMode", sourceCapability.PolarityMode.ToString()),
+            new("destinationPolarityMode", destinationCapability.PolarityMode.ToString()),
+            new("sourceJarCount", sourceIds.Count.ToString(CultureInfo.InvariantCulture)),
+            new("destinationJarCount", destinationJarCount.ToString(CultureInfo.InvariantCulture)),
+            new("destinationStagingUsedCapacity", destinationStagingUsedCapacity.ToString(CultureInfo.InvariantCulture))
+        };
+        foreach (var jarId in jarIds.OrderBy(id => id))
         {
-            new KeyValuePair<string, string>("sourceWorkshopInstanceId", sourceWorkshopInstanceId),
-            new KeyValuePair<string, string>("destinationWorkshopInstanceId", destinationWorkshopInstanceId),
-            new KeyValuePair<string, string>("sourceJarCount", (sourceIds.Count - jarIds.Length).ToString(CultureInfo.InvariantCulture)),
-            new KeyValuePair<string, string>("destinationJarCount", (destinationJarCount + jarIds.Length).ToString(CultureInfo.InvariantCulture)),
-            new KeyValuePair<string, string>("destinationStagingUsedCapacity", (destinationStagingUsedCapacity + liquidTotal).ToString(CultureInfo.InvariantCulture)),
-            new KeyValuePair<string, string>("transferredJarCount", jarIds.Length.ToString(CultureInfo.InvariantCulture)),
-            new KeyValuePair<string, string>("transferredLiquidAmount", liquidTotal.ToString(CultureInfo.InvariantCulture))
-        });
+            var facts = transferJarFacts![jarId];
+            var prefix = "transferJar." + jarId.ToString(CultureInfo.InvariantCulture) + ".";
+            beforeValues.Add(new(prefix + "shape", facts.Shape));
+            beforeValues.Add(new(prefix + "liquid", facts.Liquid ?? string.Empty));
+            beforeValues.Add(new(prefix + "polarity", facts.Polarity.ToString()));
+            beforeValues.Add(new(prefix + "marked", facts.IsMarked ? "true" : "false"));
+        }
+        var afterValues = new List<KeyValuePair<string, string>>(beforeValues)
+        {
+            new("sourceJarCount", (sourceIds.Count - jarIds.Length).ToString(CultureInfo.InvariantCulture)),
+            new("destinationJarCount", (destinationJarCount + jarIds.Length).ToString(CultureInfo.InvariantCulture)),
+            new("destinationStagingUsedCapacity", (destinationStagingUsedCapacity + liquidTotal).ToString(CultureInfo.InvariantCulture)),
+            new("transferredJarCount", jarIds.Length.ToString(CultureInfo.InvariantCulture)),
+            new("transferredLiquidAmount", liquidTotal.ToString(CultureInfo.InvariantCulture))
+        };
+        var before = new RuleStateSnapshot(beforeValues);
+        var after = new RuleStateSnapshot(afterValues);
 
         var transition = new RuleTransition(
             "workshop.role-transfer", 1, "workshop.transfer", target, before, after, effects);
