@@ -281,7 +281,6 @@ internal sealed class OrderTransferService
                 expected["destinationJarCount"] != slave.Jars.Count.ToString(CultureInfo.InvariantCulture) ||
                 expected["destinationStagingUsedCapacity"] != destinationUsedCapacity.ToString(CultureInfo.InvariantCulture))
                 throw new InvalidOperationException("主从交接提交后的真实账户状态与同一事务构造的 RuleTransition 不一致。");
-            CommittedTransition = transferTransition;
         }
 
         // The ledger is a projection of committed resource facts, not a sequence of
@@ -292,6 +291,7 @@ internal sealed class OrderTransferService
                 throw new InvalidOperationException("该订单交接账本操作已记录，拒绝重复提交资源转移事实。");
         }
 
+        CommittedTransition = transferTransition;
         IsCommitted = true;
         return null;
     }
