@@ -32,7 +32,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             ["Undetermined"] = 0
         };
 
-        foreach (var seed in new[] { 0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155 })
+        foreach (var seed in new[] { 0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155, 0x4A4156, 0x4A4157, 0x4A4158, 0x4A4159 })
         {
             var random = new Random(seed);
             for (var sample = 0; sample < 128; sample++)
@@ -137,7 +137,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         }
         }
 
-        Assert.Equal(512, sampleOrdinal);
+        Assert.Equal(1024, sampleOrdinal);
         Assert.True(statusCounts["Feasible"] > 0, "Fixed seed produced no feasible samples.");
         Assert.True(statusCounts["Infeasible"] > 0, "Fixed seed produced no infeasible samples.");
     }
@@ -158,6 +158,52 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
     {
         Assert.Contains(status, counts.Keys);
         counts[status]++;
+    }
+
+    private static bool IsFreeLiquidConsumer(WorldPlanOperation? operation) =>
+        operation?.Type == "POUR_IN" ||
+        (operation?.Type == "RESHAPE" && operation.FullReshape == false);
+
+    private static void AssertLiquidBalancesConserve(
+        IReadOnlyDictionary<string, int> initial,
+        IReadOnlyDictionary<string, int> final,
+        IReadOnlyList<WorldPlanStep> steps,
+        IReadOnlyList<string?> acceptedOutputs,
+        string role)
+    {
+        Assert.Equal(steps.Count, acceptedOutputs.Count);
+        var expected = new Dictionary<string, int>(initial, StringComparer.Ordinal);
+        Assert.All(expected.Values, amount => Assert.True(amount >= 0));
+
+        for (var index = 0; index < steps.Count; index++)
+        {
+            var operation = steps[index].Operation;
+            if (IsFreeLiquidConsumer(operation))
+            {
+                Assert.False(string.IsNullOrWhiteSpace(operation!.CostLiquid),
+                    role + " free-liquid consumer is missing its exact liquid identity.");
+                var liquid = operation!.CostLiquid!;
+                var available = expected.GetValueOrDefault(liquid);
+                Assert.True(available > 0,
+                    role + " consumed unavailable free liquid: " + liquid);
+                if (available == 1) expected.Remove(liquid);
+                else expected[liquid] = available - 1;
+            }
+
+            if (acceptedOutputs[index] is { } produced)
+                expected[produced] = checked(expected.GetValueOrDefault(produced) + 1);
+        }
+
+        var allLiquids = expected.Keys.Concat(final.Keys)
+            .Distinct(StringComparer.Ordinal);
+        foreach (var liquid in allLiquids)
+        {
+            var expectedAmount = expected.GetValueOrDefault(liquid);
+            var actualAmount = final.GetValueOrDefault(liquid);
+            Assert.True(actualAmount >= 0,
+                role + " final balance is negative for liquid " + liquid);
+            Assert.Equal(expectedAmount, actualAmount);
+        }
     }
 
     private static int Total(IReadOnlyDictionary<string, int> balances) =>
@@ -188,9 +234,16 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         var masterConsumed = plan.MasterSteps.Count(step =>
             step.Operation?.Type == "POUR_IN" ||
             (step.Operation?.Type == "RESHAPE" && step.Operation.FullReshape == false));
-        var masterExpectedFinal = checked(
-            Total(manifest.MasterInitialLiquidAmounts) + masterProduced - masterConsumed);
-        Assert.Equal(masterExpectedFinal, Total(manifest.MasterFinalLiquidBalances));
+        Assert.Equal(masterProduced,
+            replay.MasterAcceptedProducedLiquids.Count(item => item != null));
+        Assert.Equal(masterConsumed,
+            plan.MasterSteps.Count(step => IsFreeLiquidConsumer(step.Operation)));
+        AssertLiquidBalancesConserve(
+            manifest.MasterInitialLiquidAmounts,
+            manifest.MasterFinalLiquidBalances,
+            plan.MasterSteps,
+            replay.MasterAcceptedProducedLiquids,
+            "Master");
         Assert.InRange(manifest.MasterStagingPeakCapacity, 0, world.Master!.LiquidStagingCapacity);
         Assert.All(manifest.MasterInitialLiquidAmounts,
             item => Assert.InRange(item.Value, 0, world.Master.LiquidStagingCapacity));
@@ -214,10 +267,16 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             var slaveConsumed = plan.SlaveSteps.Count(step =>
                 step.Operation?.Type == "POUR_IN" ||
                 (step.Operation?.Type == "RESHAPE" && step.Operation.FullReshape == false));
-            var slaveFinal = checked(
-                Total(manifest.TransferLiquids) + slaveProduced - slaveConsumed);
-            Assert.True(slaveFinal >= 0, "Slave free-liquid replay consumed more than its transferred and accepted supply.");
-            Assert.Equal(slaveFinal, Total(replay.SlaveFinalLiquids));
+            Assert.Equal(slaveProduced,
+                replay.SlaveAcceptedProducedLiquids.Count(item => item != null));
+            Assert.Equal(slaveConsumed,
+                plan.SlaveSteps.Count(step => IsFreeLiquidConsumer(step.Operation)));
+            AssertLiquidBalancesConserve(
+                manifest.TransferLiquids,
+                replay.SlaveFinalLiquids,
+                plan.SlaveSteps,
+                replay.SlaveAcceptedProducedLiquids,
+                "Slave");
             Assert.All(replay.SlaveFinalLiquids,
                 item => Assert.InRange(item.Value, 0, world.Slave!.LiquidStagingCapacity));
             Assert.InRange(manifest.SlaveStagingPeakCapacity, 0, world.Slave!.LiquidStagingCapacity);
