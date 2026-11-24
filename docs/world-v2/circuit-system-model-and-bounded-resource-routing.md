@@ -149,8 +149,9 @@ Jar 和液体不是一个可以相互折算的总数。每种资源必须保留�
 
 已确定的不变量：
 
-- 工作台 Ban 约束该工作台暂存区液体的取用，不是全局 Jar 内液体禁令。
-- Jar 内液体自耗不能冒充工作台暂存区液体检查。
+- 工作台 Ban 同时定义工作台专注极性与暂存液体类别限制：Ban 酒代表阳极专注，Ban 蜜代表阴极专注。
+- 同极 Jar 可被操作，异极 Jar 不可；Neutral Jar 对阴极/阳极工作台都可操作。
+- Jar 内液体自耗从 Jar 自有账户扣除，但仍必须通过当前工作台的 Jar 极性操作权限；不能因液体属于 Jar 就绕过异极限制。
 - 主台 Ban 的液体不能由主台传给从台。
 - 从台使用期间只接收主台提供的液体；主从资源流是单向的。
 - 订单产生的游离液体先尝试进入当前工作台暂存区；拒绝或超限按规则丢弃。
@@ -348,7 +349,7 @@ MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命�
 
 ### 11.1 Ban 的电路边界
 
-工作台 Ban 约束该工作台游离液体暂存账户的取用与接收。Jar 内部液体属于 Jar 自身资源，满罐改形自耗不读取工作台 staging，也不因 staging Ban 而失败。PourIn 与空罐改形成本仍然从 staging 取用液体，因此受 Ban；PourOut 产液进入 staging 时也必须接受目标 staging 的 Ban/容量准入。
+工作台 Ban 同时决定工作台专注极性与暂存类别：Ban 酒 => 阳极工作台；Ban 蜜 => 阴极工作台。同极 Jar 可操作，异极 Jar 不可，中性 Jar 对两者均可操作。无 Ban 的旧配置保留双极性兼容；两种液体都 Ban 时只允许中性 Jar。PourIn 与空罐改形成本从 staging 取用液体，受对应类别 Ban 与库存约束；PourOut 先要求 Jar 极性兼容，再检查目标 staging 的类别与容量。满罐改形虽从 Jar 内部账户自耗，但仍受工作台极性操作权限约束。
 
 这条边界不允许把 staging 液体装入 Jar 后再绕过其原本应接受的 staging 准入；但它也不把一个从未经过该 staging 账户的 Jar 内部液体错误计入 staging 库存。
 
@@ -363,7 +364,7 @@ MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命�
 
 这是 Jar 内部液体身份的**派生分类**，不是额外资源，也不是独立可变字段。Core 通过 `JarPolarityResolver` 唯一映射，并由 `Jar` 与 `JarFacts` 暴露只读派生属性；未知非空液体必须显式失败，不能猜测极性。规则转换快照同时记录实际 `liquid` 与派生 `polarity`，使求解模型可以使用统一的三态分类，同时保留实际资源身份。
 
-极性状态只回答“Jar 当前属于哪一类”，不回答液体数量、账户所有权、所在工作台或可否被某个规则接收。所有资源流仍由 Jar/Liquid ResourceEffect 表达，工作台 Ban 仍只作用于该工作台的游离液体 staging。
+极性状态回答“Jar 当前属于哪一类”；工作台 Ban 派生专注极性，并决定工作台能否操作该 Jar。极性不回答液体数量或账户所有权。所有资源流仍由 Jar/Liquid ResourceEffect 表达；暂存账户仍单独管理游离液体数量、类别准入与容量。
 
 这里借用 Neutral / Cathode / Anode 作为游戏领域术语，不模拟真实电学或电化学。不要据此引入电压、电流强度、电阻或把极性推广成液体数量。未来若新增液体类型，必须先明确其极性映射或扩展状态模型，未知类型不能自动落入已有三态。
 
@@ -384,7 +385,7 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 
 求解器的 `JarState` 与 `Requirement` 暴露只读派生 `Polarity`，StateSpaceSolver、MatchingSolver 与 SolverPrecheck 用它区分空/满状态。精确液体身份仍用于需求匹配、数量核算和 staging admission。状态键继续只编码实际液体 ID，不重复编码其派生极性。
 
-**关键 Ban 区分**：满罐自耗改形只消费 Jar 内部资源，不读取工作台 staging Ban；PourOut 才把 Jar 内液体送入 staging，因此仍必须经过 Ban 与容量检查。主从转移 Jar 本身不等于转移游离液体。
+**关键极性区分**：满罐自耗改形只消费 Jar 内部资源，但必须先满足工作台与 Jar 的极性兼容；PourOut 同样要求极性兼容，之后才把液体送入 staging 并检查类别与容量。主从转移 Jar 本身不等于转移游离液体，且目标工作台必须能操作接收 Jar 的极性。
 
 
 ### 10.6 本轮新增：非 Jar 状态转换与 staging admission
@@ -393,13 +394,13 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 
 `StagingAdmissionTransitionAdapter` 消费 `WorkshopLiquidStaging.Receive` 的真实 receipt，将请求量、接收量和丢弃量拆成可守恒的资源效果：临时订单输出边界 Produce、接收部分 Transfer 到当前工作台 staging、拒收/溢出部分 Discard。新增 `WorkshopLiquidStaging.ReceiveWithTransition` 将权威 Receive 与该 Transition 配对返回；旧 `Receive` 保留兼容，其他生产输出入口仍需迁移。Adapter 本身不写入资源账户。
 
-本轮还校正了差分参考求解器：其旧版满罐改形路径曾错误套用 staging Ban。现在参考实现与“Ban 只约束工作台游离液体 staging”的领域契约一致，并新增被 Ban Jar 内液体自耗的定向差分场景。Mark 跨主从交接保留、成功终态清理与失败终态清理也增加了执行会话回归断言。
+本轮还校正了差分参考求解器：其旧版满罐改形路径曾错误套用 staging Ban。现在参考实现与“Ban 定义工作台专注极性及暂存类别”的领域契约一致；异极 Jar 的 MATCH、PourOut 与满罐改形均拒绝，同极 Jar 的内部液体自耗仍从 Jar 账户扣除。Mark 跨主从交接保留、成功终态清理与失败终态清理也增加了执行会话回归断言。
 
 当前 head 的 CI 尚待完成；仅 `4f9f98a` 上的 verify 步骤已成功，不能据此宣称后续 staging adapter 和 Mark 断言通过。下一步继续完成 Transfer 的统一 ResourceEffect，再接线实际 staging 入口；此时仍不进入 Circuit Compiler。
 
 
 ### 10.7 主从 Transfer 适配器与身份缺口
 
-新增 `WorkshopRoleTransferTransitionAdapter`，为 B 类主→从交接构造显式资源效果。每只 Jar 按 exact Jar ID 从来源工作台库存 Transfer 到目标工作台库存；游离液体按液种/数量从来源 staging Transfer 到目标 staging。构造前校验来源 Jar 所有权、重复 ID、目标罐位、来源液体余额、目标 Ban 和目标 staging 总容量。所有 Transfer 都绑定精确 source/destination instance ID，不使用主台/从台角色名作为 OwnerId。
+新增 `WorkshopRoleTransferTransitionAdapter`，为 B 类主→从交接构造显式资源效果。每只 Jar 按 exact Jar ID 从来源工作台库存 Transfer 到目标工作台库存；游离液体按液种/数量从来源 staging Transfer 到目标 staging。构造前校验来源 Jar 所有权、重复 ID、精确 Jar Facts、目标工作台对每只 Jar 的极性兼容、目标罐位、来源液体余额、来源 Ban、目标 Ban 和目标 staging 总容量。来源 Ban 液体不能从主台传出；目标工作台不能接收其无法操作极性的 Jar。所有 Transfer 都绑定精确 source/destination instance ID，不使用主台/从台角色名作为 OwnerId。
 
 该适配器尚未接入 `OrderTransferService`。当前旧 Core `Workshop` 对象只有显示名称，没有可信 Owned Instance ID。不能把 Name 当作稳定资源所有权身份；需要由 World/Host 从 Board Assignment 提供 exact Owned Instance ID，并在实际交接事务中生成/提交同一份 Transfer receipt 与 Transition。
