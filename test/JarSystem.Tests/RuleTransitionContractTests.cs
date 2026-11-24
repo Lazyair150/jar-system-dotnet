@@ -140,6 +140,94 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("jar.already-operated", result.ReasonCode);
     }
 
+
+    [Fact]
+    public void StagingAdmissionTransitionAccountsForPartialCapacityAndDiscard()
+    {
+        var staging = new WorkshopLiquidStaging(3);
+        Assert.Equal(2, staging.Receive(101, "蜜", 2).AcceptedAmount);
+        var usedBefore = staging.UsedCapacity;
+        var balanceBefore = staging.GetAmount(101, "酒");
+        var receipt = staging.Receive(101, "酒", 3);
+
+        var transition = StagingAdmissionTransitionAdapter.FromReceipt(
+            "owned.workshop.master", 101, "酒", receipt,
+            usedBefore, staging.UsedCapacity, balanceBefore, staging.GetAmount(101, "酒"));
+
+        Assert.Equal("workshop.staging.admission", transition.RuleId);
+        Assert.Equal("workshop.staging", transition.Scope);
+        Assert.Equal("owned.workshop.master/order/101", transition.Target);
+        Assert.Null(transition.PolarityTransition);
+        Assert.Equal("1", transition.After.Values["acceptedAmount"]);
+        Assert.Equal("2", transition.After.Values["discardedAmount"]);
+        Assert.Equal(3, transition.ResourceEffects.Count);
+        Assert.Equal(RuleResourceEffectKind.Produce, transition.ResourceEffects[0].Kind);
+        Assert.Equal(3, transition.ResourceEffects[0].Amount);
+        Assert.Equal(RuleResourceEffectKind.Transfer, transition.ResourceEffects[1].Kind);
+        Assert.Equal(1, transition.ResourceEffects[1].Amount);
+        Assert.Equal("workshop.free-liquid-staging", transition.ResourceEffects[1].To!.AccountKind);
+        Assert.Equal("owned.workshop.master", transition.ResourceEffects[1].To.OwnerId);
+        Assert.Equal(RuleResourceEffectKind.Discard, transition.ResourceEffects[2].Kind);
+        Assert.Equal(2, transition.ResourceEffects[2].Amount);
+        Assert.Equal("workshop.order-output-boundary", transition.ResourceEffects[2].From!.AccountKind);
+    }
+
+    [Fact]
+    public void StagingAdmissionTransitionRepresentsBanAsFullDiscardWithoutStagingMutation()
+    {
+        var staging = new WorkshopLiquidStaging(4, new[] { "酒" });
+        var receipt = staging.Receive(202, "酒", 2);
+        var transition = StagingAdmissionTransitionAdapter.FromReceipt(
+            "owned.workshop.slave", 202, "酒", receipt,
+            0, staging.UsedCapacity, 0, staging.GetAmount(202, "酒"));
+
+        Assert.Equal(0, receipt.AcceptedAmount);
+        Assert.Equal(2, receipt.DiscardedAmount);
+        Assert.Equal("staging.liquid-banned", transition.After.Values["reasonCode"]);
+        Assert.Equal(2, transition.ResourceEffects.Count);
+        Assert.Equal(RuleResourceEffectKind.Produce, transition.ResourceEffects[0].Kind);
+        Assert.Equal(RuleResourceEffectKind.Discard, transition.ResourceEffects[1].Kind);
+        Assert.Equal(0, staging.UsedCapacity);
+    }
+
+    [Fact]
+    public void StagingAdmissionTransitionRejectsInconsistentReceiptOrCapacityDelta()
+    {
+        Assert.Throws<System.ArgumentException>(() =>
+            StagingAdmissionTransitionAdapter.FromReceipt(
+                "owned.workshop.master", 101, "酒",
+                new LiquidInventoryReceipt(3, 1, 2),
+                0, 0, 0, 1));
+        Assert.Throws<System.ArgumentException>(() =>
+            StagingAdmissionTransitionAdapter.FromReceipt(
+                "owned.workshop.master", 101, "酒",
+                new LiquidInventoryReceipt(3, 1, 1),
+                0, 1, 0, 1));
+    }
+
+    [Fact]
+    public void RuleTransitionSupportsNonJarResourceStateWithoutInventingPolarity()
+    {
+        var before = new RuleStateSnapshot(new[]
+        {
+            new KeyValuePair<string, string>("usedCapacity", "0")
+        });
+        var after = new RuleStateSnapshot(new[]
+        {
+            new KeyValuePair<string, string>("usedCapacity", "1")
+        });
+        var transition = new RuleTransition(
+            "workshop.staging.admission", 1, "workshop.staging", "owned.workshop/order/1",
+            before, after, System.Array.Empty<RuleResourceEffect>());
+
+        transition.Validate();
+        Assert.Null(transition.PolarityTransition);
+        Assert.Throws<System.ArgumentException>(() => new RuleStateSnapshot(new[]
+        {
+            new KeyValuePair<string, string>("polarity", nameof(JarPolarity.Neutral))
+        }));
+    }
+
     [Fact]
     public void ResourceEffectRejectsAmbiguousAccountEndpoints()
     {
@@ -177,7 +265,7 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(nameof(JarPolarity.Cathode), result.Transition.After.Values["polarity"]);
         Assert.Equal(new JarPolarityTransition(JarPolarity.Cathode, JarPolarity.Cathode),
             result.Transition.PolarityTransition);
-        Assert.False(result.Transition.PolarityTransition.ChangesPolarity);
+        Assert.False(result.Transition.PolarityTransition!.Value.ChangesPolarity);
         Assert.Empty(result.Transition.ResourceEffects);
     }
 
