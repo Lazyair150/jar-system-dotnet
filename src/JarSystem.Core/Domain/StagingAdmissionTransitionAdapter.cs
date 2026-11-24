@@ -40,7 +40,7 @@ public static class StagingAdmissionTransitionAdapter
         var reasonCode = receipt.RejectionReason switch
         {
             null => receipt.DiscardedAmount == 0 ? "staging.accepted" : "staging.capacity-overflow",
-            var reason when reason.StartsWith("工作台禁", StringComparison.Ordinal) => "staging.liquid-banned",
+            { } reason when reason.StartsWith("工作台禁", StringComparison.Ordinal) => "staging.liquid-banned",
             _ => "staging.rejected"
         };
         var outputBoundary = new RuleResourceAccount(
