@@ -1092,6 +1092,10 @@ public sealed class WorldOrderExecutionSessionTests
         // toolJar is still unmarked and available for its one Slave operation.
         Assert.True(Assert.Single(slave.Jars, item => item.Id == sourceJar.Id).IsMarked);
         Assert.False(Assert.Single(slave.Jars, item => item.Id == toolJar.Id).IsMarked);
+        Assert.Empty(master.Jars);
+        Assert.Equal(
+            new[] { sourceJar.Id!.Value, toolJar.Id!.Value }.OrderBy(id => id),
+            slave.Jars.Select(item => item.Id!.Value).OrderBy(id => id));
         Assert.Equal(0, scopes.Value.Master.GetAmount("酒"));
         Assert.Equal(1, scopes.Value.Master.GetAmount("蜜"));
         Assert.Equal(1, scopes.Value.Slave!.GetAmount("酒"));
