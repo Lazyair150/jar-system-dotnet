@@ -396,3 +396,13 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - 新增对应回归：receiver-only handoff、opaque Slave receiver、Master-side POUR_IN fallback、Master staging Ban + Slave reject 的负例、direct projection Master-completed Jar transfer。
 
 验证状态：这些提交后的 exact-head GitHub verify 尚在执行；此前绿色 head 不能替代本轮验证。
+
+## 2026-11-24 后续修正：receiver-only replay 与 B 类模型文档
+
+- `WorldOrderOrderedResourceReplay` 不再因 Slave 存在 opaque solver rules 就无条件拒绝 B 类 replay。
+- 只有当前 concrete symbolic program 确实包含 Slave Rule 节点时，opaque Slave rules 才使该分支 Undetermined。
+- 仅作为接收方的 Slave 不执行 Jar 化学操作；Jar handoff 不调用接收方规则，不检查接收方极性。
+- 修复 commit：`7804d2c2ba49cba045a68284c31c7f9addc31209`。
+- 同步更新 `circuit-system-model-and-bounded-resource-routing.md`：明确 Master/Slave 双 Profile 共同提供需求候选、Master 在 handoff 前执行、Slave 在 handoff 后执行，以及旧 precomputed solution cache 缺少完整 Profile 集合 fingerprint 时禁止复用。
+- 文档 commit：`809d5493cbbea08d6ff23c98114526f755e8e153`。
+- 上述代码修改仍待最新 head 的 xUnit / Actions 验证；不将 CI 运行中或失败前版本当作通过证据。
