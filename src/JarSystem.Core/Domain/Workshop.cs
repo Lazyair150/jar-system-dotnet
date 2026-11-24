@@ -22,6 +22,7 @@ public class Workshop
     private readonly List<Jar> _jars = new();
     private readonly Dictionary<string, int> _liquidStorage = new();
     private readonly IIdGenerator _ids;
+    private readonly IReadOnlyList<string> _knownLiquids;
 
     // 只读包装（构造时建立一次，是**活视图**：底层容器后续变化照样反映）。
     private readonly IReadOnlyList<Jar> _jarsView;
@@ -39,6 +40,9 @@ public class Workshop
 
     /// <summary>Exact player-owned Board Assignment identity; null only for legacy/non-Board fixtures.</summary>
     public string? OwnedInstanceId { get; }
+
+    /// <summary>Liquid vocabulary used to materialize effective Ban rules into auditable snapshots.</summary>
+    public IReadOnlyList<string> KnownLiquids => _knownLiquids;
 
     /// <summary>能力参数（标记/禁令）。整体更换请用 <see cref="ReplaceCapability"/>。</summary>
     public WorkshopCapability Capability => _capability;
@@ -147,8 +151,10 @@ public class Workshop
         if (LiquidStagingCapacity < 0)
             throw new ArgumentOutOfRangeException(nameof(liquidStagingCapacity), "工作台订单液体总暂存容量不能为负数");
         _ids = ids ?? DefaultIdGenerators.Jars;
+        var knownLiquids = (vocabulary ?? Vocabulary.Default).Liquids.ToArray();
+        _knownLiquids = Array.AsReadOnly(knownLiquids);
         // 液体账目按**词表**建键（顺序 = 词表顺序 ⇒ 契约快照里 liquids 的键序）
-        foreach (var l in (vocabulary ?? Vocabulary.Default).Liquids) _liquidStorage[l] = 0;
+        foreach (var l in knownLiquids) _liquidStorage[l] = 0;
         // 只读包装放在最后：包装是活视图，但"先建好账目再交出去"读起来更直白
         _jarsView = _jars.AsReadOnly();
         _liquidStorageView = new ReadOnlyDictionary<string, int>(_liquidStorage);
