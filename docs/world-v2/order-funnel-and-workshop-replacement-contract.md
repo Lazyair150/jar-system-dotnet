@@ -47,71 +47,60 @@ It does not contain Space-side estimates such as liquid units per activation. Ac
 
 Each requirement must eventually be assigned to one concrete Jar identity. A Jar can satisfy at most one terminal requirement in a given order, while its operation history may span both workshop stages.
 
-## 2. B-class funnel stages
+## 2. B-class role assignment and execution stages (current contract)
 
-### Stage S — Slave feasibility constraints
+A B-class order uses both workshop roles as a one-way resource circuit. The order does not pre-assign requirements. The solver evaluates each requirement against both exact role profiles and assigns it to exactly one role.
 
-For a B-class order, the final partition must prove that the requirements assigned to Slave can be completed after transfer from Master. Slave constraints are a required part of the funnel; they are not an irreversible greedy pre-assignment.
+The current bounded enumerator keeps a **Slave-first candidate preference** for compatibility with established B-class paths. It tries Master candidates when Slave has no candidate or the Slave-first branch cannot bind the required physical resources. This preference is not a greedy commitment: alternatives remain searchable until a complete concrete plan is assembled.
 
-The current implementation enumerates requirement partitions. For each not-yet-pruned partition it solves the Master subset first, obtains the Master's actual terminal Jar/liquid state, then solves the Slave subset against the transferable resources. Therefore the current algorithm is not literally Slave-first. The domain model may use Slave constraints to describe the restrictive funnel, but implementation order and domain priority must remain separately documented.
+A valid B-class plan must contain at least one concrete Slave demand operation. This preserves the B-class Slave-use event. Master may complete some requirements, but a pure Jar-only handoff with no Slave demand operation is not a B-class completion.
 
-The candidate must satisfy:
+### Stage M — Master execution before handoff
 
-1. The Slave role exists and is eligible for this order.
-2. Slave starts empty: no Jars and no free-liquid staging balance.
-3. Its Jar capacity can hold the transferred Jar set.
-4. Every assigned requirement can be reached using the Slave's base/additional marks, liquid bans, Jar states and supported operations.
-5. Its liquid staging peak fits the Slave's staging capacity.
-6. Its required initial free-liquid amount can be computed from the concrete Slave path.
+- Execute every requirement operation assigned to Master before the handoff.
+- Master preparation resources may fund Master operations and may produce the exact free-liquid amount needed by later Slave operations.
+- Master staging Ban/capacity applies to its own free-liquid account; Jar-internal liquid operations still require Master-Jar polarity compatibility.
+- The Master must retain the exact liquid balance required for the planned Slave transfer after its own operations.
+- Master-completed requirement Jars remain valid handoff resources; Slave does not repeat their operations.
 
-The Slave has no independent ship-liquid input. Its only free-liquid supply for this order is the amount transferred from Master.
+### Stage T — One-way Master-to-Slave handoff
 
-### Stage M — Master filter
+- Transfer exact Jar identities selected by the immutable plan and the exact free-liquid amount required by Slave.
+- Jar handoff changes only the owning inventory account. It preserves Jar ID, shape, internal liquid, derived polarity and Mark.
+- Handoff does not test source or destination Workshop polarity and does not require the receiver to be able to operate the Jar.
+- Free-liquid transfer is different: source staging Ban blocks extraction; destination staging Ban/capacity blocks admission. The Master cannot transfer a liquid banned by its staging rules.
+- Slave begins without independent Jar or free-liquid order input. It receives only the permitted one-way resources from Master.
 
-The remaining requirements must be completed on Master. Master must satisfy:
+### Stage S — Slave execution after handoff
 
-1. Every remaining requirement has a concrete, distinct Jar assignment and executable operation path.
-2. Master Jar capacity and supported marks are respected.
-3. Liquid bans and actual Jar-state chemistry are respected.
-4. The Master path's own initial free-liquid requirement fits the current Master prefill plus ship inventory.
-5. After executing its Master path, the Master retains enough free liquid for the Slave transfer requirement.
-6. Master liquid staging peak fits its own staging capacity.
-
-The Master is not allowed to solve its own requirements while ignoring the Slave's future liquid claim. The transfer amount is a dependency of the Master path, not a post-solve guess.
-
-### Stage T — Transfer feasibility
-
-The Master-to-Slave transfer is one-way and exact:
-
-- Transfer only the free-liquid quantity required to start the Slave path.
-- Do not pump all remaining Master liquid.
-- Do not give Slave an independent ship-inventory source.
-- Transfer only the Jar identities selected by the immutable plan.
-- The same Jar ID may appear in both `MasterJarIds` and `TransferJarIds` if it is processed on Master and then handed to Slave.
-- `LockedJarIds` is the union of the two sets.
+- Execute only the requirements assigned to Slave, plus any selected Slave preparation operations.
+- A Master-completed requirement Jar is held/handed off but is not operated again by Slave.
+- Every actual Slave Jar operation checks Slave polarity compatibility at the operation boundary.
+- Slave preparation can fund only Slave-side needs; Master preparation may fund Slave only through the explicit liquid handoff.
+- Slave staging peak and Jar capacity are validated against the exact concrete plan.
 
 ### Stage E — Complete solution
 
-The funnel emits a feasible result only if all stages succeed together:
+The funnel emits Feasible only when all stages succeed together:
 
-- every requirement has a terminal Jar placement;
-- every operation is valid under the correct workshop rules;
-- all Jars and liquid balances are accounted for;
-- Master and Slave staging peaks fit;
-- Master can fund both its own path and the exact Slave transfer;
-- the immutable plan and resource manifest agree.
+- every requirement appears exactly once across Master and Slave steps;
+- at least one requirement operation is assigned to Slave;
+- Master operations precede handoff and Slave operations follow handoff;
+- all Jar identities, liquid balances, capacities and one-way transfers are accounted for;
+- each operation is valid under the role that actually executes it;
+- the immutable plan, ordered resource replay and resource manifest agree.
 
 Partial placement is not a solution. A failed branch must be backtracked or rejected; it must not leak partial locks, reservations, Jar mutations or liquid movements into the live world.
 
 ## 3. Search order is not greedy commitment
 
-"Slave first, then Master" defines the constraint funnel and the diagnostic order. It does not authorize irreversible greedy assignment.
+Slave-first describes candidate preference and compatibility with existing B-class plans; it does not mean the entire order executes on Slave, nor does it prohibit Master from completing requirements.
 
-If a Jar can serve either a Slave requirement or a Master requirement, the solver must preserve alternatives until the complete path is known. A locally valid Slave assignment may make the remaining Master requirements impossible. The search must backtrack and try another partition.
+If a Jar/requirement can be fulfilled by either role, the solver must preserve both alternatives until a complete concrete path is known. A locally valid Slave assignment may make later resource binding impossible; the search must backtrack and try a Master assignment where allowed. Conversely, an opaque role profile cannot be treated as an empty candidate set: a known feasible branch in the other role may still be returned Feasible, but if no known branch works the overall result remains Undetermined rather than falsely Infeasible.
 
 The solver may use sound prechecks to prove impossibility early. A precheck may reject only when the condition is necessarily impossible; it must not treat a lower bound or heuristic as proof.
 
-A budget-exhausted search is Undetermined, not Infeasible. A candidate plan is Feasible only after the full plan/manifest validation.
+A budget-exhausted search is Undetermined, not Infeasible. A candidate plan is Feasible only after full plan/manifest validation.
 
 ## 4. A-class bypass
 
