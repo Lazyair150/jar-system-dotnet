@@ -172,7 +172,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         string role)
     {
         Assert.Equal(steps.Count, acceptedOutputs.Count);
-        var expected = new Dictionary<string, int>(initial, StringComparer.Ordinal);
+        var expected = initial.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
         Assert.All(expected.Values, amount => Assert.True(amount >= 0));
 
         for (var index = 0; index < steps.Count; index++)
