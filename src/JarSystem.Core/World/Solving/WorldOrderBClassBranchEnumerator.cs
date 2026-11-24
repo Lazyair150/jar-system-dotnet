@@ -85,14 +85,13 @@ public static class WorldOrderBClassBranchEnumerator
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
                 null, 0, 0, 0, "主从规则候选 Profile 与当前世界/订单规格不一致");
 
-        // Slave rules are required to decompose every B-class requirement. Master
-        // rules are only relevant if the selected Slave branch needs Master-side
-        // preparation; an opaque Master rule must not block a proof that uses no
-        // Master operation at all (Jar handoff itself is not an operation). 
-        if (slaveProfile.IsUndetermined)
+        // Both role profiles participate in requirement assignment. Unknown rules in
+        // either role make the combined search Undetermined; silently treating that
+        // role as unavailable would incorrectly remove legal Master/Slave schedules.
+        if (masterProfile.IsUndetermined || slaveProfile.IsUndetermined)
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
                 null, 0, 0, 0,
-                slaveProfile.Reason ?? "从台规则候选 Profile 未能确定");
+                masterProfile.Reason ?? slaveProfile.Reason ?? "主从规则候选 Profile 未能确定");
         if (world.Slave.Jars.Count != 0 || world.Slave.Liquids.Values.Any(amount => amount != 0))
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, 0, 0, "B 类从台初始库存必须为空；从台不能用自有 Jar 或游离液体补订单");
@@ -108,19 +107,15 @@ public static class WorldOrderBClassBranchEnumerator
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, 0, 0, "从台规则环境无法为每项订单需求找到可绑定的物理 Jar 初态");
 
-        // The demand branch is built from Slave rules only. Master requirements are
-        // deliberately not merged into this set: Master is a boundary-resource provider,
-        // not a second requirement-solving role. Reuse is valid when physical filtering
-        // leaves the Slave profile object unchanged.
-        // Physical filtering may expand preparation candidates by Jar multiplicity.
-        // The symbolic requirement set is still reusable when every requirement and its
-        // ordered candidate list is unchanged; preparation multiplicity is not part of
-        // the requirement Cartesian product.
-        var reusable = SameRequirements(slave.Requirements, slaveProfile.Requirements)
+        // Every order requirement may be fulfilled by either role. The symbolic builder
+        // chooses one role-specific candidate per requirement; physical Jar identity is
+        // bound only after this role assignment has been selected.
+        var reusable = SameRequirements(master.Requirements, masterProfile.Requirements) &&
+                       SameRequirements(slave.Requirements, slaveProfile.Requirements)
             ? precomputedSolutions
             : null;
         var symbolic = reusable ?? WorldOrderSymbolicSolutionBuilder.Build(
-            new[] { slave }, maxBranches, maxNodes);
+            new[] { master, slave }, maxBranches, maxNodes);
 
         if (symbolic.RuleSetVersion != slave.RuleSetVersion ||
             symbolic.WorkshopProfileVersion != slave.WorkshopProfileVersion ||
@@ -157,36 +152,29 @@ public static class WorldOrderBClassBranchEnumerator
         string? lastReason = null;
         WorldOrderConcretePlanAssemblyResult? foundAssembly = null;
 
-        // Every symbolic requirement step must belong to Slave. This is a defensive
-        // assertion at the boundary: the Master profile contributes only preparation
-        // operations used to satisfy the Slave's projected free-liquid requirements.
+        // The symbolic set already assigns every requirement to exactly one of the
+        // two roles. Do not collapse it back to a Slave-only plan here.
         var orderedSolutions = symbolic.Solutions
-            .Where(solution => solution.Steps.All(x => x.WorkshopRole == "Slave"))
+            .Where(solution => solution.Steps.All(x =>
+                x.WorkshopRole == "Master" || x.WorkshopRole == "Slave"))
             .ToArray();
         if (orderedSolutions.Length == 0)
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
-                null, 0, exploredNodes, 0,
-                "从台规则环境没有可执行的完整订单需求分支");
+                null, exploredNodes, exploredNodes, 0,
+                "主从规则环境没有可执行的完整订单需求分支");
         foreach (var solution in orderedSolutions)
         {
             if (budgetExceeded || foundAssembly != null) break;
-            if (masterProfile.IsUndetermined &&
-                solution.Steps.Any(x => x.Candidate.ConsumedFreeLiquid != null))
-            {
-                // If the Slave branch consumes free liquid, an opaque Master rule
-                // profile may hide a legal Master preparation candidate. Unless a
-                // concrete branch succeeds without it, failure is inconclusive.
-                sawUndetermined = true;
-                lastReason = masterProfile.Reason ??
-                    "主台规则不透明，无法确定是否存在满足从台游离液体需求的准备操作";
-            }
-            // Every final requirement belongs to Slave. Master preparation exists
-            // solely to satisfy this Slave-owned free-liquid demand vector.
-            var slaveNeeds = solution.Steps
-                .Where(x => x.Candidate.ConsumedFreeLiquid != null)
+            var masterNeeds = solution.Steps
+                .Where(x => x.WorkshopRole == "Master" && x.Candidate.ConsumedFreeLiquid != null)
                 .GroupBy(x => x.Candidate.ConsumedFreeLiquid!, StringComparer.Ordinal)
                 .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
-            var allMasterPrepNeeds = new HashSet<string>(slaveNeeds.Keys, StringComparer.Ordinal);
+            var slaveNeeds = solution.Steps
+                .Where(x => x.WorkshopRole == "Slave" && x.Candidate.ConsumedFreeLiquid != null)
+                .GroupBy(x => x.Candidate.ConsumedFreeLiquid!, StringComparer.Ordinal)
+                .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
+            var allMasterPrepNeeds = new HashSet<string>(
+                masterNeeds.Keys.Concat(slaveNeeds.Keys), StringComparer.Ordinal);
             var masterPrepChoices = master.PreparatoryOperations
                 .Where(x => x.ProducedFreeLiquid != null &&
                             allMasterPrepNeeds.Contains(x.ProducedFreeLiquid))
@@ -369,7 +357,9 @@ public static class WorldOrderBClassBranchEnumerator
 
                 var item = prepChoices[position];
                 var liquid = item.Candidate.ProducedFreeLiquid!;
-                var demandCount = slaveNeeds.GetValueOrDefault(liquid);
+                var demandCount = item.Role == "Master"
+                    ? masterNeeds.GetValueOrDefault(liquid) + slaveNeeds.GetValueOrDefault(liquid)
+                    : slaveNeeds.GetValueOrDefault(liquid);
                 var selectedCount = selectedPreparations.Count(x =>
                     x.WorkshopRole == item.Role &&
                     x.Candidate.ProducedFreeLiquid == liquid);
