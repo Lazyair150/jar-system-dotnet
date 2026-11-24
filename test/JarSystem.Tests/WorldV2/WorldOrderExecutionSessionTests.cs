@@ -753,6 +753,13 @@ public sealed class WorldOrderExecutionSessionTests
                 demand.Id, admission, ledger, settlementTick: null));
         Assert.Contains("Settlement operation receipt", serviceError.Message);
 
+        Assert.Throws<InvalidOperationException>(() =>
+            new OrderResourceSettlementService().SettleAndRelease(
+                demand.Id, admission, ledger: null, settlementTick: null));
+        Assert.Throws<InvalidOperationException>(() =>
+            WorldOrderExecutionSession.RestoreProgress(
+                progress, board, book, admission, roster, reservations, resourceLedger: null, () => 17));
+
         var ledgerError = Assert.Throws<InvalidOperationException>(() =>
             WorldOrderExecutionSession.RestoreProgress(
                 progress, board, book, admission, roster, reservations, ledger, () => 17));
