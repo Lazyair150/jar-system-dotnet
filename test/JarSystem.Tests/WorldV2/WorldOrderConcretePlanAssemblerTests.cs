@@ -168,7 +168,7 @@ public sealed class WorldOrderConcretePlanAssemblerTests
     }
 
     [Fact]
-    public void BClassCanTransferJarAndSelfConsumeInternalLiquidEvenWhenBothRolesBanStaging()
+    public void BClassCanTransferMasterBannedJarToPermissiveSlaveForSelfConsume()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
             ban: new List<string> { "酒" });
