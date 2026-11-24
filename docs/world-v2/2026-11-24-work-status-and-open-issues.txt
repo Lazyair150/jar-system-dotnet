@@ -242,3 +242,15 @@ VERIFICATION CORRECTION — 2026-11-24 23:25 +08:00
 - Run 45406862320 completed successfully for exact source SHA 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef. This confirms the allocation service brace correction compiles and passes the workflow checks at that SHA.
 - Latest source commit 694b22546d6ad06d08b7ea18b04db834beb9bb0b has its own run 45407187598, currently in_progress. This is the first verification covering both settlement pre-drain aggregation changes.
 - PR #60 current head at the latest query is documentation commit 5add77237f37cf155a55d6ce21afc91b41efc3af, Draft/Open/unmerged; source head remains 694b225.
+
+
+CHECKPOINT 17 — scoped 主从液体交接故障补偿（2026-11-24）
+
+- 本轮确认上一结算修正的精确源码 SHA `694b22546d6ad06d08b7ea18b04db834beb9bb0b` 对应 run `45407187598` 已 completed / success。
+- 在 `OrderLiquidTransfer.TryExecute` 中增加内部 `IOrderLiquidTransferMutationPort`，生产入口继续使用默认 Workshop staging mutation port；测试可在 source debit / destination credit 后确定性抛错。
+- 交接提交前捕获主、从台指定 DemandId 的精确余额快照。任何提交期异常都会分别恢复两侧订单账户；若补偿也失败，则抛出 AggregateException，明确要求停止世界推进并保留故障现场。
+- 新增 `WorkshopLiquidStaging.RestoreOrderAccount`：只恢复此前已存在的合法订单账户快照，不经过普通 Receive/ban 路径；对订单容量预留或暂存区总容量重新校验。
+- 新增测试：源端部分扣减后抛错、目标端部分入账后抛错，均验证主/从账户与 UsedCapacity 恢复；另有正常批量提交/其他订单隔离，以及 Ban/容量预检拒绝时双方均不变。
+- 源码提交 `8d4dc977b97ed841c298f318b8fef1f582f7b436`；故障注入测试提交 `73974d5a9be41db9097661fe2cfe3f4e3cdc665b`；补充正常提交/预检测试提交 `594e627633babe59a7dadd32bdc03be169880188`。PR #60 当前 head 为 `594e627...`，仍 Draft/Open/未合并。
+- 验证：run `45407820794` 对应 `8d4dc97`，run `45407856822` 对应 `73974d5`；截至此记录两者仍 in_progress。尚未取得 `594e627` 的精确 head run。不得把此前 `694b225` 的 success 当成新改动已通过。
+- 剩余：确认最新 head CI；再为 settlement 的 Return/receipt/ledger/stage/release 建立注入点和恢复测试。当前交接补偿是同步异常路径保护，不宣称进程崩溃或断电原子性。
