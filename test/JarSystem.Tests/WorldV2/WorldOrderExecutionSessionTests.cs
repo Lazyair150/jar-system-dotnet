@@ -767,8 +767,8 @@ public sealed class WorldOrderExecutionSessionTests
     {
         var setup = PrepareSettlementScenario();
         var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
-        var masterBefore = new Dictionary<string, int>(scopes.Master.Balance);
-        var slaveBefore = new Dictionary<string, int>(scopes.Slave!.Balance);
+        var masterBefore = scopes.Master.Balance.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        var slaveBefore = scopes.Slave!.Balance.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
         var shipBefore = setup.Ship.Capture();
 
         var error = Assert.Throws<InvalidOperationException>(() =>
@@ -776,9 +776,9 @@ public sealed class WorldOrderExecutionSessionTests
                 .SettleAndRelease(setup.Demand.Id, setup.Admission, setup.Ledger, 17));
         Assert.Contains("Injected settlement failure", error.Message);
 
-        Assert.Equal(masterBefore, scopes.Master.Balance);
-        Assert.Equal(slaveBefore, scopes.Slave.Balance);
-        Assert.Equal(shipBefore.Balances, setup.Ship.Balances);
+        Assert.Equal(masterBefore.OrderBy(item => item.Key), scopes.Master.Balance.OrderBy(item => item.Key));
+        Assert.Equal(slaveBefore.OrderBy(item => item.Key), scopes.Slave.Balance.OrderBy(item => item.Key));
+        Assert.Equal(shipBefore.Balances.OrderBy(item => item.Key), setup.Ship.Balances.OrderBy(item => item.Key));
         Assert.Equal(OrderResourceSettlementStage.NotStarted,
             setup.Reservations.FindLease(setup.Demand.Id)!.SettlementStage);
         Assert.False(setup.Ledger.HasRecordedOperation(
