@@ -263,7 +263,7 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
-    public void BSpecificationRequiresConcreteSlaveParticipation()
+    public void BSpecificationPrefersSlaveWhenSlaveCandidateExists()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" });
         var slave = new Workshop("从台");
