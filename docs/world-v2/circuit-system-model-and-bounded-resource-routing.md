@@ -239,7 +239,7 @@ Admission 必须对当前资源原子重验并创建 Lease；缓存命中绝不�
 
 尚未完成：
 
-1. 已新增共享 RuleEvaluationResult / RuleTransition / RuleResourceEffect / RuleResourceAccount 契约，并将现有 WorkshopRulebook 化学操作证明适配到该契约；但它尚未覆盖 MATCH、Mark、Transfer、Staging admission、Capacity、Parser、Skill 和 Production Device 的全部语义，也尚未成为所有执行器的唯一入口。
+1. 已新增共享 RuleEvaluationResult / RuleTransition / RuleResourceEffect / RuleResourceAccount 契约；四种化学操作由 Workshop Adapter 消费权威 proof，MATCH 由独立生命周期 Adapter 消费权威 proof。Mark 的产生/清理周期已部分审查，但所有跨台路径的周期测试仍需补齐；Transfer、Staging admission、Capacity、Parser、Skill 和 Production Device 的完整共享语义仍未覆盖，契约也尚未成为所有执行器的唯一入口。
 2. 现有 RuleContext 仍只解释部分贡献效果；ModifyCapacity 保持 Undetermined。
 3. Parser 规则由单独窄执行器消费；Skill 和 Production Device 的完整规则执行语义仍缺失。
 4. Board Runtime Profile Set 是消费者身份/配置路由，不是电路编译器或规则执行器。
@@ -290,7 +290,7 @@ Implemented in Core:
 - `RuleResourceAccount` addresses a concrete owner identity; role labels and display names are not accepted as account ownership.
 - `WorkshopRuleTransitionAdapter` adapts the existing four Workshop chemical operation proofs to the shared contract. PourIn and ReshapeEmpty consume Workshop free-liquid staging; PourOut produces into the current Workshop staging account; ReshapeFull consumes the liquid owned by that exact Jar. It does not confuse Jar-internal self-consumption with Workshop free-liquid balance.
 
-Tests authored for these invariants in `RuleTransitionContractTests`. This is a compatibility adapter slice, not yet a replacement for WorkshopRulebook, not yet the Circuit Compiler, and not yet a universal evaluator. MATCH currently remains on its existing lifecycle proof path and must be adapted separately because it has no `WorkshopOperationKind` value.
+Tests authored for these invariants in `RuleTransitionContractTests`. This is a compatibility adapter slice, not yet a replacement for WorkshopRulebook, not yet the Circuit Compiler, and not yet a universal evaluator. MATCH remains outside `WorkshopOperationKind` and is now consumed by the separate `MatchRuleTransitionAdapter`; this does not yet make it the universal execution entry point.
 - State before/after is represented by `RuleStateSnapshot`, a sorted, immutable key/value snapshot; mutable domain object references are not embedded in the transition contract.
 
 
@@ -323,7 +323,7 @@ Tests authored for these invariants in `RuleTransitionContractTests`. This is a 
 
 特别注意：PourOut 的 Produce 指向当前工作台暂存账户，只表达“尝试产出到此账户”的转换意图；staging admission、容量、接收拒绝和溢出丢弃仍须由后续独立规则/事务表达。不能把 Produce 记录当作已经成功入账。
 
-MATCH 不是普通 WorkshopOperation，必须单独适配其生命周期证明。Mark、Transfer、Staging admission、Ban/Capacity 仍是后续工作，不得根据契约类型已存在而推断完成。
+MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命周期证明。Mark 周期验证、Transfer、Staging admission、Ban/Capacity 的完整事务表达仍是后续工作，不得根据契约类型已存在而推断完成。
 
 ### 10.4 验证状态
 
@@ -331,7 +331,7 @@ MATCH 不是普通 WorkshopOperation，必须单独适配其生命周期证明�
 
 ### 10.5 紧接着的工作
 
-按实施记录的顺序先完成 MATCH 独立 Adapter，再根据权威代码厘清 Mark 生命周期，然后补 staging admission 与主从 Transfer。每一步都保留旧实现作为差分 Oracle。上述规则语义与事务结果可被完整表达、验证并应用前，不进入通用 Circuit Compiler 或重写求解器。
+按实施记录的顺序先完成 Mark 周期边界测试，再补 staging admission 与主从 Transfer。MATCH 独立 Adapter 已落地，每一步继续保留旧实现作为差分 Oracle。上述规则语义与事务结果可被完整表达、验证并应用前，不进入通用 Circuit Compiler 或重写求解器。
 
 
 ## 11. 电路中的电流：Jar 与液体资源流
