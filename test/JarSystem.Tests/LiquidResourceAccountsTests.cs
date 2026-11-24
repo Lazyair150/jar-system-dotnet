@@ -108,7 +108,9 @@ public sealed class LiquidResourceAccountsTests
             var banned = liquids.Where(_ => random.Next(2) == 0).ToArray();
             var staging = new WorkshopLiquidStaging(capacity, banned);
             var otherLiquid = liquids[random.Next(liquids.Length)];
-            staging.Receive(20_000 + sample, otherLiquid, random.Next(1, 4));
+            var otherOrderId = 20_000 + sample;
+            staging.Receive(otherOrderId, otherLiquid, random.Next(1, 4));
+            var otherOrderBalance = staging.GetAmount(otherOrderId, otherLiquid);
 
             var orderId = 30_000 + sample;
             var liquid = liquids[random.Next(liquids.Length)];
@@ -126,6 +128,7 @@ public sealed class LiquidResourceAccountsTests
                 staging.GetAmount(orderId, liquid));
             Assert.Equal(beforeUsedCapacity + receipt.AcceptedAmount,
                 staging.UsedCapacity);
+            Assert.Equal(otherOrderBalance, staging.GetAmount(otherOrderId, otherLiquid));
             Assert.InRange(staging.UsedCapacity, 0, capacity);
             Assert.Equal(requested, receipt.RequestedTotal);
             Assert.Equal(receipt.AcceptedAmount + receipt.DiscardedAmount,
