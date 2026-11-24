@@ -404,3 +404,27 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 新增 `WorkshopRoleTransferTransitionAdapter`，为 B 类主→从交接构造显式资源效果。每只 Jar 按 exact Jar ID 从来源工作台库存 Transfer 到目标工作台库存；游离液体按液种/数量从来源 staging Transfer 到目标 staging。构造前校验来源 Jar 所有权、重复 ID、目标罐位、来源液体余额、来源 Ban、目标 Ban 和目标 staging 总容量。Jar 所有权转移与工作台极性无关；来源 Ban 液体不能从主台 staging 传出，目标 Ban 液体不能进入从台 staging。所有 Transfer 都绑定精确 source/destination instance ID，不使用主台/从台角色名作为 OwnerId。
 
 该适配器尚未接入 `OrderTransferService`。当前旧 Core `Workshop` 对象只有显示名称，没有可信 Owned Instance ID。不能把 Name 当作稳定资源所有权身份；需要由 World/Host 从 Board Assignment 提供 exact Owned Instance ID，并在实际交接事务中生成/提交同一份 Transfer receipt 与 Transition。
+
+## 12. 玩家视角的系统语义（简明版）
+
+把这个系统理解为一块玩家可以安装元件、改变规则、让资源按规则流动的电路板：
+
+- **Jar 是实体元件/资源载体。** 它有形状、内部液体、Mark 和唯一身份。内部液体决定 Jar 的极性：空 Jar 为 Neutral，酒为 Cathode，蜜为 Anode。极性是液体状态的派生属性，不是另一种可单独修改的资源。
+- **工作台是操作环境。** 工作台通过 Ban 的液体类别形成专注极性：Ban 蜜偏向 Cathode（操作酒 Jar），Ban 酒偏向 Anode（操作蜜 Jar），不 Ban 两者为 Neutral。操作权限检查工作台与 Jar 的极性兼容；Neutral 可操作两种极性。这个权限约束的是操作，不是 Jar 的持有、库存或转移。
+- **Ban 也管理游离液体暂存。** 游离液体进入/离开 staging 时，类别 Ban 与容量独立检查。Ban 拒收、容量溢出可导致丢弃。Jar 内液体不是 staging 液体；但对 Jar 执行 PourOut、MATCH、RESHAPE 等操作仍必须先满足当前工作台的极性操作权限。PourOut 将液体先转入精确订单 output boundary，再由 staging 接收可容纳部分，其余丢弃。
+- **Jar 转移只是换资源账户。** 主台→从台转移 Jar 不执行化学操作，不检查两台工作台的极性，也不检查 Jar 内液体的 Ban。转移保留 Jar 的形状、液体、身份和 Mark。转移游离液体则不同：源台/目标台 staging Ban 与数量都要检查。
+- **订单是目标，不是直接命令。** 求解器在现有 Jar、液体、工作台规则与订单需求中寻找操作顺序。它会区分找到解、完整证明无解，以及规则/预算不足导致的 Undetermined。运行时按冻结计划逐步执行并记账。
+- **主台/从台是位置角色。** 同一个工作台实例可以被玩家安装到任一角色槽位。角色改变不改变该实例自身的 Definition、成长或专注极性。B 类订单当前 Core solver 的能力边界是：需求分解仍限定从台规则环境，主台承担准备资源；这只是当前求解器实现限制，不能推导出物理 Jar 转移有极性限制。
+
+### 极性与转移的判定表
+
+| 行为 | 检查 Jar 极性兼容 | 检查 staging Ban/容量 | 可跨台转移异极性 Jar |
+|---|---|---|---|
+| MATCH | 是 | 否 | 不适用（这是操作） |
+| 满罐 RESHAPE | 是 | 不检查 Jar 内成本液体 | 不适用（这是操作） |
+| POUR_IN / 空罐 RESHAPE | 是（操作工作台） | 是（取用 staging 液体） | 不适用（这是操作） |
+| POUR_OUT | 是（操作工作台） | 产液后单独结算 | 不适用（这是操作） |
+| Master→Slave Jar transfer | 否 | 否 | **允许** |
+| Master→Slave free-liquid transfer | 否 | **源/目标 staging 均检查** | 不适用 |
+
+这张表是语义契约。代码、测试、求解器、执行器与文档必须遵守同一边界，不能将“目标工作台不能操作某 Jar”改写成“目标工作台不能接收该 Jar”。
