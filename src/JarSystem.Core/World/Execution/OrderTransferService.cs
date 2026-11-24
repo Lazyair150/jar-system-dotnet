@@ -46,6 +46,10 @@ internal sealed class OrderTransferService
         if (slave.HasResources)
             return "B 类资源转移前，从工作台的旧版资源池必须为空";
 
+        // Jar handoff is a pure ownership/account transfer, not a Workshop operation.
+        // Do NOT gate this loop by source/target polarity or liquid Ban: an opposite-polarity
+        // Jar is still a valid physical resource on either side. Operation permission is
+        // evaluated later by the Workshop that actually executes the operation.
         var jars = new Dictionary<int, Jar>();
         foreach (var id in manifest.TransferJarIds)
         {
