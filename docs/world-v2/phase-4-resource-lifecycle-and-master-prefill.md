@@ -1,3 +1,8 @@
+> **历史阶段快照 / 非当前规范（2026-11-24）**  
+> 本文记录 PR #28 阶段的 Master Prefill / 资源生命周期设计，PR 编号、分支状态和阶段结论均为历史信息。  
+> 它可用于追溯当时的资源结算与事务设计，但不能覆盖后续 World V2 的 Board Assignment、实例归属、Jar/液体账户边界及单向主从流语义。  
+> 当前规范以 [电路系统模型](circuit-system-model-and-bounded-resource-routing.md)、[规则转换契约实施记录](rule-transition-contract-implementation-log.md) 和 [订单漏斗契约](order-funnel-and-workshop-replacement-contract.md) 为准。
+
 # World V2 — Master prefill and liquid lifecycle closure
 
 ## Status
