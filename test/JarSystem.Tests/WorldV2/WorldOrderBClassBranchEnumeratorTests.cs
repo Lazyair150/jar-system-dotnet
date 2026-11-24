@@ -604,7 +604,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
-    public void OpaqueSlaveRulesKeepMasterOnlyKnownBranchUndetermined()
+    public void OpaqueSlaveRulesDoNotBlockReceiverOnlyHandoff()
     {
         var slaveRules = new ModifierStack();
         slaveRules.Push(new RequireModifier
@@ -629,7 +629,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             916, input.Master, input.Slave, input.World);
 
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Undetermined, result.Status);
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.Single(result.Assembly!.CandidatePlan!.MasterSteps);
+        Assert.Empty(result.Assembly.CandidatePlan.SlaveSteps);
+        Assert.Equal(new[] { 9161 }, result.Assembly.CandidatePlan.TransferJarIds);
     }
 
 }
