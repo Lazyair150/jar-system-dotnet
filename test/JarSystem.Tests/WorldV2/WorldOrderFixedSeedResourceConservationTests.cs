@@ -34,6 +34,11 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
 
         var aSamples = 0;
         var bSamples = 0;
+        var masterBanModes = new HashSet<string>(StringComparer.Ordinal);
+        var slaveBanModes = new HashSet<string>(StringComparer.Ordinal);
+        var masterCapacities = new HashSet<int>();
+        var slaveCapacities = new HashSet<int>();
+        var jarStates = new HashSet<string>(StringComparer.Ordinal);
         foreach (var seed in new[]
         {
             0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155,
@@ -48,8 +53,11 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                 var sampleId = sampleOrdinal++;
                 var masterBan = RandomBan(random);
                 var slaveBan = RandomBan(random);
+                masterBanModes.Add(string.Join("|", masterBan.OrderBy(x => x, StringComparer.Ordinal)));
+                slaveBanModes.Add(string.Join("|", slaveBan.OrderBy(x => x, StringComparer.Ordinal)));
                 var masterCapacity = random.Next(1, 6);
                 var slaveCapacity = random.Next(1, 6);
+                masterCapacities.Add(masterCapacity);
                 var master = new Workshop(
                     "seed-" + sampleId + "-master",
                     new List<string> { "圆罐", "方罐" },
@@ -71,6 +79,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                     };
                     Assert.True(master.AddJar(new Jar(
                         shape, liquid, id: 80_000 + sampleId * 10 + index, vocabulary: Words)));
+                    jarStates.Add(shape + "|" + (liquid ?? "EMPTY"));
                 }
 
                 master.AddLiquid("酒", random.Next(0, 6));
@@ -101,6 +110,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                 if (orderType == Constants.OrderType.B)
                 {
                     bSamples++;
+                    slaveCapacities.Add(slaveCapacity);
                     slave = new Workshop(
                         "seed-" + sampleId + "-slave",
                         new List<string> { "圆罐", "方罐" },
@@ -153,6 +163,12 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         Assert.True(statusCounts["Infeasible"] > 0, "Fixed seed produced no infeasible samples.");
         Assert.True(aSamples > 0 && bSamples > 0, "Fixed seed must cover both A and B orders.");
         Assert.Equal(4096, aSamples + bSamples);
+        Assert.Equal(0, statusCounts["Undetermined"]);
+        Assert.Equal(4, masterBanModes.Count);
+        Assert.Equal(4, slaveBanModes.Count);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, masterCapacities.OrderBy(x => x));
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, slaveCapacities.OrderBy(x => x));
+        Assert.Equal(6, jarStates.Count);
     }
 
     private static List<string> RandomBan(Random random)
