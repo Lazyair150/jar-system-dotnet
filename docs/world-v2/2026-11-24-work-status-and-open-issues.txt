@@ -410,3 +410,14 @@ CHECKPOINT 29 — Space Parser Catalog Probe 跟进双工作台契约（2026-11-
 - Each conservation failure now reports the fixed seed, per-seed sample index, role, liquid, initial/final balances and ordered operation/output trace.
 - Exact source head for the 4,096-case expansion: 0a45e6d6fd215efce3c8c42f7c604676334cdb24. The matching Actions verify run is pending at the time of this note. Do not mark the expanded sample suite green until the exact head's run completes successfully.
 - Next: inspect the exact-head result once; if it reveals a new counterexample, fix the underlying contract or oracle and retain the seed. Do not add repeated CI-only checks that provide no new information.
+
+7. FIXED-SEED RESOURCE CONSERVATION EXPANSION — 2026-11-25
+- Expanded deterministic A/B resource-conservation coverage from 1,024 to 4,096 generated samples: 16 fixed seeds × 256 cases, with both A and B order types represented.
+- Samples vary Master/Slave Ban modes, staging capacities 1–5, 1–5 physical Jars, Jar shapes and empty/酒/蜜 states, initial free-liquid balances, and 1–4 ordered requirements.
+- Every Feasible sample checks the ordered replay witness against the Manifest: Master initial/final free-liquid balances, accepted production sequence, exact transfer liquid amounts, staging peaks, Jar ID membership/uniqueness, and Slave-side conservation.
+- Added explicit sample diagnostics (seed/sample, role, liquid, initial/final balances and operation sequence) so a counterexample can be reproduced without guessing.
+- Corrected the oracle to treat POUR_IN as consuming TargetLiquid; empty RESHAPE consumes CostLiquid. This is a test-oracle correction, not a change to the domain rule.
+- Strengthened coverage assertions: all four Ban configurations on each role, all five staging capacities, all six shape × Jar-state combinations, both A/B types, and zero Undetermined outcomes are required.
+- Added focused replay cases proving Master and Slave staging overflow discard only excess produced free liquid while preserving the accepted balance and peak capacity.
+- Latest changes are on this branch; the new coverage/overflow additions require the latest applicable verify run before being called verified. An earlier successful run at 0a45e6d... covered the 4,096-sample expansion before the newest coverage assertions and overflow regressions; it does not validate those later commits.
+- Next: review any new test failures by exact seed/sample and fix only real model/oracle defects; then add the remaining deterministic transfer/identity and failure/rollback conservation cases. Do not start Space cross-repository integration or repository cleanup until this sample stage is closed.
