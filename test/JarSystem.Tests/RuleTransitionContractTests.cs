@@ -146,13 +146,9 @@ public sealed class RuleTransitionContractTests
     {
         var staging = new WorkshopLiquidStaging(3);
         Assert.Equal(2, staging.Receive(101, "蜜", 2).AcceptedAmount);
-        var usedBefore = staging.UsedCapacity;
-        var balanceBefore = staging.GetAmount(101, "酒");
-        var receipt = staging.Receive(101, "酒", 3);
-
-        var transition = StagingAdmissionTransitionAdapter.FromReceipt(
-            "owned.workshop.master", 101, "酒", receipt,
-            usedBefore, staging.UsedCapacity, balanceBefore, staging.GetAmount(101, "酒"));
+        var settlement = staging.ReceiveWithTransition("owned.workshop.master", 101, "酒", 3);
+        var receipt = settlement.Receipt;
+        var transition = settlement.Transition;
 
         Assert.Equal("workshop.staging.admission", transition.RuleId);
         Assert.Equal("workshop.staging", transition.Scope);
@@ -176,10 +172,9 @@ public sealed class RuleTransitionContractTests
     public void StagingAdmissionTransitionRepresentsBanAsFullDiscardWithoutStagingMutation()
     {
         var staging = new WorkshopLiquidStaging(4, new[] { "酒" });
-        var receipt = staging.Receive(202, "酒", 2);
-        var transition = StagingAdmissionTransitionAdapter.FromReceipt(
-            "owned.workshop.slave", 202, "酒", receipt,
-            0, staging.UsedCapacity, 0, staging.GetAmount(202, "酒"));
+        var settlement = staging.ReceiveWithTransition("owned.workshop.slave", 202, "酒", 2);
+        var receipt = settlement.Receipt;
+        var transition = settlement.Transition;
 
         Assert.Equal(0, receipt.AcceptedAmount);
         Assert.Equal(2, receipt.DiscardedAmount);
