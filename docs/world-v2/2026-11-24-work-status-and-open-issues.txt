@@ -119,6 +119,8 @@ Repository: Lazyair150/space-demo
 - Delete only proven empty/dead/duplicate files. Mark superseded docs Historical/Deprecated and link current replacement; do not bulk-delete by age/language.
 - Normalize names/directories only after references and build scripts are mapped.
 - Produce final cleanup ledger listing every changed/deleted/retained file and rationale.
+- Initial tree inventory at head 291993411ebd9e88a2114934d1b922d7aa320a37: 622 tracked files; src/JarSystem.Core 194, test/JarSystem.Tests 101, docs/world-v2 42, hosts/godot 33, src/JarSystem.Web 29. No obvious tmp/temp/backup/bak/old/obsolete filename pattern was found.
+- Retired demo prototypes are deliberately grouped under demo/_退役 (24 files); historical learning/design notes are under 文档归档; 重构报告 contains active verify.bat, quality/security gates and contract baselines. These are not garbage: preserve until reference/gate audit proves otherwise. The 622-file inventory is a snapshot and must be refreshed before final cleanup.
 
 8. VALIDATION GATES
 - Exact latest PR head must pass full Release build, both xUnit projects, deterministic suites, StrategyExperiment, contract snapshot/schema, config-world equality, protocol guard, solver differential, modifier differential, session replay, security/dependency scan and quality floor.
