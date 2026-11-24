@@ -277,3 +277,12 @@ CHECKPOINT 19 — settlement restore ledger receipt + writer boundary（2026-11-
 - 运行 `45408441187` 对应 `f64f351` 失败，唯一 xUnit 失败为上述 writer whitelist；`45408478221` 对应 `c3b007a` 同样因该清单未更新而失败。已提交白名单修正 `95d727bb4e2a40482e0c73df62f203ebb495ab94`，对应 run `45408955115`。
 - `e4ec144` 的 run `45408382098` 已 success；`151d18e` 的 run `45408417704` 当时仍 in_progress；Settlement restore guard 源码 `9020f1f` 与测试 `b20655b` 的 runs `45408756749` / `45408814064` 当时 in_progress；测试 fixture 改用 Ship-backed scope 的修正提交 `5b23607b1b74e3df242df729ae91effa68ecf451` 尚未返回精确 run。
 - 当前分支新增的同步交接补偿、restore receipt guard 均需以最新 PR head 对应 Actions 结果为最终判定；PR 仍 Draft/Open/未合并。
+
+
+CHECKPOINT 20 — 验证失败归因与 fixture 修正（2026-11-24）
+
+- 对早先 run 进行日志归因：`45408417704`（`151d18e`）和 `45408441187`（`f64f351`）均因 `WorkshopWritersTests.EveryWorkshopWriterIsOnTheList` 未登记 `Domain/LiquidResourceAccounts.cs` 而失败；`45408478221`（`c3b007a`）同样受该问题影响。白名单修正已在 `95d727b` 提交。
+- `45408756749`（`9020f1f`）失败仍是 writer allowlist 遗漏；`45408814064`（`b20655b`）有两个失败：writer allowlist，以及新加的 restore receipt 测试准入失败。后者的 fixture 没有给订单提供任何可用液体，导致 `TryStart` 被拒绝，并非生产恢复校验本身失败。
+- `45408955115`（`95d727b`）仅剩 restore 测试 fixture 的资源供给问题；已将测试改为与生产路径一致的 ShipLiquidInventory-backed solve/admission，并在 `5b23607b1b74e3df242df729ae91effa68ecf451` 提交。
+- 最新精确源码/测试 run `45409037632` 对应 `5b23607...`，查询时仍 in_progress；它包含 whitelist 修正与 Ship-backed fixture。必须等该 run 完成后再判断本轮通过与否。
+- `95d727b` 本身的 run `45408955115` 失败只因测试 fixture；不要将它当作最终 head 结果。PR #60 当前 head 仍为文档提交 `d360501f179bb2ec9bf9ab8293990361215e2a0c`，Draft/Open/未合并。
