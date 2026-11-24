@@ -84,7 +84,6 @@ A B-class plan may contain no Slave chemical operation when Master completes the
 The funnel emits Feasible only when all stages succeed together:
 
 - every requirement appears exactly once across Master and Slave steps;
-- at least one requirement operation is assigned to Slave;
 - Master operations precede handoff and Slave operations follow handoff;
 - all Jar identities, liquid balances, capacities and one-way transfers are accounted for;
 - each operation is valid under the role that actually executes it;
