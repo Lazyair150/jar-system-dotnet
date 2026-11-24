@@ -415,11 +415,36 @@ public sealed class WorldOrderExecutionAdmission
             scopes.Value.Slave.Staging.EnsureCanTransferOrderLiquids();
         }
 
-        scopes.Value.Master.Staging.DrainOrder(demandId);
-        if (scopes.Value.Slave != null)
-            scopes.Value.Slave.Staging.DrainOrder(demandId);
-        var receipt = _shipLiquidInventory.Return(requested);
-        return lease.RecordSettlement(receipt);
+        var masterBefore = scopes.Value.Master.Balance.ToDictionary(
+            item => item.Key, item => item.Value, StringComparer.Ordinal);
+        var slaveBefore = scopes.Value.Slave?.Balance.ToDictionary(
+            item => item.Key, item => item.Value, StringComparer.Ordinal);
+        var shipBefore = _shipLiquidInventory.Capture();
+        try
+        {
+            scopes.Value.Master.Staging.DrainOrder(demandId);
+            if (scopes.Value.Slave != null)
+                scopes.Value.Slave.Staging.DrainOrder(demandId);
+            var receipt = _shipLiquidInventory.Return(requested);
+            return lease.RecordSettlement(receipt);
+        }
+        catch (Exception settlementError)
+        {
+            try
+            {
+                _shipLiquidInventory.RestoreFrom(shipBefore);
+                scopes.Value.Master.Staging.RestoreOrderAccount(demandId, masterBefore);
+                if (scopes.Value.Slave != null)
+                    scopes.Value.Slave.Staging.RestoreOrderAccount(demandId, slaveBefore!);
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "旧兼容订单结算失败，且自机/主从暂存账户补偿回滚失败；必须停止世界推进并保留故障现场。",
+                    settlementError, rollbackError);
+            }
+            throw;
+        }
     }
 
     /// <summary>
