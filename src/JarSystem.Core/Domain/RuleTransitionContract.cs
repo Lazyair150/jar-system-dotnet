@@ -132,6 +132,7 @@ public sealed class RuleTransition
     public string Target { get; }
     public RuleStateSnapshot Before { get; }
     public RuleStateSnapshot After { get; }
+    public JarPolarityTransition PolarityTransition { get; }
     public IReadOnlyList<RuleResourceEffect> ResourceEffects { get; }
 
     public RuleTransition(
@@ -149,6 +150,7 @@ public sealed class RuleTransition
         Target = target;
         Before = before ?? throw new ArgumentNullException(nameof(before));
         After = after ?? throw new ArgumentNullException(nameof(after));
+        PolarityTransition = JarPolarityTransition.From(Before, After);
         ArgumentNullException.ThrowIfNull(resourceEffects);
         var copied = resourceEffects.ToArray();
         if (copied.Any(x => x is null))
