@@ -394,6 +394,31 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
+    public void MasterStagingBanCannotBeBypassedWhenSlaveLiquidBoundaryAlsoRejects()
+    {
+        var master = new Workshop("禁酒主台", new List<string> { "方罐" },
+            ban: new List<string> { "酒" });
+        var slave = new Workshop("从台", new List<string> { "方罐" });
+        master.AddJar(new Jar("方罐", id: 8205));
+        Assert.False(master.AddLiquid("酒", 1));
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "方罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        var registry = new WorldOrderSolverRegistry(new[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver(), new[] { "酒" })
+        });
+
+        var result = registry.Solve(demand, Snapshot(master, slave));
+
+        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
+        Assert.Null(result.Plan);
+    }
+
+    [Fact]
     public void BClassEntryPointTransfersMasterPreparationOutputForSlavePourIn()
     {
         var masterRules = new ModifierStack();
