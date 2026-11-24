@@ -18,6 +18,7 @@ This is the handoff ledger for continued implementation. A source edit is not ve
 - At last query PR head was 353bdcdab9d589e1df4e60d8adb3b2319f996563 and verify run 45391579784 was in_progress. Re-query current head and Actions; this record is updated by a subsequent commit and therefore must not be treated as a current SHA assertion.
 - A later run at head 0fffd4d3a4cd279aa99eb3b7f9e0efd77e266304 compiled successfully but reported 3 xUnit failures (795 total): two new multi-requirement tests violated the domain ordering rule (empty requirements must precede full-liquid requirements), and the opaque-Master/Slave-only branch regression exposed that one opaque role must not suppress a concrete feasible branch in the other role.
 - Follow-up fixes: preserve Slave-first candidate preference; require at least one Slave demand operation for B-class; search determined role profiles even when the opposite role is opaque, return Undetermined if no known branch succeeds; reorder mixed-role tests to empty-before-full. Latest run for the new head must still be checked.
+- The canonical order-funnel document was rewritten to match the current M→T→S execution schedule and mixed-role requirement assignment. Legacy UML diagrams for pre-World-V2 B-class flow (03, 08, 21) were marked Historical/Legacy rather than silently left as current architecture.
 
 2. NON-NEGOTIABLE DOMAIN INVARIANTS
 - Board Definition is topology only. Assignment is a separate exact map from slot to component kind, Owned Instance, Definition ID/version and source revision.
