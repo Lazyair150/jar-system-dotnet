@@ -658,7 +658,8 @@ public sealed class WorldOrderExecutionSessionTests
         ReevaluateWithShip(book, roster, ship, demand.Id);
         Assert.True(book.Find(demand.Id)!.Result!.IsFeasible);
         Assert.Empty(book.Find(demand.Id)!.Result!.Plan!.MasterSteps);
-        Assert.Single(book.Find(demand.Id)!.Result!.Plan!.SlaveSteps);
+        Assert.Contains(book.Find(demand.Id)!.Result!.Plan!.SlaveSteps,
+            step => step.Operation?.Type == "POUR_IN");
         var reservations = new WorldResourceReservationBook();
         var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
         var ledger = new ResourceLedger();
