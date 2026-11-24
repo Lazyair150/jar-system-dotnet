@@ -758,7 +758,7 @@ public sealed class WorldOrderExecutionSessionTests
                 demand.Id, admission, ledger: null, settlementTick: null));
         Assert.Throws<InvalidOperationException>(() =>
             WorldOrderExecutionSession.RestoreProgress(
-                progress, board, book, admission, roster, reservations, resourceLedger: null, () => 17));
+                progress, board, book, admission, roster, reservations, resourceLedger: null, resourceLedgerTick: () => 17));
 
         var ledgerError = Assert.Throws<InvalidOperationException>(() =>
             WorldOrderExecutionSession.RestoreProgress(
