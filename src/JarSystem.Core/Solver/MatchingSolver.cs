@@ -510,9 +510,8 @@ namespace JarSystem.Core.Solver
         {
             if (jarIndex < 0 || jarIndex >= state.Count) return false;
             var jar = state[jarIndex];
-            if (jar.IsMarked || !cap.CanOperateJar(jar.Polarity)) return false;
-
             var cap = info.Capability;
+            if (jar.IsMarked || !cap.CanOperateJar(jar.Polarity)) return false;
             string type;
             string? cost = null;
             var fullReshape = false;
