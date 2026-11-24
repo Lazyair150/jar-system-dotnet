@@ -367,7 +367,7 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
-    public void BClassEntryPointRejectsExplicitlyRejectedFreeLiquidBoundary()
+    public void BClassEntryPointFallsBackToMasterJarOperationWithoutFreeLiquidTransfer()
     {
         var master = new Workshop("主台", new List<string> { "方罐" });
         var slave = new Workshop("从台", new List<string> { "方罐" });
@@ -385,9 +385,12 @@ public sealed class WorldOrderSolverTests
 
         var result = registry.Solve(demand, Snapshot(master, slave));
 
-        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
-        Assert.Equal("9l_concrete_b", result.CheckMethod);
-        Assert.Null(result.Plan);
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.Equal("9l_concrete_plan", result.CheckMethod);
+        Assert.Empty(result.Plan!.TransferLiquids);
+        Assert.Empty(result.Plan.SlaveSteps);
+        Assert.Equal("POUR_IN", Assert.Single(result.Plan.MasterSteps).Operation!.Type);
+        Assert.Equal(new[] { 8204 }, result.Plan.TransferJarIds);
     }
 
     [Fact]
