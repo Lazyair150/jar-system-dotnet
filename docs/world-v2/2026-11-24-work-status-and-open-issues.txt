@@ -254,3 +254,15 @@ CHECKPOINT 17 — scoped 主从液体交接故障补偿（2026-11-24）
 - 源码提交 `8d4dc977b97ed841c298f318b8fef1f582f7b436`；故障注入测试提交 `73974d5a9be41db9097661fe2cfe3f4e3cdc665b`；补充正常提交/预检测试提交 `594e627633babe59a7dadd32bdc03be169880188`。PR #60 当前 head 为 `594e627...`，仍 Draft/Open/未合并。
 - 验证：run `45407820794` 对应 `8d4dc97`，run `45407856822` 对应 `73974d5`；截至此记录两者仍 in_progress。尚未取得 `594e627` 的精确 head run。不得把此前 `694b225` 的 success 当成新改动已通过。
 - 剩余：确认最新 head CI；再为 settlement 的 Return/receipt/ledger/stage/release 建立注入点和恢复测试。当前交接补偿是同步异常路径保护，不宣称进程崩溃或断电原子性。
+
+
+CHECKPOINT 18 — legacy Workshop 游离液体交接批次补偿（2026-11-24）
+
+- 进一步审查 `OrderTransferService.Transfer` 发现旧兼容分支 `masterScope == null` 仍按液种逐项执行 Slave.AddLiquid → Master.RemoveLiquid。若第二种液体失败，第一种已完成的移动会留在物理账户中，依赖外层 SlaveRollback 才可能恢复；服务自身没有完整批次边界。
+- 新增 `Workshop.RestoreLiquidStorageSnapshot`，只恢复同一 Workshop 先前合法存在的游离液体账户，检查液种键与逐液种容量，但不把恢复操作误当成普通产液入口，因此不额外套用当前 Ban。
+- 新增 `LegacyWorkshopLiquidTransfer.Execute` 与内部 mutation port：在批次开始前捕获主/从完整 LiquidStorage；任一目标入账或来源扣款异常/失败，均恢复双方完整快照；补偿失败则 AggregateException fail-stop。
+- `OrderTransferService` 的旧兼容分支现在调用该批次 helper；只有整批成功后才追加 Transfer ledger facts。主从 Ban 的既有预检保持不变，仍只约束工作台游离液体交接。
+- 新增故障测试：第一种液体已完成移动后，第二种源端扣款故障；以及目标端 Add 已写入后立即抛错。两者都验证双方完整库存恢复。
+- 新提交：`e4ec1440a2c4371427201535bbd0f22e271fe805`（Workshop snapshot restore）、`151d18efee9249e3467671a79297b54ad3c13fe7`（legacy batch helper）、`f64f3513789218c5176f57ccb985562347d9ac6d`（接入 OrderTransferService）、`c3b007a77748fadcaae3a5efd9e1b91f7e6de3eb`（legacy 故障测试）。PR #60 当前 head 为 `c3b007a...`，仍 Draft/Open/未合并。
+- 对应 runs：`45408382098` / `45408417704` / `45408441187` / `45408478221` 分别对应以上精确提交，记录时均 in_progress；最新 head 必须以 `45408478221` 的最终结果为准。此前 `594e627` 的 run `45407969711` 已 success，但不覆盖本节新增代码。
+- 目前新旧两条主从液体交接路径均有同步异常补偿；进程崩溃/断电持久化原子性仍未声称完成。下一阶段继续 settlement 的 Return/receipt/ledger/stage/release 故障边界与 checkpoint/replay。
