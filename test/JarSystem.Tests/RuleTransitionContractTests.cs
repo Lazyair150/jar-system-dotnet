@@ -166,7 +166,7 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(RuleResourceEffectKind.Transfer, transition.ResourceEffects[1].Kind);
         Assert.Equal(1, transition.ResourceEffects[1].Amount);
         Assert.Equal("workshop.free-liquid-staging", transition.ResourceEffects[1].To!.AccountKind);
-        Assert.Equal("owned.workshop.master", transition.ResourceEffects[1].To.OwnerId);
+        Assert.Equal("owned.workshop.master", transition.ResourceEffects[1].To!.OwnerId);
         Assert.Equal(RuleResourceEffectKind.Discard, transition.ResourceEffects[2].Kind);
         Assert.Equal(2, transition.ResourceEffects[2].Amount);
         Assert.Equal("workshop.order-output-boundary", transition.ResourceEffects[2].From!.AccountKind);
