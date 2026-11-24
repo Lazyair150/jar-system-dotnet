@@ -245,19 +245,11 @@ public sealed class RuleTransitionContractTests
             System.Array.Empty<string>(), System.Array.Empty<string>(),
             destinationJarCount: 0, destinationJarCapacity: 2,
             destinationStagingUsedCapacity: 1, destinationStagingCapacity: 3,
-            transferJarFacts: new Dictionary<int, JarFacts>
-            {
-                [31] = new("圆罐", "酒", false),
-                [32] = new("方罐", "蜜", false)
-            });
+            destinationStagingUsedCapacity: 1, destinationStagingCapacity: 3);
 
         Assert.Equal("workshop.role-transfer", transition.RuleId);
         Assert.Equal("owned.workshop.master->owned.workshop.slave", transition.Target);
         Assert.Null(transition.PolarityTransition);
-        Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), transition.Before.Values["sourcePolarityMode"]);
-        Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), transition.Before.Values["destinationPolarityMode"]);
-        Assert.Equal(nameof(JarPolarity.Cathode), transition.Before.Values["transferJar.31.polarity"]);
-        Assert.Equal(nameof(JarPolarity.Anode), transition.Before.Values["transferJar.32.polarity"]);
         Assert.Equal(3, transition.ResourceEffects.Count);
         Assert.All(transition.ResourceEffects, effect =>
         {
@@ -303,7 +295,7 @@ public sealed class RuleTransitionContractTests
     }
 
     [Fact]
-    public void WorkshopRoleTransferRejectsSourceBannedLiquidAndDestinationIncompatibleJar()
+    public void WorkshopRoleTransferRejectsSourceBannedLiquidButAllowsOppositePolarityJar()
     {
         var jars = new[] { 61 };
         var jarFacts = new Dictionary<int, JarFacts> { [61] = new("圆罐", "蜜", false) };
@@ -315,12 +307,16 @@ public sealed class RuleTransitionContractTests
                 new[] { "酒" }, System.Array.Empty<string>(), 0, 1, 0, 2,
                 jarFacts));
 
-        Assert.Throws<System.ArgumentException>(() =>
-            WorkshopRoleTransferTransitionAdapter.Create(
-                "master", "slave", jars, jars,
-                new Dictionary<string, int>(), new Dictionary<string, int>(),
-                System.Array.Empty<string>(), new[] { "蜜" }, 0, 1, 0, 2,
-                jarFacts));
+        var oppositePolarityTransfer = WorkshopRoleTransferTransitionAdapter.Create(
+            "master", "slave", jars, jars,
+            new Dictionary<string, int>(), new Dictionary<string, int>(),
+            System.Array.Empty<string>(), new[] { "蜜" }, 0, 1, 0, 2);
+        Assert.Contains(oppositePolarityTransfer.ResourceEffects, effect =>
+            effect.ResourceKind == RuleResourceKind.Jar &&
+            effect.Kind == RuleResourceEffectKind.Transfer &&
+            effect.ResourceId == "61");
+        Assert.DoesNotContain(oppositePolarityTransfer.Before.Values.Keys,
+            key => key.Contains("Polarity", System.StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
