@@ -101,6 +101,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         Assert.Contains(plan.SlaveSteps, step =>
             step.Operation?.Type == "MATCH" &&
             step.Before![step.Operation.JarIndex!.Value].Id == 9132);
+        Assert.DoesNotContain(plan.SlaveSteps, step =>
+            step.Before![step.Operation!.JarIndex!.Value].Id == 9131);
+        var masterWineMatch = Assert.Single(plan.MasterSteps);
+        Assert.True(masterWineMatch.After![masterWineMatch.Operation!.JarIndex!.Value].IsMarked);
         Assert.Equal(new[] { 9131, 9132 }, plan.TransferJarIds.OrderBy(id => id));
     }
 
