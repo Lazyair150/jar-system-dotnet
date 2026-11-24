@@ -748,6 +748,11 @@ public sealed class WorldOrderExecutionSessionTests
         scopes.Slave!.Staging.DrainOrder(demand.Id);
         lease.MarkSettlementLedgerRecorded();
 
+        var serviceError = Assert.Throws<InvalidOperationException>(() =>
+            new OrderResourceSettlementService().SettleAndRelease(
+                demand.Id, admission, ledger, settlementTick: null));
+        Assert.Contains("Settlement operation receipt", serviceError.Message);
+
         var ledgerError = Assert.Throws<InvalidOperationException>(() =>
             WorldOrderExecutionSession.RestoreProgress(
                 progress, board, book, admission, roster, reservations, ledger, () => 17));
