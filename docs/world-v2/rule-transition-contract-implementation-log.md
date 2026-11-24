@@ -309,3 +309,16 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 2. 将 Staging Admission Adapter 接到实际产液入口，确保 receipt 与状态快照来自同一同步事务边界。
 3. 增加主从 Jar / 游离液体 Transfer 的统一转换，验证 exact source/destination instance、单向性、Ban 与原子失败。
 4. 为 Transfer 与 Staging 的 ResourceEffects 增加账户守恒检查，再评估是否进入 evaluator 的统一接线。
+
+
+### 14.6 主从 Transfer 的账户级适配器
+
+新增 `WorkshopRoleTransferTransitionAdapter`，把一次已完成只读预检的主从交接描述为单向资源转换：
+
+- Jar 使用 `workshop.jar-inventory:<exact workshop instance>` 账户，按每个 exact Jar ID 产生一条 Transfer；
+- 游离液体使用 `workshop.free-liquid-staging:<exact workshop instance>` 账户，按液种和数量产生 Transfer；
+- 只允许 source → destination，不生成反向效果；
+- 预检检查 Jar 是否属于 source、Jar ID 是否重复、destination Jar 容量、source 液体余额、destination Ban 与 destination staging 总容量；
+- Before / After 记录来源/目标实例、Jar 数量和目标 staging 占用；不伪造 Jar polarity，因为这是跨账户批量转移，不是单个 Jar 化学状态转换。
+
+该 Adapter 当前仍是纯构造器，尚未接入 `OrderTransferService` 的提交路径。原因是旧 Core `Workshop` 运行时对象目前只有显示 `Name`，没有可信的 Owned Instance ID；不能拿名称冒充身份。下一步必须由 World/Host 将 Assignment 中的 exact Owned Instance ID 传入交接服务，并让实际提交回执与此 Transition 来自同一事务边界，再接入账本/回放。
