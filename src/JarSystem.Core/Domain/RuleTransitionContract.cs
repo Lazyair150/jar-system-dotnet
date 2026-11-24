@@ -279,7 +279,8 @@ public static class WorkshopRuleTransitionAdapter
         WorkshopOperation operation,
         string workshopInstanceId,
         string jarInstanceId,
-        string scope = "workshop")
+        string scope = "workshop",
+        int? orderId = null)
     {
         if (string.IsNullOrWhiteSpace(workshopInstanceId))
             throw new ArgumentException("Exact workshop instance identity is required.", nameof(workshopInstanceId));
@@ -287,6 +288,8 @@ public static class WorkshopRuleTransitionAdapter
             throw new ArgumentException("Exact Jar instance identity is required.", nameof(jarInstanceId));
         if (string.IsNullOrWhiteSpace(scope))
             throw new ArgumentException("Rule scope is required.", nameof(scope));
+        if (orderId is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(orderId));
 
         var decision = evaluation.Decision;
         if (!decision.IsAllowed)
@@ -319,11 +322,27 @@ public static class WorkshopRuleTransitionAdapter
         var jarLiquid = new RuleResourceAccount("jar.internal-liquid", jarInstanceId);
 
         if (transition.ConsumedFreeLiquid is { } consumed)
-            effects.Add(new RuleResourceEffect(RuleResourceEffectKind.Consume,
-                RuleResourceKind.Liquid, consumed, 1, freeLiquid, null));
+        {
+            if (operation.Kind == WorkshopOperationKind.PourIn)
+            {
+                effects.Add(new RuleResourceEffect(RuleResourceEffectKind.Transfer,
+                    RuleResourceKind.Liquid, consumed, 1, freeLiquid, jarLiquid));
+            }
+            else
+            {
+                effects.Add(new RuleResourceEffect(RuleResourceEffectKind.Consume,
+                    RuleResourceKind.Liquid, consumed, 1, freeLiquid, null));
+            }
+        }
         if (transition.ProducedFreeLiquid is { } produced)
-            effects.Add(new RuleResourceEffect(RuleResourceEffectKind.Produce,
-                RuleResourceKind.Liquid, produced, 1, null, freeLiquid));
+        {
+            var outputOwnerId = orderId is int exactOrderId
+                ? workshopInstanceId + "/order/" + exactOrderId.ToString(CultureInfo.InvariantCulture)
+                : workshopInstanceId + "/operation/" + jarInstanceId;
+            var outputBoundary = new RuleResourceAccount("workshop.order-output-boundary", outputOwnerId);
+            effects.Add(new RuleResourceEffect(RuleResourceEffectKind.Transfer,
+                RuleResourceKind.Liquid, produced, 1, jarLiquid, outputBoundary));
+        }
         if (transition.ConsumedJarLiquid is { } selfConsumed)
             effects.Add(new RuleResourceEffect(RuleResourceEffectKind.Consume,
                 RuleResourceKind.Liquid, selfConsumed, 1, jarLiquid, null));
