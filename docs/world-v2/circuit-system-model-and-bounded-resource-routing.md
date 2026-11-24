@@ -366,3 +366,22 @@ MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命�
 极性状态只回答“Jar 当前属于哪一类”，不回答液体数量、账户所有权、所在工作台或可否被某个规则接收。所有资源流仍由 Jar/Liquid ResourceEffect 表达，工作台 Ban 仍只作用于该工作台的游离液体 staging。
 
 这里借用 Neutral / Cathode / Anode 作为游戏领域术语，不模拟真实电学或电化学。不要据此引入电压、电流强度、电阻或把极性推广成液体数量。未来若新增液体类型，必须先明确其极性映射或扩展状态模型，未知类型不能自动落入已有三态。
+
+
+### 11.3 三态极性的输入兼容与输出契约
+
+Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签：
+
+| Rule | 输入极性 | 输出极性 | 资源边界 |
+|---|---|---|---|
+| POUR_IN | Neutral | Cathode / Anode | 消耗当前工作台 staging |
+| POUR_OUT | Cathode / Anode | Neutral | 产出到当前工作台 staging，受 Ban / 容量准入 |
+| RESHAPE_EMPTY | Neutral | Neutral | 消耗当前工作台 staging 成本 |
+| RESHAPE_FULL | Cathode / Anode | Neutral | 消耗 Jar 自有内部液体 |
+| MATCH | 任意合法状态 | 保持不变 | 不产生液体资源流 |
+
+`JarPolarityRuleContract` 对共享 `RuleTransition` 执行输入/输出极性边校验。它不执行资源记账；`ResourceEffect` 仍然是资源流的唯一表达。
+
+求解器的 `JarState` 与 `Requirement` 暴露只读派生 `Polarity`，StateSpaceSolver、MatchingSolver 与 SolverPrecheck 用它区分空/满状态。精确液体身份仍用于需求匹配、数量核算和 staging admission。状态键继续只编码实际液体 ID，不重复编码其派生极性。
+
+**关键 Ban 区分**：满罐自耗改形只消费 Jar 内部资源，不读取工作台 staging Ban；PourOut 才把 Jar 内液体送入 staging，因此仍必须经过 Ban 与容量检查。主从转移 Jar 本身不等于转移游离液体。
