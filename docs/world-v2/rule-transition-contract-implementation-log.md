@@ -263,14 +263,14 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 
 ### 14.1 两处 Solver Differential 反例的真实原因
 
-提交 `2d829353` 的 CI 已经通过 build 与 765 项 xUnit，但 Solver Differential 报告两处“生产可行、参考不可行”。追踪到独立参考实现 `test/JarSystem.Test/ReferenceSolver.cs` 仍保留旧 Ban 语义：
+此前 CI 的 Solver Differential 反例来自生产求解器与独立参考实现对 Ban 语义的解释不一致。旧参考实现把 Ban 当成只约束 staging 液体的过滤条件；生产侧当时也曾出现过相同误读。正确关系不是“Jar 内液体绕过 Ban”，而是：
 
-- 满罐改形候选生成时错误过滤了 Jar 内被 Ban 的液体；
-- 满罐改形 Apply 时再次错误检查 staging Ban。
+- 工作台 Ban 派生其专注极性；任何对 Jar 的实际操作（MATCH、PourOut、满罐改形等）都必须先满足当前工作台与 Jar 的极性兼容；
+- 游离液体从 staging 取用或进入 staging 时，还要独立满足该账户的 Ban 与容量；
+- 满罐改形的成本从 Jar 内部账户扣除，但操作许可仍由工作台极性决定；
+- Jar 在工作台之间转移所有权不执行化学操作，不检查来源或目标工作台极性。
 
-这两处检查都把 Jar 内部液体当成了工作台游离液体。生产规则引擎已按 staging-only Ban 修正，因此差分门失败的根因是参考 Oracle 过期，而不是把参考结果改成生产结果。
-
-已修正参考实现：Ban 仍约束 PourIn、空罐改形成本与 PourOut staging admission；满罐改形只消耗 Jar 自有内部液体，不检查工作台 staging Ban。新增定向 T4：被 Ban 的 Jar 内液体仍可自耗改形。参考实现继续保留独立 BFS / 精确状态键，不复用生产求解器的操作生成逻辑。
+参考实现已按这组独立边界修正，仍保留独立 BFS / 精确状态键，不复用生产求解器的操作生成逻辑。差分测试必须覆盖同极可操作、异极不可操作、Jar 身份跨台可移动，以及被 Ban 的游离液体不可跨台转移。
 
 ### 14.2 非 Jar 转换与 Staging Admission
 
@@ -282,13 +282,13 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 
 新增 `StagingAdmissionTransitionAdapter`，把权威 `WorkshopLiquidStaging.Receive` 返回的 `LiquidInventoryReceipt` 转成可审计转换：
 
-1. 请求量先进入精确订单的临时 `workshop.order-output-boundary`；
-2. 实际接收量从该边界 Transfer 到当前工作台 `workshop.free-liquid-staging`；
+1. PourOut 的 Jar 操作 Transition 先把 Jar 内液体 Transfer 到精确订单的 `workshop.order-output-boundary`；
+2. Staging Admission Transition 再把实际接收量从该边界 Transfer 到当前工作台 `workshop.free-liquid-staging`；
 3. Ban 拒收或容量溢出的部分从该边界 Discard；
 4. Before / After 同时记录工作台实例、订单、液种、总暂存占用与订单子账余额；
 5. Adapter 验证 requested = accepted + discarded，且总占用和订单余额的变化都必须等于 accepted。
 
-该 Adapter 只适配 staging receipt，不直接修改账户。新增 `WorkshopLiquidStaging.ReceiveWithTransition` 作为首个成对入口：它在同一次同步调用中执行权威 `Receive`，捕获前后余额并返回 `StagingAdmissionSettlement`（原始 receipt + Transition）；若 proof 构造失败，会回滚本次已接收量。旧 `Receive` 仍保留兼容，其他生产输出入口尚未全部迁移。它证明共享契约能够表达全收、部分接收、Ban 全拒收和丢弃，但不代表所有生产入口已经统一接线。
+该 Adapter 只适配 staging receipt，不直接修改账户。新增 `WorkshopLiquidStaging.ReceiveWithTransition` 作为成对入口：它在同一次同步调用中执行权威 `Receive`，捕获前后余额并返回 `StagingAdmissionSettlement`（原始 receipt + Transition）；若 proof 构造失败，会回滚本次已接收量。订单 `Workshop.PourOutWithSettlement` 已接入该入口：Jar 操作与 staging settlement 分别生成相邻 Transition，`WorldPlanStepApplier` 校验实际接收增量并把两份 proof 交给执行会话；Ban/容量拒绝不会回滚已完成的 Jar 化学操作，而是形成 Discard。旧 `Receive` 仍保留兼容；其他非 PourOut 生产输出入口仍需继续审计，不能宣称全系统所有生产源已统一接线。
 
 ### 14.3 Mark 周期回归
 
@@ -306,8 +306,8 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 ### 14.5 下一项工作
 
 1. 检查当前 head 的 CI，修复真实编译/测试/差分问题。
-2. 将 Staging Admission Adapter 接到实际产液入口，确保 receipt 与状态快照来自同一同步事务边界。
-3. 增加主从 Jar / 游离液体 Transfer 的统一转换，验证 exact source/destination instance、单向性、Ban 与原子失败。
+2. 审计 PourOut 以外所有订单产液源，逐一接入同一 staging receipt/Transition 边界。
+3. 主从 Transfer 已接入 exact OwnedInstanceId 与提交后状态核对；继续覆盖失败补偿、checkpoint 与账本回放的一致性。
 4. 为 Transfer 与 Staging 的 ResourceEffects 增加账户守恒检查，再评估是否进入 evaluator 的统一接线。
 
 
@@ -336,7 +336,7 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - Neutral Jar 对 Cathode / Anode 工作台均可操作。
 - 无 Ban 的旧配置保持双极性兼容；同时 Ban 酒与蜜时只允许 Neutral Jar。
 - Jar 内液体是否属于 Jar 自有账户，只决定资源从哪里扣除；它不会授予工作台操作异极 Jar 的能力。
-- 因此 MATCH、PourOut、满罐改形都必须先通过工作台-Jar 极性兼容检查。PourIn 与空罐改形还必须满足暂存液体类别/库存准入。PourOut 在极性兼容后，产出的液体仍需通过目标 staging 容量与类别准入。
+- 因此 MATCH、PourOut、满罐改形都必须先通过工作台-Jar 极性兼容检查。PourIn 与空罐改形还必须满足暂存液体类别/库存准入。PourOut 在极性兼容后完成 Jar 内液体到 output boundary 的转移；随后 staging 按 Ban/容量接收可容纳部分，其余明确 Discard，不因 staging 拒收而回滚 Jar 化学操作。
 
 ### 15.2 实现方向
 
@@ -350,6 +350,6 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - 阴极工作台（Ban 蜜）：对称验证。
 - 同时 Ban 两类液体：仅 Neutral Jar 允许。
 - 无 Ban：保留双极性兼容。
-- 暂存区取用与接收仍按 Ban 类别与容量校验；Jar 内部液体自耗只改变 Jar 内部账户，但仍受工作台极性操作权限约束。
+- 暂存区取用按 Ban/库存校验；产液进入 staging 时按 Ban/容量部分接收，其余 Discard。Jar 内部液体自耗只改变 Jar 内部账户，但仍受工作台极性操作权限约束。
 - 主从交接不能改变 Jar 的极性，也不能清除一次订单操作 Mark；Jar 可以跨不同极性的工作台角色转移。只有后续某个工作台实际对该 Jar 执行 MATCH/化学操作时，才检查该工作台的极性兼容。
 
