@@ -248,6 +248,25 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
     private static int Total(IReadOnlyDictionary<string, int> balances) =>
         balances.Values.Aggregate(0, (sum, amount) => checked(sum + amount));
 
+    private static void AssertJarIdentityConserves(
+        IReadOnlyList<WorldPlanStep> steps,
+        string role,
+        string sampleContext)
+    {
+        foreach (var step in steps)
+        {
+            Assert.All(step.Before, jar => Assert.True(jar.Id.HasValue,
+                sampleContext + " " + role + " before-state contains an unidentified physical Jar."));
+            Assert.All(step.After, jar => Assert.True(jar.Id.HasValue,
+                sampleContext + " " + role + " after-state contains an unidentified physical Jar."));
+            var beforeIds = step.Before.Select(jar => jar.Id!.Value).OrderBy(id => id).ToArray();
+            var afterIds = step.After.Select(jar => jar.Id!.Value).OrderBy(id => id).ToArray();
+            Assert.Equal(beforeIds.Length, beforeIds.Distinct().Count());
+            Assert.Equal(afterIds.Length, afterIds.Distinct().Count());
+            Assert.Equal(beforeIds, afterIds);
+        }
+    }
+
     private static void AssertConserves(
         WorldOrderConcretePlanAssemblyResult? assembly,
         WorldSnapshot world,
@@ -271,6 +290,8 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         Assert.Equal(replay.MasterStagingPeakCapacity, manifest.MasterStagingPeakCapacity);
         Assert.Equal(replay.SlaveStagingPeakCapacity, manifest.SlaveStagingPeakCapacity);
 
+        AssertJarIdentityConserves(plan.MasterSteps, "Master", sampleContext);
+        AssertJarIdentityConserves(plan.SlaveSteps, "Slave", sampleContext);
         Assert.Equal(plan.MasterSteps.Count, replay.MasterAcceptedProducedLiquids.Count);
         AssertLiquidBalancesConserve(
             manifest.MasterInitialLiquidAmounts,
