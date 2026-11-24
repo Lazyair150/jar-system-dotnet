@@ -478,9 +478,11 @@ public sealed class WorldOrderExecutionSessionTests
     public void BTransferAllowsMasterPolarityJarToCrossIntoOppositePolaritySlaveWithoutLiquidHandoff()
     {
         var master = new Workshop("Cathode主台", new List<string> { "圆罐" },
-            ban: new List<string> { "蜜" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            ban: new List<string> { "蜜" }, maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "owned.workshop.master");
         var slave = new Workshop("Anode从台", new List<string> { "圆罐" },
-            ban: new List<string> { "酒" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            ban: new List<string> { "酒" }, maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "owned.workshop.slave");
         var jar = new Jar("圆罐", "酒", id: 9881, vocabulary: Words);
         Assert.Equal(JarPolarity.Cathode, jar.Polarity);
         Assert.Equal(WorkshopPolarityMode.Cathode, master.Capability.PolarityMode);
@@ -536,6 +538,14 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Empty(slave.Jars);
         Assert.Equal("酒", jar.Liquid);
         Assert.False(jar.IsMarked, "订单成功终态清理 Mark，但不改变跨台 Jar 的液体身份");
+        var transfer = Assert.IsType<RuleTransition>(started.Session.TransferTransition);
+        Assert.Equal("owned.workshop.master->owned.workshop.slave", transfer.Target);
+        Assert.Contains(transfer.ResourceEffects, effect =>
+            effect.ResourceKind == RuleResourceKind.Jar &&
+            effect.Kind == RuleResourceEffectKind.Transfer &&
+            effect.ResourceId == "9881");
+        Assert.DoesNotContain(transfer.Before.Values.Keys,
+            key => key.Contains("Polarity", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(0, reservations.Count);
     }
 
