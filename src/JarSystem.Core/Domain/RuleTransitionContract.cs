@@ -104,6 +104,18 @@ public sealed class RuleStateSnapshot
             if (!canonical.TryAdd(item.Key, item.Value))
                 throw new ArgumentException("Duplicate rule state field: " + item.Key);
         }
+        if (canonical.ContainsKey("jarInstanceId"))
+        {
+            if (!canonical.TryGetValue("liquid", out var liquidValue) ||
+                !canonical.TryGetValue("polarity", out var polarityValue))
+                throw new ArgumentException("Jar transition snapshots require both liquid and derived polarity.");
+
+            var expectedPolarity = JarPolarityResolver.Resolve(
+                string.IsNullOrEmpty(liquidValue) ? null : liquidValue).ToString();
+            if (!string.Equals(polarityValue, expectedPolarity, StringComparison.Ordinal))
+                throw new ArgumentException("Jar transition snapshot polarity does not match its authoritative liquid.");
+        }
+
         Values = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(canonical);
     }
 }
