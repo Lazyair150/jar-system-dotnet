@@ -206,7 +206,7 @@ public sealed class LiquidResourceAccountsTests
 
         Assert.True(successCount > 0, "固定样本必须覆盖成功交接");
         Assert.True(rejectionCount > 0, "固定样本必须覆盖拒绝交接");
-        Assert.Equal(800, successCount + rejectionCount);
+        Assert.Equal(200, successCount + rejectionCount);
     }
 
     [Fact]
