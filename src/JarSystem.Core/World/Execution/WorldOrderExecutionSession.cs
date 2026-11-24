@@ -27,7 +27,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly IReadOnlyList<WorldPlanStep> _slaveSteps;
     private readonly IReadOnlyList<int> _deliveryJarIds;
     private readonly WorldPlanStepApplier _applier;
-    private readonly OrderTransferService _transferService = new();
+    private readonly OrderTransferService _transferService;
     private readonly OrderResourceSettlementService _settlementService = new();
     private readonly OrderLiquidScope? _masterLiquidScope;
     private readonly OrderLiquidScope? _slaveLiquidScope;
@@ -84,7 +84,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         long unitDurationLogicalMilli,
         ResourceLedger? resourceLedger,
         Func<int>? resourceLedgerTick,
-        bool initializeExecution = true)
+        bool initializeExecution = true,
+        IOrderJarTransferPort? jarTransferPort = null)
     {
         DemandId = demandId;
         _board = board;
@@ -101,6 +102,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         _resourceLedger = resourceLedger;
         _resourceLedgerTick = resourceLedgerTick;
         _applier = new WorldPlanStepApplier();
+        _transferService = new OrderTransferService(jarTransferPort);
         var liquidScopes = admission.GetLiquidScopes(demandId);
         _masterLiquidScope = liquidScopes?.Master;
         _slaveLiquidScope = liquidScopes?.Slave;
@@ -407,7 +409,20 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         WorkshopRoster roster,
         long logicalTimePerUnit,
         ResourceLedger? resourceLedger,
-        Func<int>? resourceLedgerTick)
+        Func<int>? resourceLedgerTick) =>
+        TryStart(demandId, board, solveBook, admission, roster, logicalTimePerUnit,
+            resourceLedger, resourceLedgerTick, null);
+
+    internal static WorldOrderExecutionStartResult TryStart(
+        int demandId,
+        OrderDemandBoard board,
+        WorldOrderSolveBook solveBook,
+        WorldOrderExecutionAdmission admission,
+        WorkshopRoster roster,
+        long logicalTimePerUnit,
+        ResourceLedger? resourceLedger,
+        Func<int>? resourceLedgerTick,
+        IOrderJarTransferPort? jarTransferPort)
     {
         if (board == null) throw new ArgumentNullException(nameof(board));
         if (solveBook == null) throw new ArgumentNullException(nameof(solveBook));
@@ -443,7 +458,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             var session = new WorldOrderExecutionSession(
                 demandId, board, solveBook, admission, roster,
                 admitted.Manifest, result.Plan, logicalTimePerUnit,
-                resourceLedger, resourceLedgerTick);
+                resourceLedger, resourceLedgerTick, jarTransferPort: jarTransferPort);
 
             // 只有新自机液库路径才记录这笔实际扣款；旧兼容准入不伪造新的资源流向。
             if (resourceLedger != null && admission.ShipLiquidInventory != null)
