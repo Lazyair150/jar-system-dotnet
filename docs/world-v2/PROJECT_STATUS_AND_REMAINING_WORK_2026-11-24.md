@@ -492,3 +492,12 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - First run `45413997354` failed because random requirement generation violated the domain ordering contract (empty-Jar requirements must precede full-Jar requirements). This was a sample-generator defect, not a solver/resource-conservation defect. The generator now sorts by `Liquid == null` while preserving the fixed seed and sample count.
 - Corrected exact source/test SHA `6e3d4b96c6adb0d0c3a10f83dd2910b9ecd4952d` passed Actions run `45414637038` (completed / success), including build, xUnit, contract/schema, protocol, solver differential, session replay, and quality gates.
 - Core phase items 1–6 are now complete for synchronous fault compensation/replay, A/B polarity parity, fixed-seed account transfer/return, and concrete A/B plan replay samples. Process-crash/power-loss persistence atomicity remains unproven. Proceed to Space cross-repository integration; defer cleanup until that closes.
+
+
+## 21. Expanded fixed-seed A/B plan conservation matrix
+
+- `WorldOrderFixedSeedResourceConservationTests.FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity` now runs 4 fixed seeds × 128 samples each (512 total mixed A/B plans).
+- Samples vary Master/Slave Ban sets, staging capacities, physical Jar shapes/liquid states, initial free liquids, order type, and canonical empty-before-full requirement order. A global sample ordinal keeps Jar and demand identities unique and failures reproducible.
+- Every Feasible plan must pass ordered resource replay and reconcile Master initial/final free liquid, transfer liquid, staging peaks, physical Jar ID ownership, and B-class transfer manifests. Infeasible/Undetermined results must not carry executable assemblies.
+- Exact commit `dfd2e172f78446e1e4a53f6f0db1dbe2f352397e` Actions run `45419131018` passed. The separate account-transfer and Ship Return matrices remain 4 × 200 each. A/B polarity parity retains the eight charged-Jar combinations that actually produce an operation candidate; neutral-Jar cases do not exercise a transition and are excluded.
+- PR #60 remains Draft/Open and unmerged. Next: strengthen per-liquid Slave final-balance replay evidence, then complete the Space Board/Parser/template/effect/checkpoint cross-repository loop.
