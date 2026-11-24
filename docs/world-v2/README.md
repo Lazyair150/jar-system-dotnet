@@ -68,7 +68,7 @@
 - 空 Jar = Neutral，酒 Jar = Cathode，蜜 Jar = Anode。工作台 Ban 派生其专注极性：Ban 酒为 Anode，Ban 蜜为 Cathode；无 Ban 保持兼容，两种都 Ban 时仅 Neutral 可操作。
 - 工作台极性约束对 Jar 的实际操作（MATCH、POUR_IN、POUR_OUT、RESHAPE），不约束 Jar 的持有或主台→从台所有权转移。接收台可以持有自己暂时无法操作的 Jar。
 - 游离液体暂存区另有 Ban/容量准入；Jar 内部液体自耗仍须通过工作台-Jar 极性操作许可。PourOut 的 Jar 操作与随后 staging 接收/丢弃是两个结算边界。
-- B 类订单需求步骤可由主台或从台执行（当前 Slave-first，必要时回退 Master）：主台步骤在单向 handoff 前，从台步骤在 handoff 后；每个 B 类计划仍至少有一项从台需求操作；主台完成的需求 Jar 仍进入 handoff，不要求从台再次操作。
+- B 类订单需求步骤可由主台或从台执行（当前 Slave-first，必要时回退 Master）：主台步骤在单向 handoff 前，从台步骤在 handoff 后；从台可以只承担 Jar 接收与交付，不强制重复操作主台已完成的 Jar；主台完成的需求 Jar 仍进入 handoff，不要求从台再次操作。
 - 主台游离液体可以按 B 类资源边界供从台使用，但主台 Ban 的液体不能跨台；从台初始库存不得作为订单资源来源。订单产出的游离液体先进入当前工作台 staging，拒收/超限部分丢弃。
 - MATCH 的 Mark 属于订单生命周期状态；跨台 handoff 保留 Mark，订单成功/失败/取消终态只清理本订单参与的 Jar，不误清无关 Jar。
 - 未实现的 RuleKind / Scope / Runtime projection 必须拒绝或 Undetermined，不得静默忽略；预算耗尽不等于无解。
