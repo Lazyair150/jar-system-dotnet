@@ -132,17 +132,20 @@ public static class WorldOrderConcreteOperationMaterializer
             return Failure(WorldOrderConcreteMaterializationStatus.Undetermined, "A 类订单不能提供从台候选 Profile");
         }
 
-        if (masterProfile.SpecificationVersion.Length == 0 ||
-            (program.IsBClass && slaveProfile!.IsUndetermined))
+        if (masterProfile.SpecificationVersion.Length == 0)
             return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
-                slaveProfile?.Reason ?? "订单规则候选 Profile 未确定");
+                "订单规则候选 Profile 缺少规格版本");
 
         var nodes = program.Nodes.OrderBy(x => x.Sequence).ToArray();
         var ruleNodes = nodes.Where(x => x.Kind == WorldOrderSymbolicOperationKind.Rule).ToArray();
         var hasMasterOperations = ruleNodes.Any(x => x.WorkshopRole == program.MasterRole);
+        var hasSlaveOperations = ruleNodes.Any(x => x.WorkshopRole == program.SlaveRole);
         if (masterProfile.IsUndetermined && (!program.IsBClass || hasMasterOperations))
             return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
                 masterProfile.Reason ?? "主台规则候选 Profile 未确定");
+        if (program.IsBClass && slaveProfile!.IsUndetermined && hasSlaveOperations)
+            return Failure(WorldOrderConcreteMaterializationStatus.Undetermined,
+                slaveProfile.Reason ?? "从台规则候选 Profile 未确定");
         foreach (var node in ruleNodes)
         {
             var candidate = node.Candidate!;
