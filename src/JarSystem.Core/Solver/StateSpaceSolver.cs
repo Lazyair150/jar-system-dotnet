@@ -97,7 +97,7 @@ internal class SolverState
     public void SetShape(int i, string s) => Jars[i].Shape = s;
     public void SetLiquid(int i, string? l) => Jars[i].Liquid = l;
     public string? TakeLiquid(int i) { var l = Jars[i].Liquid; Jars[i].Liquid = null; return l; }
-    public bool IsEmpty(JarState j) => j.Liquid is null;
+    public bool IsEmpty(JarState j) => j.Polarity == JarPolarity.Neutral;
 
     // ---- 规则查询 ----
     public bool IsBanned(string l) => WorkshopInfo.Capability.IsBanned(l);
