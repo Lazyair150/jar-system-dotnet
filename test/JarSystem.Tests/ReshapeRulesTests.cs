@@ -83,29 +83,27 @@ public class ReshapeRulesTests
     }
 
     [Fact]
-    public void SelfConsumeRequiresTheCurrentWorkshopToPermitTheJarInternalLiquid()
+    public void SelfConsumeUsesJarInternalLiquidOutsideTheWorkshopStagingBanScope()
     {
         var rules = Rules();
 
         Assert.True(rules.SelfConsume("蜜").Granted);
-        Assert.False(rules.SelfConsume("酒").Granted);
-        Assert.Equal("banned", rules.SelfConsume("酒").Code);
+        Assert.True(rules.SelfConsume("酒").Granted);
         Assert.Equal("not-full", rules.SelfConsume(null).Code);
 
-        // 玄武台 ban 酒：即使酒只在 Jar 内，也不能在玄武台操作这只 Jar。
+        // 玄武台 Ban 只约束游离液体暂存区；Jar 内部酒可以被满罐自耗。
         var w = Xuanwu();
         var jar = new Jar("圆罐", "酒", null, Vocab());
         w.AddJar(jar);
         var (execOk, execReason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
 
-        Assert.False(execOk);
-        Assert.Contains("禁酒", execReason);
-        Assert.Equal("圆罐", jar.Shape);
-        Assert.Equal("酒", jar.Liquid);
-        Assert.False(jar.IsMarked);
+        Assert.True(execOk, execReason);
+        Assert.Equal("方罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
         Assert.Equal(0, w.LiquidStorage["酒"]);
 
-        // 同一份 Jar 液体在不 ban 酒的工作台上可以自耗；没有发生游离液体扣账。
+        // 不论工作台是否 Ban 酒，Jar 内部液体自耗都不扣减游离液体账户。
         var permissive = new Workshop("从台", new List<string> { "圆罐", "方罐" });
         var received = new Jar("圆罐", "酒", null, Vocab());
         permissive.AddJar(received);
