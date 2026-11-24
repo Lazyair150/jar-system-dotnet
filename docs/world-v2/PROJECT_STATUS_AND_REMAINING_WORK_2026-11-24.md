@@ -234,3 +234,12 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - commit `7a1c4a7307274645a4d811458d64ef5921347871` 为真实 B 类会话测试补充精确归属断言：Master 两只 Jar 全部移出，Slave 的 Jar ID 集合恰好等于 Manifest 的两只 Jar，不多不少。该测试也同时保留源 Jar 由 Master 操作后标记、工具 Jar 留给 Slave 操作的断言。
 - 两个提交都已触发 GitHub Actions；在精确 head 的两条 Actions 完成前，不把它们标记为通过。
 - 当前交接实现仍是“预检 → commitStarted → 顺序移动 → 提交后身份核对 → 异常补偿”的同步补偿事务，不是持久化数据库原子事务。下一项必须增加可控故障注入，在第 N 个 Jar 转移或液体账本写入失败时验证资源归属、液体账户、lease、reservation 和 ledger 的补偿一致性。
+
+
+### B 类交接账本一致性修复（2026-11-24）
+
+- 审计发现 `OrderTransferService` 在逐个移动 Jar/液体时逐条写入 `ResourceLedger.Record`。若后续资源移动或提交后身份核对失败，会话可以补偿实体资源，但账本已经留下部分 transfer 事实，造成投影与实体世界不一致。
+- 已改为收集本次交接的 `ResourceLedgerMutation`，先完成 Jar exact ID 归属核对、RuleTransition after-state 核对，再通过 `ResourceLedger.RecordBatchOnce` 一次发布完整交接事实。操作 ID 使用 `WorldVersion + order + demandId + transfer`，重复提交不会产生第二批事件。
+- 账本批次在交接提交的最后阶段发布；中间移动失败不会留下部分 Jar/Liquid transfer 事件。账本快照已有 operation ID 持久化机制，可跨裁剪和恢复去重。
+- 该实现仍依赖 session 在 Transfer 返回异常时完成实体资源补偿；下一步需测试账本批次发布前后的故障边界，并确认 checkpoint 不会出现“资源已转移但 lease 仍 TransferPending”或相反的半提交快照。
+- 相关提交：`9d46544`（批量账本提交）、`60b49be`（修正 ResourceLedgerMutation 命名参数）。当前两项均待精确 head CI 验证。
