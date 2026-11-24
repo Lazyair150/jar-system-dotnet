@@ -378,13 +378,13 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
-    public void NewAdmissionAcceptsJarInternalLiquidAfterWorkshopStagingBanRulesChange()
+    public void NewAdmissionAcceptsSamePolarityJarAfterWorkshopFocusChanges()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             vocabulary: Words, liquidStagingCapacity: 4);
-        master.AddJar(new Jar("圆罐", "酒", vocabulary: Words));
+        master.AddJar(new Jar("圆罐", "蜜", vocabulary: Words));
         var ids = new SequentialIdGenerator();
-        var firstDemand = Demand("圆罐", "酒", ids);
+        var firstDemand = Demand("圆罐", "蜜", ids);
         var setup = Prepare(master, firstDemand);
         var ship = new ShipLiquidInventory(4);
         ReevaluateWithShip(setup.Book, setup.Roster, ship, firstDemand.Id);
@@ -397,7 +397,7 @@ public sealed class WorldOrderExecutionAdmissionTests
 
         master.ReplaceCapability(new WorkshopCapability(
             master.BaseMarks, master.AdditionalMarks, new[] { "酒" }));
-        var secondDemand = Demand("圆罐", "酒", ids);
+        var secondDemand = Demand("圆罐", "蜜", ids);
         setup.Board.AddDemand(secondDemand, DemandAreaKind.Active);
         var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
         {
@@ -408,8 +408,8 @@ public sealed class WorldOrderExecutionAdmissionTests
 
         var second = admission.TryAdmit(secondDemand.Id);
 
-        // The Jar still contains 酒, but MATCH/ownership does not consume or receive staging liquid.
-        // A new staging Ban must not retroactively invalidate Jar-owned liquid.
+        // The Jar still contains 蜜 (Anode), matching the Anode focus created by Ban 酒.
+        // Admission is valid because the installed Jar polarity remains operable; no liquid is transferred.
         Assert.True(second.Success, second.Reason);
         Assert.True(admission.GetLiquidScopes(secondDemand.Id).HasValue);
     }
