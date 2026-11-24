@@ -569,6 +569,12 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
         var plan = result.Assembly!.CandidatePlan!;
+        System.Console.WriteLine(
+            "BCLASS-MIXED-DIAG status=" + result.Status +
+            " master=" + string.Join(",", plan.MasterSteps.Select(step => step.Before![step.Operation!.JarIndex!.Value].Id)) +
+            " slave=" + string.Join(",", plan.SlaveSteps.Select(step => step.Before![step.Operation!.JarIndex!.Value].Id)) +
+            " transfer=" + string.Join(",", plan.TransferJarIds) +
+            " materialized=" + string.Join(",", result.Assembly.Materialization!.TransferJarIds));
         Assert.Equal(new[] { 9141 }, plan.MasterSteps.Select(step =>
             step.Before![step.Operation!.JarIndex!.Value].Id!.Value));
         Assert.Equal(new[] { 9142 }, plan.SlaveSteps.Select(step =>
