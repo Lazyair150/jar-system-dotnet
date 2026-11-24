@@ -385,3 +385,14 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 求解器的 `JarState` 与 `Requirement` 暴露只读派生 `Polarity`，StateSpaceSolver、MatchingSolver 与 SolverPrecheck 用它区分空/满状态。精确液体身份仍用于需求匹配、数量核算和 staging admission。状态键继续只编码实际液体 ID，不重复编码其派生极性。
 
 **关键 Ban 区分**：满罐自耗改形只消费 Jar 内部资源，不读取工作台 staging Ban；PourOut 才把 Jar 内液体送入 staging，因此仍必须经过 Ban 与容量检查。主从转移 Jar 本身不等于转移游离液体。
+
+
+### 10.6 本轮新增：非 Jar 状态转换与 staging admission
+
+共享 Transition 现在允许两种明确状态形态：Jar 转换必须绑定 exact Jar identity 并带派生极性；非 Jar 转换不得伪造 polarity。Staging Admission 使用非 Jar 快照表达工作台暂存占用与订单子账余额。
+
+`StagingAdmissionTransitionAdapter` 消费 `WorkshopLiquidStaging.Receive` 的真实 receipt，将请求量、接收量和丢弃量拆成可守恒的资源效果：临时订单输出边界 Produce、接收部分 Transfer 到当前工作台 staging、拒收/溢出部分 Discard。它是 receipt adapter，不是资源写入器，也尚未接入全部生产输出入口。
+
+本轮还校正了差分参考求解器：其旧版满罐改形路径曾错误套用 staging Ban。现在参考实现与“Ban 只约束工作台游离液体 staging”的领域契约一致，并新增被 Ban Jar 内液体自耗的定向差分场景。Mark 跨主从交接保留、成功终态清理与失败终态清理也增加了执行会话回归断言。
+
+当前 head 的 CI 尚待完成；仅 `4f9f98a` 上的 verify 步骤已成功，不能据此宣称后续 staging adapter 和 Mark 断言通过。下一步继续完成 Transfer 的统一 ResourceEffect，再接线实际 staging 入口；此时仍不进入 Circuit Compiler。
