@@ -243,7 +243,8 @@ public static class WorkshopRuleTransitionAdapter
     private static RuleStateSnapshot Snapshot(
         in JarFacts facts,
         string workshopInstanceId,
-        string jarInstanceId) =>
+        string jarInstanceId,
+        WorkshopPolarityMode workshopPolarityMode) =>
         new(new[]
         {
             new KeyValuePair<string, string>("shape", facts.Shape),
@@ -251,6 +252,7 @@ public static class WorkshopRuleTransitionAdapter
             new KeyValuePair<string, string>("polarity", facts.Polarity.ToString()),
             new KeyValuePair<string, string>("marked", facts.IsMarked ? "true" : "false"),
             new KeyValuePair<string, string>("workshopInstanceId", workshopInstanceId),
+            new KeyValuePair<string, string>("workshopPolarityMode", workshopPolarityMode.ToString()),
             new KeyValuePair<string, string>("jarInstanceId", jarInstanceId)
         });
 
@@ -314,8 +316,8 @@ public static class WorkshopRuleTransitionAdapter
             transition.RuleVersion,
             scope,
             operation.Kind.ToString(),
-            Snapshot(before, workshopInstanceId, jarInstanceId),
-            Snapshot(transition.After, workshopInstanceId, jarInstanceId),
+            Snapshot(before, workshopInstanceId, jarInstanceId, transition.WorkshopPolarityMode),
+            Snapshot(transition.After, workshopInstanceId, jarInstanceId, transition.WorkshopPolarityMode),
             Array.AsReadOnly(effects.ToArray()));
         resultTransition.Validate();
 
