@@ -50,16 +50,18 @@ public class LiquidRulesTests
     }
 
     [Fact]
-    public void JarInternalLiquidSelfConsumeIsOutsideTheStagingBanScope()
+    public void JarInternalSelfConsumeStillRequiresWorkshopPolarityCompatibility()
     {
         var capability = Cap(new List<string> { "酒" });
         var rules = new LiquidRules(capability, capacity: 2);
         Assert.Equal("banned", rules.CanPay("酒", 1, 1).Code);
         Assert.Equal("banned", rules.CanStore("酒", 1, 0).Code);
 
-        // 满罐自耗使用 Jar 自己的内部液体，不读取工作台游离液体暂存账户。
+        // 资源从 Jar 内部扣除，但 Ban 酒使工作台专注 Anode，不能操作 Cathode 酒 Jar。
         var reshape = new ReshapeRules(capability, rules);
-        Assert.True(reshape.SelfConsume("酒").Granted);
+        Assert.False(reshape.SelfConsume("酒").Granted);
+        Assert.Equal("polarity-incompatible", reshape.SelfConsume("酒").Code);
+        Assert.True(reshape.SelfConsume("蜜").Granted);
         Assert.Equal("not-full", reshape.SelfConsume(null).Code);
     }
 
