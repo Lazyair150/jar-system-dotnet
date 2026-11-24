@@ -298,6 +298,77 @@ public sealed class WorkshopOrderLiquidScopeTests
     }
 
 
+
+    [Fact]
+    public void LegacyWorkshopLiquidTransferRestoresBothInventoriesAfterFirstKindWasMoved()
+    {
+        var master = CreateWorkshop();
+        var slave = CreateWorkshop();
+        Assert.True(master.AddLiquid("酒", 3));
+        Assert.True(master.AddLiquid("蜜", 2));
+        Assert.True(slave.AddLiquid("蜜", 1));
+        var masterBefore = new Dictionary<string, int>(master.LiquidStorage);
+        var slaveBefore = new Dictionary<string, int>(slave.LiquidStorage);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            LegacyWorkshopLiquidTransfer.Execute(
+                master, slave,
+                new Dictionary<string, int> { ["酒"] = 2, ["蜜"] = 1 },
+                new ThrowAfterFirstLegacySourceRemovalPort()));
+
+        Assert.Equal("injected legacy source removal failure", error.Message);
+        Assert.Equal(masterBefore, master.LiquidStorage);
+        Assert.Equal(slaveBefore, slave.LiquidStorage);
+    }
+
+    [Fact]
+    public void LegacyWorkshopLiquidTransferRestoresDestinationWhenAddMutatesThenThrows()
+    {
+        var master = CreateWorkshop();
+        var slave = CreateWorkshop();
+        Assert.True(master.AddLiquid("酒", 2));
+        var masterBefore = new Dictionary<string, int>(master.LiquidStorage);
+        var slaveBefore = new Dictionary<string, int>(slave.LiquidStorage);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            LegacyWorkshopLiquidTransfer.Execute(
+                master, slave,
+                new Dictionary<string, int> { ["酒"] = 1 },
+                new ThrowAfterLegacyDestinationAddPort()));
+
+        Assert.Equal("injected legacy destination add failure", error.Message);
+        Assert.Equal(masterBefore, master.LiquidStorage);
+        Assert.Equal(slaveBefore, slave.LiquidStorage);
+    }
+
+    private sealed class ThrowAfterFirstLegacySourceRemovalPort : ILegacyWorkshopLiquidTransferPort
+    {
+        private int _removals;
+
+        public bool AddToDestination(Workshop destination, string liquid, int amount) =>
+            destination.AddLiquid(liquid, amount);
+
+        public bool RemoveFromSource(Workshop source, string liquid, int amount)
+        {
+            var removed = source.RemoveLiquid(liquid, amount);
+            if (++_removals == 1)
+                throw new InvalidOperationException("injected legacy source removal failure");
+            return removed;
+        }
+    }
+
+    private sealed class ThrowAfterLegacyDestinationAddPort : ILegacyWorkshopLiquidTransferPort
+    {
+        public bool AddToDestination(Workshop destination, string liquid, int amount)
+        {
+            destination.AddLiquid(liquid, amount);
+            throw new InvalidOperationException("injected legacy destination add failure");
+        }
+
+        public bool RemoveFromSource(Workshop source, string liquid, int amount) =>
+            source.RemoveLiquid(liquid, amount);
+    }
+
     [Fact]
     public void ScopedLiquidTransferCommitsTheWholeBatchAndLeavesOtherOrdersUntouched()
     {
