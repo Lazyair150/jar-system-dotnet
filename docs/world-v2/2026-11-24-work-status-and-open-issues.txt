@@ -190,3 +190,20 @@ LATEST HEAD CORRECTION — 2026-11-24 21:55 +08:00
 - Space PR #2 head efd1049f47149872f8e16cd55ac16eb424b0b8ab; Draft/Open/unmerged; no Actions run/status returned.
 - Space code commits 99ef15d and 1425cf5 add mandatory frozen Board Assignment for production Owned assembly plus a regression probe. Probe remains unexecuted pending Godot 4.7.1 .NET.
 - Do not report either current PR head as fully green. Continue transfer/settlement fault-injection and checkpoint recovery on Core; continue Board Assignment sole-authority audit on Space. Cleanup remains last.
+CHECKPOINT 13 — 2026-11-24 22:10 +08:00
+
+Core source head: 8e29f19b93d16f527f9f1a3dfb8916f10054d321. Exact-head verify run 45405814473 was in_progress when queried. PR #60 remains Draft/Open/unmerged and stacked on PR #59.
+
+Implemented this slice:
+- Internal IOrderJarTransferPort / WorkshopJarTransferPort seam for injectable exact Jar move failures.
+- TransferService repairs a detached Jar to Master on port failure; removes duplicate Slave ownership if both accounts temporarily hold the same object; exact destination Jar ID set must equal Manifest.
+- OrderTransferService.IsCommitted becomes true only after postconditions and RecordBatchOnce; CommittedTransition is published only after that boundary.
+- Session rollback writes Return ledger facts only for a committed handoff. Partial, uncommitted compensation restores provisional ownership without orphan Return events.
+- RestoreProgress restores committed state from SlaveTransferCommitted and rejects a committed checkpoint when a supplied ResourceLedger lacks the exact transfer operation receipt.
+- Tests added for first move detached failure, Nth Jar move failure after earlier move, no orphan Transfer/Return facts, restored SlaveSteps failure returning committed Jar, missing transfer receipt rejection, and invalid RecordBatchOnce batch atomicity.
+
+Not yet complete: scoped/legacy liquid transfer fault injection; settlement boundary replay; A/B shared polarity/RuleTransition parity; seeded resource-conservation matrix; Board capability matrix; Space template/schema-3 end-to-end Godot validation; cleanup last.
+
+Space PR #2 remains Draft/Open/unmerged. Owned Hangar assembly now rejects field-only selections without a complete frozen Board Assignment; regression probe is authored but not run under Godot 4.7.1 .NET.
+
+Do not mark Core source head 8e29f19 CI green until run 45405814473 completes.
