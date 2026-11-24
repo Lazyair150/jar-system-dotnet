@@ -292,3 +292,43 @@ Implemented in Core:
 
 Tests authored for these invariants in `RuleTransitionContractTests`. This is a compatibility adapter slice, not yet a replacement for WorkshopRulebook, not yet the Circuit Compiler, and not yet a universal evaluator. MATCH currently remains on its existing lifecycle proof path and must be adapted separately because it has no `WorkshopOperationKind` value.
 - State before/after is represented by `RuleStateSnapshot`, a sorted, immutable key/value snapshot; mutable domain object references are not embedded in the transition contract.
+
+
+## 10. 共享规则转换契约：当前落地细节（2026-11-24）
+
+实施记录与逐项验收清单见 [规则转换契约实施记录](rule-transition-contract-implementation-log.md)。
+
+当前 Core 已新增 `RuleEvaluationResult`、`RuleTransition`、`RuleStateSnapshot`、`RuleResourceEffect` 与 `RuleResourceAccount`。这组类型只表达一次规则评估的确定结果、状态前后快照和资源账户变化，不直接修改库存，也不替代事务层。
+
+### 10.1 三态结果是硬约束
+
+- Allowed 必须携带 Transition；
+- Rejected 与 Undetermined 不得携带 Transition；
+- 每个结果必须提供稳定 ReasonCode。
+
+这保证未知条件不会变成可执行操作，也不会把“尚不能证明”误报成“确定无解”。
+
+### 10.2 资源账户不是角色标签
+
+账户由 AccountKind 与精确 OwnerId 构成。工作台暂存液体与 Jar 内液体是两个不同账户：
+
+- `workshop.free-liquid-staging:<ownedWorkshopInstanceId>`
+- `jar.internal-liquid:<jarInstanceId>`
+
+因此 PourIn 消耗工作台暂存液体，而 ReshapeFull 的自耗消耗 Jar 内部液体。两者不得共用一个“液体库存”账户，也不得因主台/从台角色交换而改变 Owned Instance 身份。
+
+### 10.3 现有 Adapter 的真实边界
+
+`WorkshopRuleTransitionAdapter` 目前适配旧 WorkshopRulebook 的四种化学操作，并将旧规则判定和状态转换转译为共享契约。它没有重新实现规则，也没有提交资源账本。
+
+特别注意：PourOut 的 Produce 指向当前工作台暂存账户，只表达“尝试产出到此账户”的转换意图；staging admission、容量、接收拒绝和溢出丢弃仍须由后续独立规则/事务表达。不能把 Produce 记录当作已经成功入账。
+
+MATCH 不是普通 WorkshopOperation，必须单独适配其生命周期证明。Mark、Transfer、Staging admission、Ban/Capacity 仍是后续工作，不得根据契约类型已存在而推断完成。
+
+### 10.4 验证状态
+
+在提交 `e6f68e0ea21bce0db993a60358e8c8f030c47834` 上，GitHub Actions run `45360457315` 的 verify job 已成功。该结论只覆盖该 SHA 上仓库配置的 CI 工作流；Godot Probe 和未实现语义不在此结论范围内。
+
+### 10.5 紧接着的工作
+
+按实施记录的顺序先完成 MATCH 独立 Adapter，再根据权威代码厘清 Mark 生命周期，然后补 staging admission 与主从 Transfer。每一步都保留旧实现作为差分 Oracle。上述规则语义与事务结果可被完整表达、验证并应用前，不进入通用 Circuit Compiler 或重写求解器。
