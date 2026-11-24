@@ -240,7 +240,7 @@ Admission 必须对当前资源原子重验并创建 Lease；缓存命中绝不�
 
 尚未完成：
 
-1. 已新增共享 RuleEvaluationResult / RuleTransition / RuleResourceEffect / RuleResourceAccount 契约；四种化学操作由 Workshop Adapter 消费权威 proof，MATCH 由独立生命周期 Adapter 消费权威 proof。Mark 的产生/清理周期已部分审查，但所有跨台路径的周期测试仍需补齐；Transfer、Staging admission、Capacity、Parser、Skill 和 Production Device 的完整共享语义仍未覆盖，契约也尚未成为所有执行器的唯一入口。
+1. 已新增共享 RuleEvaluationResult / RuleTransition / RuleResourceEffect / RuleResourceAccount 契约；四种化学操作由 Workshop Adapter 消费权威 proof，MATCH 由独立生命周期 Adapter 消费权威 proof。Staging admission 与主从 Transfer 已有适配/执行路径，但 Parser、Skill、Production Device 的完整共享语义仍未覆盖，契约也尚未成为所有执行器的唯一入口。
 2. 现有 RuleContext 仍只解释部分贡献效果；ModifyCapacity 保持 Undetermined。
 3. Parser 规则由单独窄执行器消费；Skill 和 Production Device 的完整规则执行语义仍缺失。
 4. Board Runtime Profile Set 是消费者身份/配置路由，不是电路编译器或规则执行器。
@@ -278,7 +278,7 @@ Admission 必须对当前资源原子重验并创建 Lease；缓存命中绝不�
 - 订单反向计划能给出按资源账户区分的最初需求集。
 - 换台计划能从当前资源正向模拟目标规则下的可行转换，并解释保留、消耗、转移与丢弃。
 - 只改变资源余额时可更新 Readiness；只有结构/规则/目标依赖改变时才重算结构解。
-- 主台 Ban、Jar 内液体自耗、主从单向传递、游离液体 staging 与 Parser 仓库入口等既有不变量不回退。
+- 主台 Ban、Jar 操作极性、主从 Jar 无条件极性转移、游离液体 staging 准入与 Parser 仓库入口等既有不变量不回退。
 - Checkpoint 只保存恢复权威世界所需事实；Circuit Image/计划缓存可重建，不作为权威资源状态。
 
 ## 10. Phase 1 implementation slice: shared transition contract
