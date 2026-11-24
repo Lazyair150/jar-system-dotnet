@@ -230,9 +230,10 @@ public static class SolverPrecheck
         if (jar.Liquid == null)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
 
-        if (cap.IsBanned(jar.Liquid)) return false;
-        return cap.CanTransform(jar.Shape, req.Shape)
-            || string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
+        // 满罐改形消耗 Jar 自有内部液体，不经过 staging；只有倒液才受 Ban。
+        if (cap.CanTransform(jar.Shape, req.Shape)) return true;
+        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
+            && !cap.IsBanned(jar.Liquid);
     }
 
     /// <summary>
@@ -341,8 +342,9 @@ public static class SolverPrecheck
                     break;
                 }
                 // 满罐改形（自耗）
-                if (j.Liquid != null && !cap.IsBanned(j.Liquid) && cap.CanTransform(j.Shape, req.Shape))
+                if (j.Liquid != null && cap.CanTransform(j.Shape, req.Shape))
                 {
+                    // Full reshape consumes Jar-owned liquid; staging Ban is irrelevant.
                     j.Liquid = null;
                     j.Shape = req.Shape;
                     j.IsMarked = true;
