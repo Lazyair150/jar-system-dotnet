@@ -162,6 +162,16 @@ internal sealed class OrderTransferService
         // tick provider 在提交前取得；它抛错时仍没有罐子、液体或租约所有权变化。
         var ledgerTick = ledger == null ? 0 :
             (ledgerTickProvider ?? throw new InvalidOperationException("资源账本缺少逻辑 tick provider。"))();
+        if (ledgerTick < 0)
+            return "资源账本逻辑 tick 不能为负数";
+        var ledgerOperationId = lease.WorldVersion + ":order:" + demandId + ":transfer";
+        var hasLedgerFacts = manifest.TransferJarIds.Count > 0 ||
+            manifest.TransferLiquids.Any(item => item.Value > 0);
+        // A replayed operation must be rejected before changing physical ownership.
+        // Checking this after commit would force rollback against a ledger that already
+        // contains the previous transfer event batch.
+        if (ledger != null && hasLedgerFacts && ledger.HasRecordedOperation(ledgerOperationId))
+            return "该订单交接账本操作已记录，拒绝重复提交资源转移";
         // Collect facts while moving resources, but publish them as one idempotent batch
         // only after exact ownership and RuleTransition postconditions have succeeded.
         var ledgerMutations = new List<ResourceLedgerMutation>();
@@ -246,8 +256,7 @@ internal sealed class OrderTransferService
         // intermediate writes. Publish the complete transfer once, after all checks.
         if (ledger != null && ledgerMutations.Count > 0)
         {
-            var operationId = lease.WorldVersion + ":order:" + demandId + ":transfer";
-            if (!ledger.RecordBatchOnce(operationId, ledgerTick, ledgerMutations))
+            if (!ledger.RecordBatchOnce(ledgerOperationId, ledgerTick, ledgerMutations))
                 throw new InvalidOperationException("该订单交接账本操作已记录，拒绝重复提交资源转移事实。");
         }
 
