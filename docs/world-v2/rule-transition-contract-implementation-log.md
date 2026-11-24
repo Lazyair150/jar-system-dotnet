@@ -322,3 +322,34 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - Before / After 记录来源/目标实例、Jar 数量和目标 staging 占用；不伪造 Jar polarity，因为这是跨账户批量转移，不是单个 Jar 化学状态转换。
 
 该 Adapter 当前仍是纯构造器，尚未接入 `OrderTransferService` 的提交路径。原因是旧 Core `Workshop` 运行时对象目前只有显示 `Name`，没有可信的 Owned Instance ID；不能拿名称冒充身份。下一步必须由 World/Host 将 Assignment 中的 exact Owned Instance ID 传入交接服务，并让实际提交回执与此 Transition 来自同一事务边界，再接入账本/回放。
+
+
+## 15. Ban 与工作台极性统一（2026-11-24，语义纠正）
+
+此前第 8、13、14 节把 Ban 错误收窄为“仅约束游离液体暂存账户”，并由此推出满罐 Jar 自耗与 MATCH 可绕过 Ban。这一结论错误，相关实现、测试、参考求解器和说明均按本节更正；不得继续沿用“staging-only Ban”口径。第 8、13、14 节中与本节冲突的说法均已失效。
+
+### 15.1 正确领域关系
+
+- Jar 极性由内部液体派生：空 = Neutral，酒 = Cathode，蜜 = Anode。
+- 工作台的 Ban 配置同时表达其专注极性与液体暂存类别限制。
+- Ban 酒意味着工作台专注 Anode：Anode Jar 可操作，Cathode Jar 不可操作；Ban 蜜则相反。
+- Neutral Jar 对 Cathode / Anode 工作台均可操作。
+- 无 Ban 的旧配置保持双极性兼容；同时 Ban 酒与蜜时只允许 Neutral Jar。
+- Jar 内液体是否属于 Jar 自有账户，只决定资源从哪里扣除；它不会授予工作台操作异极 Jar 的能力。
+- 因此 MATCH、PourOut、满罐改形都必须先通过工作台-Jar 极性兼容检查。PourIn 与空罐改形还必须满足暂存液体类别/库存准入。PourOut 在极性兼容后，产出的液体仍需通过目标 staging 容量与类别准入。
+
+### 15.2 实现方向
+
+`WorkshopCapability` 派生 `WorkshopPolarityMode`，并提供 `CanOperateJar(JarPolarity)`；`RuleContext` 暴露同一判定。 `WorkshopRulebook.EvaluateMatch` 与化学算子的公共入口统一检查当前 Jar 极性，`ReshapeRules.SelfConsume` 也不得绕过该检查。Solver 的预检、MatchingSolver 和独立 ReferenceSolver 使用相同领域关系，但 ReferenceSolver 继续保持独立搜索实现。
+
+规则语义版本递增：`RuleContractVersion=4`、`POUR_OUT=2`、`RESHAPE_FULL=3`、`MATCH=4`。旧版“staging-only Ban”快照、差分用例和缓存不得与新规则混用。
+
+### 15.3 回归验收
+
+- 阳极工作台（Ban 酒）：阳极 Jar 可操作，阴极 Jar 的 MATCH / PourOut / 满罐改形均拒绝；Neutral Jar 允许。
+- 阴极工作台（Ban 蜜）：对称验证。
+- 同时 Ban 两类液体：仅 Neutral Jar 允许。
+- 无 Ban：保留双极性兼容。
+- 暂存区取用与接收仍按 Ban 类别与容量校验；Jar 内部液体自耗只改变 Jar 内部账户，但仍受工作台极性操作权限约束。
+- 主从交接不能改变 Jar 的极性，也不能清除一次订单操作 Mark；目标工作台必须重新检查自身极性权限。
+
