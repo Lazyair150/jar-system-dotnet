@@ -620,4 +620,33 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         Assert.Single(result.Assembly.CandidatePlan.SlaveSteps);
     }
 
+    [Fact]
+    public void OpaqueSlaveRulesKeepMasterOnlyKnownBranchUndetermined()
+    {
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new RequireModifier
+        {
+            Text = "从台外部条件",
+            Violation = () => "运行时条件不可静态投影"
+        });
+        var master = new Workshop("阴极主台",
+            new List<string> { "圆罐" }, ban: new List<string> { "蜜" });
+        var slave = new Workshop("未知规则从台",
+            new List<string> { "圆罐" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", "酒", id: 9161));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐", Liquid = "酒" }
+        });
+        Assert.Contains(input.Master.Requirements.Single().Candidates,
+            candidate => candidate.Operation == "MATCH");
+        Assert.True(input.Slave.IsUndetermined);
+
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            916, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Undetermined, result.Status);
+    }
+
 }
