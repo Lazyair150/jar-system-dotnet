@@ -83,7 +83,7 @@ public sealed class LiquidResourceAccountsTests
                 Assert.Equal(initial.GetValueOrDefault(liquid) + accepted, ship.GetAmount(liquid));
             }
 
-            Assert.Equal(requestedTotal, receipt.RequestedAmount);
+            Assert.Equal(requestedTotal, receipt.RequestedTotal);
             Assert.Equal(requestedTotal, receipt.AcceptedTotal + receipt.DiscardedTotal);
             Assert.Equal(initialTotal + receipt.AcceptedTotal, ship.UsedCapacity);
             Assert.Equal(initialTotal + requestedTotal,
@@ -130,7 +130,7 @@ public sealed class LiquidResourceAccountsTests
                 staging.UsedCapacity);
             Assert.Equal(otherOrderBalance, staging.GetAmount(otherOrderId, otherLiquid));
             Assert.InRange(staging.UsedCapacity, 0, capacity);
-            Assert.Equal(requested, receipt.RequestedTotal);
+            Assert.Equal(requested, receipt.RequestedAmount);
             Assert.Equal(receipt.AcceptedAmount + receipt.DiscardedAmount,
                 settlement.Transition.ResourceEffects.Sum(effect => effect.Amount));
             Assert.Equal(receipt.AcceptedAmount,
