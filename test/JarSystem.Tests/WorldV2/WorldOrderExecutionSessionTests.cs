@@ -488,7 +488,8 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(master.AddJar(jar));
 
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
-        var board = new OrderDemandBoard();
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
         var snapshot = WorldSnapshotFactory.Capture(roster);
