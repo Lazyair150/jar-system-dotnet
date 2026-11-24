@@ -113,7 +113,7 @@ public class SolverLiquidSoundnessTests
     [Fact]
     public void StagingUseScenariosRespectBanAndMatchingPolaritySelfConsume()
     {
-        // 反向对照：证明游离液体灌入与空罐改形成本确实受 Ban 约束；满罐 Jar 自耗则独立于 staging Ban。
+        // 反向对照：游离液体取用受 Ban 约束；满罐 Jar 自耗虽从 Jar 账户扣除，仍须满足工作台极性权限。
         var free = new Workshop("自由台", new List<string> { "圆罐", "方罐" },
             new List<string> { "三角罐" }, new List<string>(),
             maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
