@@ -391,7 +391,7 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 
 共享 Transition 现在允许两种明确状态形态：Jar 转换必须绑定 exact Jar identity 并带派生极性；非 Jar 转换不得伪造 polarity。Staging Admission 使用非 Jar 快照表达工作台暂存占用与订单子账余额。
 
-`StagingAdmissionTransitionAdapter` 消费 `WorkshopLiquidStaging.Receive` 的真实 receipt，将请求量、接收量和丢弃量拆成可守恒的资源效果：临时订单输出边界 Produce、接收部分 Transfer 到当前工作台 staging、拒收/溢出部分 Discard。它是 receipt adapter，不是资源写入器，也尚未接入全部生产输出入口。
+`StagingAdmissionTransitionAdapter` 消费 `WorkshopLiquidStaging.Receive` 的真实 receipt，将请求量、接收量和丢弃量拆成可守恒的资源效果：临时订单输出边界 Produce、接收部分 Transfer 到当前工作台 staging、拒收/溢出部分 Discard。新增 `WorkshopLiquidStaging.ReceiveWithTransition` 将权威 Receive 与该 Transition 配对返回；旧 `Receive` 保留兼容，其他生产输出入口仍需迁移。Adapter 本身不写入资源账户。
 
 本轮还校正了差分参考求解器：其旧版满罐改形路径曾错误套用 staging Ban。现在参考实现与“Ban 只约束工作台游离液体 staging”的领域契约一致，并新增被 Ban Jar 内液体自耗的定向差分场景。Mark 跨主从交接保留、成功终态清理与失败终态清理也增加了执行会话回归断言。
 
