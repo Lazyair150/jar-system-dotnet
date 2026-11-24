@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
@@ -13,6 +14,8 @@ namespace JarSystem.Core.World.Execution;
 /// </summary>
 internal sealed class OrderTransferService
 {
+    public RuleTransition? CommittedTransition { get; private set; }
+
     public string? Transfer(
         int demandId,
         OrderResourceLease lease,
@@ -25,6 +28,7 @@ internal sealed class OrderTransferService
         Func<int>? ledgerTickProvider,
         Action commitStarted)
     {
+        CommittedTransition = null;
         ArgumentNullException.ThrowIfNull(lease);
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(master);
@@ -104,6 +108,44 @@ internal sealed class OrderTransferService
                 return "从台订单暂存区不能接收从台路径所需液体（禁令或总容量不足）";
         }
 
+        RuleTransition? transferTransition = null;
+        if (master.OwnedInstanceId != null || slave.OwnedInstanceId != null)
+        {
+            if (master.OwnedInstanceId == null || slave.OwnedInstanceId == null)
+                return "Board-owned 主从交接必须同时提供精确的来源与目标 OwnedInstanceId";
+            if (masterScope != null &&
+                !string.Equals(masterScope.WorkshopInstanceId, master.OwnedInstanceId, StringComparison.Ordinal))
+                return "主台订单暂存范围的 OwnedInstanceId 与当前工作台不一致";
+            if (slaveScope != null &&
+                !string.Equals(slaveScope.WorkshopInstanceId, slave.OwnedInstanceId, StringComparison.Ordinal))
+                return "从台订单暂存范围的 OwnedInstanceId 与当前工作台不一致";
+
+            var sourceBalances = masterScope?.Balance ?? master.LiquidStorage;
+            var destinationUsedCapacity = slaveScope?.Staging.UsedCapacity ??
+                slave.LiquidStorage.Values.Sum();
+            var destinationCapacity = slaveScope?.Staging.Capacity ?? slave.LiquidStagingCapacity;
+            try
+            {
+                transferTransition = WorkshopRoleTransferTransitionAdapter.Create(
+                    master.OwnedInstanceId,
+                    slave.OwnedInstanceId,
+                    master.Jars.Select(jar => jar.Id ?? 0),
+                    manifest.TransferJarIds,
+                    sourceBalances,
+                    manifest.TransferLiquids,
+                    master.KnownLiquids.Where(master.IsBanned),
+                    slave.KnownLiquids.Where(slave.IsBanned),
+                    slave.Jars.Count,
+                    slave.MaxJars,
+                    destinationUsedCapacity,
+                    destinationCapacity);
+            }
+            catch (ArgumentException exception)
+            {
+                return "主从资源交接契约预检拒绝：" + exception.Message;
+            }
+        }
+
         // tick provider 在提交前取得；它抛错时仍没有罐子、液体或租约所有权变化。
         var ledgerTick = ledger == null ? 0 :
             (ledgerTickProvider ?? throw new InvalidOperationException("资源账本缺少逻辑 tick provider。"))();
@@ -156,6 +198,18 @@ internal sealed class OrderTransferService
                 ledger?.Record(ledgerTick, ResourceCauses.Transfer,
                     ResourceKinds.Liquid, item.Key, item.Value, from: master.Name, to: slave.Name);
             masterScope.Staging.ReleaseOrderCapacity(demandId);
+        }
+
+        if (transferTransition != null)
+        {
+            var expected = transferTransition.After.Values;
+            var destinationUsedCapacity = slaveScope?.Staging.UsedCapacity ??
+                slave.LiquidStorage.Values.Sum();
+            if (expected["sourceJarCount"] != master.Jars.Count.ToString(CultureInfo.InvariantCulture) ||
+                expected["destinationJarCount"] != slave.Jars.Count.ToString(CultureInfo.InvariantCulture) ||
+                expected["destinationStagingUsedCapacity"] != destinationUsedCapacity.ToString(CultureInfo.InvariantCulture))
+                throw new InvalidOperationException("主从交接提交后的真实账户状态与同一事务构造的 RuleTransition 不一致。");
+            CommittedTransition = transferTransition;
         }
 
         return null;
