@@ -100,8 +100,6 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
             step.Before![step.Operation.JarIndex!.Value].Id == 9131);
         Assert.Empty(plan.SlaveSteps);
         Assert.Equal(new[] { 9131 }, plan.TransferJarIds);
-        Assert.Contains(9131, plan.TransferJarIds,
-            "Master-completed requirement Jar is handed off without testing Slave polarity.");
     }
 
     [Fact]
