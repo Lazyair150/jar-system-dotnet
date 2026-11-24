@@ -139,6 +139,40 @@ public sealed class RuleStateSnapshot
 }
 
 /// <summary>
+/// Canonical polarity preconditions and outputs for the existing authoritative Jar operations.
+/// This validates state edges only; it never performs resource accounting.
+/// </summary>
+public static class JarPolarityRuleContract
+{
+    private static bool IsLiquid(JarPolarity polarity) =>
+        polarity is JarPolarity.Cathode or JarPolarity.Anode;
+
+    public static void Validate(string ruleId, JarPolarityTransition edge)
+    {
+        var valid = ruleId switch
+        {
+            "jar.workshop.pour-in" =>
+                edge.Before == JarPolarity.Neutral && IsLiquid(edge.After),
+            "jar.workshop.pour-out" =>
+                IsLiquid(edge.Before) && edge.After == JarPolarity.Neutral,
+            "jar.workshop.reshape-empty" =>
+                edge.Before == JarPolarity.Neutral && edge.After == JarPolarity.Neutral,
+            "jar.workshop.reshape-full" =>
+                IsLiquid(edge.Before) && edge.After == JarPolarity.Neutral,
+            "jar.workshop.match" =>
+                edge.Before == edge.After,
+            _ => true
+        };
+
+        if (!valid)
+            throw new ArgumentException(
+                "Jar polarity edge is incompatible with rule " + ruleId + ": " +
+                edge.Before + " -> " + edge.After,
+                nameof(edge));
+    }
+}
+
+/// <summary>
 /// Pure state transition emitted by a rule evaluator. State payloads are canonical immutable
 /// snapshots; resource effects are explicit and account-addressed. No external state is mutated here.
 /// </summary>
@@ -181,6 +215,7 @@ public sealed class RuleTransition
         if (string.IsNullOrWhiteSpace(RuleId) || RuleVersion <= 0 ||
             string.IsNullOrWhiteSpace(Scope) || string.IsNullOrWhiteSpace(Target))
             throw new ArgumentException("Rule transition requires exact rule identity, version, scope and target.");
+        JarPolarityRuleContract.Validate(RuleId, PolarityTransition);
         foreach (var effect in ResourceEffects) effect.Validate();
     }
 }
