@@ -96,8 +96,8 @@ public static class WorldOrderOrderedResourceReplay
 
         if (world.Master == null)
             return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "缺少主台快照");
-        if (program.IsBClass && (world.Slave == null || world.Slave.HasOpaqueSolverRules))
-            return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "B 类订单缺少从台快照或从台规则不可静态重放");
+        if (program.IsBClass && world.Slave == null)
+            return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined, "B 类订单缺少从台快照");
 
         var banned = new HashSet<string>(world.Master.Capability.Ban, StringComparer.Ordinal);
         // A Slave ban is an intrinsic receive/use restriction for free-liquid staging.
@@ -139,6 +139,12 @@ public static class WorldOrderOrderedResourceReplay
                         x.WorkshopRole == program.SlaveRole)
             .OrderBy(x => x.Sequence)
             .ToArray();
+        // An opaque Slave rule is relevant only if this concrete program asks the
+        // Slave to execute an operation. Receiver-only handoff must remain decidable:
+        // accepting a Jar is not an operation and does not consult Slave polarity/rules.
+        if (slaveNodes.Length > 0 && world.Slave!.HasOpaqueSolverRules)
+            return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined,
+                "从台存在无法静态重放的规则，且当前 B 类程序需要执行从台操作");
         if (world.Master.HasOpaqueSolverRules && masterNodes.Length > 0)
             return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined,
                 "主台存在无法静态重放的规则，且当前 B 类程序需要执行主台操作");
