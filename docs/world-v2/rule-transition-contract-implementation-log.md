@@ -382,3 +382,17 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 这项修正改变的是 B 类求解器的角色分配模型，不是把异极 Jar 强行允许从台操作，也不是放宽任何工作台的化学操作权限。
 
 验证状态：本轮提交后的 GitHub Actions 正在执行；在对应最新 head 的 verify job 完成前，不宣称测试通过。
+
+
+## 2026-11-24：接收型从台与主台完成 Jar 的交接
+
+进一步审查后明确：Slave-first 只是搜索偏好，不是 B 类可行性的硬门槛。若 Master 能完成全部需求操作，Slave 可以只承担 Jar 接收/交付边界，不必为了制造一条 Slave 化学操作而重复操作已经完成的 Jar。
+
+- 移除 B 类符号解集上“必须至少有一条 Slave 需求操作”的临时过滤。
+- 真实求解器 + Admission + ExecutionSession 回归覆盖：Cathode Master 对酒 Jar 执行 MATCH，Anode Slave 没有该 Jar 的 MATCH 候选；Master-only 操作计划仍可将带 Mark 的 Jar 转入 Slave，最终交付清理本订单 Mark。
+- 角色 Profile 为 Undetermined 时，只有该角色实际需要执行化学操作才阻断物化；若它只接收/交付资源，不透明规则不构成操作权限判断。
+- 明确区分 Slave staging free-liquid rejection 与 Jar-internal liquid：若 Slave 拒绝游离液体，但 Master 能合法使用自己的 staging 完成 POUR_IN，则可选择 Master 操作并仅交接 Jar；若 Master staging 也 Ban 该液体，则不能走这条路径。
+- 修正 DirectCandidateProjection：B 类 handoff 必须包含所有订单需求 Jar，而不只是 Slave 操作 Jar；Master 已完成 Jar 以 post-operation revision/Mark 进入 handoff，并建立 Master operation→handoff JarState dependency。
+- 新增对应回归：receiver-only handoff、opaque Slave receiver、Master-side POUR_IN fallback、Master staging Ban + Slave reject 的负例、direct projection Master-completed Jar transfer。
+
+验证状态：这些提交后的 exact-head GitHub verify 尚在执行；此前绿色 head 不能替代本轮验证。
