@@ -59,6 +59,33 @@ public sealed class WorkshopCapability
 
     public bool IsBanned(string liquid) => Ban.Contains(liquid) || Ban.Contains("禁" + liquid);
 
+    /// <summary>
+    /// The bench operating polarity is derived from its liquid Ban:
+    /// banning Cathode liquid (酒) focuses it on Anode Jars (蜜), and vice versa.
+    /// No bans preserve unrestricted legacy operation; banning both leaves Neutral Jars only.
+    /// </summary>
+    public WorkshopPolarityMode PolarityMode
+    {
+        get
+        {
+            var cathodeBlocked = IsBanned("酒");
+            var anodeBlocked = IsBanned("蜜");
+            if (cathodeBlocked && anodeBlocked) return WorkshopPolarityMode.NeutralOnly;
+            if (cathodeBlocked) return WorkshopPolarityMode.Anode;
+            if (anodeBlocked) return WorkshopPolarityMode.Cathode;
+            return WorkshopPolarityMode.Unrestricted;
+        }
+    }
+
+    public bool CanOperateJar(JarPolarity polarity) => PolarityMode switch
+    {
+        WorkshopPolarityMode.Unrestricted => true,
+        WorkshopPolarityMode.NeutralOnly => polarity == JarPolarity.Neutral,
+        WorkshopPolarityMode.Cathode => polarity is JarPolarity.Neutral or JarPolarity.Cathode,
+        WorkshopPolarityMode.Anode => polarity is JarPolarity.Neutral or JarPolarity.Anode,
+        _ => false
+    };
+
     /// <summary>本能力下，形状 <paramref name="shape"/> 可以变成哪些形状（委托 <see cref="ShapeRules"/>）。</summary>
     /// <param name="extraAdditionalMarks">额外附加标记（Case2 作用域内的临时标记；null/空视为无）。</param>
     public List<string> GetPossibleTransforms(string shape, IReadOnlyList<string>? extraAdditionalMarks = null)
