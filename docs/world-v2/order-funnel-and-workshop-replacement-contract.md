@@ -53,7 +53,7 @@ A B-class order uses both workshop roles as a one-way resource circuit. The orde
 
 The current bounded enumerator keeps a **Slave-first candidate preference** for compatibility with established B-class paths. It tries Master candidates when Slave has no candidate or the Slave-first branch cannot bind the required physical resources. This preference is not a greedy commitment: alternatives remain searchable until a complete concrete plan is assembled.
 
-A valid B-class plan must contain at least one concrete Slave demand operation. This preserves the B-class Slave-use event. Master may complete some requirements, but a pure Jar-only handoff with no Slave demand operation is not a B-class completion.
+A B-class plan may contain no Slave chemical operation when Master completes the requirement. The Slave still participates as the one-way receiver/delivery boundary; a transferred Jar does not need to be operated again merely to justify its receipt.
 
 ### Stage M — Master execution before handoff
 
