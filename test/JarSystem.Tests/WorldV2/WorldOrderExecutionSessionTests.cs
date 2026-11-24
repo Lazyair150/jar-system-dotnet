@@ -672,6 +672,8 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(progress.SlaveTransferCommitted);
         Assert.Contains(ledger.For(ResourceCauses.Transfer), item => item.Kind == ResourceKinds.Jar);
 
+        Assert.Throws<InvalidOperationException>(() => WorldOrderExecutionSession.RestoreProgress(
+            progress, board, book, admission, roster, reservations, new ResourceLedger(), () => 1));
         var restored = WorldOrderExecutionSession.RestoreProgress(
             progress, board, book, admission, roster, reservations, ledger, () => 1);
         using var suppressSlavePourIn = slave.Rules.Stack.Push(new SuppressModifier
