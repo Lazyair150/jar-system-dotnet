@@ -71,7 +71,7 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
-    public void AClassEntryPointDoesNotSelfConsumeJarLiquidBannedByMaster()
+    public void AClassEntryPointCanSelfConsumeJarInternalLiquidBannedOnlyAtStaging()
     {
         var master = new Workshop("禁酒主台",
             new List<string> { "圆罐", "方罐" },
@@ -85,8 +85,8 @@ public sealed class WorldOrderSolverTests
 
         var result = Registry().Solve(demand, Snapshot(master));
 
-        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
-        Assert.Null(result.Plan);
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.NotNull(result.Plan);
     }
 
     [Fact]
@@ -319,7 +319,7 @@ public sealed class WorldOrderSolverTests
     }
 
     [Fact]
-    public void BClassEntryPointCannotSelfConsumeJarLiquidBannedByBothWorkshops()
+    public void BClassEntryPointCanSelfConsumeJarInternalLiquidWhenBothStagingAccountsBanIt()
     {
         var master = new Workshop("禁酒主台",
             new List<string> { "圆罐", "方罐" },
@@ -336,9 +336,8 @@ public sealed class WorldOrderSolverTests
 
         var result = Registry().Solve(demand, Snapshot(master, slave));
 
-        Assert.Equal(WorldOrderSolveStatus.Infeasible, result.Status);
-        Assert.Equal("9l_concrete_b", result.CheckMethod);
-        Assert.Null(result.Plan);
+        Assert.Equal(WorldOrderSolveStatus.Feasible, result.Status);
+        Assert.NotNull(result.Plan);
     }
 
     [Fact]
