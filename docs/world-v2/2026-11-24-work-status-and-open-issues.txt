@@ -293,3 +293,12 @@ VERIFICATION RESULT — 2026-11-24
 - 精确源码/测试提交 `5b23607b1b74e3df242df729ae91effa68ecf451` 的 Actions run `45409037632` 已 completed / success；verify job 全部步骤成功。该提交包含：新旧两条主从液体交接的双侧批次补偿、故障注入测试、Settlement restore ledger receipt guard、Ship-backed restore test fixture，以及此前提交的 writer allowlist 修正。
 - PR #60 当前 head 在本次最终查询前为文档提交 `6a2718a45376e0e9c1c98e20f910ec36cf98dc15`，仍 Draft/Open/未合并；本轮最新源/测试 head `5b23607` 有精确成功 run。之后的文档提交不改变源码。
 - 下一阶段：Settlement Return/receipt/ledger batch/stage mark/reservation release 的独立故障注入与 checkpoint/replay；随后 A/B parity 和固定 Seed 资源守恒扩大测试。进程崩溃/断电持久化原子性尚未完成，不得宣称。
+
+
+CHECKPOINT 21 — 恢复结算状态的暂存余额一致性（2026-11-24）
+
+- 在 Settlement receipt restore guard 之外，再发现同一 checkpoint 的跨对象一致性风险：Lease 已有 `ResourcesReturned` / `LedgerRecorded` receipt，但主/从订单暂存子账仍有余额时，恢复结算可能信任 receipt 并释放 reservation，留下仍存在的资源余额，造成资源双重归属。
+- `WorldOrderExecutionSession.RestoreProgress` 现在要求：只要 Lease.SettlementStage != NotStarted，主台与从台当前订单子账都必须为空；否则拒绝恢复。该检查针对订单 scope，不会把其他订单或预置账户余额误判为本订单结算余额。
+- 扩展 `RestoreRejectsLedgerRecordedSettlementWithoutMatchingLedgerReceipt`：先构造 ResourcesReturned receipt 但保留从台余额，验证因暂存余额未清空而拒绝；随后清空两侧订单子账、推进 LedgerRecorded 阶段，再验证缺少 Settlement operation receipt 仍被拒绝。
+- 源码提交 `25e8044b8a6840f371a71c37b498ce8ae94e8503` 对应 Actions run `45409669395`；扩展测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 尚未返回精确 run。需以测试提交的最新 head 验证。
+- 前一精确 head `5b23607b1b74e3df242df729ae91effa68ecf451` 的 run `45409037632` 已 success，覆盖新旧交接批次补偿、writer allowlist 与 settlement receipt guard 基础测试。
