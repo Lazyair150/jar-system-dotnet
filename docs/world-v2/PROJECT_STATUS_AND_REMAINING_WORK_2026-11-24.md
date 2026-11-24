@@ -350,3 +350,11 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 提交 `407def0` 避免补偿自身失败时被 catch 再盲目执行第二次；若补偿步骤失败，保留故障并抛出，不伪装成功。
 - 该修改是同步异常补偿增强，尚不是跨对象真正原子事务。当前没有对 `TryReceiveExact` / `AttachLiquidScopes` / rollback failure 的注入测试；截至本节记录时，也未取得 `407def0` 精确 head 的 Actions 结果。
 - 下一步必须增加确定性故障注入 seam 和回归测试；同时为 scoped / legacy liquid transfer 建立事务边界，再逐点测试 settlement Drain、Ship Return、receipt、ledger batch、stage mark 与 reservation release 的 checkpoint/restore 重放。上述测试通过前，不得宣称液体分配或结算具备完整 all-or-nothing 保证。
+
+
+### 14.1 最新 head 与验证校正
+
+- PR #60 当前 head 已校正为 `136d9c599682fe3c2e466cdcdaf6246b73b2e7ef`；仍 Draft/Open/未合并，base 为 `a52f9465ad4febdcfb821227f7b2e03b2ddc012c`。
+- `407def0` 的 Actions run `45406698541` 实际 head_sha 是 `407def0`；它不能覆盖其后的语法修正提交 `136d9c5`。截至查询时 `136d9c5` 尚未返回独立 workflow run / combined status。
+- `OrderLiquidAllocationService` 的重复类闭合括号已修正。必须等待/触发精确 head 验证后，才可将该 slice 标记为通过。
+- 分配异常补偿尚无确定性故障注入回归测试；当前仅作为防御性补偿实现记录。下一步应先建立窄的液体批量转移 mutation seam，保证主/从订单账户的部分写入可恢复，再进入 Settlement 逐边界 checkpoint/replay 测试。
