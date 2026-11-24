@@ -448,3 +448,9 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - `OrderResourceSettlementService.SettleAndRelease` 与 `WorldOrderExecutionSession.RestoreProgress` 均已实施该规则。
 - 回归测试覆盖：账本对象缺失、账本对象存在但 operation receipt 缺失，两种情况在 live release 与 restore 入口都拒绝。
 - 源码提交 `dd7d7f4` / `d83e374`，测试提交 `7f421da` / `d5cd828`；最新测试 SHA `d5cd828...` 的精确 Actions run 尚待查询。
+
+
+### 18.1 精确 head 验证通过
+
+- 测试 SHA `c9eb44533efab55f1a3fbe5e238741f9791a595f` 对应 run `45409693136` 已 success，覆盖 settlement receipt 状态与主从订单暂存余额一致性恢复检查。
+- 随后的 live settlement receipt guard 与 LedgerRecorded 必须携带 ResourceLedger 规则由后续提交引入，最新测试 SHA `d5cd828...` 对应 run `45410074563` 仍在运行，不由前一 success 代替。
