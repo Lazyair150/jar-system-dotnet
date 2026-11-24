@@ -444,17 +444,51 @@ public class Workshop
 
     public (bool Success, string? Reason, string? Liquid) PourOut(Jar j, OrderLiquidScope scope)
     {
+        var result = PourOutWithSettlement(j, scope);
+        return (result.Success, result.Reason, result.Liquid);
+    }
+
+    /// <summary>
+    /// Executes a Jar-to-output-boundary PourOut, then settles that output into the current order staging account.
+    /// Rejected or over-capacity output is discarded; it does not roll back the Jar chemistry.
+    /// </summary>
+    public (bool Success, string? Reason, string? Liquid,
+        LiquidInventoryReceipt? Receipt, RuleTransition? OperationTransition,
+        RuleTransition? StagingTransition) PourOutWithSettlement(Jar j, OrderLiquidScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(j);
         ArgumentNullException.ThrowIfNull(scope);
         var operation = WorkshopOperation.PourOut();
-        var evaluation = WorkshopRulebook.EvaluateTransition(_rules, scope, JarFacts.Of(j), operation);
+        var before = JarFacts.Of(j);
+        var evaluation = WorkshopRulebook.EvaluateTransition(_rules, scope, before, operation);
         if (!evaluation.Decision.IsAllowed)
-            return (false, evaluation.Decision.Reason ?? "倒出规则拒绝该操作", null);
+            return (false, evaluation.Decision.Reason ?? "倒出规则拒绝该操作",
+                null, null, null, null);
+
         var transition = evaluation.Transition!.Value;
         var liquid = transition.ProducedFreeLiquid!;
-        if (!scope.TryReceiveOperation(liquid, 1, out var receive))
-            return (false, receive.Reason, null);
+        RuleTransition? operationProof = null;
+        if (OwnedInstanceId is { } exactWorkshopId)
+        {
+            if (!string.Equals(scope.WorkshopInstanceId, exactWorkshopId, StringComparison.Ordinal))
+                throw new InvalidOperationException("PourOut order scope does not carry this Workshop's exact OwnedInstanceId.");
+            if (j.Id is not > 0)
+                throw new InvalidOperationException("Board-owned PourOut requires an exact positive Jar identity.");
+            var proof = WorkshopRuleTransitionAdapter.Evaluate(
+                evaluation, before, operation, exactWorkshopId,
+                j.Id.Value.ToString(CultureInfo.InvariantCulture),
+                scope: "workshop", orderId: scope.OrderId);
+            operationProof = proof.Transition
+                ?? throw new InvalidOperationException("Allowed PourOut proof did not produce a RuleTransition.");
+        }
+        else if (scope.WorkshopInstanceId != null)
+        {
+            throw new InvalidOperationException("Order scope OwnedInstanceId is not bound to its live Workshop.");
+        }
+
+        var receipt = scope.ReceiveProducedLiquid(liquid, 1, out var stagingProof);
         ApplyJarTransition(j, transition);
-        return (true, null, liquid);
+        return (true, null, liquid, receipt, operationProof, stagingProof);
     }
 
     public (bool Success, string? Reason, string? Liquid) PourOut(Jar j)
