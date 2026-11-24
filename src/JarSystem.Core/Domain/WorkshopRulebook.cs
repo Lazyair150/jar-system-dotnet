@@ -294,26 +294,10 @@ public static class WorkshopRulebook
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
 
                 // Jar polarity compatibility was checked against the owning Workshop above.
-                // The produced liquid must additionally pass destination staging admission.
-                var stagingPolicy = liquidRules.Check(liquid);
-                if (!stagingPolicy.Granted)
-                    return WorkshopRuleDecision.Reject("liquid.banned",
-                        stagingPolicy.Reason ?? "工作台暂存区禁止接收该液体");
-
-                if (scope != null)
-                {
-                    var receive = scope.CanReceiveOperation(liquid, 1);
-                    if (receive.Granted) return WorkshopRuleDecision.Allow();
-                    return WorkshopRuleDecision.Reject(
-                        receive.Code == "banned" ? "liquid.banned" : "resource.scope-capacity",
-                        receive.Reason ?? "订单暂存空间不可接收");
-                }
-
-                var storage = liquidRules.CanStore(liquid, 1, Count(liquids, liquid));
-                if (storage.Granted) return WorkshopRuleDecision.Allow();
-                return WorkshopRuleDecision.Reject(
-                    storage.Code == "banned" ? "liquid.banned" : "liquid.storage-capacity",
-                    storage.Reason ?? "液体存储容量不足");
+                // Production is not cancelled by staging admission: the output first enters the
+                // current workshop's staging/output boundary, where Ban or capacity rejects it
+                // into an explicit Discard effect. This keeps Jar chemistry separate from storage.
+                return WorkshopRuleDecision.Allow();
             }
 
             case WorkshopOperationKind.ReshapeEmpty:
