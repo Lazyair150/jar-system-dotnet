@@ -384,6 +384,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             _slaveTransferCommitted = snapshot.SlaveTransferCommitted,
             Reason = snapshot.Reason
         };
+        if (snapshot.SlaveTransferCommitted)
+            restored._transferService.RestoreCommittedState();
         return restored;
     }
 
