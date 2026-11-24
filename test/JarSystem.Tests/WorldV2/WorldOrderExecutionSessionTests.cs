@@ -86,6 +86,68 @@ public sealed class WorldOrderExecutionSessionTests
         }
     }
 
+    private sealed class ThrowAtSettlementBoundary : IOrderSettlementFaultPort
+    {
+        private readonly string _boundary;
+        public ThrowAtSettlementBoundary(string boundary) => _boundary = boundary;
+        private void Hit(string boundary)
+        {
+            if (_boundary == boundary)
+                throw new InvalidOperationException("Injected settlement failure: " + boundary);
+        }
+        public void AfterMasterDrain() => Hit("master-drain");
+        public void AfterSlaveDrain() => Hit("slave-drain");
+        public void AfterShipReturnBeforeReceipt() => Hit("ship-return-before-receipt");
+        public void AfterLedgerBatchRecorded() => Hit("ledger-batch");
+        public void AfterLedgerStageMarked() => Hit("stage-mark");
+        public void BeforeReservationRelease() => Hit("reservation-release");
+    }
+
+    private sealed record SettlementScenario(
+        OrderDemand Demand,
+        OrderDemandBoard Board,
+        WorldOrderSolveBook Book,
+        WorkshopRoster Roster,
+        WorldOrderExecutionAdmission Admission,
+        WorldResourceReservationBook Reservations,
+        ShipLiquidInventory Ship,
+        ResourceLedger Ledger);
+
+    private static SettlementScenario PrepareSettlementScenario()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        Assert.True(master.AddJar(new Jar("圆罐", vocabulary: Words)));
+        using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：结算故障边界保留从台液体"
+        });
+
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        ReevaluateWithShip(book, roster, ship, demand.Id);
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, board, book, admission, roster, 1_000, ledger, () => 17);
+        Assert.True(started.Success, started.Reason);
+        started.Session!.AdvanceLogicalTime(1_000);
+        Assert.Equal(WorldOrderExecutionStage.SlaveSteps, started.Session.Stage);
+        var scopes = admission.GetLiquidScopes(demand.Id)!.Value;
+        Assert.Equal(1, scopes.Slave!.GetAmount("酒"));
+        return new SettlementScenario(demand, board, book, roster, admission, reservations, ship, ledger);
+    }
+
     private static void ReevaluateWithShip(
         WorldOrderSolveBook book, WorkshopRoster roster, ShipLiquidInventory ship,
         params int[] demandIds)
@@ -696,6 +758,77 @@ public sealed class WorldOrderExecutionSessionTests
             item.Kind == ResourceKinds.Liquid && item.To == "自机液库");
     }
 
+
+    [Theory]
+    [InlineData("master-drain")]
+    [InlineData("slave-drain")]
+    [InlineData("ship-return-before-receipt")]
+    public void SettlementFailureBeforeReceiptRestoresAllResourceAccounts(string boundary)
+    {
+        var setup = PrepareSettlementScenario();
+        var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
+        var masterBefore = new Dictionary<string, int>(scopes.Master.Balance);
+        var slaveBefore = new Dictionary<string, int>(scopes.Slave!.Balance);
+        var shipBefore = setup.Ship.Capture();
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new OrderResourceSettlementService(new ThrowAtSettlementBoundary(boundary))
+                .SettleAndRelease(setup.Demand.Id, setup.Admission, setup.Ledger, 17));
+        Assert.Contains("Injected settlement failure", error.Message);
+
+        Assert.Equal(masterBefore, scopes.Master.Balance);
+        Assert.Equal(slaveBefore, scopes.Slave.Balance);
+        Assert.Equal(shipBefore.Balances, setup.Ship.Balances);
+        Assert.Equal(OrderResourceSettlementStage.NotStarted,
+            setup.Reservations.FindLease(setup.Demand.Id)!.SettlementStage);
+        Assert.False(setup.Ledger.HasRecordedOperation(
+            setup.Reservations.FindLease(setup.Demand.Id)!.SettlementOperationId));
+        Assert.Equal(1, setup.Reservations.Count);
+
+        var receipt = new OrderResourceSettlementService().SettleAndRelease(
+            setup.Demand.Id, setup.Admission, setup.Ledger, 18);
+        Assert.NotNull(receipt);
+        Assert.Equal(1, setup.Ship.GetAmount("酒"));
+        Assert.Empty(scopes.Master.Balance);
+        Assert.Empty(scopes.Slave.Balance);
+        Assert.Equal(0, setup.Reservations.Count);
+        Assert.Single(setup.Ledger.For(ResourceCauses.Return));
+    }
+
+    [Theory]
+    [InlineData("ledger-batch")]
+    [InlineData("stage-mark")]
+    [InlineData("reservation-release")]
+    public void SettlementPostReceiptFailureCanReplayWithoutDuplicateReturnOrLedger(string boundary)
+    {
+        var setup = PrepareSettlementScenario();
+        var lease = setup.Reservations.FindLease(setup.Demand.Id)!;
+        var operationId = lease.SettlementOperationId;
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new OrderResourceSettlementService(new ThrowAtSettlementBoundary(boundary))
+                .SettleAndRelease(setup.Demand.Id, setup.Admission, setup.Ledger, 17));
+        Assert.Contains("Injected settlement failure", error.Message);
+
+        Assert.Equal(1, setup.Ship.GetAmount("酒"));
+        Assert.True(setup.Ledger.HasRecordedOperation(operationId));
+        Assert.Single(setup.Ledger.For(ResourceCauses.Return));
+        Assert.Equal(1, setup.Reservations.Count);
+        Assert.Equal(
+            boundary == "ledger-batch"
+                ? OrderResourceSettlementStage.ResourcesReturned
+                : OrderResourceSettlementStage.LedgerRecorded,
+            lease.SettlementStage);
+
+        var lastSeq = setup.Ledger.LastSeq;
+        var receipt = new OrderResourceSettlementService().SettleAndRelease(
+            setup.Demand.Id, setup.Admission, setup.Ledger, 18);
+        Assert.NotNull(receipt);
+        Assert.Equal(lastSeq, setup.Ledger.LastSeq);
+        Assert.Single(setup.Ledger.For(ResourceCauses.Return));
+        Assert.Equal(1, setup.Ship.GetAmount("酒"));
+        Assert.Equal(0, setup.Reservations.Count);
+    }
 
     [Fact]
     public void RestoreRejectsLedgerRecordedSettlementWithoutMatchingLedgerReceipt()
