@@ -737,12 +737,21 @@ public sealed class WorldOrderExecutionSessionTests
         var lease = reservations.FindLease(demand.Id)!;
         var empty = new Dictionary<string, int>();
         lease.RecordSettlement(new LiquidBatchReceipt(empty, empty, empty));
-        lease.MarkSettlementLedgerRecorded();
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var balanceError = Assert.Throws<InvalidOperationException>(() =>
             WorldOrderExecutionSession.RestoreProgress(
                 progress, board, book, admission, roster, reservations, ledger, () => 17));
-        Assert.Contains("Settlement operation receipt", error.Message);
+        Assert.Contains("暂存账户仍包含未结算余额", balanceError.Message);
+
+        var scopes = admission.GetLiquidScopes(demand.Id)!.Value;
+        scopes.Master.Staging.DrainOrder(demand.Id);
+        scopes.Slave!.Staging.DrainOrder(demand.Id);
+        lease.MarkSettlementLedgerRecorded();
+
+        var ledgerError = Assert.Throws<InvalidOperationException>(() =>
+            WorldOrderExecutionSession.RestoreProgress(
+                progress, board, book, admission, roster, reservations, ledger, () => 17));
+        Assert.Contains("Settlement operation receipt", ledgerError.Message);
     }
 
     [Fact]
