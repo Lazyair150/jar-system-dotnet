@@ -629,6 +629,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(secondJar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Empty(ledger.For(ResourceCauses.Transfer));
+        Assert.Empty(ledger.For(ResourceCauses.Return)); // No Return may be published for a handoff whose Transfer batch never committed.
     }
 
     [Fact]
