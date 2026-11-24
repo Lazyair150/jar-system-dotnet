@@ -34,10 +34,9 @@ public sealed class OrderResourceSettlementService
 
         LiquidBatchReceipt? receipt = lease?.SettlementReceipt;
         if (lease?.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
-            ledger != null &&
-            !ledger.HasRecordedOperation(lease.SettlementOperationId))
+            (ledger == null || !ledger.HasRecordedOperation(lease.SettlementOperationId)))
             throw new InvalidOperationException(
-                "订单结算阶段报告账本已提交，但当前资源账本缺少对应的 Settlement operation receipt。");
+                "订单结算阶段报告账本已提交，但当前缺少对应的 ResourceLedger 或 Settlement operation receipt。");
 
         if (receipt == null && scopes.HasValue && admission.ShipLiquidInventory != null)
         {
