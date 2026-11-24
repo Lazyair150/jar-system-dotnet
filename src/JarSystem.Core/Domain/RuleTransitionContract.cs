@@ -112,23 +112,43 @@ public sealed class RuleStateSnapshot
 /// Pure state transition emitted by a rule evaluator. State payloads are canonical immutable
 /// snapshots; resource effects are explicit and account-addressed. No external state is mutated here.
 /// </summary>
-public sealed record RuleTransition(
-    string RuleId,
-    int RuleVersion,
-    string Scope,
-    string Target,
-    RuleStateSnapshot Before,
-    RuleStateSnapshot After,
-    IReadOnlyList<RuleResourceEffect> ResourceEffects)
+public sealed class RuleTransition
 {
+    public string RuleId { get; }
+    public int RuleVersion { get; }
+    public string Scope { get; }
+    public string Target { get; }
+    public RuleStateSnapshot Before { get; }
+    public RuleStateSnapshot After { get; }
+    public IReadOnlyList<RuleResourceEffect> ResourceEffects { get; }
+
+    public RuleTransition(
+        string ruleId,
+        int ruleVersion,
+        string scope,
+        string target,
+        RuleStateSnapshot before,
+        RuleStateSnapshot after,
+        IEnumerable<RuleResourceEffect> resourceEffects)
+    {
+        RuleId = ruleId;
+        RuleVersion = ruleVersion;
+        Scope = scope;
+        Target = target;
+        Before = before ?? throw new ArgumentNullException(nameof(before));
+        After = after ?? throw new ArgumentNullException(nameof(after));
+        ArgumentNullException.ThrowIfNull(resourceEffects);
+        var copied = resourceEffects.ToArray();
+        if (copied.Any(x => x is null))
+            throw new ArgumentException("Rule transition resource effects cannot contain null.");
+        ResourceEffects = Array.AsReadOnly(copied);
+    }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(RuleId) || RuleVersion <= 0 ||
             string.IsNullOrWhiteSpace(Scope) || string.IsNullOrWhiteSpace(Target))
             throw new ArgumentException("Rule transition requires exact rule identity, version, scope and target.");
-        ArgumentNullException.ThrowIfNull(Before);
-        ArgumentNullException.ThrowIfNull(After);
-        ArgumentNullException.ThrowIfNull(ResourceEffects);
         foreach (var effect in ResourceEffects) effect.Validate();
     }
 }
