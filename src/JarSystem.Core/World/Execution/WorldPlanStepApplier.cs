@@ -13,6 +13,10 @@ namespace JarSystem.Core.World.Execution;
 /// </summary>
 public sealed class WorldPlanStepApplier
 {
+    public LiquidInventoryReceipt? LastStagingAdmissionReceipt { get; private set; }
+    public RuleTransition? LastOperationTransition { get; private set; }
+    public RuleTransition? LastStagingTransition { get; private set; }
+
     public WorldPlanStepApplyResult Apply(Workshop workshop, WorldPlanStep step) =>
         ApplyCore(workshop, step, null);
 
@@ -27,6 +31,9 @@ public sealed class WorldPlanStepApplier
     private WorldPlanStepApplyResult ApplyCore(
         Workshop workshop, WorldPlanStep step, OrderLiquidScope? scope)
     {
+        LastStagingAdmissionReceipt = null;
+        LastOperationTransition = null;
+        LastStagingTransition = null;
         if (workshop == null) throw new ArgumentNullException(nameof(workshop));
         if (step == null) throw new ArgumentNullException(nameof(step));
         if (step.Operation == null || !step.Operation.JarIndex.HasValue)
@@ -91,7 +98,11 @@ public sealed class WorldPlanStepApplier
             throw new InvalidOperationException(
                 $"计划步骤执行后状态违约：罐子 #{expectedBefore.Id} 的真实状态与 After 不一致");
 
-        var expectedDelta = ExpectedFreeLiquidDelta(operation, expectedBefore);
+        var expectedDelta = operation.Type == "POUR_OUT" && scope != null &&
+            LastStagingAdmissionReceipt is { } stagingReceipt
+                ? new Dictionary<string, int>(StringComparer.Ordinal)
+                    { [expectedBefore.Liquid!] = stagingReceipt.AcceptedAmount }
+                : ExpectedFreeLiquidDelta(operation, expectedBefore);
         var liquidAfter = scope?.Balance ?? workshop.LiquidStorage;
         foreach (var liquid in liquidBefore.Keys.Concat(liquidAfter.Keys).Distinct(StringComparer.Ordinal))
         {
@@ -161,13 +172,24 @@ public sealed class WorldPlanStepApplier
 
             case "POUR_OUT":
             {
-                var pourOut = scope == null
-                    ? workshop.PourOut(jar)
-                    : workshop.PourOut(jar, scope);
-                var pourOutError = ReadDomainResult(pourOut.Success, pourOut.Reason, "POUR_OUT");
-                if (pourOutError != null) return pourOutError;
-                if (!string.Equals(pourOut.Liquid, before.Liquid, StringComparison.Ordinal))
+                if (scope == null)
+                {
+                    var pourOut = workshop.PourOut(jar);
+                    var error = ReadDomainResult(pourOut.Success, pourOut.Reason, "POUR_OUT");
+                    if (error != null) return error;
+                    if (!string.Equals(pourOut.Liquid, before.Liquid, StringComparison.Ordinal))
+                        throw new InvalidOperationException("POUR_OUT 成功返回的液体与计划 Before 不一致");
+                    return null;
+                }
+
+                var settled = workshop.PourOutWithSettlement(jar, scope);
+                var settledError = ReadDomainResult(settled.Success, settled.Reason, "POUR_OUT");
+                if (settledError != null) return settledError;
+                if (!string.Equals(settled.Liquid, before.Liquid, StringComparison.Ordinal))
                     throw new InvalidOperationException("POUR_OUT 成功返回的液体与计划 Before 不一致");
+                LastStagingAdmissionReceipt = settled.Receipt;
+                LastOperationTransition = settled.OperationTransition;
+                LastStagingTransition = settled.StagingTransition;
                 return null;
             }
 
