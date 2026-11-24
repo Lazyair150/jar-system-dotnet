@@ -133,6 +133,10 @@ public sealed class RuleStateSnapshot
             if (!string.Equals(polarityValue, expectedPolarity, StringComparison.Ordinal))
                 throw new ArgumentException("Jar transition snapshot polarity does not match its authoritative liquid.");
         }
+        else if (canonical.ContainsKey("polarity"))
+        {
+            throw new ArgumentException("A polarity field requires an exact Jar instance identity.");
+        }
 
         Values = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(canonical);
     }
@@ -184,7 +188,7 @@ public sealed class RuleTransition
     public string Target { get; }
     public RuleStateSnapshot Before { get; }
     public RuleStateSnapshot After { get; }
-    public JarPolarityTransition PolarityTransition { get; }
+    public JarPolarityTransition? PolarityTransition { get; }
     public IReadOnlyList<RuleResourceEffect> ResourceEffects { get; }
 
     public RuleTransition(
@@ -202,7 +206,13 @@ public sealed class RuleTransition
         Target = target;
         Before = before ?? throw new ArgumentNullException(nameof(before));
         After = after ?? throw new ArgumentNullException(nameof(after));
-        PolarityTransition = JarPolarityTransition.From(Before, After);
+        var beforeHasJar = Before.Values.ContainsKey("jarInstanceId");
+        var afterHasJar = After.Values.ContainsKey("jarInstanceId");
+        if (beforeHasJar != afterHasJar)
+            throw new ArgumentException("A rule transition cannot add or remove its Jar identity.");
+        PolarityTransition = beforeHasJar
+            ? JarPolarityTransition.From(Before, After)
+            : null;
         ArgumentNullException.ThrowIfNull(resourceEffects);
         var copied = resourceEffects.ToArray();
         if (copied.Any(x => x is null))
@@ -215,7 +225,10 @@ public sealed class RuleTransition
         if (string.IsNullOrWhiteSpace(RuleId) || RuleVersion <= 0 ||
             string.IsNullOrWhiteSpace(Scope) || string.IsNullOrWhiteSpace(Target))
             throw new ArgumentException("Rule transition requires exact rule identity, version, scope and target.");
-        JarPolarityRuleContract.Validate(RuleId, PolarityTransition);
+        if (PolarityTransition is { } polarityTransition)
+            JarPolarityRuleContract.Validate(RuleId, polarityTransition);
+        else if (RuleId.StartsWith("jar.workshop.", StringComparison.Ordinal))
+            throw new ArgumentException("Jar workshop transitions require exact Jar state and polarity snapshots.");
         foreach (var effect in ResourceEffects) effect.Validate();
     }
 }
