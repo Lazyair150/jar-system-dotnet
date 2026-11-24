@@ -216,3 +216,12 @@ CHECKPOINT 14 — 2026-11-24 23:00 +08:00
 - This is a defensive code-path improvement, not yet a proven all-or-nothing transaction: no injected exception test has been added for TryReceiveExact / AttachLiquidScopes / rollback failure, and no exact-head CI run was returned for 407def0 at the time of this update.
 - Latest Core PR #60 branch head is expected to include 407def0 plus this documentation update; query the live PR head before further writes. PR remains Draft/Open/unmerged.
 - Next immediate tasks: add a minimal deterministic failure-injection seam and tests for allocation exception/compensation; add scoped and legacy liquid-transfer transaction seams; then exercise settlement Drain/Return/receipt/ledger/stage/release boundaries with checkpoint restore. Do not claim allocation all-or-nothing until those tests pass.
+
+
+CHECKPOINT 15 — 2026-11-24 23:10 +08:00
+
+- Latest PR #60 head inspected: 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef; base a52f9465ad4febdcfb821227f7b2e03b2ddc012c; Draft/Open/unmerged.
+- A syntax-only follow-up removed one duplicated class-closing brace in OrderLiquidAllocationService.cs. The previous source commit 407def0 is being verified by run 45406698541, but that run's head_sha is 407def0, not the corrected 136d9c5. It cannot validate 136d9c5.
+- At query time no workflow run or combined status had yet been returned for 136d9c5. Re-query before reporting validation.
+- Latest source still lacks a deterministic injected failure test for allocation compensation. The change is intentionally documented as defensive compensation, not proof of transaction atomicity.
+- Continue by adding a narrow liquid-transfer mutation seam with exact rollback of both order accounts; then settlement fault-boundary/replay tests. Preserve the current semantics: only free-liquid staging is subject to Workshop Ban; Jar-internal liquid and Jar handoff remain independent.
