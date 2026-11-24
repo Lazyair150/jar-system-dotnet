@@ -103,9 +103,9 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
-    public void TheSameThreeScenariosBecomeFeasibleOnceTheBanIsLifted()
+    public void StagingUseScenariosBecomeFeasibleOnceBanIsLiftedAndSelfConsumeRemainsIndependent()
     {
-        // 反向对照：证明上面三条不是"因为别的什么原因恒不可行"，而是**禁令**在起作用。
+        // 反向对照：证明游离液体灌入与空罐改形成本确实受 Ban 约束；满罐 Jar 自耗则独立于 staging Ban。
         var free = new Workshop("自由台", new List<string> { "圆罐", "方罐" },
             new List<string> { "三角罐" }, new List<string>(),
             maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
