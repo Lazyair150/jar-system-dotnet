@@ -251,7 +251,7 @@ Admission 必须对当前资源原子重验并创建 Lease；缓存命中绝不�
 ## 8. 实施顺序
 
 ### Phase 1：规则代数契约
-先定义可序列化、版本化的 Rule Definition、Rule Evaluation、Transition、ResourceEffect、ReasonCode 和依赖声明。为 PourIn / PourOut / ReshapeEmpty / ReshapeFull、MATCH / Mark、Transfer、Staging admission、Ban、Capacity、Lifecycle 建立明确契约。旧规则实现继续作为差分 Oracle。
+共享 Rule Evaluation / Transition / ResourceEffect / ReasonCode 基础契约已建立；四种化学操作与 MATCH 已分别适配权威 proof。下一步补齐 Mark 周期测试、Transfer、Staging admission、Ban/Capacity 的账户级结果与事务语义。旧规则实现继续作为差分 Oracle。
 
 ### Phase 2：统一评估与执行入口
 让 Workshop 门面、求解器和执行器调用同一个规则 evaluator。未实现语义返回 Undetermined；不得在某一层静默忽略。
