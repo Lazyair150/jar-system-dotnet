@@ -149,3 +149,24 @@ Repository: Lazyair150/space-demo
 
 10. COMPLETION RULE
 An item is complete only when code, focused regression tests, documentation and applicable validation evidence agree. Authored, committed, CI running, CI passed and runtime verified are distinct states. If a validation environment is unavailable, record the limitation and leave the item open.
+
+CURRENT CHECKPOINT — 2026-11-24 21:25 +08:00
+
+- Current PR #60 head at inspection: b8cde3e5c331144e78ab881d9e0d72a41a9cad76; base PR #59 head a52f9465ad4febdcfb821227f7b2e03b2ddc012c.
+- PR #60 remains Draft/Open/unmerged. Do not merge this stacked PR independently.
+- Exact-head GitHub Actions verify run 45402867828 completed successfully; its verify job and validation-loop step succeeded. This supersedes earlier “latest Actions pending/failed” statements for the inspected head only.
+- Historical build failure 45402521348 was caused by case-sensitive ResourceLedgerMutation named arguments (From/To), fixed in later commits. Historical B-class role-enumerator and xUnit analyzer failures are no longer current failures on b8cde3e.
+- Current branch includes combined Master/Slave demand-role search, Slave-first search preference (not execution order), Master-before-handoff / Slave-after-handoff execution, receiver-only Slave, exact Jar-ID handoff checks, batched idempotent transfer ledger publication, and duplicate ledger-operation preflight.
+- Real session tests cover A/B execution, transfer preflight rejection, opposite-polarity receiver-only handoff, exact Jar ownership, legal Slave follow-up operation, liquid pumping and settlement. Remaining: injected mid-commit failure and checkpoint/replay consistency.
+- Space PR #2 remains Draft/Open/unmerged at 12c6e69d242e47d703eccda32c6d790105b33e77, based on Space main 4753d5926830bbb3c254c78f4966171a370522ca. No associated Space Actions run was found. Godot 4.7.1 .NET build, GDScript parse and probes remain unexecuted.
+
+NEXT WORK (ordered)
+1. Add a safe testable transfer transaction seam and failure-injection tests for Nth Jar move, liquid transfer and ledger batch publication; verify exact IDs, staging balances, Marks, leases, reservations and ledger receipts after compensation. Do not add ad-hoc production test flags; prefer an explicit port/transaction boundary.
+2. Test settlement retry/checkpoint boundaries across staging Drain, Ship inventory Return, settlement receipt, ledger batch and lease/reservation release.
+3. Audit A-class solver/materializer/admission/replay against shared polarity, RuleTransition and exact account identity contracts.
+4. Expand fixed-seed polarity/transfer/staging/B-class role/resource-conservation matrices; record seed, case counts and Feasible/Infeasible/Undetermined; retain the independent Oracle.
+5. Finish Board/Assignment/Definition/Owned Instance/Rule Contribution/Effective Profile/runtime capability matrix. Unsupported scope and multi-Parser runtime must reject explicitly.
+6. Align Space PR #2 with Core PR #60 template identity, Parser schema-3 outbox/import receipts, owned assignment and frozen battle snapshot; run Godot probes only in an actual Godot 4.7.1 .NET environment.
+7. Only then perform repository-wide reference audit, documentation retirement, dead/temp-file cleanup and naming standardization. Preserve Oracle, historical decisions, schema/replay fixtures and active verification scripts.
+
+Verification rule: run 45402867828 validates only exact head b8cde3e; every subsequent source commit needs its own exact-head Actions result.
