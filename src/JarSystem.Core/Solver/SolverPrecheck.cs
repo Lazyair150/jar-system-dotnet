@@ -251,7 +251,7 @@ public static class SolverPrecheck
     {
         var cap = info.Capability;
 
-        if (req.Liquid != null)
+        if (req.Polarity != JarPolarity.Neutral)
         {
             // 满罐需求：形状必须已经是 req.Shape
             if (!string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return false;
@@ -261,7 +261,7 @@ public static class SolverPrecheck
 
             // ② 是空 S 罐 ⇒ POUR_IN（要求 S 在基础标记内、液体未被禁、且还弄得一份）
             if (cap.IsBanned(req.Liquid)) return false;
-            return jar.Liquid == null
+            return jar.Polarity == JarPolarity.Neutral
                 && cap.IsBaseMarked(req.Shape)
                 && canObtainLiquid(req.Liquid);
         }
@@ -312,7 +312,7 @@ public static class SolverPrecheck
                 var j = st[i];
                 if (j.IsMarked) continue;
 
-                if (req.Liquid != null)
+                if (req.Polarity != JarPolarity.Neutral)
                 {
                     if (!string.Equals(j.Shape, req.Shape, StringComparison.Ordinal)) continue;
                     // MATCH
@@ -323,7 +323,7 @@ public static class SolverPrecheck
                         break;
                     }
                     // POUR_IN
-                    if (j.Liquid == null && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid)
+                    if (j.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid)
                         && pool.TryGetValue(req.Liquid, out var have) && have > 0)
                     {
                         pool[req.Liquid] = have - 1;
@@ -336,14 +336,14 @@ public static class SolverPrecheck
                 }
 
                 // 空罐需求：MATCH
-                if (j.Liquid == null && string.Equals(j.Shape, req.Shape, StringComparison.Ordinal))
+                if (j.Polarity == JarPolarity.Neutral && string.Equals(j.Shape, req.Shape, StringComparison.Ordinal))
                 {
                     j.IsMarked = true;
                     applied = true;
                     break;
                 }
                 // 满罐改形（自耗）
-                if (j.Liquid != null && cap.CanTransform(j.Shape, req.Shape))
+                if (j.Polarity != JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
                 {
                     // Full reshape consumes Jar-owned liquid; staging Ban is irrelevant.
                     j.Liquid = null;
@@ -353,7 +353,7 @@ public static class SolverPrecheck
                     break;
                 }
                 // 空罐改形（付一份成本液体）
-                if (j.Liquid == null && cap.CanTransform(j.Shape, req.Shape))
+                if (j.Polarity == JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
                 {
                     foreach (var cl in Constants.LIQUIDS)
                     {
