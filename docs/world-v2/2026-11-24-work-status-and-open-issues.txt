@@ -311,3 +311,11 @@ CHECKPOINT 22 — Settlement ledger receipt 的 live release guard（2026-11-24�
 - 扩展同一恢复测试：人为构造两侧 staging 已 Drain、Lease 已 LedgerRecorded 但账本缺 settlement receipt，先验证 live SettleAndRelease 拒绝释放，再验证 RestoreProgress 也拒绝恢复。
 - 源码提交 `13f645248b824a9866051327e33f59c81f44acdc`，测试提交 `3702fb60bad251fd8cbce734a075e87e1c31b868`；精确 Actions run 尚未查询到，后续必须以最新测试 head 的 run 为准。
 - 上一测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 的 run `45409693136` 仍待最终结果查询。
+
+
+CHECKPOINT 23 — LedgerRecorded 阶段必须携带账本快照（2026-11-24）
+
+- 收紧前一 guard：`LedgerRecorded` 不仅要求 ledger 中有 Settlement operation receipt，也要求恢复/结算调用实际提供 ResourceLedger。传 null 同样拒绝，不能因缺少账本对象而绕过证明。
+- `OrderResourceSettlementService.SettleAndRelease` 与 `WorldOrderExecutionSession.RestoreProgress` 都已改为：LedgerRecorded 时 `(ledger == null || !HasRecordedOperation(...))` 即 fail-stop。
+- 扩展测试同时验证 live settlement release 与 RestoreProgress 在 ledger 缺失、以及 ledger 对象存在但 operation receipt 缺失时都会拒绝。
+- 源码提交 `dd7d7f43b21b5587c4f9616bc68cefddb61cb579`、`d83e3745a8cee46d3c3af729dd985903398c62d4`；测试提交 `7f421da7c712f99f722b6105b1c7b839c6998a54`、`d5cd82823fed353d95e254ec2a9fa270e9ec2828`。最新测试 head 的精确 Actions run 尚未返回。
