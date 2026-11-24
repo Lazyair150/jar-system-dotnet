@@ -160,12 +160,17 @@ public sealed class RuleTransition
 public static class WorkshopRuleTransitionAdapter
 {
 
-    private static RuleStateSnapshot Snapshot(in JarFacts facts) =>
+    private static RuleStateSnapshot Snapshot(
+        in JarFacts facts,
+        string workshopInstanceId,
+        string jarInstanceId) =>
         new(new[]
         {
             new KeyValuePair<string, string>("shape", facts.Shape),
             new KeyValuePair<string, string>("liquid", facts.Liquid ?? string.Empty),
-            new KeyValuePair<string, string>("marked", facts.IsMarked ? "true" : "false")
+            new KeyValuePair<string, string>("marked", facts.IsMarked ? "true" : "false"),
+            new KeyValuePair<string, string>("workshopInstanceId", workshopInstanceId),
+            new KeyValuePair<string, string>("jarInstanceId", jarInstanceId)
         });
 
     public static RuleEvaluationResult Evaluate(
@@ -281,8 +286,8 @@ public static class MatchRuleTransitionAdapter
             transition.RuleVersion,
             scope,
             jarInstanceId,
-            Snapshot(before),
-            Snapshot(transition.After),
+            Snapshot(before, workshopInstanceId, jarInstanceId),
+            Snapshot(transition.After, workshopInstanceId, jarInstanceId),
             Array.Empty<RuleResourceEffect>());
         resultTransition.Validate();
 
