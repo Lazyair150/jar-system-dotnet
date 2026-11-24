@@ -262,6 +262,7 @@ public static class MatchRuleTransitionAdapter
         {
             new KeyValuePair<string, string>("shape", facts.Shape),
             new KeyValuePair<string, string>("liquid", facts.Liquid ?? string.Empty),
+            new KeyValuePair<string, string>("polarity", JarPolarityResolver.Resolve(facts.Liquid).ToString()),
             new KeyValuePair<string, string>("marked", facts.IsMarked ? "true" : "false"),
             new KeyValuePair<string, string>("workshopInstanceId", workshopInstanceId),
             new KeyValuePair<string, string>("jarInstanceId", jarInstanceId)
