@@ -209,6 +209,11 @@ public sealed record LiquidInventoryReceipt(
     int DiscardedAmount,
     string? RejectionReason = null);
 
+/// <summary>One synchronous staging admission receipt paired with its immutable shared transition proof.</summary>
+public sealed record StagingAdmissionSettlement(
+    LiquidInventoryReceipt Receipt,
+    RuleTransition Transition);
+
 /// <summary>批量返还的逐液体结果，避免只记录总量而丢失哪种液体被接收/丢弃。</summary>
 public sealed class LiquidBatchReceipt
 {
@@ -541,6 +546,37 @@ public sealed class WorkshopLiquidStaging
 
         AddUnchecked(orderId, liquid, -amount);
         return true;
+    }
+
+    /// <summary>
+    /// Production-output entry that returns the exact staging receipt and its shared transition from one synchronous mutation.
+    /// Exact instance identity is supplied by the owning World/Host assignment; this method never substitutes Workshop.Name.
+    /// </summary>
+    public StagingAdmissionSettlement ReceiveWithTransition(
+        string workshopInstanceId, int orderId, string liquid, int amount)
+    {
+        if (string.IsNullOrWhiteSpace(workshopInstanceId))
+            throw new ArgumentException("Exact workshop instance identity is required.", nameof(workshopInstanceId));
+        if (orderId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(orderId));
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        var usedBefore = UsedCapacity;
+        var balanceBefore = GetAmount(orderId, liquid);
+        var receipt = Receive(orderId, liquid, amount);
+        try
+        {
+            var transition = StagingAdmissionTransitionAdapter.FromReceipt(
+                workshopInstanceId, orderId, liquid, receipt,
+                usedBefore, UsedCapacity, balanceBefore, GetAmount(orderId, liquid));
+            return new StagingAdmissionSettlement(receipt, transition);
+        }
+        catch
+        {
+            // The adapter is pure, but a malformed proof must not leave the already accepted amount committed.
+            if (receipt.AcceptedAmount > 0)
+                AddUnchecked(orderId, liquid, -receipt.AcceptedAmount);
+            throw;
+        }
     }
 
     /// <summary>
