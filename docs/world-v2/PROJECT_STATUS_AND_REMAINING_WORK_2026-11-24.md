@@ -398,3 +398,13 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 源码/测试提交：`e4ec1440a2c4371427201535bbd0f22e271fe805`、`151d18efee9249e3467671a79297b54ad3c13fe7`、`f64f3513789218c5176f57ccb985562347d9ac6d`、`c3b007a77748fadcaae3a5efd9e1b91f7e6de3eb`。PR #60 最新 head `c3b007a...`，仍 Draft/Open/未合并。
 - 精确 Actions runs `45408382098`、`45408417704`、`45408441187`、`45408478221` 分别对应上述提交，记录时仍在运行；最新 head 以 `45408478221` 为准。此前 `594e627` run `45407969711` 已 success，但不覆盖本节变更。
 - 新旧两条液体交接路径现在均有同步异常补偿；不代表进程崩溃/断电下的持久化事务已完成。下一阶段仍需逐边界覆盖 Settlement Return、receipt、ledger batch、stage mark、reservation release 和 checkpoint/replay。
+
+
+## 17. Settlement restore receipt 与写入主体审计
+
+- `WorldOrderExecutionSession.RestoreProgress` 之前验证了已提交 Transfer 的 operation receipt，但没有对 `OrderResourceLease.SettlementStage == LedgerRecorded` 做同样检查。若 checkpoint 阶段位已推进而恢复时 ledger 缺 Settlement receipt，结算重放可能跳过账本 batch。
+- 现在 RestoreProgress 读取 authoritative lease；当 stage 为 `LedgerRecorded` 且调用方提供 ResourceLedger，必须存在 `lease.SettlementOperationId` receipt，否则拒绝恢复。`ResourcesReturned` 仍可在无 receipt 时恢复，以便通过 `RecordBatchOnce` 重试完成提交。
+- 新增 `RestoreRejectsLedgerRecordedSettlementWithoutMatchingLedgerReceipt`，保留 Transfer receipt、构造缺失 Settlement receipt 的 LedgerRecorded lease，验证恢复被拒绝。测试 fixture 已切换为 ShipLiquidInventory-backed scope，避免只覆盖旧兼容入口。
+- Writer allowlist 检查曾因新增领域 helper `Domain/LiquidResourceAccounts.cs` 未登记而失败；已在 `WorkshopWritersTests.AllowedWriters` 记录其正式写入职责。该失败属于白名单维护，不是编译错误或业务测试失败。
+- CI 记录：`45408441187`（`f64f351`）与 `45408478221`（`c3b007a`）因同一 writer allowlist 遗漏失败；修正提交 `95d727b` 对应 run `45408955115`。`e4ec144` 的 run `45408382098` 已 success；`151d18e`、`9020f1f`、`b20655b` 的 runs 当时仍在运行；`5b23607` 精确 run 尚未返回。
+- 最新 PR head 后续需重新读取；不能以较早 run 的成功替代最终 head 验证。PR #60 保持 Draft/Open/未合并。
