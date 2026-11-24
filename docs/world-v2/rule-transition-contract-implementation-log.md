@@ -313,15 +313,15 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 
 ### 14.6 主从 Transfer 的账户级适配器
 
-新增 `WorkshopRoleTransferTransitionAdapter`，把一次已完成只读预检的主从交接描述为单向资源转换：
+新增 `WorkshopRoleTransferTransitionAdapter`，把一次已完成只读预检的主从交接描述为单向资源转换，并冻结源/目标工作台极性模式与被转移 Jar 的状态：
 
 - Jar 使用 `workshop.jar-inventory:<exact workshop instance>` 账户，按每个 exact Jar ID 产生一条 Transfer；
 - 游离液体使用 `workshop.free-liquid-staging:<exact workshop instance>` 账户，按液种和数量产生 Transfer；
-- 只允许 source → destination，不生成反向效果；
+- 只允许 source → destination，不生成反向效果；来源 staging Ban 阻断游离液体出站，目标 staging Ban/容量阻断入站，目标工作台必须能够操作每只被转移 Jar 的极性；
 - 预检检查 Jar 是否属于 source、Jar ID 是否重复、destination Jar 容量、source 液体余额、destination Ban 与 destination staging 总容量；
 - Before / After 记录来源/目标实例、Jar 数量和目标 staging 占用；不伪造 Jar polarity，因为这是跨账户批量转移，不是单个 Jar 化学状态转换。
 
-该 Adapter 当前仍是纯构造器，尚未接入 `OrderTransferService` 的提交路径。原因是旧 Core `Workshop` 运行时对象目前只有显示 `Name`，没有可信的 Owned Instance ID；不能拿名称冒充身份。下一步必须由 World/Host 将 Assignment 中的 exact Owned Instance ID 传入交接服务，并让实际提交回执与此 Transition 来自同一事务边界，再接入账本/回放。
+该 Adapter 当前仍是纯构造器，尚未直接成为 `OrderTransferService` 的提交事务回执；但实际 `OrderTransferService` 已增加同一预检：主台 Ban 液体不得出站，从台 Ban 液体不得入站，且从台必须能够操作每只转移 Jar 的极性。原因是旧 Core `Workshop` 运行时对象目前只有显示 `Name`，没有可信的 Owned Instance ID；不能拿名称冒充身份。下一步必须由 World/Host 将 Assignment 中的 exact Owned Instance ID 传入交接服务，并让实际提交回执与此 Transition 来自同一事务边界，再接入账本/回放。
 
 
 ## 15. Ban 与工作台极性统一（2026-11-24，语义纠正）
@@ -340,7 +340,7 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 
 ### 15.2 实现方向
 
-`WorkshopCapability` 派生 `WorkshopPolarityMode`，并提供 `CanOperateJar(JarPolarity)`；`RuleContext` 暴露同一判定。 `WorkshopRulebook.EvaluateMatch` 与化学算子的公共入口统一检查当前 Jar 极性，`ReshapeRules.SelfConsume` 也不得绕过该检查。Solver 的预检、MatchingSolver 和独立 ReferenceSolver 使用相同领域关系，但 ReferenceSolver 继续保持独立搜索实现。
+`WorkshopCapability` 派生 `WorkshopPolarityMode`，并提供 `CanOperateJar(JarPolarity)`；`RuleContext` 暴露同一判定。 `WorkshopRulebook.EvaluateMatch` 与化学算子的公共入口统一检查当前 Jar 极性，`ReshapeRules.SelfConsume` 也不得绕过该检查。每个操作 proof 与 RuleTransition 快照都冻结 `WorkshopPolarityMode`，并校验该模式与 Jar 极性兼容。Solver 的预检、MatchingSolver 和独立 ReferenceSolver 使用相同领域关系，但 ReferenceSolver 继续保持独立搜索实现。
 
 规则语义版本递增：`RuleContractVersion=4`、`POUR_OUT=2`、`RESHAPE_FULL=3`、`MATCH=4`。旧版“staging-only Ban”快照、差分用例和缓存不得与新规则混用。
 
