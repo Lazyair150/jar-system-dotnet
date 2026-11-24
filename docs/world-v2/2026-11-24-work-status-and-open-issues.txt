@@ -108,6 +108,7 @@ Repository: Lazyair150/space-demo
 - Deterministic polarity matrix: 3 Jar polarities x Workshop modes (dual, Cathode, Anode, both-banned) x operation types. Assert operation permission separately from transfer.
 - Transfer matrix: all source/receiver polarity combinations x empty/Cathode/Anode Jar x marked/unmarked identity; transfers remain allowed when physical constraints pass.
 - B-class assignment matrix: each requirement candidate available on Master only, Slave only, both, or neither; one/two/multiple requirements; mixed-role order.
+- End-to-end receiver-only regression now uses the real B-class solver, admission, execution session and transfer transition: Cathode Master MATCHes a 酒 Jar; Anode Slave has no MATCH candidate, receives the marked Jar without operating it, and terminal delivery clears only the order-owned Mark.
 - Resource matrix: zero/one/multiple staging capacity, Ban accepted/rejected liquid, partial receive, full discard, master-to-slave liquid handoff and insufficient balance.
 - Lifecycle matrix: success/failure/cancel/rollback, Mark cleanup and unrelated Jar preservation.
 - Deterministic randomized tests with fixed seeds and small state spaces; retain failing seed and minimized counterexample. Compare production solver with independent reference solver.
