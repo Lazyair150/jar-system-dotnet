@@ -288,7 +288,7 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 4. Before / After 同时记录工作台实例、订单、液种、总暂存占用与订单子账余额；
 5. Adapter 验证 requested = accepted + discarded，且总占用和订单余额的变化都必须等于 accepted。
 
-该 Adapter 只适配已发生的 staging receipt，不修改账户，也尚未替换所有生产入账调用点。它证明了共享契约能够表达全收、部分接收、Ban 全拒收和丢弃，但不代表所有生产入口已经统一接线。
+该 Adapter 只适配 staging receipt，不直接修改账户。新增 `WorkshopLiquidStaging.ReceiveWithTransition` 作为首个成对入口：它在同一次同步调用中执行权威 `Receive`，捕获前后余额并返回 `StagingAdmissionSettlement`（原始 receipt + Transition）；若 proof 构造失败，会回滚本次已接收量。旧 `Receive` 仍保留兼容，其他生产输出入口尚未全部迁移。它证明共享契约能够表达全收、部分接收、Ban 全拒收和丢弃，但不代表所有生产入口已经统一接线。
 
 ### 14.3 Mark 周期回归
 
