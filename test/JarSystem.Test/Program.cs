@@ -1621,6 +1621,14 @@ void CheckSolverDifferential()
         return (m, s, new List<Requirement> { new Requirement { Shape = "方罐" } }, "A");
     });
 
+    Targeted("T4-被 Ban 的 Jar 内部液体仍可自耗改形", () =>
+    {
+        var m = new Workshop("T4M", new() { "圆罐" }, new() { "方罐" }, new() { "蜜" }, 30, 30);
+        m.AddJar(new Jar("圆罐", "蜜"));
+        var s = new Workshop("T4S", new() { "圆罐" }, new(), new(), 30, 30);
+        return (m, s, new List<Requirement> { new Requirement { Shape = "方罐" } }, "A");
+    });
+
     // 在这个规模的场景集上，"未判定"不该出现：要么是预算异常耗尽，要么是求解器违约。
     // 因此把它也算作失败（否则契约缺口会被"跳过比较"悄悄吞掉）。
     Console.WriteLine(mismatches == 0 && undetermined == 0
