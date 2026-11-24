@@ -385,7 +385,7 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 
 求解器的 `JarState` 与 `Requirement` 暴露只读派生 `Polarity`，StateSpaceSolver、MatchingSolver 与 SolverPrecheck 用它区分空/满状态。精确液体身份仍用于需求匹配、数量核算和 staging admission。状态键继续只编码实际液体 ID，不重复编码其派生极性。
 
-**关键极性区分**：满罐自耗改形只消费 Jar 内部资源，但必须先满足工作台与 Jar 的极性兼容；PourOut 同样要求极性兼容，之后才把液体送入 staging 并检查类别与容量。主从转移 Jar 本身不等于转移游离液体，且目标工作台必须能操作接收 Jar 的极性。
+**关键极性区分**：满罐自耗改形只消费 Jar 内部资源，但必须先满足工作台与 Jar 的极性兼容；PourOut 同样要求极性兼容，之后才把液体送入 staging 并检查类别与容量。主从 Jar 转移只改变 Jar 库存账户归属，不检查来源或目标工作台极性；即使两台专注极性不同，Jar 仍可移动。只有目标台随后实际对该 Jar 执行化学操作时，才检查目标台的极性兼容。
 
 
 ### 10.6 本轮新增：非 Jar 状态转换与 staging admission
@@ -401,6 +401,6 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 
 ### 10.7 主从 Transfer 适配器与身份缺口
 
-新增 `WorkshopRoleTransferTransitionAdapter`，为 B 类主→从交接构造显式资源效果。每只 Jar 按 exact Jar ID 从来源工作台库存 Transfer 到目标工作台库存；游离液体按液种/数量从来源 staging Transfer 到目标 staging。构造前校验来源 Jar 所有权、重复 ID、精确 Jar Facts、目标工作台对每只 Jar 的极性兼容、目标罐位、来源液体余额、来源 Ban、目标 Ban 和目标 staging 总容量。来源 Ban 液体不能从主台传出；目标工作台不能接收其无法操作极性的 Jar。所有 Transfer 都绑定精确 source/destination instance ID，不使用主台/从台角色名作为 OwnerId。
+新增 `WorkshopRoleTransferTransitionAdapter`，为 B 类主→从交接构造显式资源效果。每只 Jar 按 exact Jar ID 从来源工作台库存 Transfer 到目标工作台库存；游离液体按液种/数量从来源 staging Transfer 到目标 staging。构造前校验来源 Jar 所有权、重复 ID、目标罐位、来源液体余额、来源 Ban、目标 Ban 和目标 staging 总容量。Jar 所有权转移与工作台极性无关；来源 Ban 液体不能从主台 staging 传出，目标 Ban 液体不能进入从台 staging。所有 Transfer 都绑定精确 source/destination instance ID，不使用主台/从台角色名作为 OwnerId。
 
 该适配器尚未接入 `OrderTransferService`。当前旧 Core `Workshop` 对象只有显示名称，没有可信 Owned Instance ID。不能把 Name 当作稳定资源所有权身份；需要由 World/Host 从 Board Assignment 提供 exact Owned Instance ID，并在实际交接事务中生成/提交同一份 Transfer receipt 与 Transition。
