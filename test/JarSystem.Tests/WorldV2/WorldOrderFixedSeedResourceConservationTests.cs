@@ -32,15 +32,15 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             ["Undetermined"] = 0
         };
 
-        foreach (var seed in new[] { 0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155, 0x4A4156, 0x4A4157, 0x4A4158, 0x4A4159 })
+        foreach (var seed in new[] { 0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155, 0x4A4156, 0x4A4157, 0x4A4158, 0x4A4159, 0x4A415A, 0x4A415B, 0x4A415C, 0x4A415D, 0x4A415E, 0x4A415F, 0x4A4160, 0x4A4161 })
         {
             var random = new Random(seed);
-            for (var sample = 0; sample < 128; sample++)
+            for (var sample = 0; sample < 256; sample++)
             {
                 var sampleId = sampleOrdinal++;
             var masterBan = RandomBan(random);
             var slaveBan = RandomBan(random);
-            var masterCapacity = random.Next(1, 5);
+            var masterCapacity = random.Next(1, 6);
             var slaveCapacity = random.Next(1, 5);
             var master = new Workshop(
                 "seed-" + sampleId + "-master",
@@ -51,7 +51,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                 liquidStagingCapacity: masterCapacity,
                 vocabulary: Words);
 
-            var jarCount = random.Next(1, 4);
+            var jarCount = random.Next(1, 6);
             for (var index = 0; index < jarCount; index++)
             {
                 var shape = random.Next(2) == 0 ? "圆罐" : "方罐";
@@ -65,10 +65,10 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                     shape, liquid, id: 80_000 + sampleId * 10 + index, vocabulary: Words)));
             }
 
-            master.AddLiquid("酒", random.Next(0, 4));
-            master.AddLiquid("蜜", random.Next(0, 4));
+            master.AddLiquid("酒", random.Next(0, 6));
+            master.AddLiquid("蜜", random.Next(0, 6));
 
-            var requirementCount = random.Next(1, 3);
+            var requirementCount = random.Next(1, 5);
             var requirements = Enumerable.Range(0, requirementCount)
                 .Select(_ => new Requirement
                 {
@@ -137,9 +137,10 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         }
         }
 
-        Assert.Equal(1024, sampleOrdinal);
+        Assert.Equal(4096, sampleOrdinal);
         Assert.True(statusCounts["Feasible"] > 0, "Fixed seed produced no feasible samples.");
         Assert.True(statusCounts["Infeasible"] > 0, "Fixed seed produced no infeasible samples.");
+        Assert.Equal(0, statusCounts["Undetermined"]);
     }
 
     private static List<string> RandomBan(Random random)
