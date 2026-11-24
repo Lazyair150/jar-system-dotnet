@@ -36,6 +36,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
     private readonly List<ExecutionLogEntry> _resourceSettlementLog = new();
+    private readonly List<RuleTransition> _resourceTransitions = new();
 
     private int _masterIndex;
     private int _slaveIndex;
@@ -54,6 +55,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     public bool Succeeded => Stage == WorldOrderExecutionStage.Completed;
     /// <summary>Immutable resource transition produced by the committed B-class handoff, when exact Board identities are available.</summary>
     public RuleTransition? TransferTransition => _transferService.CommittedTransition;
+    /// <summary>Immutable resource transitions observed at successful operation and handoff commit boundaries.</summary>
+    public IReadOnlyList<RuleTransition> ResourceTransitions => _resourceTransitions.AsReadOnly();
     public string? Reason { get; private set; }
     public long UnitDurationLogicalMilli => _unitDurationLogicalMilli;
     public long UnitElapsedLogicalMilli => _unitElapsedLogicalMilli;
@@ -583,6 +586,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 // 交接只迁移 Jar 身份与所有权，不清除操作标记。
                 // 已在主台操作过的 Jar 在本订单剩余阶段仍然不可再次操作。
                 _admission.Reservations.MarkTransferCommitted(DemandId);
+                if (_transferService.CommittedTransition is { } committedTransfer)
+                    _resourceTransitions.Add(committedTransfer);
                 Stage = WorldOrderExecutionStage.SlaveSteps;
                 _admission.Reservations.MarkSlaveExecuting(DemandId);
                 PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave", _slaveLiquidScope);
@@ -622,8 +627,17 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             return;
         }
 
+        CaptureLastStepTransitions();
         index++;
         PumpInstantMatches(workshop, steps, ref index, phase, scope);
+    }
+
+    private void CaptureLastStepTransitions()
+    {
+        if (_applier.LastOperationTransition is { } operationTransition)
+            _resourceTransitions.Add(operationTransition);
+        if (_applier.LastStagingTransition is { } stagingTransition)
+            _resourceTransitions.Add(stagingTransition);
     }
 
     /// <summary>按计划顺序立即应用当前位置连续的 MATCH；MATCH 不消耗逻辑时间。</summary>
