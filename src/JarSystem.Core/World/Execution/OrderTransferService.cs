@@ -52,11 +52,26 @@ internal sealed class OrderTransferService
                     : $"转移前主台存在重复罐子 ID #{id}";
             if (slave.Jars.Any(jar => jar.Id == id))
                 return $"从台已存在待转移罐子 #{id}";
+            if (!slave.Rules.CanOperateJar(matches[0].Polarity))
+                return $"从台当前极性不能操作待转移罐子 #{id}（{matches[0].Polarity}）";
             jars.Add(id, matches[0]);
         }
 
         if (manifest.TransferJarIds.Count > slave.MaxJars - slave.Jars.Count)
             return "从台罐位不足，无法完整接收转移罐子清单";
+
+        // Both ends of a free-liquid handoff are Workshop staging accounts.
+        // A source Ban blocks extraction from Master; a destination Ban blocks admission to Slave.
+        foreach (var item in manifest.TransferLiquids)
+        {
+            if (item.Value < 0)
+                return $"转移液体「{item.Key}」数量无效";
+            if (item.Value == 0) continue;
+            if (master.IsBanned(item.Key))
+                return $"主台禁用液体「{item.Key}」，不能将其转移给从台";
+            if (slave.IsBanned(item.Key))
+                return $"从台禁用液体「{item.Key}」，不能接收执行所需液体";
+        }
 
         Dictionary<string, int>? requiredTransfer = null;
         if (masterScope == null)
@@ -69,8 +84,6 @@ internal sealed class OrderTransferService
                 var available = master.LiquidStorage.GetValueOrDefault(item.Key);
                 if (available < item.Value)
                     return $"主台液体「{item.Key}」不足：需要 {item.Value}，当前 {available}";
-                if (slave.IsBanned(item.Key))
-                    return $"从台禁用液体「{item.Key}」，不能转移执行所需液体";
                 var storage = slave.CanStoreLiquid(item.Key, item.Value);
                 if (!storage.Granted)
                     return storage.Reason ?? $"从台液体「{item.Key}」容量不足";
