@@ -706,6 +706,7 @@ public sealed class WorldOrderExecutionSessionTests
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
         var jar = new Jar("圆罐", vocabulary: Words);
         Assert.True(master.AddJar(jar));
+        Assert.True(master.AddLiquid("酒", 1));
         using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
         {
             Operation = "POUR_IN",
