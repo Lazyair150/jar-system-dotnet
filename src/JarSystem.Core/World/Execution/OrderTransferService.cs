@@ -37,6 +37,8 @@ internal sealed class OrderTransferService
         _jarTransferPort = jarTransferPort ?? new WorkshopJarTransferPort();
 
     public RuleTransition? CommittedTransition { get; private set; }
+    /// <summary>True only after all physical postconditions and the optional ledger batch have committed.</summary>
+    public bool IsCommitted { get; private set; }
 
     public string? Transfer(
         int demandId,
@@ -51,6 +53,7 @@ internal sealed class OrderTransferService
         Action commitStarted)
     {
         CommittedTransition = null;
+        IsCommitted = false;
         ArgumentNullException.ThrowIfNull(lease);
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(master);
@@ -289,6 +292,7 @@ internal sealed class OrderTransferService
                 throw new InvalidOperationException("该订单交接账本操作已记录，拒绝重复提交资源转移事实。");
         }
 
+        IsCommitted = true;
         return null;
     }
 
