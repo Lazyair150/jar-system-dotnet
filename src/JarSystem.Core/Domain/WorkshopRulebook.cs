@@ -288,15 +288,17 @@ public static class WorkshopRulebook
                 if (scope != null)
                 {
                     var receive = scope.CanReceiveOperation(liquid, 1);
-                    return receive.Granted
-                        ? WorkshopRuleDecision.Allow()
-                        : WorkshopRuleDecision.Reject("resource.scope-capacity", receive.Reason ?? "订单暂存空间不可接收");
+                    if (receive.Granted) return WorkshopRuleDecision.Allow();
+                    return WorkshopRuleDecision.Reject(
+                        receive.Code == "banned" ? "liquid.banned" : "resource.scope-capacity",
+                        receive.Reason ?? "订单暂存空间不可接收");
                 }
 
                 var storage = liquidRules.CanStore(liquid, 1, Count(liquids, liquid));
-                return storage.Granted
-                    ? WorkshopRuleDecision.Allow()
-                    : WorkshopRuleDecision.Reject("liquid.storage-capacity", storage.Reason ?? "液体存储容量不足");
+                if (storage.Granted) return WorkshopRuleDecision.Allow();
+                return WorkshopRuleDecision.Reject(
+                    storage.Code == "banned" ? "liquid.banned" : "liquid.storage-capacity",
+                    storage.Reason ?? "液体存储容量不足");
             }
 
             case WorkshopOperationKind.ReshapeEmpty:
