@@ -225,3 +225,13 @@ CHECKPOINT 15 — 2026-11-24 23:10 +08:00
 - At query time no workflow run or combined status had yet been returned for 136d9c5. Re-query before reporting validation.
 - Latest source still lacks a deterministic injected failure test for allocation compensation. The change is intentionally documented as defensive compensation, not proof of transaction atomicity.
 - Continue by adding a narrow liquid-transfer mutation seam with exact rollback of both order accounts; then settlement fault-boundary/replay tests. Preserve the current semantics: only free-liquid staging is subject to Workshop Ban; Jar-internal liquid and Jar handoff remain independent.
+
+
+CHECKPOINT 16 — 2026-11-24 23:20 +08:00
+
+- Settlement audit found a concrete pre-drain hazard: Master and Slave staging accounts are independently capacity-bounded, but their same-liquid balances are merged into Int32. The previous code drained Master before merging Slave; checked overflow could therefore throw after the first physical account had already been emptied.
+- Source commit 994a93a adds a preflight aggregation step in OrderResourceSettlementService: read both immutable order balances, checked-merge first, verify both staging accounts are not in a pending prefill transaction, and only then drain. It also rejects an impossible progressed settlement stage without a receipt before any mutation.
+- Source commit 694b225 applies the same ordering to the legacy SettleLiquidResources compatibility path so it cannot retain the old drain-before-merge hazard.
+- These changes prevent arithmetic/preflight exceptions from occurring after the first drain. They do not yet prove recovery from an exception after ShipLiquidInventory.Return or during ledger/stage/release publication; those boundaries still require deterministic fault injection and replay tests.
+- The exact-head run 45406862320 validates only source SHA 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef and was still in_progress at query time. It does not cover later source commits 994a93a / 694b225. No exact-head run for 694b225 was returned yet.
+- Latest source head at this checkpoint: 694b22546d6ad06d08b7ea18b04db834beb9bb0b. Latest PR #60 head must be re-read before further branch writes; keep PR Draft/Open/unmerged.
