@@ -130,7 +130,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                     demandId, masterProfile, slaveProfile, world);
                 Count(statusCounts, result.Status.ToString());
                 if (result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
-                    AssertConserves(result.Assembly, world, orderType);
+                    AssertConserves(result.Assembly, world, orderType, seed, sample);
                 else
                     Assert.Null(result.Assembly);
             }
