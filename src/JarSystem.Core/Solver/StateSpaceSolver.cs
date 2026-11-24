@@ -318,7 +318,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         for (int i = 0; i < st.Jars.Count; i++)
         {
             var j = st.Jars[i];
-            if (j.Liquid != null)
+            if (j.Polarity != JarPolarity.Neutral)
             {
                 var candidate = new SolverOperation
                 {
@@ -399,7 +399,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         for (int i = 0; i < st.Jars.Count; i++)
         {
             var j = st.Jars[i];
-            if (j.Liquid != null && !j.IsMarked)
+            if (j.Polarity != JarPolarity.Neutral && !j.IsMarked)
             {
                 var candidate = new SolverOperation
                 {
