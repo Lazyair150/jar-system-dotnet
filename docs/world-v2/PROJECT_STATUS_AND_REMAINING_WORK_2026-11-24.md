@@ -341,3 +341,12 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 7. 所有上述契约稳定并验证后，才做全仓引用审计、过期文档标注、死代码与临时文件清理。
 
 注意：本轮 GitHub Actions 正在验证源码 head `8e29f19`；未完成前不将本轮代码标记为 CI 通过。
+
+## 14. 订单液体分配异常补偿续接（2026-11-24 23:00 +08:00）
+
+- 精确源码验证 run `45405814473` 对应 `8e29f19b93d16f527f9f1a3dfb8916f10054d321`，现已 completed / success；不能将它用于证明之后的提交。
+- `OrderLiquidAllocationService.TryAllocate` 在成功扣除 Ship funded remainder 后，原先只处理 `TryReceiveExact == false`，若暂存写入或 scope attach 抛异常，可能留下部分订单暂存余额、容量 reservation 与库存扣款。
+- 提交 `aa28d1b6` 增加异常补偿：清空主/从台本订单暂存账户、释放峰值容量预留、将 Ship-funded remainder 返还 ShipLiquidInventory、将 prefill-funded amount 恢复到主台 prefill account。两类来源按原账户分别归还，不混为一笔。
+- 提交 `407def0` 避免补偿自身失败时被 catch 再盲目执行第二次；若补偿步骤失败，保留故障并抛出，不伪装成功。
+- 该修改是同步异常补偿增强，尚不是跨对象真正原子事务。当前没有对 `TryReceiveExact` / `AttachLiquidScopes` / rollback failure 的注入测试；截至本节记录时，也未取得 `407def0` 精确 head 的 Actions 结果。
+- 下一步必须增加确定性故障注入 seam 和回归测试；同时为 scoped / legacy liquid transfer 建立事务边界，再逐点测试 settlement Drain、Ship Return、receipt、ledger batch、stage mark 与 reservation release 的 checkpoint/restore 重放。上述测试通过前，不得宣称液体分配或结算具备完整 all-or-nothing 保证。
