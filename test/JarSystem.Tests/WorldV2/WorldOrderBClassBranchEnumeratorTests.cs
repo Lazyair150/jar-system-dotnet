@@ -68,7 +68,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
-    public void BClassFullJarCanBeSelfConsumedWhenBothWorkshopsBanOnlyTheirStagingLiquid()
+    public void BClassRejectsFullJarOppositeToBothWorkshopPolarities()
     {
         var master = new Workshop("禁酒主台",
             new List<string> { "圆罐", "方罐" },
@@ -85,8 +85,8 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             912, input.Master, input.Slave, input.World);
 
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
-        Assert.NotNull(result.Assembly);
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, result.Status);
+        Assert.Null(result.Assembly);
     }
 
     [Fact]
