@@ -44,36 +44,54 @@ public static class WorldOrderSymbolicOperationProgramBuilder
 
         var nodes = new List<WorldOrderSymbolicOperationNode>();
         var dependencies = new List<WorldOrderSymbolicOperationDependency>();
+        var currentByJar = new Dictionary<string, WorldOrderSymbolicJarVersion>(StringComparer.Ordinal);
         var sequence = 0;
+
+        foreach (var assigned in steps)
+        {
+            var candidate = assigned.Candidate;
+            var jarKey = "requirement-" + candidate.RequirementIndex;
+            currentByJar.Add(jarKey, new WorldOrderSymbolicJarVersion(
+                jarKey, 0, masterRole, candidate.SourceShape, candidate.SourceLiquid));
+        }
 
         foreach (var assigned in masterSteps)
         {
             var candidate = assigned.Candidate;
             var jarKey = "requirement-" + candidate.RequirementIndex;
-            var input = new WorldOrderSymbolicJarVersion(
-                jarKey, 0, masterRole, candidate.SourceShape, candidate.SourceLiquid);
+            var input = currentByJar[jarKey];
             var output = new WorldOrderSymbolicJarVersion(
-                jarKey, 1, masterRole, candidate.TargetShape, candidate.TargetLiquid, isMarked: true);
+                jarKey, checked(input.Revision + 1), masterRole,
+                candidate.TargetShape, candidate.TargetLiquid, isMarked: true);
+            var nodeId = "requirement-" + candidate.RequirementIndex + "-master";
             nodes.Add(WorldOrderSymbolicOperationNode.Rule(
-                "requirement-" + candidate.RequirementIndex + "-master",
-                sequence++, masterRole, candidate.RequirementIndex, candidate, input, output));
+                nodeId, sequence++, masterRole, candidate.RequirementIndex,
+                candidate, input, output));
+            currentByJar[jarKey] = output;
         }
 
         WorldOrderSymbolicOperationNode? handoff = null;
         if (isBClass)
         {
-            var handoffInputs = slaveSteps.Select(assigned =>
-            {
-                var candidate = assigned.Candidate;
-                var input = new WorldOrderSymbolicJarVersion(
-                    "requirement-" + candidate.RequirementIndex,
-                    0, masterRole, candidate.SourceShape, candidate.SourceLiquid);
-                return input;
-            }).ToArray();
+            // Every B-class delivery Jar crosses the ownership boundary, including
+            // requirements already completed on Master. Receiver-only Slave plans
+            // must not silently lose Master-completed output Jars.
+            var handoffInputs = steps
+                .OrderBy(assigned => assigned.Candidate.RequirementIndex)
+                .Select(assigned => currentByJar["requirement-" + assigned.Candidate.RequirementIndex])
+                .ToArray();
 
             handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
                 "master-to-slave-handoff", sequence++, masterRole, slaveRole, handoffInputs);
             nodes.Add(handoff);
+
+            foreach (var assigned in masterSteps)
+            {
+                var jarKey = "requirement-" + assigned.Candidate.RequirementIndex;
+                dependencies.Add(WorldOrderSymbolicOperationDependency.JarState(
+                    "requirement-" + assigned.Candidate.RequirementIndex + "-master",
+                    handoff.NodeId, jarKey, currentByJar[jarKey].Revision));
+            }
         }
 
         var handoffOutputByJar = handoff?.OutputJars.ToDictionary(x => x.JarKey, StringComparer.Ordinal)
