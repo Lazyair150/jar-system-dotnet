@@ -165,6 +165,16 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 
 ## 7. 本轮追加修复（2026-11-24）
 
+- 最新已验证 head `1f04b11bc8d85c03cbdc88f851371d9ef1526fdb` 的 PR Actions run `45397779801` 与 push run `45397769223` 均为 success；xUnit analyzer 修复后，B 类 receiver-only replay 相关改动已通过该 head 的整套验证。
+- 新增检查发现 `WorkshopRoleTransferTransitionAdapter` 对 transfer Jar IDs 做了唯一性校验，却把来源 Jar inventory 直接转成 HashSet，未拒绝来源快照自身的重复 Jar ID。该快照损坏会使 sourceJarCount 失真，且让转移证明基于非规范库存继续生成。
+- 已在 commit `88d1a61ed0f61a36e4e17e10c530b6f7a952b6f7` 修复：来源 inventory 必须自身唯一、正数；transfer IDs 必须唯一、正数且属于 exact source owner。
+- 在 commit `0acca11fc8ec67c29fcc046f6638b15a74105f84` 新增重复来源库存 ID 回归测试。
+- 上述两个最新提交尚未获得 CI 验证；前述 `1f04b11` 的 success 不覆盖这两个提交。
+- A 类搜索的预计算解集复用经检查：只有 inventory filtering 未改变 requirements 且候选列表逐项完全相等时才复用；profile versions/specification 和 Master role 另行校验。Preparation 操作独立于 symbolic solution cache，因此目前未发现候选内容错用，但缓存仍缺少显式 fingerprint 类型，未来可进一步收敛为带 Profile fingerprint 的 key。
+- `StagingAdmissionTransitionAdapter` 已显式把输出边界拆分为 accepted Transfer 与 discarded Discard，且验证 requested = accepted + discarded 及 staging/order balance delta；这符合“先进入当前订单输出边界，再结算到 staging 或丢弃”的分层。后续需继续检查实际执行事务是否原子提交这两条效果。
+
+## 7. 本轮追加修复（2026-11-24）
+
 - Commit `7804d2c2ba49cba045a68284c31c7f9addc31209` 修改 `WorldOrderOrderedResourceReplay`：不再因为 Slave 存在 opaque solver rules 就无条件拒绝所有 B 类 replay；只有当前具体 program 确实包含 Slave Rule 节点时才返回 Undetermined。
 - 领域理由：receiver-only handoff 不执行 Slave operation；接收 Jar 不检查接收台 polarity，也不解释接收台化学规则。Slave opaque rule 只应阻止需要 Slave 执行操作的分支。
 - 该修复尚待 CI / xUnit 验证；没有将相关测试标为通过。
