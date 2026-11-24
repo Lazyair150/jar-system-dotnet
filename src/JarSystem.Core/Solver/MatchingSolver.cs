@@ -428,7 +428,7 @@ namespace JarSystem.Core.Solver
             if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) return false;
             if (cap.IsBanned(jar.Liquid!)) return false;
             // POUR_OUT 的前提：该液体尚未灌满存储上限。
-            return pool[jar.Liquid] < Constants.DEFAULT_MAX_LIQUIDS;
+            return pool[jar.Liquid!] < Constants.DEFAULT_MAX_LIQUIDS;
         }
 
         private static bool CanPay(Dictionary<string, int> pool, WorkshopCapability cap,
