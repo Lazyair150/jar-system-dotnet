@@ -295,7 +295,7 @@ namespace JarSystem.Core.Solver
 
                     // MATCH 是无条件的：禁令只拦「新倒入」，不拦「罐里本来就是这种液体」。
                     if (jar.Liquid == req.Liquid) slots.Add(new Slot(j, Role.MatchFull, null));
-                    else if (jar.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid))
+                    else if (jar.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!))
                         slots.Add(new Slot(j, Role.PourIn, req.Liquid));
                 }
                 else
@@ -304,7 +304,7 @@ namespace JarSystem.Core.Solver
                         slots.Add(new Slot(j, Role.MatchEmpty, null));
                     else if (jar.Shape == req.Shape && jar.Polarity != JarPolarity.Neutral)
                     {
-                        if (!cap.IsBanned(jar.Liquid))
+                        if (!cap.IsBanned(jar.Liquid!))
                             slots.Add(new Slot(j, Role.PourOut, jar.Liquid));
                     }
                     else
