@@ -144,7 +144,7 @@ public sealed class WorldPlanStepApplier
         }
     }
 
-    private static string? ApplyOperation(
+    private string? ApplyOperation(
         Workshop workshop, Jar jar, WorldPlanOperation operation, WorldPlanJarState before,
         OrderLiquidScope? scope)
     {
