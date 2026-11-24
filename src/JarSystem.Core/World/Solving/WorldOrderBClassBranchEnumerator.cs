@@ -83,13 +83,9 @@ public static class WorldOrderBClassBranchEnumerator
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
                 null, 0, 0, 0, "主从规则候选 Profile 与当前世界/订单规格不一致");
 
-        // Both role profiles participate in requirement assignment. Unknown rules in
-        // either role make the combined search Undetermined; silently treating that
-        // role as unavailable would incorrectly remove legal Master/Slave schedules.
-        if (masterProfile.IsUndetermined || slaveProfile.IsUndetermined)
-            return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
-                null, 0, 0, 0,
-                masterProfile.Reason ?? slaveProfile.Reason ?? "主从规则候选 Profile 未能确定");
+        // Keep known role candidates searchable even when the other role contains
+        // opaque rules. A known feasible branch is still a valid witness; if no known
+        // branch works, the opaque role prevents a complete Infeasible conclusion.
         if (world.Slave.Jars.Count != 0 || world.Slave.Liquids.Values.Any(amount => amount != 0))
             return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, 0, 0, "B 类从台初始库存必须为空；从台不能用自有 Jar 或游离液体补订单");
@@ -118,8 +114,15 @@ public static class WorldOrderBClassBranchEnumerator
         // Keep the established Slave-first preference for ordinary B-class orders.
         // Master candidates remain in the same combined search and are selected when
         // Slave lacks a candidate or when the Slave-first branch cannot bind resources.
+        var searchableProfiles = new[] { slave, master }
+            .Where(profile => !profile.IsUndetermined)
+            .ToArray();
+        if (searchableProfiles.Length == 0)
+            return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
+                null, 0, 0, 0,
+                master.Reason ?? slave.Reason ?? "主从规则候选 Profile 均未能确定");
         var symbolic = WorldOrderSymbolicSolutionBuilder.Build(
-            new[] { slave, master }, maxBranches, maxNodes);
+            searchableProfiles, maxBranches, maxNodes);
 
         if (symbolic.RuleSetVersion != slave.RuleSetVersion ||
             symbolic.WorkshopProfileVersion != slave.WorkshopProfileVersion ||
@@ -152,8 +155,8 @@ public static class WorldOrderBClassBranchEnumerator
         var exploredNodes = symbolic.ExploredNodes;
         var rejectedBranches = 0;
         var budgetExceeded = false;
-        var sawUndetermined = false;
-        string? lastReason = null;
+        var sawUndetermined = master.IsUndetermined || slave.IsUndetermined;
+        string? lastReason = master.Reason ?? slave.Reason;
         WorldOrderConcretePlanAssemblyResult? foundAssembly = null;
 
         // The symbolic set already assigns every requirement to exactly one of the
