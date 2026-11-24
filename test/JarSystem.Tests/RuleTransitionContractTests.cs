@@ -98,3 +98,51 @@ public sealed class RuleTransitionContractTests
         Assert.Throws<System.ArgumentException>(() => invalid.Validate());
     }
 }
+
+
+    [Fact]
+    public void MatchLifecycleAdapterMarksExactJarWithoutInventingLiquidFlow()
+    {
+        var before = new JarFacts("圆罐", "水", false);
+        var proof = WorkshopRulebook.EvaluateMatchTransition(Rules, before);
+
+        var result = MatchRuleTransitionAdapter.Evaluate(
+            proof, before, "owned.workshop.master", "jar.21");
+
+        Assert.True(result.IsAllowed);
+        Assert.Equal("jar.workshop.match", result.Transition!.RuleId);
+        Assert.Equal("MATCH", result.Transition.Target == "jar.21" ? "MATCH" : "unexpected");
+        Assert.Equal("jar.21", result.Transition.Target);
+        Assert.Equal("workshop", result.Transition.Scope);
+        Assert.Equal("false", result.Transition.Before.Values["marked"]);
+        Assert.Equal("true", result.Transition.After.Values["marked"]);
+        Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
+        Assert.Equal("水", result.Transition.After.Values["liquid"]);
+        Assert.Empty(result.Transition.ResourceEffects);
+    }
+
+    [Fact]
+    public void MatchLifecycleAdapterPreservesAuthoritativeRejectionWithoutTransition()
+    {
+        var before = new JarFacts("圆罐", "水", true);
+        var proof = WorkshopRulebook.EvaluateMatchTransition(Rules, before);
+
+        var result = MatchRuleTransitionAdapter.Evaluate(
+            proof, before, "owned.workshop.master", "jar.22");
+
+        Assert.True(result.IsRejected);
+        Assert.Equal("jar.already-operated", result.ReasonCode);
+        Assert.Null(result.Transition);
+    }
+
+    [Fact]
+    public void MatchLifecycleAdapterRejectsNonMatchProof()
+    {
+        var before = new JarFacts("圆罐", null, false);
+        var operation = WorkshopOperation.PourIn("水");
+        var proof = WorkshopRulebook.EvaluateTransition(
+            Rules, 5, before, operation, new Dictionary<string, int> { ["水"] = 1 });
+
+        Assert.Throws<System.ArgumentException>(() => MatchRuleTransitionAdapter.Evaluate(
+            proof, before, "owned.workshop.master", "jar.23"));
+    }
