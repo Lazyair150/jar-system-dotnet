@@ -358,3 +358,12 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - `407def0` 的 Actions run `45406698541` 实际 head_sha 是 `407def0`；它不能覆盖其后的语法修正提交 `136d9c5`。截至查询时 `136d9c5` 尚未返回独立 workflow run / combined status。
 - `OrderLiquidAllocationService` 的重复类闭合括号已修正。必须等待/触发精确 head 验证后，才可将该 slice 标记为通过。
 - 分配异常补偿尚无确定性故障注入回归测试；当前仅作为防御性补偿实现记录。下一步应先建立窄的液体批量转移 mutation seam，保证主/从订单账户的部分写入可恢复，再进入 Settlement 逐边界 checkpoint/replay 测试。
+
+
+### 14.2 Settlement drain 前的聚合溢出防护
+
+- 审计发现主/从工作台暂存容量分别受限，但两侧同名液体合并后可能超过 `Int32`。旧结算代码先 Drain Master 再 Merge Slave；若 checked merge 溢出，会在异常前已经清空 Master 子账。
+- `994a93a` 将主流程改为先从两个 scope 读取只读余额并完成 checked aggregation，再检查双方没有 pending prefill transaction，最后才 Drain 两个订单账户。若 Lease 已推进结算阶段却没有 receipt，也会在任何物理变更前拒绝。
+- `694b225` 对兼容入口 `WorldOrderExecutionAdmission.SettleLiquidResources` 施加相同顺序，避免旧入口保留 drain-before-merge 问题。
+- 该修复覆盖了聚合/前置检查异常导致的提前 Drain；不代表 Return、receipt、ledger batch、stage mark、reservation release 之间已经具备 crash-atomic 保证，后续仍需故障注入与 checkpoint/replay 测试。
+- 验证状态：run `45406862320` 精确对应 `136d9c5`，查询时仍在运行；它不覆盖之后的源码提交 `994a93a` / `694b225`。截至记录时尚未取得 `694b225` 的精确 head run。
