@@ -79,6 +79,8 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
         Assert.Equal("酒", result.Transition.After.Values["liquid"]);
         Assert.Equal(nameof(JarPolarity.Cathode), result.Transition.After.Values["polarity"]);
+        Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), result.Transition.Before.Values["workshopPolarityMode"]);
+        Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), result.Transition.After.Values["workshopPolarityMode"]);
         Assert.Equal(new JarPolarityTransition(JarPolarity.Neutral, JarPolarity.Cathode),
             result.Transition.PolarityTransition);
         Assert.Equal("true", result.Transition.After.Values["marked"]);
@@ -99,6 +101,7 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(RuleResourceEffectKind.Produce, effect.Kind);
         Assert.Equal("workshop.free-liquid-staging", effect.To!.AccountKind);
         Assert.Equal("owned.workshop.slave", effect.To.OwnerId);
+        Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), result.Transition.Before.Values["workshopPolarityMode"]);
         Assert.Equal("酒", effect.ResourceId);
     }
 
