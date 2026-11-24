@@ -462,6 +462,10 @@ public static class WorldV2Factory
             shipLiquidInventory);
 
         var effectiveBoardProfile = options.BoardRuleProfile?.BuildEffectiveRuleProfile(options.BoardAssignmentSnapshot);
+        var ownedWorkshopIdsBySlot = (options.BoardAssignmentSnapshot?.Assignments ??
+            new List<WorldV2BoardAssignmentEntryOptions>())
+            .Where(item => item != null && item.ComponentKind == "workshop")
+            .ToDictionary(item => item.SlotId, item => item.OwnedInstanceId, StringComparer.Ordinal);
         var workshops = options.Workshops.Select(workshop =>
         {
             var initialRules = effectiveBoardProfile == null
@@ -471,6 +475,10 @@ public static class WorldV2Factory
                     "workshop",
                     workshop.BoardSlotId,
                     mutableStack: true);
+            var ownedInstanceId = workshop.BoardSlotId != null &&
+                ownedWorkshopIdsBySlot.TryGetValue(workshop.BoardSlotId, out var assignedInstanceId)
+                    ? assignedInstanceId
+                    : null;
             return new Workshop(
                 workshop.Name,
                 new List<string>(workshop.BaseMarks),
@@ -480,7 +488,8 @@ public static class WorldV2Factory
                 workshop.MaxLiquids,
                 vocabulary: vocabulary,
                 liquidStagingCapacity: workshop.LiquidStagingCapacity ?? workshop.MaxLiquids,
-                initialRules: initialRules);
+                initialRules: initialRules,
+                ownedInstanceId: ownedInstanceId);
         }).ToList();
 
         var master = workshops.Single(workshop =>
