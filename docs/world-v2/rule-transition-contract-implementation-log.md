@@ -2,7 +2,7 @@
 
 > 记录日期：2026-11-24  
 > 适用分支：`world-v2/phase-4.11c-order-template-demand-ingress`  
-> 记录基线：`e6f68e0ea21bce0db993a60358e8c8f030c47834`  
+> 记录基线：MATCH Adapter 与暂存区 Ban 语义修正（后续提交以 PR head 为准）  
 > PR：[#60](https://github.com/Lazyair150/jar-system-dotnet/pull/60)（Draft / Open；本记录不授权合并）
 
 ## 1. 本次状态核对
@@ -51,7 +51,7 @@
 
 ## 3. 当前 Workshop 适配范围
 
-`WorkshopRuleTransitionAdapter` 将既有 `WorkshopRulebook` 的允许/拒绝证明适配为共享契约，目前覆盖四种化学操作：
+`WorkshopRuleTransitionAdapter` 将既有 `WorkshopRulebook` 的允许/拒绝证明适配为共享契约，目前覆盖四种化学操作；独立的 `MatchRuleTransitionAdapter` 适配 MATCH 生命周期：
 
 | 操作 | 资源效果 | 必须保持的账户语义 |
 |---|---|---|
@@ -62,14 +62,14 @@
 
 Adapter 从旧 `WorkshopOperationEvaluation` 读取判定和转换，不重新实现化学规则。被旧规则拒绝或判为不确定的操作不会生成可执行 Transition。
 
-当前测试文件：`test/JarSystem.Tests/RuleTransitionContractTests.cs`。覆盖 PourIn 暂存账户、PourOut 当前工作台归属、ReshapeFull Jar 内液体账户、拒绝结果无 Transition、资源效果端点校验。
+当前测试文件：`test/JarSystem.Tests/RuleTransitionContractTests.cs`。覆盖 PourIn 暂存账户、PourOut 当前工作台归属、ReshapeFull Jar 内液体账户、MATCH 精确 Jar 标记、MATCH 拒绝/错误 proof 拒绝、拒绝结果无 Transition、资源效果端点校验。另有 `WorkshopRulebookTests` 与 `WorkshopReshapeTests` 固定暂存区 Ban 不影响 Jar 内液体自耗的语义。
 
 ## 4. 明确未完成的语义
 
 以下事项不得因为共享 DTO 已存在而被视为已实现：
 
-1. **MATCH**：它不是 `WorkshopOperationKind` 的普通化学操作。必须使用独立生命周期适配器，从权威 MATCH proof 构造转换；不得伪造 WorkshopOperation 来复用 Adapter。
-2. **Mark 生命周期**：需要先审查现有 Mark 的权威产生、消耗、重置和订单阶段证明，再决定它属于 Jar 状态字段、独立生命周期状态，还是资源效果；不得只根据字段名推断。
+1. **MATCH Adapter 已落地**：MATCH 不是 `WorkshopOperationKind` 的普通化学操作，现由 `MatchRuleTransitionAdapter` 单独消费 `EvaluateMatchTransition` 的权威 proof。它只将同一 Jar 的 marked 从 false 变为 true，不产生 Jar/Liquid ResourceEffect。工作台持有权校验仍由 `Workshop.MarkJar` 门面负责，Adapter 要求调用方提供 exact workshop/Jar identity。
+2. **Mark 生命周期已厘清一部分**：`Workshop.MarkJar` 先校验 Jar 属于当前 Workshop，再消费 MATCH proof；`ClearMark` 只清指定且归属本台的 Jar，`ClearMarks` 清全台标记，代码注释限定其用于订单生命周期边界，不得在同一订单主从交接时调用。Mark 是 Jar 生命周期状态，不是液体/Jar 数量 ResourceEffect。仍需继续审查订单执行/交接调用点，证明重置只发生在正确周期边界。
 3. **Staging admission**：PourOut 产出到暂存区只是候选资源效果。必须继续表达容量、Ban/接收规则、接收数量和溢出/拒收丢弃；不得把 Produce 到 staging 误认为已成功入账。
 4. **Transfer**：必须显式表达来源与目标账户、资源所有权、方向和事务结果。主台 Ban 液体不得通过 Transfer 传给从台；从台使用期间只接受主台提供的液体。
 5. **Ban / Capacity**：必须区分规则拒绝、接收拒绝和超限丢弃；不得将 Jar 内液体自耗送入 Workshop staging Ban 检查。
@@ -113,3 +113,45 @@ Adapter 从旧 `WorkshopOperationEvaluation` 读取判定和转换，不重新�
 - 所有子系统规则的统一执行器。
 
 它的价值是先让不同领域规则以同一种、可验证、可审计的方式描述状态变化，为后续统一评估与执行建立可靠边界。
+
+
+## 8. 本轮修正：电流语义与暂存区 Ban（2026-11-24）
+
+### 8.1 电流的领域定义
+
+电路中的“电流”就是 Jar 与液体资源本身，而不是抽象的数值信号：
+
+- Jar 是离散、带状态的流动资源，至少携带 Jar identity、shape、internal liquid、marked lifecycle state。
+- 液体是可计量资源，必须区分 Jar 内部液体与工作台游离液体暂存账户。
+- Rule Transition 是资源经过电路元件时发生的状态转换；ResourceEffect 是资源账户之间的消耗、产出、转移或丢弃。
+- Board/组件定义通路结构和局部规则，Solver 根据订单目标寻找资源流路径；它们不替代资源本身。
+
+### 8.2 Ban 语义纠正
+
+旧实现曾通过 `LiquidRules.CheckJarOperation` 将工作台 Ban 扩展到 Jar 内部液体，导致满罐改形自耗、MATCH 可能因为 Jar 内液体种类而被 Ban 拒绝。这与当前领域契约“Ban 约束工作台游离液体暂存账户”不一致。
+
+本轮修正：
+
+- 删除 Jar 操作的 Ban 检查入口；Ban 仍用于游离液体的取用和接收。
+- 满罐改形自耗只消耗 `jar.internal-liquid:<jarInstanceId>`，不读取工作台 staging。
+- MATCH 只验证规则条件与 Jar 生命周期状态，不把 Jar 内液体伪装成 staging 液体。
+- PourIn / ReshapeEmpty 仍需从当前工作台游离液体账户取用，受 Ban 和可用余额约束。
+- PourOut 进入 staging 的接收仍受 Ban/容量限制；拒收与丢弃的精确统一表达仍待 Staging Admission 阶段。
+
+该语义变化递增 `WorkshopRulebook.RuleContractVersion` 至 3，`RESHAPE_FULL` RuleVersion 至 2，`MATCH` RuleVersion 至 3。此版本变更必须随规则快照/指纹传播，不可与旧语义缓存混用。
+
+### 8.3 MATCH / Mark 证明边界
+
+`MatchRuleTransitionAdapter` 不伪造 `WorkshopOperation`。它消费 `WorkshopRulebook.EvaluateMatchTransition` 的 proof，并要求：
+
+- RuleId 精确为 `jar.workshop.match`；
+- Before 是未标记 Jar；
+- After 保持 shape 与 internal liquid 不变，只把 marked 置为 true；
+- Transition.Target 是 exact Jar instance ID；
+- ResourceEffects 为空，因为 MATCH 不搬运、不生产、不消耗 Jar 或液体。
+
+工作台是否实际拥有该 Jar 仍由 `Workshop.MarkJar` 校验；Adapter 本身不是所有权数据库。
+
+### 8.4 本轮测试状态
+
+已新增 MATCH Adapter 正常、拒绝和错误 proof 测试；已调整规则测试，固定“被 Ban 的 staging 液体不可取用/接收，但 Jar 内液体自耗不读取 staging Ban”的边界。代码已提交，尚待本轮 head 对应 CI 验证。
