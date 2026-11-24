@@ -136,7 +136,7 @@ Adapter 从旧 `WorkshopOperationEvaluation` 读取判定和转换，不重新�
 
 - 删除 Jar 操作的 Ban 检查入口；Ban 仍用于游离液体的取用和接收。
 - 满罐改形自耗只消耗 `jar.internal-liquid:<jarInstanceId>`，不读取工作台 staging。
-- MATCH 只验证规则条件与 Jar 生命周期状态，不把 Jar 内液体伪装成 staging 液体；它的 Transition 快照同时保存 exact workshopInstanceId 与 jarInstanceId。
+- MATCH 只验证规则条件与 Jar 生命周期状态，不把 Jar 内液体伪装成 staging 液体；它的 Transition 快照同时保存 exact workshopInstanceId 与 jarInstanceId，并校验权威目录中的 RuleId / RuleVersion。化学 Adapter 同样校验请求操作与 proof 的 RuleId / RuleVersion 一致，避免把某个操作的 proof 错贴到另一个操作上。
 - PourIn / ReshapeEmpty 仍需从当前工作台游离液体账户取用，受 Ban 和可用余额约束。
 - PourOut 进入 staging 的接收仍受 Ban/容量限制；拒收与丢弃的精确统一表达仍待 Staging Admission 阶段。
 
@@ -156,7 +156,7 @@ Adapter 从旧 `WorkshopOperationEvaluation` 读取判定和转换，不重新�
 
 ### 8.4 本轮测试状态
 
-已新增 MATCH Adapter 正常、拒绝和错误 proof 测试；已调整规则测试，固定“被 Ban 的 staging 液体不可取用/接收，但 Jar 内液体自耗不读取 staging Ban”的边界。代码已提交，尚待本轮 head 对应 CI 验证。
+已新增 MATCH Adapter 正常、拒绝和错误 proof 测试；已调整 `LiquidRulesTests`、`WorkshopRulebookTests` 与 `WorkshopReshapeTests`，固定“被 Ban 的 staging 液体不可取用/接收，但 Jar 内液体自耗与 MATCH 不读取 staging Ban”的边界。CI 曾发现遗漏的旧测试调用与 PourOut 检查点，已根据失败日志修正；以最新 head 的最终 CI 为准。
 
 
 ## 9. Mark 周期边界审查补充
