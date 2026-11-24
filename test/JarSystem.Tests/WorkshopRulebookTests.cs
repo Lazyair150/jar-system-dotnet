@@ -24,21 +24,21 @@ public class WorkshopRulebookTests
 {
 
     [Fact]
-    public void RuleVersionsTrackTheJarOperationBanContract()
+    public void RuleVersionsTrackTheStagingOnlyBanContract()
     {
         var full = WorkshopRulebook.Definitions.Single(x => x.Operator == "RESHAPE_FULL");
         var match = WorkshopRulebook.Definitions.Single(x => x.Operator == "MATCH");
 
-        Assert.Equal(2, WorkshopRulebook.RuleContractVersion);
+        Assert.Equal(3, WorkshopRulebook.RuleContractVersion);
         Assert.Equal("jar.workshop.reshape-full", full.RuleId);
-        Assert.Equal(1, full.RuleVersion);
+        Assert.Equal(2, full.RuleVersion);
         Assert.Equal("jar.workshop.match", match.RuleId);
-        Assert.Equal(2, match.RuleVersion);
+        Assert.Equal(3, match.RuleVersion);
     }
 
 
     [Fact]
-    public void MatchCannotOperateOnAJarContainingAWorkshopBannedLiquid()
+    public void MatchCanOperateOnAJarContainingLiquidBannedOnlyFromWorkshopStaging()
     {
         var capability = new WorkshopCapability(
             new[] { "圆罐", "方罐" }, new string[0], new[] { "酒" });
@@ -47,9 +47,8 @@ public class WorkshopRulebookTests
 
         var decision = WorkshopRulebook.EvaluateMatch(rules, facts);
 
-        Assert.False(decision.IsAllowed);
-        Assert.Equal("liquid.banned", decision.ReasonCode);
-        Assert.Contains("禁酒", decision.Reason);
+        Assert.True(decision.IsAllowed);
+        Assert.Equal("rule.allowed", decision.ReasonCode);
     }
 
     private sealed class Cfg
