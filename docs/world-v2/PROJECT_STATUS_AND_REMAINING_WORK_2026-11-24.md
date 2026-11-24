@@ -432,3 +432,11 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 该检查只读取 `OrderLiquidScope.Balance`，不检查其他订单子账或工作台 prefill 账户，符合订单账户隔离语义。
 - 扩展恢复回归测试：先在 staging 仍有从台余额时构造 `ResourcesReturned` receipt，恢复必须因未 Drain 而拒绝；随后清空主/从订单子账并推进 `LedgerRecorded`，缺少对应 Settlement operation receipt 时仍必须拒绝。
 - 源码提交 `25e8044b8a6840f371a71c37b498ce8ae94e8503` 对应 run `45409669395`；扩展测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 尚无精确 run。前一精确 head `5b23607` 的 run `45409037632` 已 success。
+
+
+## 19. Live settlement release receipt guard
+
+- `RestoreProgress` 的 Settlement receipt 校验不能替代 live settlement 入口自己的保护。若 `OrderResourceLease.SettlementStage == LedgerRecorded`，但当前 `ResourceLedger` 没有 `SettlementOperationId`，`OrderResourceSettlementService.SettleAndRelease` 不得跳过 batch 后释放 reservation。
+- 已在 service 开始处增加 receipt precondition。`ResourcesReturned` 仍允许 ledger batch 重试；`LedgerRecorded` 必须有 ledger operation receipt。
+- 扩展恢复测试：两侧 order staging Drain 后，人工构造 Lease=LedgerRecorded 且 ledger 缺 receipt；live `SettleAndRelease` 与 `RestoreProgress` 都必须拒绝。
+- 源码 SHA `13f645248b824a9866051327e33f59c81f44acdc`；测试 SHA `3702fb60bad251fd8cbce734a075e87e1c31b868`；精确 head Actions 尚待查询。上一测试 SHA `c9eb445` 对应 run `45409693136` 仍需查询最终状态。
