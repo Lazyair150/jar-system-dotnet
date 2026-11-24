@@ -475,38 +475,67 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
-    public void BTransferAllowsJarWhosePolarityDiffersFromSlaveFocus()
+    public void BTransferAllowsMasterPolarityJarToCrossIntoOppositePolaritySlaveWithoutLiquidHandoff()
     {
-        var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
-        var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
-        var jar = new Jar("圆罐", vocabulary: Words);
-        master.AddJar(jar);
-        master.AddLiquid("酒", 1);
+        var master = new Workshop("Cathode主台", new List<string> { "圆罐" },
+            ban: new List<string> { "蜜" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("Anode从台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", "酒", id: 9881, vocabulary: Words);
+        Assert.Equal(JarPolarity.Cathode, jar.Polarity);
+        Assert.Equal(WorkshopPolarityMode.Cathode, master.Capability.PolarityMode);
+        Assert.Equal(WorkshopPolarityMode.Anode, slave.Capability.PolarityMode);
+        Assert.True(master.AddJar(jar));
+
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
-        var setup = Prepare(master, slave, demand);
-        var runtime = CreateRuntime(setup.Board, setup.Roster);
-        var started = runtime.TryStartExecutionSession(
-            demand.Id, setup.Book, setup.Admission, 1_000);
+        var board = new OrderDemandBoard();
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var snapshot = WorldSnapshotFactory.Capture(roster);
+        var masterMatch = new SolverStep
+        {
+            Step = 0,
+            Requirement = new Requirement { Shape = "圆罐", Liquid = "酒" },
+            Operation = new SolverOperation { Type = "MATCH", JarIndex = 0 },
+            Before = new List<JarState>
+            {
+                new() { Id = jar.Id, Shape = "圆罐", Liquid = "酒" }
+            },
+            After = new List<JarState>
+            {
+                new() { Id = jar.Id, Shape = "圆罐", Liquid = "酒", IsMarked = true }
+            },
+            AfterLiquids = new Dictionary<string, int>()
+        };
+        var plan = WorldOrderSolvePlan.FromMaterializedPaths(
+            isPartitioned: true,
+            masterPath: new[] { masterMatch },
+            slavePath: Array.Empty<SolverStep>(),
+            transferJarIds: new[] { jar.Id!.Value },
+            transferLiquids: new Dictionary<string, int>());
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new FixedPlanSolver(plan)
+        });
+        var solved = book.Evaluate(demand.Id, snapshot, registry);
+        Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
+        var runtime = CreateRuntime(board, roster);
+        var started = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
         Assert.True(started.Success, started.Reason);
 
-        // Admission happened under an unrestricted Slave. Before transfer, focus Slave on Anode.
-        // The Master-produced Cathode Jar still transfers: role-to-role Jar ownership movement
-        // is independent of either Workshop's chemical-operation polarity.
-        slave.ReplaceCapability(new WorkshopCapability(
-            new[] { "圆罐" }, ban: new[] { "酒" }));
-
-        var session = started.Session!;
-        for (var i = 0; i < 10 && !session.IsTerminal; i++)
+        for (var i = 0; i < 5 && !started.Session!.IsTerminal; i++)
             runtime.AdvanceWorldTime(1_000);
 
-        Assert.True(session.Succeeded, session.Reason);
-        Assert.DoesNotContain(master.Jars, item => item.Id == jar.Id);
-        Assert.DoesNotContain(slave.Jars, item => item.Id == jar.Id);
+        Assert.True(started.Session!.Succeeded, started.Session.Reason);
+        Assert.Empty(master.Jars);
+        Assert.Empty(slave.Jars);
         Assert.Equal("酒", jar.Liquid);
-        Assert.False(jar.IsMarked);
-        Assert.Equal(0, setup.Reservations.Count);
+        Assert.False(jar.IsMarked, "订单成功终态清理 Mark，但不改变跨台 Jar 的液体身份");
+        Assert.Equal(0, reservations.Count);
     }
 
     [Fact]
