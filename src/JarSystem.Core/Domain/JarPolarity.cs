@@ -13,6 +13,15 @@ public enum JarPolarity
     Anode
 }
 
+/// <summary>Operating mode derived from a Workshop's banned liquid categories.</summary>
+public enum WorkshopPolarityMode
+{
+    Unrestricted,
+    Cathode,
+    Anode,
+    NeutralOnly
+}
+
 /// <summary>
 /// Maps the current two-liquid vocabulary to the three Jar polarity states.
 /// Unknown non-empty liquid identities fail closed instead of being assigned
