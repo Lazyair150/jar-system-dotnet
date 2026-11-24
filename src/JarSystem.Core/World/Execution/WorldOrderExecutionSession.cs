@@ -372,6 +372,17 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (reservation.Stage != leaseStage)
             throw new InvalidOperationException("执行会话阶段与资源租约生命周期阶段不一致。");
 
+        if (snapshot.SlaveTransferCommitted && resourceLedger != null &&
+            (snapshot.Manifest.TransferJarIds.Count > 0 ||
+             snapshot.Manifest.TransferLiquids.Any(item => item.Value > 0)))
+        {
+            var transferOperationId = reservation.WorldVersion + ":order:" +
+                snapshot.DemandId + ":transfer";
+            if (!resourceLedger.HasRecordedOperation(transferOperationId))
+                throw new InvalidOperationException(
+                    "恢复会话报告主从交接已提交，但资源账本缺少对应的 Transfer operation receipt。");
+        }
+
         var restored = new WorldOrderExecutionSession(
             snapshot.DemandId, board, solveBook, admission, roster,
             snapshot.Manifest, snapshot.Plan, snapshot.UnitDurationLogicalMilli,
