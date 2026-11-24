@@ -286,3 +286,10 @@ CHECKPOINT 20 — 验证失败归因与 fixture 修正（2026-11-24）
 - `45408955115`（`95d727b`）仅剩 restore 测试 fixture 的资源供给问题；已将测试改为与生产路径一致的 ShipLiquidInventory-backed solve/admission，并在 `5b23607b1b74e3df242df729ae91effa68ecf451` 提交。
 - 最新精确源码/测试 run `45409037632` 对应 `5b23607...`，查询时仍 in_progress；它包含 whitelist 修正与 Ship-backed fixture。必须等该 run 完成后再判断本轮通过与否。
 - `95d727b` 本身的 run `45408955115` 失败只因测试 fixture；不要将它当作最终 head 结果。PR #60 当前 head 仍为文档提交 `d360501f179bb2ec9bf9ab8293990361215e2a0c`，Draft/Open/未合并。
+
+
+VERIFICATION RESULT — 2026-11-24
+
+- 精确源码/测试提交 `5b23607b1b74e3df242df729ae91effa68ecf451` 的 Actions run `45409037632` 已 completed / success；verify job 全部步骤成功。该提交包含：新旧两条主从液体交接的双侧批次补偿、故障注入测试、Settlement restore ledger receipt guard、Ship-backed restore test fixture，以及此前提交的 writer allowlist 修正。
+- PR #60 当前 head 在本次最终查询前为文档提交 `6a2718a45376e0e9c1c98e20f910ec36cf98dc15`，仍 Draft/Open/未合并；本轮最新源/测试 head `5b23607` 有精确成功 run。之后的文档提交不改变源码。
+- 下一阶段：Settlement Return/receipt/ledger batch/stage mark/reservation release 的独立故障注入与 checkpoint/replay；随后 A/B parity 和固定 Seed 资源守恒扩大测试。进程崩溃/断电持久化原子性尚未完成，不得宣称。
