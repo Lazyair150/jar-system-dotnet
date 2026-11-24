@@ -239,7 +239,7 @@ Admission 必须对当前资源原子重验并创建 Lease；缓存命中绝不�
 
 尚未完成：
 
-1. 没有统一的完整 RuleDefinition / RuleEvaluation / RuleTransition / ResourceEffect 契约覆盖所有子系统。
+1. 已新增共享 RuleEvaluationResult / RuleTransition / RuleResourceEffect / RuleResourceAccount 契约，并将现有 WorkshopRulebook 化学操作证明适配到该契约；但它尚未覆盖 MATCH、Mark、Transfer、Staging admission、Capacity、Parser、Skill 和 Production Device 的全部语义，也尚未成为所有执行器的唯一入口。
 2. 现有 RuleContext 仍只解释部分贡献效果；ModifyCapacity 保持 Undetermined。
 3. Parser 规则由单独窄执行器消费；Skill 和 Production Device 的完整规则执行语义仍缺失。
 4. Board Runtime Profile Set 是消费者身份/配置路由，不是电路编译器或规则执行器。
@@ -279,3 +279,15 @@ Admission 必须对当前资源原子重验并创建 Lease；缓存命中绝不�
 - 只改变资源余额时可更新 Readiness；只有结构/规则/目标依赖改变时才重算结构解。
 - 主台 Ban、Jar 内液体自耗、主从单向传递、游离液体 staging 与 Parser 仓库入口等既有不变量不回退。
 - Checkpoint 只保存恢复权威世界所需事实；Circuit Image/计划缓存可重建，不作为权威资源状态。
+
+## 10. Phase 1 implementation slice: shared transition contract
+
+Implemented in Core:
+
+- `RuleEvaluationResult` carries Allowed / Rejected / Undetermined, stable ReasonCode, diagnostic text and an optional executable transition. Validation forbids transitions on rejection/undetermined and requires one on Allowed.
+- `RuleTransition` carries stable RuleId/version, scope, target, before/after state payloads and explicit resource effects.
+- `RuleResourceEffect` carries resource kind/identity/amount and exact account endpoints. Consume, Produce, Transfer and Discard have distinct endpoint invariants.
+- `RuleResourceAccount` addresses a concrete owner identity; role labels and display names are not accepted as account ownership.
+- `WorkshopRuleTransitionAdapter` adapts the existing four Workshop chemical operation proofs to the shared contract. PourIn and ReshapeEmpty consume Workshop free-liquid staging; PourOut produces into the current Workshop staging account; ReshapeFull consumes the liquid owned by that exact Jar. It does not confuse Jar-internal self-consumption with Workshop free-liquid balance.
+
+Tests authored for these invariants in `RuleTransitionContractTests`. This is a compatibility adapter slice, not yet a replacement for WorkshopRulebook, not yet the Circuit Compiler, and not yet a universal evaluator. MATCH currently remains on its existing lifecycle proof path and must be adapted separately because it has no `WorkshopOperationKind` value.
