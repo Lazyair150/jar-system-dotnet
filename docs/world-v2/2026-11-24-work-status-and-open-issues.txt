@@ -392,3 +392,11 @@ CHECKPOINT 28 — Space 跨仓库首轮运行与快照探针修正（2026-11-24�
 - 归因是 probe 将内存 Dictionary 与 JSON 读回的 Variant 直接比较，未归一化 JSON 数字类型。已在 Space 提交 4c0ca87c1f3bcdb5cdf173ab111a0edf9a941517 增加 JSON round-trip 归一化比较，并在 90e46344ef8376640dfb2cc831712227b131aa53 统一既有缩进；Space 集成文档记录提交 4fec7c0af2b22216d00ca799753c788d6fb49436。
 - 该修正只更正测试探针的序列化比较，不改生产存档结构。新一轮工作流已因修正提交触发；截至本记录，未取得新 head 的最终结果，不能声称 Parser ingress 及后续生命周期探针通过。
 - 下一步继续处理首个失败探针，随后逐个推进 Runtime / lifecycle / fault / disposed-command / snapshot-isolation；只有这些边界真正闭合后，才进行 Space 生产 Hangar 启动路径与 Parser → Core → A/B execution 的端到端验收。清理仍然后置。
+
+
+CHECKPOINT 29 — Space Parser Catalog Probe 跟进双工作台契约（2026-11-24）
+
+- Space 修正 JSON 快照比较后，run 45423503329 已越过 unified battle snapshot store probe，并推进到 SpaceOreParserCatalogProbe。
+- 第二个失败来自旧测试夹具：其 jarWorldOptions 只包含一个 Workshop，且没有 slaveWorkshopName；当前 SpaceBattleLoadoutSnapshot.validate_data 已要求所有 World V2 loadout 明确冻结两个不同的主/从工作台位置。
+- 已修正 Space 的 scripts/industrial/world_v2/SpaceOreParserCatalogProbe.gd：加入独立 Slave workshop 条目与 slaveWorkshopName。提交 407932714935b33721c0a1198fc1072e7b5f6358；Space 集成文档提交 f5f49451a739f843aa4aec0101b29e1b7624a295。
+- 不放宽生产模型约束。下一轮继续检查 Parser ingress 与其后的 lifecycle/fault/snapshot probes；最新修复 head 的最终运行结果尚未取得。
