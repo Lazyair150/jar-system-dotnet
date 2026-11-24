@@ -52,6 +52,8 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
         Assert.Equal("酒", result.Transition.After.Values["liquid"]);
         Assert.Equal(nameof(JarPolarity.Cathode), result.Transition.After.Values["polarity"]);
+        Assert.Equal(new JarPolarityTransition(JarPolarity.Neutral, JarPolarity.Cathode),
+            result.Transition.PolarityTransition);
         Assert.Equal("true", result.Transition.After.Values["marked"]);
     }
 
@@ -91,6 +93,8 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("酒", effect.ResourceId);
         Assert.Equal(string.Empty, result.Transition.After.Values["liquid"]);
         Assert.Equal(nameof(JarPolarity.Neutral), result.Transition.After.Values["polarity"]);
+        Assert.Equal(new JarPolarityTransition(JarPolarity.Cathode, JarPolarity.Neutral),
+            result.Transition.PolarityTransition);
     }
 
     [Fact]
@@ -144,6 +148,9 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
         Assert.Equal("酒", result.Transition.After.Values["liquid"]);
         Assert.Equal(nameof(JarPolarity.Cathode), result.Transition.After.Values["polarity"]);
+        Assert.Equal(new JarPolarityTransition(JarPolarity.Cathode, JarPolarity.Cathode),
+            result.Transition.PolarityTransition);
+        Assert.False(result.Transition.PolarityTransition.ChangesPolarity);
         Assert.Empty(result.Transition.ResourceEffects);
     }
 
