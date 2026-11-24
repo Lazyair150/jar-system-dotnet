@@ -272,19 +272,19 @@ public sealed class RuleTransitionContractTests
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", sourceJars, sourceJars,
                 sourceLiquids, new Dictionary<string, int> { ["蜜"] = 1 },
-                new[] { "蜜" }, 0, 1, 0, 4,
+                System.Array.Empty<string>(), new[] { "蜜" }, 0, 1, 0, 4,
                 new Dictionary<int, JarFacts> { [41] = new("圆罐", "蜜", false) }));
         Assert.Throws<System.ArgumentException>(() =>
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", sourceJars, sourceJars,
                 sourceLiquids, new Dictionary<string, int> { ["酒"] = 2 },
-                System.Array.Empty<string>(), 0, 1, 3, 4,
+                System.Array.Empty<string>(), System.Array.Empty<string>(), 0, 1, 3, 4,
                 new Dictionary<int, JarFacts> { [41] = new("圆罐", "蜜", false) }));
         Assert.Throws<System.ArgumentException>(() =>
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", sourceJars, sourceJars,
                 sourceLiquids, new Dictionary<string, int> { ["酒"] = 3 },
-                System.Array.Empty<string>(), 0, 1, 0, 4,
+                System.Array.Empty<string>(), System.Array.Empty<string>(), 0, 1, 0, 4,
                 new Dictionary<int, JarFacts> { [41] = new("圆罐", "蜜", false) }));
     }
 
@@ -298,14 +298,14 @@ public sealed class RuleTransitionContractTests
                 "master", "slave", jars, jars,
                 new Dictionary<string, int> { ["酒"] = 1 },
                 new Dictionary<string, int> { ["酒"] = 1 },
-                System.Array.Empty<string>(), 0, 1, 0, 2,
-                jarFacts, new[] { "酒" }));
+                new[] { "酒" }, System.Array.Empty<string>(), 0, 1, 0, 2,
+                jarFacts));
 
         Assert.Throws<System.ArgumentException>(() =>
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", jars, jars,
                 new Dictionary<string, int>(), new Dictionary<string, int>(),
-                new[] { "蜜" }, 0, 1, 0, 2,
+                System.Array.Empty<string>(), new[] { "蜜" }, 0, 1, 0, 2,
                 jarFacts));
     }
 
@@ -316,12 +316,12 @@ public sealed class RuleTransitionContractTests
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", new[] { 51 }, new[] { 52 },
                 new Dictionary<string, int>(), new Dictionary<string, int>(),
-                System.Array.Empty<string>(), 0, 1, 0, 1));
+                System.Array.Empty<string>(), System.Array.Empty<string>(), 0, 1, 0, 1));
         Assert.Throws<System.ArgumentException>(() =>
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", new[] { 51 }, new[] { 51, 51 },
                 new Dictionary<string, int>(), new Dictionary<string, int>(),
-                System.Array.Empty<string>(), 0, 2, 0, 1));
+                System.Array.Empty<string>(), System.Array.Empty<string>(), 0, 2, 0, 1));
         Assert.Throws<System.ArgumentException>(() =>
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "master", new[] { 51 }, new[] { 51 },
