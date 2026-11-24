@@ -311,3 +311,33 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 下一步仍优先完成 Core B 类 transfer/settlement 故障注入与 checkpoint 恢复验证，以及 Space Board Assignment 唯一权威源审计；两者验证前不进入全仓垃圾文件清理。
 
 不要将本节以前的 head/run 数字作为当前验证结论。
+## 13. 交接失败补偿与 checkpoint 账本边界（2026-11-24 22:10 +08:00）
+
+### 本轮已提交的代码变化
+
+- 在 `OrderTransferService` 引入内部 `IOrderJarTransferPort` 与默认 `WorkshopJarTransferPort`，将单 Jar 账户迁移从订单编排中分离，允许测试在精确提交边界注入故障。
+- 单 Jar move 抛错或返回失败后，TransferService 检查同一 Jar 对象是否仍由 Master/Slave 持有：若两端均未持有则恢复 Master；若两端重复持有则撤销 Slave 重复归属；若 Slave 已持有则交给会话补偿回滚。
+- 交接后置核验现在要求 Slave 的整个 Jar ID 集合与 Manifest 完全相等，并拒绝无效/重复 ID；不再只验证“请求的 ID 在 Slave 中存在”，从而遗漏额外 Jar。
+- 新增 `OrderTransferService.IsCommitted`：只有实体后置核验完成且可选的 `ResourceLedger.RecordBatchOnce` 成功后才置为 true；`CommittedTransition` 也延后到该提交点之后发布。
+- 会话失败收尾仅在 `IsCommitted` 时为从台回滚写入 Return 账本事实。若 handoff 只完成了部分实体移动、Transfer batch 尚未提交，则回滚只是恢复临时所有权，不写孤立 Return。
+- `RestoreProgress` 从权威 `SlaveTransferCommitted` checkpoint 位恢复 `IsCommitted`；当提供 ResourceLedger 且 Manifest 有转移事实时，还必须存在 `WorldVersion:order:DemandId:transfer` operation receipt，否则拒绝恢复，防止恢复后制造没有 Transfer 的 Return。
+- 新增测试：提交端口在源端移出后抛错；第二只 Jar 移动失败时第一只已转移 Jar 回滚且无 Transfer/Return 孤立账本；SlaveSteps checkpoint 恢复后发生操作失败仍正确记录已提交 Transfer 的 Jar Return；缺失 transfer receipt 的 checkpoint 拒绝恢复；无效 ledger batch 不产生部分事件或 operation receipt。
+
+### 当前源代码验证状态
+
+- 当前 Core 源代码 head：`8e29f19b93d16f527f9f1a3dfb8916f10054d321`。
+- 精确 head verify run `45405814473` 已创建，查询时仍 `in_progress`；本节后续文档提交不改变上述源代码 head。此前 `d64a2b3` 精确 head run `45403667537` 已 completed/success，但它不覆盖本轮新代码。
+- PR #60 仍 Draft/Open/未合并，继续依赖 PR #59 的 `phase-4.11b` 基础分支，不单独合并。
+- Space PR #2 仍 Draft/Open/未合并；Owned assembler 已强制要求完整 Board Assignment snapshot，并加入 field-only selection 回归 probe，但没有 Godot 4.7.1 .NET 的构建、GDScript parse 或 probe 结果。
+
+### 仍未完成（明确保留）
+
+1. 给 scoped liquid batch transfer 与 legacy free-liquid transfer 建立同样的可注入事务边界，测试部分写入、异常返回与补偿；确认 `OrderLiquidTransfer.TryExecute` 的 all-or-nothing 契约。
+2. 对 Settlement 的 Drain、Ship Return、receipt、ledger batch、stage mark、reservation release 逐点故障注入；验证 checkpoint/restore 重放不会重复 Return 或重复记账。
+3. 验证交接成功后 Slave 执行失败、checkpoint restore 后失败、交接尚未提交时失败这三类状态的 ledger 因果链：Transfer 必须先于真实 Return，未提交交接不得产生 Return。
+4. 对 A 类 solver/materializer/admission/replay 与 B 类共享 polarity、RuleTransition、staging admission、Mark 和 exact account identity 做 parity 审计。
+5. 扩大固定 seed 的极性/主从角色/容量/Ban/精确 Jar ID/资源守恒矩阵，报告 Feasible/Infeasible/Undetermined 与最小失败样本。
+6. 完成 Board topology/Assignment/Definition/Owned Instance/Rule Contribution/Effective Profile/Runtime projection 能力矩阵，并验证 Space template ingress、Parser schema 3 import receipt、frozen battle snapshot。
+7. 所有上述契约稳定并验证后，才做全仓引用审计、过期文档标注、死代码与临时文件清理。
+
+注意：本轮 GitHub Actions 正在验证源码 head `8e29f19`；未完成前不将本轮代码标记为 CI 通过。
