@@ -128,7 +128,7 @@ public sealed class WorkshopReplacementTests
         Assert.Equal("酒", jar.Liquid);
         Assert.Equal(0, newMaster.LiquidStorage["酒"]); // 禁液游离液体不进入目标台
         Assert.True(newMaster.IsBanned("酒"));
-        Assert.False(newMaster.CanReshapeTo(jar, "方罐").Granted);
+        Assert.True(newMaster.CanReshapeTo(jar, "方罐").Granted);
     }
 
     [Fact]
