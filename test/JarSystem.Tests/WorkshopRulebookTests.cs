@@ -95,6 +95,13 @@ public class WorkshopRulebookTests
             WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
         Assert.True(same.IsAllowed);
 
+        var samePolarityMatch = WorkshopRulebook.EvaluateMatch(
+            anodeRules, new JarFacts("圆罐", "蜜", false));
+        Assert.True(samePolarityMatch.IsAllowed);
+        var neutralMatch = WorkshopRulebook.EvaluateMatch(
+            anodeRules, new JarFacts("圆罐", null, false));
+        Assert.True(neutralMatch.IsAllowed);
+
         var neutral = WorkshopRulebook.Evaluate(
             anodeRules, 3, new JarFacts("圆罐", null, false),
             WorkshopOperation.ReshapeEmpty("方罐", "蜜"), new Dictionary<string, int> { ["蜜"] = 1 });
