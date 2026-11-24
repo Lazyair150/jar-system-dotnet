@@ -26,6 +26,13 @@ public sealed class RuleTransitionContractTests
             new KeyValuePair<string, string>("liquid", "酒"),
             new KeyValuePair<string, string>("polarity", nameof(JarPolarity.Anode))
         }));
+        Assert.Throws<System.ArgumentException>(() => new RuleStateSnapshot(new[]
+        {
+            new KeyValuePair<string, string>("jarInstanceId", "jar.opposite"),
+            new KeyValuePair<string, string>("liquid", "酒"),
+            new KeyValuePair<string, string>("polarity", nameof(JarPolarity.Cathode)),
+            new KeyValuePair<string, string>("workshopPolarityMode", nameof(WorkshopPolarityMode.Anode))
+        }));
     }
 
     private static readonly RuleContext Rules = RuleContext.From(
