@@ -201,6 +201,19 @@ public static class WorkshopRuleTransitionAdapter
         if (evaluation.Transition is not { } transition)
             throw new ArgumentException("Allowed WorkshopRulebook evaluation is missing its transition.", nameof(evaluation));
 
+        var expectedRuleId = operation.Kind switch
+        {
+            WorkshopOperationKind.PourIn => "jar.workshop.pour-in",
+            WorkshopOperationKind.PourOut => "jar.workshop.pour-out",
+            WorkshopOperationKind.ReshapeEmpty => "jar.workshop.reshape-empty",
+            WorkshopOperationKind.ReshapeFull => "jar.workshop.reshape-full",
+            _ => throw new ArgumentOutOfRangeException(nameof(operation))
+        };
+        var definition = WorkshopRulebook.Definitions.First(item => item.RuleId == expectedRuleId);
+        if (!string.Equals(transition.RuleId, expectedRuleId, StringComparison.Ordinal) ||
+            transition.RuleVersion != definition.RuleVersion)
+            throw new ArgumentException("Workshop proof identity/version does not match the requested operation.", nameof(evaluation));
+
         var effects = new List<RuleResourceEffect>(2);
         var freeLiquid = new RuleResourceAccount("workshop.free-liquid-staging", workshopInstanceId);
         var jarLiquid = new RuleResourceAccount("jar.internal-liquid", jarInstanceId);
@@ -279,8 +292,10 @@ public static class MatchRuleTransitionAdapter
 
         if (evaluation.Transition is not { } transition)
             throw new ArgumentException("Allowed MATCH proof is missing its lifecycle transition.", nameof(evaluation));
-        if (!string.Equals(transition.RuleId, "jar.workshop.match", StringComparison.Ordinal))
-            throw new ArgumentException("MATCH adapter received a proof for another rule.", nameof(evaluation));
+        var matchDefinition = WorkshopRulebook.Definitions.First(item => item.Operator == "MATCH");
+        if (!string.Equals(transition.RuleId, matchDefinition.RuleId, StringComparison.Ordinal) ||
+            transition.RuleVersion != matchDefinition.RuleVersion)
+            throw new ArgumentException("MATCH adapter received a proof with an unexpected rule identity/version.", nameof(evaluation));
         if (transition.After.Shape != before.Shape ||
             !string.Equals(transition.After.Liquid, before.Liquid, StringComparison.Ordinal) ||
             transition.After.IsMarked != true || before.IsMarked)
