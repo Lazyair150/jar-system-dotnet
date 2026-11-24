@@ -76,6 +76,8 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                         _ => "蜜"
                     }
                 })
+                // Domain contract: empty-Jar requirements precede full-Jar requirements.
+                .OrderBy(requirement => requirement.Liquid is not null)
                 .ToArray();
             var orderType = random.Next(2) == 0
                 ? Constants.OrderType.A
