@@ -122,6 +122,11 @@ public sealed class RuleContext
 
     public bool IsBanned(string liquid) => _capability.IsBanned(liquid);
 
+    /// <summary>Ban is also the Workshop's Jar-polarity compatibility rule.</summary>
+    public WorkshopPolarityMode PolarityMode => _capability.PolarityMode;
+
+    public bool CanOperateJar(JarPolarity polarity) => _capability.CanOperateJar(polarity);
+
     /// <summary>可改形目标：基础能力给出的 + 被授予的形状（后者视作附加标记）。</summary>
     public List<string> GetPossibleTransforms(string shape)
     {
