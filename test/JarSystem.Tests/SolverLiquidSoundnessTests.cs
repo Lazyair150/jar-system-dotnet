@@ -89,13 +89,17 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
-    public void AJarCarryingABannedLiquidCannotBeReshapedBySelfConsumption()
+    public void AJarCarryingABannedLiquidCanBeReshapedBySelfConsumption()
     {
-        // 读法 B（用户 m01174）：满罐自耗算"使用" ⇒ 罐内是禁酒时不能改形。
-        NeverFeasible("把装着禁酒的满罐改形",
-            new List<Requirement> { new() { Shape = "方罐" } },
-            Jars("酒"),
-            new Dictionary<string, int>());
+        // Jar 内部酒不属于工作台 staging；满罐自耗不读取 staging Ban。
+        foreach (var solver in Solvers())
+        {
+            var result = solver.Solve(
+                new List<Requirement> { new() { Shape = "方罐" } },
+                Info(Bench()), Jars("酒"), new Dictionary<string, int>());
+            Assert.True(result.Feasible,
+                solver.GetType().Name + " 错误地把 Jar 内部液体当成 staging Ban 对象：" + result.Blockage);
+        }
     }
 
     [Fact]
