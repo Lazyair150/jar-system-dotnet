@@ -285,6 +285,14 @@ public static class WorkshopRulebook
 
                 // The Jar's internal liquid is not staging stock. Ban/capacity is checked only
                 // at the destination staging admission below (scope or workshop liquid pool).
+                // The Ban belongs to this Workshop's free-liquid staging boundary.
+                // Check it here because an OrderLiquidScope is a separate account object and
+                // must not be able to weaken the owning Workshop's configured Ban.
+                var stagingPolicy = liquidRules.Check(liquid);
+                if (!stagingPolicy.Granted)
+                    return WorkshopRuleDecision.Reject("liquid.banned",
+                        stagingPolicy.Reason ?? "工作台暂存区禁止接收该液体");
+
                 if (scope != null)
                 {
                     var receive = scope.CanReceiveOperation(liquid, 1);
