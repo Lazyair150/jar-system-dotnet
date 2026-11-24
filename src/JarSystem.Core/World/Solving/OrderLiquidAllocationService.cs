@@ -174,5 +174,4 @@ internal sealed class OrderLiquidAllocationService
         if (prefillGrant.Count > 0)
             masterStaging.RestorePrefill(prefillGrant);
     }
-    }
 }
