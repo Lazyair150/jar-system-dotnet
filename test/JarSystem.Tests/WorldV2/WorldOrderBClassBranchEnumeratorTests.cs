@@ -536,33 +536,26 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     [Fact]
     public void BClassCanSplitDifferentRequirementsAcrossMasterAndSlave()
     {
-        var masterRules = new ModifierStack();
-        masterRules.Push(new SuppressModifier
-        {
-            Operation = "MATCH",
-            Shape = "方罐",
-            Reason = "主台不匹配方罐需求"
-        });
         var master = new Workshop("Cathode主台",
             new List<string> { "圆罐", "方罐" },
-            ban: new List<string> { "蜜" }, modifiers: masterRules);
+            ban: new List<string> { "蜜" });
         var slave = new Workshop("Anode从台",
             new List<string> { "圆罐", "方罐" },
             ban: new List<string> { "酒" });
         master.AddJar(new Jar("圆罐", "酒", id: 9141));
-        master.AddJar(new Jar("方罐", id: 9142));
+        master.AddJar(new Jar("方罐", "蜜", id: 9142));
 
         var input = Profiles(master, slave, new[]
         {
-            new Requirement { Shape = "方罐" },
-            new Requirement { Shape = "圆罐", Liquid = "酒" }
+            new Requirement { Shape = "圆罐", Liquid = "酒" },
+            new Requirement { Shape = "方罐", Liquid = "蜜" }
         });
-        Assert.Empty(input.Master.Requirements[0].Candidates);
-        Assert.Contains(input.Slave.Requirements[0].Candidates,
+        Assert.Contains(input.Master.Requirements[0].Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Contains(input.Master.Requirements[1].Candidates,
+        Assert.Empty(input.Slave.Requirements[0].Candidates);
+        Assert.Empty(input.Master.Requirements[1].Candidates);
+        Assert.Contains(input.Slave.Requirements[1].Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Empty(input.Slave.Requirements[1].Candidates);
 
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             914, input.Master, input.Slave, input.World);
