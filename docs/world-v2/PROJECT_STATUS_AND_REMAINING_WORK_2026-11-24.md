@@ -254,3 +254,27 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 已在 commit `60b49be6d3e8b3549d5c186e7931c78a296a93f4` 修正三处参数名。
 - 最新后续 commit `38b6c8c` 将账本重复操作 ID 和负 tick 检查提前到实体提交之前；文档提交 head 为 `a4da8d3`。
 - `9d46544` 是明确失败的历史 head；只有 `60b49be` 或更新 head 的完整 CI success 才能解除此问题。最新 head Actions 尚在运行，不能标记通过。
+
+## 10. 当前会话事实校正（2026-11-24 21:25 +08:00）
+
+本节覆盖前文中“最新 head 尚待验证”等过期状态；前文保留为历史过程记录。
+
+- GitHub 当前 PR #60 head：`b8cde3e5c331144e78ab881d9e0d72a41a9cad76`；base：`world-v2/phase-4.11b-space-produced-jar-import-v2` / `a52f9465ad4febdcfb821227f7b2e03b2ddc012c`。
+- PR #60 仍为 Draft / Open / 未合并；继续保持 stacked，不单独合并。
+- 精确 head `b8cde3e` 的 GitHub Actions verify run `45402867828` 已 completed / success；唯一 verify job 与验证回路步骤均 success。该结果解除前文“最新 head Actions 尚在运行/失败未解除”的过期描述，只证明该精确 head。
+- 历史失败 run `45402521348` 的根因是 `ResourceLedgerMutation` record 构造参数大小写错误（`From` / `To`），已在后续提交修正；最新完整验证已通过。此前 B 类角色枚举与 xUnit analyzer 的失败也属于历史 head，不再作为当前未解决失败登记。
+- 当前分支已经包含：Master/Slave 联合需求候选搜索；Slave-first 仅作为候选搜索偏好；Master 操作先于 handoff、Slave 操作后于 handoff；receiver-only Slave 路径；Jar 交接按 exact ID 校验；交接账本事实批量 RecordBatchOnce；重复 operation ID 在实体提交前拒绝；Jar transfer 不检查接收端 polarity。
+- 真实会话测试已覆盖 A/B 执行、B 类交接预检失败、跨极性 receiver-only、主从库存 exact ID、Slave 后续操作、液体泵送与结算等场景。仍需扩展故障注入与 checkpoint/restore 的交接边界，不将“补偿式回滚”称为数据库原子事务。
+- Space PR #2 当前仍为 Draft / Open / 未合并，head `12c6e69d242e47d703eccda32c6d790105b33e77`，base 是 Space main 的 `4753d5926830bbb3c254c78f4966171a370522ca`。其 Core template ingress 调用依赖 Core PR #60；Space 仓库未发现关联 Actions run。Godot 4.7.1 .NET build、GDScript parse 与 probes 仍未执行，不能标绿。
+
+### 下一执行切片（继续按依赖顺序）
+
+1. 为 B 类交接增加可控故障注入/可替换传输端口，验证第 N 个 Jar 移动失败、液体批次失败、账本批次提交失败时：Master/Slave exact Jar IDs、两侧 staging balances、Mark、lease、reservation、ledger operation receipt 均一致；若无法安全注入则先设计事务端口，不在生产代码中散布临时测试开关。
+2. 补齐 settlement 的异常恢复：Drain、Ship Return、settlement receipt、ledger RecordBatchOnce、lease/reservation release 的重试与 checkpoint 边界；明确每一步可重放/不可重放语义。
+3. 执行 A 类 solver / concrete materializer / admission / replay 与 B 类共享规则契约审查，检查 polarity、RuleTransition 与 exact account identity 不泄漏 B 类假设。
+4. 扩大固定 seed 的 polarity / transfer / staging / B 类角色分配 / 资源守恒矩阵，输出 seed、case 数、Feasible/Infeasible/Undetermined 分类及失败最小样本；保留独立 Oracle。
+5. 完成 Board topology / Assignment / Definition / Owned Instance / Rule Contribution / Effective Profile / Runtime projection 能力矩阵；未知 scope 与多 Parser runtime 必须明确拒绝，不能静默忽略。
+6. 对齐 Space PR #2 的 Core PR #60 依赖、template identity、Parser schema 3 outbox/import receipt、owned assignment 与冻结战斗快照；Godot 环境可用后执行全部 probes。
+7. 最后才做全仓文件引用审计、过期文档标注、死代码/临时文件清理与命名规范化；不删除 Oracle、历史决策、schema/replay fixtures 或活动验证脚本。
+
+验证纪律不变：后续任何源代码提交都必须重新查询该提交精确 head 的 Actions；本次 run `45402867828` 不为后续提交背书。
