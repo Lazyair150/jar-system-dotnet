@@ -194,7 +194,7 @@ Mark 不是资源数量，也不是液体账户余额。它是 Jar 的订单周�
 - `JarPolarity` 是三态枚举；
 - `JarPolarityResolver` 是唯一映射入口；
 - 未知非空液体不会被猜测映射，`TryFromLiquid` 返回 false，`Resolve` 明确失败；
-- `Jar.Polarity` 是从当前权威 `Liquid` 派生的只读属性，不保存第二份可变状态。
+- `Jar.Polarity` 与 `JarFacts.Polarity` 都是从当前权威 `Liquid` 派生的只读属性，不保存第二份可变状态。
 
 因此不存在可独立写入的 Polarity 字段，也不会出现“Cathode + 蜜液”这类互相矛盾的数据。未来若改变液体词汇或极性映射，必须显式修改唯一 Resolver 与对应测试。
 
