@@ -235,3 +235,10 @@ CHECKPOINT 16 — 2026-11-24 23:20 +08:00
 - These changes prevent arithmetic/preflight exceptions from occurring after the first drain. They do not yet prove recovery from an exception after ShipLiquidInventory.Return or during ledger/stage/release publication; those boundaries still require deterministic fault injection and replay tests.
 - The exact-head run 45406862320 validates only source SHA 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef and was still in_progress at query time. It does not cover later source commits 994a93a / 694b225. No exact-head run for 694b225 was returned yet.
 - Latest source head at this checkpoint: 694b22546d6ad06d08b7ea18b04db834beb9bb0b. Latest PR #60 head must be re-read before further branch writes; keep PR Draft/Open/unmerged.
+
+
+VERIFICATION CORRECTION — 2026-11-24 23:25 +08:00
+
+- Run 45406862320 completed successfully for exact source SHA 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef. This confirms the allocation service brace correction compiles and passes the workflow checks at that SHA.
+- Latest source commit 694b22546d6ad06d08b7ea18b04db834beb9bb0b has its own run 45407187598, currently in_progress. This is the first verification covering both settlement pre-drain aggregation changes.
+- PR #60 current head at the latest query is documentation commit 5add77237f37cf155a55d6ce21afc91b41efc3af, Draft/Open/unmerged; source head remains 694b225.
