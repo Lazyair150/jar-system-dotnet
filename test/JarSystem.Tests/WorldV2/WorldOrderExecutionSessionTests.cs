@@ -421,7 +421,8 @@ public sealed class WorldOrderExecutionSessionTests
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
         var slave = new Workshop("从台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
-        master.AddJar(new Jar("圆罐", vocabulary: Words));
+        var deliveredJar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(deliveredJar);
         master.AddLiquid("酒", 1);
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
         var setup = Prepare(master, slave, demand);
@@ -440,7 +441,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(slave.HasResources);
         Assert.Null(setup.Board.Find(demand.Id));
         Assert.Equal(0, setup.Reservations.Count);
-        Assert.False(jar.IsMarked, "成功终态必须清理本订单参与 Jar 的 Mark");
+        Assert.False(deliveredJar.IsMarked, "成功终态必须清理本订单参与 Jar 的 Mark");
     }
 
     [Fact]
