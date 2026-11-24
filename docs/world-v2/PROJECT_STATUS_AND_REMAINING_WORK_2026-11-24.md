@@ -460,3 +460,15 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 
 - `13f645248b824a9866051327e33f59c81f44acdc` 对应 run `45409859456` 已 success，覆盖 live settlement 在 LedgerRecorded 但账本缺 operation receipt 时拒绝释放。
 - 最新更严格的“LedgerRecorded 必须提供 ResourceLedger 对象”与其测试提交 `d5cd82823fed353d95e254ec2a9fa270e9ec2828` 的 run `45410074563` 仍 in_progress，需以后者完成结果为准。
+
+
+## 20. Settlement fault matrix, A/B parity and fixed-seed conservation
+
+- Settlement now exposes internal fault seams at master drain, slave drain, Ship Return-before-receipt, ledger batch, stage mark, and reservation release boundaries.
+- Before the Lease receipt commits, synchronous failure restores the Ship inventory snapshot and both order-scoped staging account snapshots. If compensation itself fails, an AggregateException explicitly marks the world as requiring fail-stop handling.
+- After receipt commit, recovery is forward-only: `RecordBatchOnce` deduplicates a ledger batch after a post-batch exception; a `LedgerRecorded` retry verifies the exact operation receipt before releasing capacity/reservation. No post-receipt rollback is attempted.
+- Legacy `WorldOrderExecutionAdmission.SettleLiquidResources` receives the same pre-receipt account compensation. `ReleaseReservationOnly` now preflights both staging accounts before removing either order capacity quota.
+- New tests inject 3 pre-receipt and 3 post-receipt faults and assert account restoration, receipt state, ledger deduplication, stage replay, and final reservation release.
+- Fixed-seed resource matrix: 4 seeds × 200 samples for master/slave order-liquid transfer, covering successful transfer, insufficient source, receiver Ban, and receiver capacity; plus 4 seeds × 200 Ship Return samples checking per-liquid requested/accepted/discarded conservation, total inventory conservation, capacity, and isolation.
+- A/B polarity parity matrix adds 12 cases across Neutral/Cathode/Anode Jar states and Unrestricted/Cathode/Anode/NeutralOnly Workshop modes, comparing A and B enumerator feasibility for equivalent role capabilities.
+- Exact-head CI: `c1a6eb1` / `45411373717` success; `2d5c30a` / `45411404661` success; `f4a1ba7` / `45411519622` success; `fc16c14` / `45411564120` success; `97df879` / `45411592815` success. Fixed-seed transfer `7c15635` / `45411759149` and Ship Return `8d461d9` / `45411804846` were still in progress at recording time. A/B parity `cddc572` did not yet have a run. Latest PR head verification remains pending.
