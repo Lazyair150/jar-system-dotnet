@@ -260,7 +260,7 @@ public static class SolverPrecheck
             if (string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal)) return true;
 
             // ② 是空 S 罐 ⇒ POUR_IN（要求 S 在基础标记内、液体未被禁、且还弄得一份）
-            if (cap.IsBanned(req.Liquid)) return false;
+            if (cap.IsBanned(req.Liquid!)) return false;
             return jar.Polarity == JarPolarity.Neutral
                 && cap.IsBaseMarked(req.Shape)
                 && canObtainLiquid(req.Liquid);
@@ -323,7 +323,7 @@ public static class SolverPrecheck
                         break;
                     }
                     // POUR_IN
-                    if (j.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid)
+                    if (j.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!)
                         && pool.TryGetValue(req.Liquid, out var have) && have > 0)
                     {
                         pool[req.Liquid] = have - 1;
