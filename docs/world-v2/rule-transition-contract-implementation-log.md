@@ -362,3 +362,21 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - The inducing assumption was found in `WorldOrderBClassBranchEnumerator`: its current demand compiler requires all order requirement steps to belong to Slave (see the slave-only branch checks and comments around lines 85–166). This is a bounded solver design limitation, not a transfer contract. It must not be described as “Slave cannot receive a Jar it cannot operate.”
 - A future solver expansion may assign order work across both roles when the order semantics allow it; do not weaken polarity operation checks to accomplish this. Conversely, do not add polarity checks to the Jar handoff.
 - Regression coverage must keep these cases distinct: (a) cross-polarity Jar handoff is allowed and preserves identity/state; (b) operation by the receiving Workshop is independently rejected when incompatible; (c) order feasibility is determined by a valid role/operation schedule, not a blanket transfer rejection.
+
+
+## 2026-11-24：B 类订单需求角色分配修正
+
+此前 `WorldOrderBClassBranchEnumerator` 将 `WorldOrderSymbolicSolutionBuilder.Build` 限定为仅接收 Slave Profile，并进一步要求每个需求步骤都属于 Slave。该限制不是 Jar 转移规则，却会把“需求必须由从台完成”错误固化为求解器的可行性前提。
+
+本轮修正：
+
+- 主台与从台两个 Profile 一起进入符号解集构建；每项订单需求可以选择任一角色的规则候选。
+- 主台需求步骤在 Master→Slave handoff 之前执行；从台需求步骤在 handoff 之后执行。
+- 主台完成的需求 Jar 仍进入 B 类订单的 handoff，保留形状、内部液体和 Mark；从台不需要再次操作它。
+- Master/Slave 的游离液体准备需求分别统计；主台准备资源可以供主台步骤使用，也可以通过合法的 staging transfer 供从台步骤使用。
+- Jar handoff 不经过 `CanOperateJar`，也不检查接收工作台极性。接收后只有实际执行规则时才检查该台操作权限。
+- 增加异极主从回归：阴极主台完成酒 Jar 的 MATCH，阳极从台无法 MATCH 该 Jar；B 类订单仍可完成，Jar 仍按 B 类交接边界转移到从台。
+
+这项修正改变的是 B 类求解器的角色分配模型，不是把异极 Jar 强行允许从台操作，也不是放宽任何工作台的化学操作权限。
+
+验证状态：本轮提交后的 GitHub Actions 正在执行；在对应最新 head 的 verify job 完成前，不宣称测试通过。
