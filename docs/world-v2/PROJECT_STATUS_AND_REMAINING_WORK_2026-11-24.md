@@ -213,3 +213,14 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 4. 追加 staging conservation / idempotency / partial capacity 固定 seed 性质测试，并记录 seed 与 case count。
 5. 回到 A 类缓存 fingerprint、Board/Compiler/Runtime capability matrix、Space PR #2 对齐和旧文件清理；未验证的 Godot 运行环境继续明确标注未运行。
 6. 每一阶段都更新本文件，并记录精确 commit 与 CI run；不得将旧 head 的绿色结果挪用到新 head。
+
+
+### 资源交接提交路径审计补充
+
+- 已审查 `OrderTransferService`、`WorkshopRoleTransferTransitionAdapter`、`StagingAdmissionTransitionAdapter`、`OrderResourceSettlementService`、`OrderLiquidTransfer`、`WorkshopLiquidStaging` 与 `SlaveRollback`。
+- Jar handoff 的 Adapter 只构造证明，不移动实体；真正移动由 `OrderTransferService` 执行。它先完成来源唯一性、精确 Jar 身份、目标罐位、游离液体 Ban/容量、OwnedInstance identity 与账本 tick 的只读预检，再调用 `commitStarted`，之后移动 Jar 和液体。
+- 当前 Jar 批次不是单个不可分割的底层集合替换：它逐个执行 `TransferOut/TransferIn`。但 `commitStarted` 在第一次变更前设置会话回滚所有权；提交阶段发生异常会进入失败收尾，`SlaveRollback` 将已进入从台的资源回落/丢弃。因此它属于同步预检 + 提交 + 补偿式回滚，不应在文档中误称为数据库式原子事务。
+- 新订单范围下的游离液体批次由 `OrderLiquidTransfer.TryExecute` 执行：先验证目标批次 Ban/容量和来源余额，再同步扣减 Master 子账并增加 Slave 子账；它没有部分接收分支。旧版 LiquidStorage 路径则逐种转移并使用失败补偿，需继续保留兼容路径测试。
+- `StagingAdmissionTransitionAdapter` 是纯证明构造器；`WorkshopLiquidStaging.ReceiveWithTransition` 先执行权威 Receive，再根据同一调用的前后余额构造 transition；若证明构造失败，会撤销本次已接收数量。订单操作的 `TryReceiveExact` 则坚持全量接收，不允许部分成功。
+- `OrderResourceSettlementService` 先 Drain 订单子账，再执行 Ship inventory Return，记录一次性 settlement receipt，并通过 operation ID 批量写账本；重复结算读取已有 receipt，不再次 Drain。仍需测试 Return/账本写入/租约释放之间的异常恢复边界。
+- 重要限制：当前 Adapter 的 Jar Transfer proof 在提交前构造，提交后核对源/目标 Jar 数量和目标 staging 容量；后续应加强为按 exact Jar ID 的提交后账户快照校验，并增加注入式故障测试，证明第 N 个 Jar 转移失败时前 N-1 个已移动 Jar、液体账户和租约都能被补偿到一致状态。
