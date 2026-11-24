@@ -68,6 +68,12 @@ public class Jar
         return _vocabulary.IsValidShape(shape);
     }
 
+    /// <summary>
+    /// Derived polarity of the internal liquid. This is computed from the authoritative
+    /// liquid identity and is never stored as a second mutable state.
+    /// </summary>
+    public JarPolarity Polarity { get { ThrowIfRecycled(); return JarPolarityResolver.Resolve(_liquid); } }
+
     public bool IsEmpty() { ThrowIfRecycled(); return _liquid is null; }
     public bool IsFull() { ThrowIfRecycled(); return _liquid is not null; }
 
