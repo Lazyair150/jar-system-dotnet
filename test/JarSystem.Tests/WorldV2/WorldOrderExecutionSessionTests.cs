@@ -989,9 +989,11 @@ public sealed class WorldOrderExecutionSessionTests
     public void BOrderPumpsOnlySlaveRequiredLiquidAndLeavesMasterSurplusForSettlement()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "owned.workshop.master");
         var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 1, vocabulary: Words);
+            maxJars: 4, maxLiquids: 1, vocabulary: Words,
+            ownedInstanceId: "owned.workshop.slave");
         var sourceJar = new Jar("圆罐", "蜜", vocabulary: Words);
         var toolJar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(sourceJar);
@@ -1081,6 +1083,18 @@ public sealed class WorldOrderExecutionSessionTests
         runtime.AdvanceWorldTime(1_000); // 主台倒出 1 蜜，主台余额为 酒1 + 蜜1
         Assert.Equal(1, scopes.Value.Master.GetAmount("酒"));
         Assert.Equal(1, scopes.Value.Master.GetAmount("蜜"));
+        Assert.Contains(started.Session!.ResourceTransitions, transition =>
+            transition.RuleId == "jar.workshop.pour-out" &&
+            transition.ResourceEffects.Any(effect =>
+                effect.Kind == RuleResourceEffectKind.Transfer &&
+                effect.From?.AccountKind == "jar.internal-liquid" &&
+                effect.To?.AccountKind == "workshop.order-output-boundary"));
+        Assert.Contains(started.Session.ResourceTransitions, transition =>
+            transition.RuleId == "workshop.staging.admission" &&
+            transition.ResourceEffects.Any(effect =>
+                effect.Kind == RuleResourceEffectKind.Transfer &&
+                effect.From?.AccountKind == "workshop.order-output-boundary" &&
+                effect.To?.AccountKind == "workshop.free-liquid-staging"));
 
         runtime.AdvanceWorldTime(1_000); // 只泵送从台需要的 1 酒
         // Master-operated sourceJar remains marked after handoff; the distinct
@@ -1091,6 +1105,14 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(1, scopes.Value.Master.GetAmount("蜜"));
         Assert.Equal(1, scopes.Value.Slave!.GetAmount("酒"));
         Assert.Equal(1, scopes.Value.Slave.Staging.Capacity);
+        var handoff = Assert.IsType<RuleTransition>(started.Session.TransferTransition);
+        Assert.Equal("owned.workshop.master->owned.workshop.slave", handoff.Target);
+        Assert.Contains(handoff.ResourceEffects, effect =>
+            effect.ResourceKind == RuleResourceKind.Liquid &&
+            effect.Kind == RuleResourceEffectKind.Transfer &&
+            effect.ResourceId == "酒");
+        Assert.DoesNotContain(handoff.Before.Values.Keys,
+            key => key.Contains("Polarity", StringComparison.OrdinalIgnoreCase));
 
         runtime.AdvanceWorldTime(1_000); // 从台消耗酒并完成交付
 
