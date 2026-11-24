@@ -344,4 +344,32 @@ public sealed class WorldOrderSymbolicOperationProgramTests
                 }));
     }
 
+    [Fact]
+    public void DirectCandidateBuilderTransfersMasterCompletedJarEvenWithoutSlaveOperation()
+    {
+        var solution = new WorldOrderSymbolicSolution(new[]
+        {
+            new WorldOrderAssignedRuleCandidate(
+                "Master", Candidate(0, "圆罐", "酒", "MATCH", "圆罐", "酒"))
+        });
+
+        var program = WorldOrderSymbolicOperationProgramBuilder.BuildDirectCandidateProjection(
+            solution, true, "Master", "Slave");
+
+        Assert.Equal(2, program.Nodes.Count);
+        var masterOperation = Assert.Single(program.Nodes.Where(
+            x => x.Kind == WorldOrderSymbolicOperationKind.Rule));
+        Assert.Equal("Master", masterOperation.WorkshopRole);
+        var handoff = Assert.Single(program.Nodes.Where(
+            x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff));
+        var handedJar = Assert.Single(handoff.InputJars);
+        Assert.Equal("requirement-0", handedJar.JarKey);
+        Assert.True(handedJar.IsMarked);
+        Assert.Equal("Slave", Assert.Single(handoff.OutputJars).WorkshopRole);
+        Assert.Contains(program.Dependencies, edge =>
+            edge.Kind == WorldOrderSymbolicDependencyKind.JarState &&
+            edge.FromNodeId == masterOperation.NodeId &&
+            edge.ToNodeId == handoff.NodeId);
+    }
+
 }
