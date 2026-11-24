@@ -71,6 +71,39 @@ public sealed class WorldOrderOrderedResourceReplayTests
     }
 
     [Fact]
+    public void StagingOverflowDiscardsOnlyTheExcessProducedLiquid()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            liquidStagingCapacity: 1);
+        master.AddJar(new Jar("圆罐", "酒", id: 923));
+        master.AddJar(new Jar("圆罐", "酒", id: 924));
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(new[] { master }, master));
+
+        var candidate = new WorldOrderRuleCandidate(
+            -1, "圆罐", "酒", "PREPARE_POUR_OUT", "pour-out.rule", 1,
+            "圆罐", null, null, null, "酒", null);
+        var firstInput = new WorldOrderSymbolicJarVersion("first", 0, "Master", "圆罐", "酒");
+        var firstOutput = new WorldOrderSymbolicJarVersion("first", 1, "Master", "圆罐", null, true);
+        var secondInput = new WorldOrderSymbolicJarVersion("second", 0, "Master", "圆罐", "酒");
+        var secondOutput = new WorldOrderSymbolicJarVersion("second", 1, "Master", "圆罐", null, true);
+        var first = WorldOrderSymbolicOperationNode.Rule(
+            "first-pour-out", 0, "Master", null, candidate, firstInput, firstOutput);
+        var second = WorldOrderSymbolicOperationNode.Rule(
+            "second-pour-out", 1, "Master", null, candidate, secondInput, secondOutput);
+        var program = new WorldOrderSymbolicOperationProgram(
+            false, "Master", "Slave", new[] { first, second },
+            System.Array.Empty<WorldOrderSymbolicOperationDependency>());
+
+        var result = WorldOrderOrderedResourceReplay.Replay(program, world);
+
+        Assert.Equal(WorldOrderOrderedResourceReplayStatus.Complete, result.Status);
+        Assert.Equal(new[] { "酒", null }, result.MasterAcceptedProducedLiquids);
+        Assert.Equal(1, result.MasterStagingPeakCapacity);
+        Assert.Equal(1, result.MasterFinalLiquids["酒"]);
+        Assert.Empty(result.MasterInitialLiquids);
+    }
+
+    [Fact]
     public void BannedMasterStagingLiquidCannotBeProducedAndThenConsumed()
     {
         var result = WorldOrderOrderedResourceReplay.Replay(
