@@ -234,7 +234,12 @@ public sealed class RuleTransitionContractTests
             new Dictionary<string, int> { ["酒"] = 2 },
             System.Array.Empty<string>(),
             destinationJarCount: 0, destinationJarCapacity: 2,
-            destinationStagingUsedCapacity: 1, destinationStagingCapacity: 3);
+            destinationStagingUsedCapacity: 1, destinationStagingCapacity: 3,
+            transferJarFacts: new Dictionary<int, JarFacts>
+            {
+                [31] = new("圆罐", "酒", false),
+                [32] = new("方罐", "蜜", false)
+            });
 
         Assert.Equal("workshop.role-transfer", transition.RuleId);
         Assert.Equal("owned.workshop.master->owned.workshop.slave", transition.Target);
@@ -267,17 +272,41 @@ public sealed class RuleTransitionContractTests
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", sourceJars, sourceJars,
                 sourceLiquids, new Dictionary<string, int> { ["蜜"] = 1 },
-                new[] { "蜜" }, 0, 1, 0, 4));
+                new[] { "蜜" }, 0, 1, 0, 4,
+                new Dictionary<int, JarFacts> { [41] = new("圆罐", "蜜", false) }));
         Assert.Throws<System.ArgumentException>(() =>
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", sourceJars, sourceJars,
                 sourceLiquids, new Dictionary<string, int> { ["酒"] = 2 },
-                System.Array.Empty<string>(), 0, 1, 3, 4));
+                System.Array.Empty<string>(), 0, 1, 3, 4,
+                new Dictionary<int, JarFacts> { [41] = new("圆罐", "蜜", false) }));
         Assert.Throws<System.ArgumentException>(() =>
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "slave", sourceJars, sourceJars,
                 sourceLiquids, new Dictionary<string, int> { ["酒"] = 3 },
-                System.Array.Empty<string>(), 0, 1, 0, 4));
+                System.Array.Empty<string>(), 0, 1, 0, 4,
+                new Dictionary<int, JarFacts> { [41] = new("圆罐", "蜜", false) }));
+    }
+
+    [Fact]
+    public void WorkshopRoleTransferRejectsSourceBannedLiquidAndDestinationIncompatibleJar()
+    {
+        var jars = new[] { 61 };
+        var jarFacts = new Dictionary<int, JarFacts> { [61] = new("圆罐", "蜜", false) };
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "slave", jars, jars,
+                new Dictionary<string, int> { ["酒"] = 1 },
+                new Dictionary<string, int> { ["酒"] = 1 },
+                System.Array.Empty<string>(), 0, 1, 0, 2,
+                jarFacts, new[] { "酒" }));
+
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "slave", jars, jars,
+                new Dictionary<string, int>(), new Dictionary<string, int>(),
+                new[] { "蜜" }, 0, 1, 0, 2,
+                jarFacts));
     }
 
     [Fact]
