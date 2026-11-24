@@ -1,0 +1,140 @@
+WORLD V2 / JAR SYSTEM — WORK STATUS AND OPEN ISSUES
+Updated: 2026-11-24
+Repository: Lazyair150/jar-system-dotnet
+Working branch: world-v2/phase-4.11c-order-template-demand-ingress
+Pull request: https://github.com/Lazyair150/jar-system-dotnet/pull/60
+PR policy: Draft/Open; do not merge.
+
+PURPOSE
+This is the handoff ledger for continued implementation. A source edit is not verified until the exact resulting head has a successful applicable CI run. A prior successful SHA does not validate later commits. Do not report unrun Godot probes or local .NET tests as passed.
+
+1. CURRENT VALIDATION STATUS
+- Before this session PR #60 head was 1d707ea98d7a79e810e42e2b23f196bc65c63162.
+- Verify run 45390036091 failed at build because the new B-class regression test used an unsupported Assert.Contains overload at lines 103-104.
+- That run reported Core/host builds, StrategyExperiment, contract snapshot/schema, config-world comparison, protocol guard, solver differential (4,004 comparisons), modifier differential (400 scenarios / 1,600 checks), session replay and dependency vulnerability checks as successful. The overall job still failed because compile/xUnit quality gates failed.
+- Removed the invalid duplicate Assert.Contains overload; the preceding predicate assertion already proves Jar 9131 is in TransferJarIds.
+- Found and fixed a semantic blocker: BClassBranchEnumerator rejected the whole order if Slave had zero candidates for a requirement, even when Master had a valid candidate. It now checks both profile requirement-index alignment and leaves role-specific candidate availability to the combined symbolic search.
+- Corrected stale B-class XML summary and updated the current model/README to describe two-role assignment and ownership-only handoff.
+- At last query PR head was 353bdcdab9d589e1df4e60d8adb3b2319f996563 and verify run 45391579784 was in_progress. Re-query current head and Actions; this record is updated by a subsequent commit and therefore must not be treated as a current SHA assertion.
+
+2. NON-NEGOTIABLE DOMAIN INVARIANTS
+- Board Definition is topology only. Assignment is a separate exact map from slot to component kind, Owned Instance, Definition ID/version and source revision.
+- Definition and Owned Instance are distinct. Multiple instances of one Definition retain independent identity/growth. Master/Slave are role slots, not intrinsic Workshop Definition identities.
+- Jar is a discrete identity-bearing resource with shape, internal liquid and Mark. Liquid is either Jar-internal or free-liquid staging; these are separate accounts.
+- Jar polarity is derived: empty=Neutral, 酒=Cathode, 蜜=Anode.
+- Workshop Ban expresses focus polarity: Ban 酒 => Anode focus; Ban 蜜 => Cathode focus. Neutral Jar is operable by either focus; opposite-polarity Jar is not. No Ban preserves legacy dual-polarity compatibility; both bans permit Neutral only.
+- Actual Jar operations (MATCH, POUR_IN, POUR_OUT, RESHAPE) check operating Workshop polarity. Jar possession and physical handoff do not.
+- Master-to-Slave Jar transfer changes ownership only. Preserve exact Jar ID, shape, internal liquid, derived polarity and Mark. Never require the receiver to operate a Jar merely to receive it. Never add CanOperateJar/polarity gate to handoff.
+- Free-liquid staging has its own Ban/capacity admission. PourOut's Jar operation and subsequent staging settlement are distinct transitions; accepted quantity transfers to staging, rejected/overflow quantity is explicitly discarded.
+- Master staging Ban blocks that free liquid from transfer to Slave. B-class Slave starts without its own Jar/free-liquid inventory as order inputs; it receives permitted resources from Master.
+- Order-produced free liquid first attempts current Workshop staging; rejection/overflow discards it. No hidden banned-liquid staging account.
+- MATCH marks exact Jar; handoff preserves Mark. Clear only this order's participating Jar marks at terminal success/failure/cancel; unrelated marks survive.
+- Unknown/unimplemented rules and unsupported scopes fail closed as Undetermined/Rejected. Budget exhaustion is Undetermined, never proof of Infeasible.
+
+3. B-CLASS ROLE ASSIGNMENT MODEL
+- Both Master and Slave candidate profiles participate in demand assignment.
+- Each requirement is fulfilled exactly once by one role.
+- Master demand operations execute before handoff; Slave demand operations execute after handoff.
+- A Master-completed requirement Jar may still be handed off as B-class output without a second Slave operation.
+- Master preparation may fund Master operations and may cross the liquid handoff boundary for Slave operations only when source and destination staging rules permit it.
+- Slave preparation only funds Slave-side needs.
+- Old precomputedSolutions is intentionally ignored until its cache key fingerprints the complete Master+Slave profile set. A stale Slave-only solution set can omit Master branches.
+- Current enumerator is bounded, not a universal circuit compiler. Verify mixed-role schedules, operation order, resource replay, materialization, manifest and execution.
+
+4. OPEN CORE ENGINEERING WORK — DO NOT DROP
+A. B-class role assignment and scheduling
+- Verify symbolic builder accepts profiles where one role has no candidate for a requirement while the other role does; only a complete combined search with no candidate may be Infeasible.
+- Verify every demand index appears exactly once across Master/Slave steps; Master steps precede handoff and Slave steps follow it.
+- Verify Master-prepared liquid counts satisfy Master + eligible Slave needs; Slave prep satisfies only Slave needs; prevent double counting/overproduction.
+- Verify operation-order search and maxBranches/maxNodes budget semantics; budget exhaustion => Undetermined.
+- Verify precomputedSolutions cannot accidentally be reused on this path.
+- Verify profile consistency includes exact Board Slot / Owned Instance identity wherever available.
+
+B. Physical Jar handoff and operation permissions
+- Audit symbolic program, physical binder, concrete materializer, resource replay, assembler, admission, transfer service, session, compensation, checkpoint and journal replay.
+- Transfer preflight may check exact source ownership, duplicate IDs, existence, destination capacity, lifecycle/lease and one-way direction; it must not check polarity or receiver operation permission.
+- Add end-to-end cross-polarity execution: Cathode Master MATCHes 酒 Jar; handoff into Anode Slave; Slave receives/holds it without operation; terminal cleanup clears this order's Mark and preserves identity/liquid.
+- Add paired negative case: an actual incompatible Slave operation after transfer is rejected by authoritative operation rules.
+- Ensure no path treats free-liquid Ban as Jar-liquid transfer Ban.
+
+C. Mark lifecycle
+- Cover success, failure, cancellation, partial failure, rollback, transfer failure and repeated execution.
+- Verify only exact participating Jar IDs are cleaned and unrelated marks survive.
+- Verify transfer neither clears nor creates Mark; marked Jar cannot be operated twice in one order cycle unless explicitly allowed.
+
+D. Resource Transition/accounting
+- Staging proof: requested = accepted + discarded; account deltas equal accepted; no negative balance; exact workshop/order owner IDs; test Ban and capacity independently.
+- Jar operation output boundary and staging settlement remain separate.
+- Transfer proof: per-Jar exact account transfer, per-liquid amount transfer, one-way direction, exact Owned Workshop IDs, before/after inventory and staging reconciliation.
+- Add rollback/failure-injection tests around proof construction and commit verification.
+- Verify committed Transition and resource journal/checkpoint/replay cannot disagree.
+- Audit non-PourOut producers (parser/import/production/other order effects) for same staging receipt/ResourceEffect boundary; do not claim universal coverage until wired.
+
+E. A-class parity/shared rule contracts
+- Audit A-class solver, candidate catalog, concrete plan, materializer, manifest, admission, replay and execution for accidental B-class assumptions or polarity leaks.
+- RuleTransition is an audit contract/adapter layer, not yet a universal evaluator.
+- Every supported operation must consume authoritative Rulebook proof; unsupported rules remain Undetermined. Do not create fake no-op transitions.
+- ResourceEffect account IDs must identify exact owner instance, not display name.
+- ModifyCapacity and RequireCondition remain Undetermined until actual semantics exist.
+
+F. Circuit compiler and Board runtime boundaries
+- Board topology must not be hardcoded to current two Workshops/one Parser.
+- Runtime projection must explicitly reject unsupported multiplicity; no silent overwrite.
+- BoardRuntimeProfileSet is identity/config routing only, not a compiler/evaluator.
+- Parser/Skill/Production Device non-workshop scopes must not be silently ignored by Workshop Core.
+- Future Circuit Image freezes Board/Assignment/Definition/Owned Instance growth/rules and separates structure fingerprint from live ResourceBinding fingerprint.
+- Implement a real evaluator/compiler only after all rule scopes have explicit consumers.
+
+G. Order template ingress/host boundary
+- Core owns OrderTemplate validation, lookup, instantiation and demand creation.
+- Space owns skill-to-template key mapping and combat meaning; orderDefinitionKey remains opaque.
+- Keep explicit-requirements API only for compatibility/non-template ingress.
+- Verify immutable template copy, unknown-template rejection without mutation, schema, serialization/fingerprint stability and bridge protocol.
+
+5. SPACE DEMO — SEPARATE REPOSITORY
+Repository: Lazyair150/space-demo
+- PR #1 merged; PR #2 Draft/Open and must remain unmerged unless explicitly requested.
+- Board Assignment Map, exact identity validation, frozen snapshot/fingerprint, rule contribution data/resolver, runtime profile routing, Parser schema 3 checkpoint/outbox and Core import acknowledgement checks are authored.
+- Godot 4.7.1 build and Probes have not been run in this session; do not mark verified.
+- Runtime projection supports exactly one Parser and two Workshop roles; multiple Parser Board slots are structurally representable but runtime must reject unsupported setup.
+- Continue Space work after Core role/resource contracts stabilize; verify Assignment serialization, bridge identity, parser conservation, outbox idempotency and battle snapshot.
+
+6. SAMPLE TEST STRATEGY
+- Deterministic polarity matrix: 3 Jar polarities x Workshop modes (dual, Cathode, Anode, both-banned) x operation types. Assert operation permission separately from transfer.
+- Transfer matrix: all source/receiver polarity combinations x empty/Cathode/Anode Jar x marked/unmarked identity; transfers remain allowed when physical constraints pass.
+- B-class assignment matrix: each requirement candidate available on Master only, Slave only, both, or neither; one/two/multiple requirements; mixed-role order.
+- Resource matrix: zero/one/multiple staging capacity, Ban accepted/rejected liquid, partial receive, full discard, master-to-slave liquid handoff and insufficient balance.
+- Lifecycle matrix: success/failure/cancel/rollback, Mark cleanup and unrelated Jar preservation.
+- Deterministic randomized tests with fixed seeds and small state spaces; retain failing seed and minimized counterexample. Compare production solver with independent reference solver.
+- Keep existing 4,004 solver differential and 400-scenario/1,600-check modifier differential; increase sample counts only after semantic contracts are stable and reproducible.
+- Separate solver feasibility, concrete plan assembly, execution session and persisted replay tests. Solver-only is not end-to-end proof.
+
+7. REPOSITORY CLEANUP/STANDARDIZATION — DEFER DELETIONS UNTIL AUDIT
+- Inventory files and classify: current source, tests, active verification inputs, current docs, historical decisions, generated artifacts, obsolete code, empty placeholders.
+- Search references before deletion. Preserve independent ReferenceSolver/Differential Oracle, schema baselines, restore/checkpoint fixtures, security/protocol gates and historical decisions.
+- Delete only proven empty/dead/duplicate files. Mark superseded docs Historical/Deprecated and link current replacement; do not bulk-delete by age/language.
+- Normalize names/directories only after references and build scripts are mapped.
+- Produce final cleanup ledger listing every changed/deleted/retained file and rationale.
+
+8. VALIDATION GATES
+- Exact latest PR head must pass full Release build, both xUnit projects, deterministic suites, StrategyExperiment, contract snapshot/schema, config-world equality, protocol guard, solver differential, modifier differential, session replay, security/dependency scan and quality floor.
+- Run 45390036091 is not green; it failed on the assertion overload. Run 45391579784 was observed in progress before this status-file commit.
+- After every commit query exact head's run and use that run only. A prior SHA success cannot validate a later SHA.
+- Run Godot host builds/Probes for Space changes separately.
+- Local .NET SDK was unavailable in assistant execution environment; CI is executable .NET verification source. This does not justify skipping inspection or writing tests.
+
+9. REQUIRED EXECUTION ORDER
+1) Confirm latest Core head/CI; fix compile and all test failures.
+2) Complete B-class combined-role candidate assignment, schedules, handoff and full session tests.
+3) Complete staging/transfer ResourceEffect reconciliation and failure/replay tests.
+4) Audit A-class parity and all operation entry points for polarity correctness.
+5) Audit Mark lifecycle across all terminal paths.
+6) Complete order-template ingress and bridge contract verification.
+7) Audit Board/Scope/Parser runtime projection and circuit model boundaries.
+8) Add deterministic matrices, seeded randomized cases and differential samples; keep Oracle.
+9) Audit Space Demo integration and run Godot build/Probes.
+10) Perform repository-wide file/reference audit, cleanup and naming/doc standardization.
+11) Run all validation gates on final exact heads and update this ledger with results.
+
+10. COMPLETION RULE
+An item is complete only when code, focused regression tests, documentation and applicable validation evidence agree. Authored, committed, CI running, CI passed and runtime verified are distinct states. If a validation environment is unavailable, record the limitation and leave the item open.
