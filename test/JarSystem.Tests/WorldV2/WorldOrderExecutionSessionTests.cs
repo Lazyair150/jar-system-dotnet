@@ -495,34 +495,16 @@ public sealed class WorldOrderExecutionSessionTests
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
         var snapshot = WorldSnapshotFactory.Capture(roster);
-        var masterMatch = new SolverStep
-        {
-            Step = 0,
-            Requirement = new Requirement { Shape = "圆罐", Liquid = "酒" },
-            Operation = new SolverOperation { Type = "MATCH", JarIndex = 0 },
-            Before = new List<JarState>
-            {
-                new() { Id = jar.Id, Shape = "圆罐", Liquid = "酒" }
-            },
-            After = new List<JarState>
-            {
-                new() { Id = jar.Id, Shape = "圆罐", Liquid = "酒", IsMarked = true }
-            },
-            AfterLiquids = new Dictionary<string, int>()
-        };
-        var plan = WorldOrderSolvePlan.FromMaterializedPaths(
-            isPartitioned: true,
-            masterPath: new[] { masterMatch },
-            slavePath: Array.Empty<SolverStep>(),
-            transferJarIds: new[] { jar.Id!.Value },
-            transferLiquids: new Dictionary<string, int>());
         var book = new WorldOrderSolveBook(board);
         var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
         {
-            new FixedPlanSolver(plan)
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
         });
         var solved = book.Evaluate(demand.Id, snapshot, registry);
         Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
+        Assert.Single(solved.Result.Plan!.MasterSteps);
+        Assert.Empty(solved.Result.Plan.SlaveSteps);
+        Assert.Equal(new[] { 9881 }, solved.Result.Plan.TransferJarIds);
 
         var reservations = new WorldResourceReservationBook();
         var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
