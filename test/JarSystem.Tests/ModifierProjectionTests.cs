@@ -112,14 +112,14 @@ public class ModifierProjectionTests
     /// 是同一件事，把它折进求解器输入是**精确**的（这正是 <c>Operation is null</c> 那条分支的依据）。</para>
     ///
     /// <para>抑制（<c>SuppressModifier</c>，修饰器）只封它点名的那个操作：<c>Workshop.IsBanned</c>
-    /// 走的是 <c>_capability.IsBanned</c>，**完全不读修饰器栈**。所以"只抑制灌入"绝不能折成"被禁"。</para>
+    /// Ban 同时决定工作台极性与 staging 液体类别；操作抑制仍是独立规则，不能折成 Ban。</para>
     ///
     /// <para>为什么必须单独守：这两者的差别只写在两处代码里（<c>Workshop.cs:119</c> 的委托链与
     /// <c>ModifierStack.cs:89</c> 的操作过滤）。将来若有人把 <c>IsBanned</c> 改成"也看修饰器栈"，
-    /// 或把抑制实现成"往 Ban 里加一项"，两个概念就会被合并，而既有测试全都还是绿的。</para>
+    /// 或把抑制实现成"往 Ban 里加一项"，两个概念就会被合并。</para>
     /// </summary>
     [Fact]
-    public void BanBlocksStagingFlowsButNotJarInternalSelfConsumeWhileSuppressionIsOperationScoped()
+    public void BanDefinesPolarityWhileSuppressionRemainsOperationScoped()
     {
         // 同形状配置、同罐子；唯一差别是 Ban 列表里有没有酒。
         static Workshop Make(List<string> ban) => new("自由台", new List<string> { "圆罐", "方罐" },
@@ -128,8 +128,8 @@ public class ModifierProjectionTests
         static (bool Reshape, bool PourOut, string? ReshapeReason) Run(List<string> ban)
         {
             var w = Make(ban);
-            var a = new Jar("三角罐", "酒");
-            var b = new Jar("三角罐", "酒");
+            var a = new Jar("三角罐", "蜜"); // Ban 酒 => Anode，蜜 Jar 同极
+            var b = new Jar("三角罐", "酒"); // Cathode Jar 异极，不能由此工作台操作
             Assert.True(w.AddJar(a), "罐子放不进工作台");
             Assert.True(w.AddJar(b), "罐子放不进工作台");
             var (reshapeOk, reshapeReason) = w.TryReshape(a, "方罐", ReshapeMode.Full);
@@ -142,8 +142,8 @@ public class ModifierProjectionTests
         Assert.True(free.PourOut, "不禁酒时，倒出应当合法");
 
         var banned = Run(new List<string> { "酒" });
-        Assert.True(banned.Reshape, "Jar 内部液体自耗不读取工作台 staging Ban");
+        Assert.True(banned.Reshape, "同极蜜 Jar 可由阳极工作台自耗");
         Assert.True(string.IsNullOrEmpty(banned.ReshapeReason));
-        Assert.False(banned.PourOut, "倒出会把液体送入 staging，必须受 Ban 约束");
+        Assert.False(banned.PourOut, "异极酒 Jar 不可由阳极工作台操作");
     }
 }
