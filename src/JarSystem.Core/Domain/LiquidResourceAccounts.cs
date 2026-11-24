@@ -945,4 +945,23 @@ public sealed class OrderLiquidScope
         Staging.CanAcceptOperation(OrderId, liquid, amount);
     public bool TryReceiveOperation(string liquid, int amount, out LiquidGrant result) =>
         Staging.TryReceiveExact(OrderId, liquid, amount, out result);
+
+    /// <summary>
+    /// Order-produced free liquid always enters the current staging account first.
+    /// Ban rejects the whole output and capacity accepts only the fitting portion; the remainder is discarded.
+    /// Board-owned scopes also return the immutable account transition using their exact OwnedInstance identity.
+    /// </summary>
+    public LiquidInventoryReceipt ReceiveProducedLiquid(
+        string liquid, int amount, out RuleTransition? transition)
+    {
+        if (WorkshopInstanceId is { } exactWorkshopId)
+        {
+            var settlement = Staging.ReceiveWithTransition(exactWorkshopId, OrderId, liquid, amount);
+            transition = settlement.Transition;
+            return settlement.Receipt;
+        }
+
+        transition = null;
+        return Staging.Receive(OrderId, liquid, amount);
+    }
 }
