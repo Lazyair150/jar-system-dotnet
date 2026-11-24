@@ -428,3 +428,35 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 | Master→Slave free-liquid transfer | 否 | **源/目标 staging 均检查** | 不适用 |
 
 这张表是语义契约。代码、测试、求解器、执行器与文档必须遵守同一边界，不能将“目标工作台不能操作某 Jar”改写成“目标工作台不能接收该 Jar”。
+
+
+## 8. B 类主从角色调度与 Jar 所有权边界（2026-11-24）
+
+B 类订单不是“全部需求由从台执行，主台只负责准备”的固定模型。需求步骤属于订单计划，可按两个工作台各自的规则候选分配：
+
+1. 主台与从台 Profile 必须分别从当前 Board Assignment 的精确槽位/实例捕获；
+2. 每项需求由主台或从台其中一个角色执行，不能重复交付；
+3. 主台步骤在 Master→Slave handoff 之前执行；
+4. handoff 后从台执行其余步骤；
+5. B 类完成结果仍按订单阶段契约交接需要保留的 Jar；主台完成的需求 Jar 可随 handoff 到从台，但从台不再重复操作它；
+6. 从台初始库存不得偷偷成为订单输入；从台只使用主台按边界提供的 Jar 与允许转移的游离液体；
+7. 主台准备的游离液体可供主台步骤使用，也可在合法 staging transfer 后供从台步骤使用；来源 staging Ban、目标 staging Ban 与容量分别结算。
+
+**Jar handoff 只改变所有权账户，不执行 Jar 化学操作。** 它必须保持 exact Jar ID、形状、内部液体、派生极性和 Mark，不检查主台/从台的操作权限，也不因接收台无法操作该 Jar 而拒绝。工作台只有在真正执行 MATCH、POUR_IN、POUR_OUT 或 RESHAPE 时，才检查自身极性与 Jar 极性的兼容性。不得把“可接收”与“可操作”合并成一个 gate。
+
+### B 类缓存完整性
+
+当前 B 类入口不复用旧 precomputedSolutions。旧符号解集没有证明其构建输入覆盖完整的 Master + Slave Profile 集合；继续复用可能漏掉 Master 可执行、Slave 不可执行的合法需求分支。恢复缓存前，key 至少必须绑定：
+
+- 订单 Specification fingerprint/version；
+- Master 与 Slave 的角色身份及各自完整 RuleCandidateProfile fingerprint；
+- RuleSetVersion、WorkshopProfileVersion；
+- 角色槽位与 Owned Instance identity；
+- 规则/成长快照版本及所有影响候选集合的参数；
+- 搜索完整性策略与预算版本。
+
+缓存命中只代表结构候选可复用，不代表当前资源可绑定；资源 Readiness、Jar 物理身份、staging 余额与 Lease 必须在当前世界重新验证。
+
+### 当前求解边界
+
+当前实现仍是有界 B 类分支枚举器，不是通用 Circuit Compiler。它对两角色的候选集合做有限枚举，并枚举主/从台资源准备和操作顺序；预算耗尽必须保持 Undetermined。任一角色没有某项需求候选，不应单独判定整个订单无解；只有两角色组合都没有完整候选，才可在完整搜索后判 Infeasible。任一角色 Profile 本身 Undetermined 时，组合搜索也不能把它当作“该角色不可用”而静默忽略。
