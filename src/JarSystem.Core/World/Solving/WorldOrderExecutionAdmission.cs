@@ -432,6 +432,11 @@ public sealed class WorldOrderExecutionAdmission
         var scopes = lease?.LiquidScopes;
         if (scopes.HasValue)
         {
+            // Preflight both staging accounts before releasing either capacity reservation.
+            // This prevents a pending prefill transaction on the slave from leaving the
+            // master quota released while the order lease remains active.
+            scopes.Value.Master.Staging.EnsureCanTransferOrderLiquids();
+            scopes.Value.Slave?.Staging.EnsureCanTransferOrderLiquids();
             scopes.Value.Master.Staging.ReleaseOrderCapacity(demandId);
             scopes.Value.Slave?.Staging.ReleaseOrderCapacity(demandId);
         }
