@@ -88,6 +88,24 @@ public sealed record RuleResourceEffect(
     }
 }
 
+/// <summary>Explicit polarity edge carried by one Jar state transition.</summary>
+public readonly record struct JarPolarityTransition(JarPolarity Before, JarPolarity After)
+{
+    public bool ChangesPolarity => Before != After;
+
+    public static JarPolarityTransition From(RuleStateSnapshot before, RuleStateSnapshot after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        if (!Enum.TryParse<JarPolarity>(before.Values.GetValueOrDefault("polarity"), out var from) ||
+            !Enum.IsDefined(from) ||
+            !Enum.TryParse<JarPolarity>(after.Values.GetValueOrDefault("polarity"), out var to) ||
+            !Enum.IsDefined(to))
+            throw new ArgumentException("Jar transition snapshots require recognized before/after polarity values.");
+        return new JarPolarityTransition(from, to);
+    }
+}
+
 /// <summary>Canonical immutable snapshot of the facts consumed or produced by a rule.</summary>
 public sealed class RuleStateSnapshot
 {
