@@ -244,6 +244,10 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("workshop.role-transfer", transition.RuleId);
         Assert.Equal("owned.workshop.master->owned.workshop.slave", transition.Target);
         Assert.Null(transition.PolarityTransition);
+        Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), transition.Before.Values["sourcePolarityMode"]);
+        Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), transition.Before.Values["destinationPolarityMode"]);
+        Assert.Equal(nameof(JarPolarity.Cathode), transition.Before.Values["transferJar.31.polarity"]);
+        Assert.Equal(nameof(JarPolarity.Anode), transition.Before.Values["transferJar.32.polarity"]);
         Assert.Equal(3, transition.ResourceEffects.Count);
         Assert.All(transition.ResourceEffects, effect =>
         {
