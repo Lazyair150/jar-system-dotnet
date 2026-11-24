@@ -6,6 +6,19 @@ namespace JarSystem.Tests;
 
 public sealed class RuleTransitionContractTests
 {
+    [Fact]
+    public void JarPolarityIsDerivedFromTheAuthoritativeLiquidIdentity()
+    {
+        Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null));
+        Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒"));
+        Assert.Equal(JarPolarity.Anode, JarPolarityResolver.Resolve("蜜"));
+
+        Assert.Equal(JarPolarity.Neutral, new Jar("圆罐").Polarity);
+        Assert.Equal(JarPolarity.Cathode, new Jar("圆罐", "酒").Polarity);
+        Assert.Equal(JarPolarity.Anode, new Jar("圆罐", "蜜").Polarity);
+        Assert.Throws<System.ArgumentException>(() => JarPolarityResolver.Resolve("未知液体"));
+    }
+
     private static readonly RuleContext Rules = RuleContext.From(
         new WorkshopCapability(new[] { "圆罐", "方罐" }, new[] { "三角罐" }));
 
@@ -13,9 +26,9 @@ public sealed class RuleTransitionContractTests
     public void PourInConsumesWorkshopFreeLiquidAndDoesNotTouchJarLiquidAccount()
     {
         var before = new JarFacts("圆罐", null, false);
-        var operation = WorkshopOperation.PourIn("水");
+        var operation = WorkshopOperation.PourIn("酒");
         var evaluation = WorkshopRulebook.EvaluateTransition(
-            Rules, 5, before, operation, new Dictionary<string, int> { ["水"] = 1 });
+            Rules, 5, before, operation, new Dictionary<string, int> { ["酒"] = 1 });
 
         var result = WorkshopRuleTransitionAdapter.Evaluate(
             evaluation, before, operation, "owned.workshop.master", "jar.17");
@@ -23,19 +36,20 @@ public sealed class RuleTransitionContractTests
         Assert.True(result.IsAllowed);
         var effect = Assert.Single(result.Transition!.ResourceEffects);
         Assert.Equal(RuleResourceEffectKind.Consume, effect.Kind);
-        Assert.Equal("水", effect.ResourceId);
+        Assert.Equal("酒", effect.ResourceId);
         Assert.Equal("workshop.free-liquid-staging", effect.From!.AccountKind);
         Assert.Equal("owned.workshop.master", effect.From.OwnerId);
         Assert.Null(effect.To);
         Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
-        Assert.Equal("水", result.Transition.After.Values["liquid"]);
+        Assert.Equal("酒", result.Transition.After.Values["liquid"]);
+        Assert.Equal(nameof(JarPolarity.Cathode), result.Transition.After.Values["polarity"]);
         Assert.Equal("true", result.Transition.After.Values["marked"]);
     }
 
     [Fact]
     public void PourOutProducesIntoTheCurrentWorkshopStagingAccount()
     {
-        var before = new JarFacts("圆罐", "水", false);
+        var before = new JarFacts("圆罐", "酒", false);
         var operation = WorkshopOperation.PourOut();
         var evaluation = WorkshopRulebook.EvaluateTransition(
             Rules, 5, before, operation, new Dictionary<string, int>());
@@ -47,13 +61,13 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(RuleResourceEffectKind.Produce, effect.Kind);
         Assert.Equal("workshop.free-liquid-staging", effect.To!.AccountKind);
         Assert.Equal("owned.workshop.slave", effect.To.OwnerId);
-        Assert.Equal("水", effect.ResourceId);
+        Assert.Equal("酒", effect.ResourceId);
     }
 
     [Fact]
     public void FullReshapeConsumesJarInternalLiquidNotWorkshopFreeLiquid()
     {
-        var before = new JarFacts("圆罐", "水", false);
+        var before = new JarFacts("圆罐", "酒", false);
         var operation = WorkshopOperation.ReshapeFull("方罐");
         var evaluation = WorkshopRulebook.EvaluateTransition(
             Rules, 5, before, operation, new Dictionary<string, int>());
@@ -65,13 +79,13 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(RuleResourceEffectKind.Consume, effect.Kind);
         Assert.Equal("jar.internal-liquid", effect.From!.AccountKind);
         Assert.Equal("jar.19", effect.From.OwnerId);
-        Assert.Equal("水", effect.ResourceId);
+        Assert.Equal("酒", effect.ResourceId);
     }
 
     [Fact]
     public void RejectedRuleHasNoExecutableTransitionOrResourceEffects()
     {
-        var before = new JarFacts("圆罐", "水", true);
+        var before = new JarFacts("圆罐", "酒", true);
         var operation = WorkshopOperation.PourOut();
         var evaluation = WorkshopRulebook.EvaluateTransition(
             Rules, 5, before, operation, new Dictionary<string, int>());
@@ -90,7 +104,7 @@ public sealed class RuleTransitionContractTests
         var invalid = new RuleResourceEffect(
             RuleResourceEffectKind.Produce,
             RuleResourceKind.Liquid,
-            "水",
+            "酒",
             1,
             new RuleResourceAccount("workshop.free-liquid-staging", "owned.workshop"),
             new RuleResourceAccount("workshop.free-liquid-staging", "owned.workshop"));
@@ -102,7 +116,7 @@ public sealed class RuleTransitionContractTests
     [Fact]
     public void MatchLifecycleAdapterMarksExactJarWithoutInventingLiquidFlow()
     {
-        var before = new JarFacts("圆罐", "水", false);
+        var before = new JarFacts("圆罐", "酒", false);
         var proof = WorkshopRulebook.EvaluateMatchTransition(Rules, before);
 
         var result = MatchRuleTransitionAdapter.Evaluate(
@@ -117,14 +131,15 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("false", result.Transition.Before.Values["marked"]);
         Assert.Equal("true", result.Transition.After.Values["marked"]);
         Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
-        Assert.Equal("水", result.Transition.After.Values["liquid"]);
+        Assert.Equal("酒", result.Transition.After.Values["liquid"]);
+        Assert.Equal(nameof(JarPolarity.Cathode), result.Transition.After.Values["polarity"]);
         Assert.Empty(result.Transition.ResourceEffects);
     }
 
     [Fact]
     public void MatchLifecycleAdapterPreservesAuthoritativeRejectionWithoutTransition()
     {
-        var before = new JarFacts("圆罐", "水", true);
+        var before = new JarFacts("圆罐", "酒", true);
         var proof = WorkshopRulebook.EvaluateMatchTransition(Rules, before);
 
         var result = MatchRuleTransitionAdapter.Evaluate(
@@ -139,9 +154,9 @@ public sealed class RuleTransitionContractTests
     public void MatchLifecycleAdapterRejectsNonMatchProof()
     {
         var before = new JarFacts("圆罐", null, false);
-        var operation = WorkshopOperation.PourIn("水");
+        var operation = WorkshopOperation.PourIn("酒");
         var proof = WorkshopRulebook.EvaluateTransition(
-            Rules, 5, before, operation, new Dictionary<string, int> { ["水"] = 1 });
+            Rules, 5, before, operation, new Dictionary<string, int> { ["酒"] = 1 });
 
         Assert.Throws<System.ArgumentException>(() => MatchRuleTransitionAdapter.Evaluate(
             proof, before, "owned.workshop.master", "jar.23"));
