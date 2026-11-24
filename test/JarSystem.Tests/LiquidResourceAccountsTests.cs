@@ -92,6 +92,57 @@ public sealed class LiquidResourceAccountsTests
         }
     }
 
+    [Theory]
+    [InlineData(20261125)]
+    [InlineData(7919)]
+    [InlineData(104729)]
+    [InlineData(65537)]
+    public void FixedSeedStagingAdmissionConservesAcceptedAndDiscardedOutput(int seed)
+    {
+        var random = new Random(seed ^ 0x31C7);
+        var liquids = new[] { "酒", "蜜", "盐" };
+
+        for (var sample = 0; sample < 256; sample++)
+        {
+            var capacity = random.Next(1, 12);
+            var banned = liquids.Where(_ => random.Next(2) == 0).ToArray();
+            var staging = new WorkshopLiquidStaging(capacity, banned);
+            var otherLiquid = liquids[random.Next(liquids.Length)];
+            staging.Receive(20_000 + sample, otherLiquid, random.Next(1, 4));
+
+            var orderId = 30_000 + sample;
+            var liquid = liquids[random.Next(liquids.Length)];
+            staging.Receive(orderId, liquid, random.Next(1, 4));
+            var beforeOrderBalance = staging.GetAmount(orderId, liquid);
+            var beforeUsedCapacity = staging.UsedCapacity;
+            var requested = random.Next(1, 7);
+
+            var settlement = staging.ReceiveWithTransition(
+                "owned.workshop.master", orderId, liquid, requested);
+            var receipt = settlement.Receipt;
+
+            Assert.Equal(requested, receipt.AcceptedAmount + receipt.DiscardedAmount);
+            Assert.Equal(beforeOrderBalance + receipt.AcceptedAmount,
+                staging.GetAmount(orderId, liquid));
+            Assert.Equal(beforeUsedCapacity + receipt.AcceptedAmount,
+                staging.UsedCapacity);
+            Assert.InRange(staging.UsedCapacity, 0, capacity);
+            Assert.Equal(requested, receipt.RequestedTotal);
+            Assert.Equal(receipt.AcceptedAmount + receipt.DiscardedAmount,
+                settlement.Transition.ResourceEffects.Sum(effect => effect.Amount));
+            Assert.Equal(receipt.AcceptedAmount,
+                settlement.Transition.ResourceEffects
+                    .Where(effect => effect.Kind == RuleResourceEffectKind.Transfer)
+                    .Sum(effect => effect.Amount));
+            Assert.Equal(receipt.DiscardedAmount,
+                settlement.Transition.ResourceEffects
+                    .Where(effect => effect.Kind == RuleResourceEffectKind.Discard)
+                    .Sum(effect => effect.Amount));
+            if (banned.Contains(liquid, StringComparer.Ordinal))
+                Assert.Equal(requested, receipt.DiscardedAmount);
+        }
+    }
+
     [Fact]
     public void NegativeAmountsAndOverCapacityInitialStateAreRejected()
     {
