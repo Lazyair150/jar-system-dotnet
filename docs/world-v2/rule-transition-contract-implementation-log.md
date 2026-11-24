@@ -257,3 +257,55 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 ### 13.4 验证边界
 
 已添加求解器事实模型的三态映射测试、显式转换边测试，并保留 `AJarCarryingABannedLiquidCanBeReshapedBySelfConsumption` 对三个求解器实现的回归覆盖。新提交 CI 尚未完成时，不把代码编译或测试结果记为通过。
+
+
+## 14. 本轮推进：差分 Oracle 语义校正与 staging admission（2026-11-24）
+
+### 14.1 两处 Solver Differential 反例的真实原因
+
+提交 `2d829353` 的 CI 已经通过 build 与 765 项 xUnit，但 Solver Differential 报告两处“生产可行、参考不可行”。追踪到独立参考实现 `test/JarSystem.Test/ReferenceSolver.cs` 仍保留旧 Ban 语义：
+
+- 满罐改形候选生成时错误过滤了 Jar 内被 Ban 的液体；
+- 满罐改形 Apply 时再次错误检查 staging Ban。
+
+这两处检查都把 Jar 内部液体当成了工作台游离液体。生产规则引擎已按 staging-only Ban 修正，因此差分门失败的根因是参考 Oracle 过期，而不是把参考结果改成生产结果。
+
+已修正参考实现：Ban 仍约束 PourIn、空罐改形成本与 PourOut staging admission；满罐改形只消耗 Jar 自有内部液体，不检查工作台 staging Ban。新增定向 T4：被 Ban 的 Jar 内液体仍可自耗改形。参考实现继续保留独立 BFS / 精确状态键，不复用生产求解器的操作生成逻辑。
+
+### 14.2 非 Jar 转换与 Staging Admission
+
+共享 `RuleTransition` 不应强制每种规则都伪造 Jar 极性边。本轮将 `PolarityTransition` 改为可空：
+
+- Before / After 同时包含 exact `jarInstanceId` 时，必须具有液体与派生极性，并继续校验极性边；
+- 两个快照都没有 Jar identity 时，表示非 Jar 状态转换，不产生虚构极性；
+- 只有一个快照含 Jar identity，或非 Jar 快照单独携带 polarity 字段，均拒绝。
+
+新增 `StagingAdmissionTransitionAdapter`，把权威 `WorkshopLiquidStaging.Receive` 返回的 `LiquidInventoryReceipt` 转成可审计转换：
+
+1. 请求量先进入精确订单的临时 `workshop.order-output-boundary`；
+2. 实际接收量从该边界 Transfer 到当前工作台 `workshop.free-liquid-staging`；
+3. Ban 拒收或容量溢出的部分从该边界 Discard；
+4. Before / After 同时记录工作台实例、订单、液种、总暂存占用与订单子账余额；
+5. Adapter 验证 requested = accepted + discarded，且总占用和订单余额的变化都必须等于 accepted。
+
+该 Adapter 只适配已发生的 staging receipt，不修改账户，也尚未替换所有生产入账调用点。它证明了共享契约能够表达全收、部分接收、Ban 全拒收和丢弃，但不代表所有生产入口已经统一接线。
+
+### 14.3 Mark 周期回归
+
+扩展 `WorldOrderExecutionSessionTests`：
+
+- 已有 B 类测试在主台操作 Jar 并交接后，断言该 Jar 在从台仍保持 Mark；另一只未被主台操作的 Jar 保持未标记，可继续执行从台步骤；
+- B 类成功交付后，断言跨台保留的 Mark 在交付前清理；
+- B 类从台执行中途失败并回流后，断言本订单参与 Jar 的 Mark 被清理；
+- 原有无关 Jar Mark 不被当前会话清理的测试继续保留。
+
+### 14.4 验证边界
+
+`4f9f98a52d920ba04226eb007ea010850a2087f3` 的 GitHub Actions verify 步骤已成功，覆盖了参考 Oracle 修正与 T4 定向场景。随后追加的 Mark 终态断言及 staging adapter 代码仍在更新的 head 上等待 CI；不能把前一个 SHA 的结果外推到新 head。Godot Probe 未运行。
+
+### 14.5 下一项工作
+
+1. 检查当前 head 的 CI，修复真实编译/测试/差分问题。
+2. 将 Staging Admission Adapter 接到实际产液入口，确保 receipt 与状态快照来自同一同步事务边界。
+3. 增加主从 Jar / 游离液体 Transfer 的统一转换，验证 exact source/destination instance、单向性、Ban 与原子失败。
+4. 为 Transfer 与 Staging 的 ResourceEffects 增加账户守恒检查，再评估是否进入 evaluator 的统一接线。
