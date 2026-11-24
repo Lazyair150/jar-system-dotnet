@@ -1065,4 +1065,120 @@ public sealed class WorkshopReplacementTests
         world.CaptureExecutionResourceCheckpoint();
     }
 
+
+    [Fact]
+    public void FixedSeedRuntimeMasterSwitchSamplesConserveJarIdentityAndInternalLiquid()
+    {
+        const int seed = 0x5A17C;
+        const int sampleCount = 512;
+        var random = new Random(seed);
+        var vocabulary = new Vocabulary(
+            new[] { "圆罐", "方罐" },
+            new[] { "酒", "蜜" });
+
+        for (var sample = 0; sample < sampleCount; sample++)
+        {
+            var sourceJarCount = random.Next(0, 5);
+            var targetCapacity = random.Next(0, 5);
+            var oldMaster = new Workshop(
+                "主台-旧-" + sample,
+                new List<string> { "圆罐", "方罐" },
+                maxJars: 4,
+                maxLiquids: 4,
+                vocabulary: vocabulary);
+            var newMaster = new Workshop(
+                "主台-新-" + sample,
+                new List<string> { "圆罐", "方罐" },
+                maxJars: targetCapacity,
+                maxLiquids: 4,
+                vocabulary: vocabulary);
+            var slave = new Workshop("从台-" + sample, vocabulary: vocabulary);
+            var original = new List<Jar>();
+
+            for (var index = 0; index < sourceJarCount; index++)
+            {
+                var shape = random.Next(0, 2) == 0 ? "圆罐" : "方罐";
+                var liquidRoll = random.Next(0, 3);
+                var liquid = liquidRoll == 0 ? null : liquidRoll == 1 ? "酒" : "蜜";
+                var jar = new Jar(
+                    shape,
+                    liquid,
+                    id: 100_000 + sample * 4 + index,
+                    vocabulary: vocabulary);
+                Assert.True(oldMaster.AddJar(jar));
+                original.Add(jar);
+            }
+
+            var resources = new ResourceArea(
+                new ProducerModule(vocabulary),
+                new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
+                {
+                    ["酒"] = 0,
+                    ["蜜"] = 0
+                }),
+                jarFlowRate: 0,
+                liquidFlowRate: 0);
+            var roster = new WorkshopRoster(
+                new[] { oldMaster, newMaster, slave },
+                oldMaster,
+                slave);
+            var pool = new JarPool();
+            var ledger = new ResourceLedger();
+            var discardedJars = 0;
+            var runtime = new ResourceWorldRuntime(
+                resources,
+                roster: roster,
+                masterSwitchFactory: (source, target) =>
+                    new WorkshopSwitchEvent(
+                        source,
+                        target,
+                        pool,
+                        countDiscardedJars: amount => discardedJars += amount,
+                        ledger: ledger));
+
+            var begin = runtime.BeginReplacement(
+                WorkshopRole.Master,
+                newMaster,
+                new NoOrderInterruption(),
+                phaseDurationMilli: 10);
+            Assert.True(begin.Success, begin.Error);
+
+            // Deliberately cross both runtime event phases in one world-time advance.
+            runtime.AdvanceWorldTime(20);
+
+            Assert.Same(newMaster, roster.Master);
+            Assert.True(runtime.ActiveReplacement!.IsFinished);
+            Assert.True(runtime.ActiveReplacement.Succeeded);
+            Assert.Empty(oldMaster.Jars);
+            Assert.Empty(slave.Jars);
+
+            var retained = newMaster.Jars.ToArray();
+            var discarded = original.Where(jar => jar.IsRecycled).ToArray();
+            Assert.Equal(sourceJarCount, retained.Length + discarded.Length);
+            Assert.Equal(discarded.Length, pool.Returned);
+            Assert.Equal(discarded.Length, discardedJars);
+            Assert.Equal(discarded.Length, Math.Max(0, sourceJarCount - targetCapacity));
+            Assert.Equal(discarded.Length,
+                ledger.For(ResourceCauses.Discard).Sum(item => item.Amount));
+
+            var retainedIds = retained.Select(jar => jar.Id).ToHashSet();
+            Assert.Equal(retained.Length, retainedIds.Count);
+            Assert.All(retained, jar => Assert.Contains(jar, original));
+
+            foreach (var jar in retained)
+            {
+                var before = Assert.Single(original, item => item.Id == jar.Id);
+                Assert.Same(before, jar);
+                Assert.Equal(before.Shape, jar.Shape);
+                Assert.Equal(before.Liquid, jar.Liquid);
+                Assert.Equal(before.IsMarked, jar.IsMarked);
+                Assert.False(jar.IsRecycled);
+            }
+
+            Assert.All(discarded, jar => Assert.True(jar.IsRecycled));
+            Assert.Empty(newMaster.LiquidStorage.Where(item => item.Value > 0));
+            Assert.False(runtime.IsFaulted);
+        }
+    }
+
 }
