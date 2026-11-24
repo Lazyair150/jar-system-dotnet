@@ -22,7 +22,9 @@ public static class WorkshopRoleTransferTransitionAdapter
         int destinationJarCount,
         int destinationJarCapacity,
         int destinationStagingUsedCapacity,
-        int destinationStagingCapacity)
+        int destinationStagingCapacity,
+        IReadOnlyDictionary<int, JarFacts>? transferJarFacts = null,
+        IEnumerable<string>? sourceBannedLiquids = null)
     {
         if (string.IsNullOrWhiteSpace(sourceWorkshopInstanceId))
             throw new ArgumentException("Exact source workshop instance identity is required.", nameof(sourceWorkshopInstanceId));
@@ -42,6 +44,25 @@ public static class WorkshopRoleTransferTransitionAdapter
             jarIds.Distinct().Count() != jarIds.Length || jarIds.Any(id => !sourceIds.Contains(id)))
             throw new ArgumentException("Transfer Jar identities must be unique positive IDs owned by the exact source workshop.");
 
+        if (jarIds.Length > 0 && transferJarFacts == null)
+            throw new ArgumentException("Exact Jar facts are required to validate destination polarity compatibility.", nameof(transferJarFacts));
+        if (transferJarFacts != null &&
+            (!transferJarFacts.Keys.OrderBy(x => x).SequenceEqual(jarIds.OrderBy(x => x)) ||
+             transferJarFacts.Keys.Any(id => id <= 0)))
+            throw new ArgumentException("Transfer Jar facts must map exactly the transferred Jar identities.", nameof(transferJarFacts));
+
+        var destinationBans = destinationBannedLiquids.ToHashSet(StringComparer.Ordinal);
+        var destinationCapability = new WorkshopCapability(ban: destinationBans);
+        if (transferJarFacts != null)
+        {
+            foreach (var item in transferJarFacts)
+            {
+                if (!destinationCapability.CanOperateJar(item.Value.Polarity))
+                    throw new ArgumentException("Destination Workshop cannot operate transferred Jar polarity: " + item.Key);
+            }
+        }
+
+        var sourceBans = (sourceBannedLiquids ?? Array.Empty<string>()).ToHashSet(StringComparer.Ordinal);
         if (destinationJarCount < 0 || destinationJarCapacity < destinationJarCount ||
             jarIds.Length > destinationJarCapacity - destinationJarCount)
             throw new ArgumentException("Destination workshop does not have enough Jar capacity.");
@@ -49,13 +70,15 @@ public static class WorkshopRoleTransferTransitionAdapter
             destinationStagingCapacity < destinationStagingUsedCapacity)
             throw new ArgumentException("Destination staging capacity snapshot is invalid.");
 
-        var banned = destinationBannedLiquids.ToHashSet(StringComparer.Ordinal);
+        var banned = destinationBans;
         var normalizedLiquids = new SortedDictionary<string, int>(StringComparer.Ordinal);
         foreach (var item in transferLiquidAmounts)
         {
             ShipLiquidInventory.ValidateLiquid(item.Key);
             ShipLiquidInventory.ValidateAmount(item.Value, allowZero: true);
             if (item.Value == 0) continue;
+            if (sourceBans.Contains(item.Key))
+                throw new ArgumentException("Source Workshop cannot transfer its banned staging liquid: " + item.Key);
             if (banned.Contains(item.Key))
                 throw new ArgumentException("Destination staging bans transfer liquid: " + item.Key);
             if (sourceStagingBalances.GetValueOrDefault(item.Key) < item.Value)
@@ -67,6 +90,8 @@ public static class WorkshopRoleTransferTransitionAdapter
         {
             ShipLiquidInventory.ValidateLiquid(item.Key);
             ShipLiquidInventory.ValidateAmount(item.Value, allowZero: true);
+            if (item.Value > 0 && sourceBans.Contains(item.Key))
+                throw new ArgumentException("Source staging snapshot contains a banned liquid: " + item.Key);
         }
 
         var liquidTotal = ShipLiquidInventory.TotalAmount(normalizedLiquids);
