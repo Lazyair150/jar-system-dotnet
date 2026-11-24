@@ -156,7 +156,7 @@ Adapter 从旧 `WorkshopOperationEvaluation` 读取判定和转换，不重新�
 
 ### 8.4 本轮测试状态
 
-已新增 MATCH Adapter 正常、拒绝和错误 proof 测试；已调整 `LiquidRulesTests`、`WorkshopRulebookTests` 与 `WorkshopReshapeTests`，固定“被 Ban 的 staging 液体不可取用/接收，但 Jar 内液体自耗与 MATCH 不读取 staging Ban”的边界。CI 曾发现遗漏的旧测试调用与 PourOut 检查点，已根据失败日志修正；以最新 head 的最终 CI 为准。
+已新增 MATCH Adapter 正常、拒绝和错误 proof 测试；已调整 `LiquidRulesTests`、`WorkshopRulebookTests` 与 `WorkshopReshapeTests`，固定“被 Ban 的 staging 液体不可取用/接收，但 Jar 内液体自耗与 MATCH 不读取 staging Ban”的边界，并增加 PourOut 普通/订单暂存两条路径在目标 staging Ban 下拒绝的测试。CI 曾发现遗漏的旧测试调用与 PourOut 检查点，已根据失败日志修正；以最新 head 的最终 CI 为准。
 
 
 ## 9. Mark 周期边界审查补充
