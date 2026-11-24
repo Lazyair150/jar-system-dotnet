@@ -9,11 +9,33 @@ using JarSystem.Core.World.Solving;
 namespace JarSystem.Core.World.Execution;
 
 /// <summary>
+/// 单只 Jar 的账户迁移端口。TransferService 负责包围调用并在异常时恢复未归属的 Jar；
+/// 该端口只封装实体移动，不决定极性、Ban 或订单语义。
+/// </summary>
+internal interface IOrderJarTransferPort
+{
+    bool Move(Workshop source, Workshop destination, Jar jar);
+}
+
+internal sealed class WorkshopJarTransferPort : IOrderJarTransferPort
+{
+    public bool Move(Workshop source, Workshop destination, Jar jar)
+    {
+        if (!ReferenceEquals(source.TransferOut(jar), jar)) return false;
+        return destination.TransferIn(jar);
+    }
+}
+/// <summary>
 /// B 类订单唯一的主台→从台交接服务。
 /// 预检阶段只读取；CommitStarted 回调发生后，调用方必须允许失败清理回收本次从台资源。
 /// </summary>
 internal sealed class OrderTransferService
 {
+    private readonly IOrderJarTransferPort _jarTransferPort;
+
+    public OrderTransferService(IOrderJarTransferPort? jarTransferPort = null) =>
+        _jarTransferPort = jarTransferPort ?? new WorkshopJarTransferPort();
+
     public RuleTransition? CommittedTransition { get; private set; }
 
     public string? Transfer(
@@ -182,14 +204,21 @@ internal sealed class OrderTransferService
         foreach (var id in manifest.TransferJarIds)
         {
             var jar = jars[id];
-            if (!ReferenceEquals(master.TransferOut(jar), jar))
-                throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段无法从主台移出");
-
-            if (!slave.TransferIn(jar))
+            try
             {
-                if (!master.TransferIn(jar))
-                    throw new InvalidOperationException($"罐子 #{id} 转移失败且无法恢复主台归属");
-                throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
+                if (!_jarTransferPort.Move(master, slave, jar))
+                    throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
+            }
+            catch (Exception transferError)
+            {
+                // A port may fail after source removal but before destination ownership is
+                // established. Never leave a Jar in an unowned limbo between the two accounts.
+                var sourceOwnsJar = master.Jars.Any(item => ReferenceEquals(item, jar));
+                var destinationOwnsJar = slave.Jars.Any(item => ReferenceEquals(item, jar));
+                if (!sourceOwnsJar && !destinationOwnsJar && !master.TransferIn(jar))
+                    throw new InvalidOperationException(
+                        $"罐子 #{id} 转移失败且无法恢复主台归属", transferError);
+                throw;
             }
             if (ledger != null)
                 ledgerMutations.Add(new ResourceLedgerMutation(
