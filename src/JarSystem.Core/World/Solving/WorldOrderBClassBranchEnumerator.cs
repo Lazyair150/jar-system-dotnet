@@ -59,6 +59,8 @@ public static class WorldOrderBClassBranchEnumerator
         WorldSnapshot world,
         int maxBranches = 256,
         int maxNodes = 100_000,
+        // Retained for source compatibility. Legacy sets do not fingerprint both role
+        // profiles, so this entry point intentionally rebuilds the combined set.
         WorldOrderSymbolicSolutionSet? precomputedSolutions = null,
         IEnumerable<string>? slaveRejectedLiquids = null)
     {
@@ -131,7 +133,7 @@ public static class WorldOrderBClassBranchEnumerator
                 step.WorkshopRole != "Master" && step.WorkshopRole != "Slave")))
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
                 null, 0, symbolic.ExploredNodes, 0,
-                "预计算符号解集与主从 Profile/订单规格不一致");
+                "主从 Profile 的规则版本/订单规格与组合符号解集不一致");
 
         if (symbolic.Status == WorldOrderSymbolicSolutionStatus.Undetermined)
             return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
