@@ -52,8 +52,6 @@ internal sealed class OrderTransferService
                     : $"转移前主台存在重复罐子 ID #{id}";
             if (slave.Jars.Any(jar => jar.Id == id))
                 return $"从台已存在待转移罐子 #{id}";
-            if (!slave.Rules.CanOperateJar(matches[0].Polarity))
-                return $"从台当前极性不能操作待转移罐子 #{id}（{matches[0].Polarity}）";
             jars.Add(id, matches[0]);
         }
 
