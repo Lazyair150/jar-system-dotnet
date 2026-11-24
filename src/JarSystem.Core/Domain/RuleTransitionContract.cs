@@ -132,6 +132,14 @@ public sealed class RuleStateSnapshot
                 string.IsNullOrEmpty(liquidValue) ? null : liquidValue).ToString();
             if (!string.Equals(polarityValue, expectedPolarity, StringComparison.Ordinal))
                 throw new ArgumentException("Jar transition snapshot polarity does not match its authoritative liquid.");
+
+            if (canonical.TryGetValue("workshopPolarityMode", out var modeValue))
+            {
+                if (!Enum.TryParse<WorkshopPolarityMode>(modeValue, out var mode) || !Enum.IsDefined(mode) ||
+                    !WorkshopCapability.CanOperateJar(mode, JarPolarityResolver.Resolve(
+                        string.IsNullOrEmpty(liquidValue) ? null : liquidValue)))
+                    throw new ArgumentException("Workshop polarity mode is incompatible with the Jar polarity in this transition snapshot.");
+            }
         }
         else if (canonical.ContainsKey("polarity"))
         {
@@ -226,7 +234,16 @@ public sealed class RuleTransition
             string.IsNullOrWhiteSpace(Scope) || string.IsNullOrWhiteSpace(Target))
             throw new ArgumentException("Rule transition requires exact rule identity, version, scope and target.");
         if (PolarityTransition is { } polarityTransition)
+        {
             JarPolarityRuleContract.Validate(RuleId, polarityTransition);
+            if (RuleId.StartsWith("jar.workshop.", StringComparison.Ordinal))
+            {
+                if (!Before.Values.TryGetValue("workshopPolarityMode", out var beforeMode) ||
+                    !After.Values.TryGetValue("workshopPolarityMode", out var afterMode) ||
+                    !string.Equals(beforeMode, afterMode, StringComparison.Ordinal))
+                    throw new ArgumentException("Jar workshop transitions must freeze one unchanged Workshop polarity mode.");
+            }
+        }
         else if (RuleId.StartsWith("jar.workshop.", StringComparison.Ordinal))
             throw new ArgumentException("Jar workshop transitions require exact Jar state and polarity snapshots.");
         foreach (var effect in ResourceEffects) effect.Validate();
