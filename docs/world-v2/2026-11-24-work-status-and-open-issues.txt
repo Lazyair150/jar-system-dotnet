@@ -455,3 +455,5 @@ CHECKPOINT 30 — Space cross-repository integration and conservative cleanup (2
 - Updated stale implementation-status headers in Space lifecycle, resource/event, loadout/effect, HUD, semantic-entry, and cross-repository checkpoint documents.
 - Space PR #2 and Core PR #60 remain Draft/Open/unmerged. The latest Space branch head after this documentation cleanup has no successful exact-head workflow result recorded yet. The last successful runtime integration remains 74a93ed; do not conflate these states.
 - Next: finish reference-based documentation cleanup only where a concrete stale reference is demonstrated, then obtain one exact-head cross-repository run on the final Space branch. Do not enter a broad deletion pass or alter the manual workshop-replacement module in this phase.
+
+- Final Space documentation checkpoint commit after the conservative cleanup pass: 31d84280aa7116722c820e3aafc1e76f48a6c36e. It is status/documentation-only; no Space production runtime code changed after the successful integration head 74a93ed. No exact-head cross-repository workflow is recorded for this final documentation head.
