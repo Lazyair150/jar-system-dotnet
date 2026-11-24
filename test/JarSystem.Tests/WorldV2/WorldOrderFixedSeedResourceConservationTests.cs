@@ -181,9 +181,13 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             var operation = steps[index].Operation;
             if (IsFreeLiquidConsumer(operation))
             {
-                Assert.False(string.IsNullOrWhiteSpace(operation!.CostLiquid),
+                // POUR_IN consumes its target liquid; empty RESHAPE consumes its cost liquid.
+                // These are distinct operation fields in the Core contract.
+                var liquid = operation!.Type == "POUR_IN"
+                    ? operation.TargetLiquid
+                    : operation.CostLiquid;
+                Assert.False(string.IsNullOrWhiteSpace(liquid),
                     role + " free-liquid consumer is missing its exact liquid identity.");
-                var liquid = operation!.CostLiquid!;
                 var available = expected.GetValueOrDefault(liquid);
                 Assert.True(available > 0,
                     role + " consumed unavailable free liquid: " + liquid);
