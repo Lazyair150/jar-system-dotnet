@@ -374,3 +374,15 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - run `45406862320` 已 completed / success，精确验证源码 SHA `136d9c599682fe3c2e466cdcdaf6246b73b2e7ef`；它确认分配服务括号修正后的版本通过，但不覆盖后续结算代码。
 - 最新源码 SHA `694b22546d6ad06d08b7ea18b04db834beb9bb0b` 对应独立 run `45407187598`，当前 `in_progress`，包含 settlement pre-drain aggregation 改动。
 - PR #60 当前 head 是文档提交 `5add77237f37cf155a55d6ce21afc91b41efc3af`，仍 Draft/Open/未合并；源码 head 是 `694b225`。
+
+
+## 15. 主从订单液体交接的同步故障补偿
+
+- 先确认前一结算防溢出源码 `694b22546d6ad06d08b7ea18b04db834beb9bb0b` 的 Actions run `45407187598` 已通过。
+- `OrderLiquidTransfer.TryExecute` 增加内部 `IOrderLiquidTransferMutationPort`，默认生产实现仍调用 Workshop staging 的正式变更方法；内部重载只为故障注入测试提供可控的变更边界。
+- 在执行扣款/入账前分别捕获主、从台对应订单的完整余额。任何 source debit 或 destination credit 提交异常，都会尝试精确恢复两侧订单账户；恢复过程重新验证预留配额/总容量。补偿失败时以 `AggregateException` fail-stop，不继续伪装成功。
+- 新增 `RestoreOrderAccount` 作为精确账户恢复原语，不走普通 `Receive`，因此不会把已经合法存在的 Jar/订单资源状态错误套用到普通产出 Ban 规则上；它只恢复先前捕获的该订单子账。
+- 回归样本覆盖：源端第一笔扣减后抛错、目标端第一笔入账后抛错、正常整批交接且不污染其他订单、Ban/容量预检失败时主从账户均不变化。
+- 源码 SHA `8d4dc977b97ed841c298f318b8fef1f582f7b436`；故障注入测试 SHA `73974d5a9be41db9097661fe2cfe3f4e3cdc665b`；补充成功/预检测试 SHA `594e627633babe59a7dadd32bdc03be169880188`。PR #60 最新源码/测试 head `594e627...`，仍 Draft/Open/未合并。
+- 验证状态：run `45407820794` 对应 `8d4dc97`，run `45407856822` 对应 `73974d5`；记录时仍运行中。`594e627` 尚无精确 head run。前一 `694b225` 的 CI 通过不能覆盖本轮改动。
+- 限制：该保证覆盖同步异常补偿，不等于进程崩溃/断电下的持久化原子事务。后续继续覆盖 Settlement Return、receipt、ledger batch、stage mark 与 reservation release 的故障点及 checkpoint/replay。
