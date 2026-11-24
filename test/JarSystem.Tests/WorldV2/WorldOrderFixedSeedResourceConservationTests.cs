@@ -118,7 +118,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                     demandId, masterProfile, world, maxBranches: 4096, maxNodes: 100_000);
                 Count(statusCounts, result.Status.ToString());
                 if (result.Status == WorldOrderAClassBranchEnumerationStatus.Feasible)
-                    AssertConserves(result.Assembly, world, orderType);
+                    AssertConserves(result.Assembly, world, orderType, seed, sample);
                 else
                     Assert.Null(result.Assembly);
             }
@@ -169,7 +169,8 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         IReadOnlyDictionary<string, int> final,
         IReadOnlyList<WorldPlanStep> steps,
         IReadOnlyList<string?> acceptedOutputs,
-        string role)
+        string role,
+        string sampleContext)
     {
         Assert.Equal(steps.Count, acceptedOutputs.Count);
         var expected = initial.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
@@ -202,7 +203,12 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             var actualAmount = final.GetValueOrDefault(liquid);
             Assert.True(actualAmount >= 0,
                 role + " final balance is negative for liquid " + liquid);
-            Assert.Equal(expectedAmount, actualAmount);
+            Assert.True(
+                expectedAmount == actualAmount,
+                $"{sampleContext} {role} liquid conservation failed for '{liquid}': expected={expectedAmount}, actual={actualAmount}; " +
+                $"initial=[{string.Join(",", initial.Select(x => x.Key + ":" + x.Value))}]; " +
+                $"final=[{string.Join(",", final.Select(x => x.Key + ":" + x.Value))}]; " +
+                $"steps=[{string.Join(" | ", steps.Select((step, index) => index + ":" + step.Operation?.Type + ":" + step.Operation?.CostLiquid + ":accepted=" + (acceptedOutputs[index] ?? "-")))}]");
         }
     }
 
@@ -212,8 +218,11 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
     private static void AssertConserves(
         WorldOrderConcretePlanAssemblyResult? assembly,
         WorldSnapshot world,
-        string orderType)
+        string orderType,
+        int seed,
+        int sample)
     {
+        var sampleContext = $"seed=0x{seed:X} sample={sample}";
         Assert.NotNull(assembly);
         Assert.Equal(WorldOrderSolveStatus.Feasible, assembly!.Status);
         var plan = Assert.IsType<WorldOrderSolvePlan>(assembly.CandidatePlan);
@@ -235,7 +244,8 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             manifest.MasterFinalLiquidBalances,
             plan.MasterSteps,
             replay.MasterAcceptedProducedLiquids,
-            "Master");
+            "Master",
+            sampleContext);
         Assert.InRange(manifest.MasterStagingPeakCapacity, 0, world.Master!.LiquidStagingCapacity);
         Assert.All(manifest.MasterInitialLiquidAmounts,
             item => Assert.InRange(item.Value, 0, world.Master.LiquidStagingCapacity));
@@ -260,7 +270,8 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                 replay.SlaveFinalLiquids,
                 plan.SlaveSteps,
                 replay.SlaveAcceptedProducedLiquids,
-                "Slave");
+                "Slave",
+                sampleContext);
             Assert.All(replay.SlaveFinalLiquids,
                 item => Assert.InRange(item.Value, 0, world.Slave!.LiquidStagingCapacity));
             Assert.InRange(manifest.SlaveStagingPeakCapacity, 0, world.Slave!.LiquidStagingCapacity);
