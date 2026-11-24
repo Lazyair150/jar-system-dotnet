@@ -1582,7 +1582,7 @@ void CheckSolverDifferential()
     //   T1 攻击「同构去重」的健全性：**两个同形不同液体的满罐** —— 若去重丢掉液体维度，
     //      就会只倒出一种液体，另一条真解被吃掉。
     //   T2 同形同液体（真同构）仍必须可行 —— 防止"剪太狠"。
-    //   T3 满罐自耗改形路径（RESHAPE full）必须可行。
+    //   T3 满罐自耗改形路径（RESHAPE full）必须可行；T4 即使该 Jar 内液体被 staging Ban 禁止也必须可行。
     //
     // ⚠️ **敏感度边界（实测，务必记住）**：本门**抓到过一个真实缺陷**（求解器不填终态快照 ⇒
     // B 类静默算错），但下面这三种"故意破坏"**没被抓到**：
@@ -1632,7 +1632,7 @@ void CheckSolverDifferential()
     // 在这个规模的场景集上，"未判定"不该出现：要么是预算异常耗尽，要么是求解器违约。
     // 因此把它也算作失败（否则契约缺口会被"跳过比较"悄悄吞掉）。
     Console.WriteLine(mismatches == 0 && undetermined == 0
-        ? $"SOLVER-OK (compared={compared}, agree={agree}, feasible={feasibleCount}, undetermined={undetermined}, targeted=3)"
+        ? $"SOLVER-OK (compared={compared}, agree={agree}, feasible={feasibleCount}, undetermined={undetermined}, targeted=4)"
         : mismatches > 0
             ? $"SOLVER-MISMATCH ({mismatches})"
             : $"SOLVER-MISMATCH ({undetermined} undetermined: 预算异常或求解器违约)");
