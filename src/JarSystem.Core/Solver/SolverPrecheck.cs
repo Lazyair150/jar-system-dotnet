@@ -234,7 +234,7 @@ public static class SolverPrecheck
         // 满罐改形消耗 Jar 自有内部液体，不经过 staging；只有倒液才受 Ban。
         if (cap.CanTransform(jar.Shape, req.Shape)) return true;
         return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
-            && !cap.IsBanned(jar.Liquid);
+            && !cap.IsBanned(jar.Liquid!);
     }
 
     /// <summary>
