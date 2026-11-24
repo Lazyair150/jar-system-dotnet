@@ -217,6 +217,9 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             var slaveFinal = checked(
                 Total(manifest.TransferLiquids) + slaveProduced - slaveConsumed);
             Assert.True(slaveFinal >= 0, "Slave free-liquid replay consumed more than its transferred and accepted supply.");
+            Assert.Equal(slaveFinal, Total(replay.SlaveFinalLiquids));
+            Assert.All(replay.SlaveFinalLiquids,
+                item => Assert.InRange(item.Value, 0, world.Slave!.LiquidStagingCapacity));
             Assert.InRange(manifest.SlaveStagingPeakCapacity, 0, world.Slave!.LiquidStagingCapacity);
             Assert.InRange(Total(manifest.TransferLiquids), 0, world.Slave.LiquidStagingCapacity);
         }
