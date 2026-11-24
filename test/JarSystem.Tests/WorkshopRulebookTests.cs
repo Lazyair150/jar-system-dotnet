@@ -83,7 +83,7 @@ public class WorkshopRulebookTests
     public void OppositePolarityIsRejectedForFullReshapeButMatchingAndNeutralJarsRemainOperable()
     {
         var anodeRules = RuleContext.From(new WorkshopCapability(
-            new[] { "圆罐", "方罐" }, ban: new[] { "酒" }));
+            new[] { "圆罐" }, new[] { "方罐" }, new[] { "酒" }));
 
         var opposite = WorkshopRulebook.Evaluate(
             anodeRules, 3, new JarFacts("圆罐", "酒", false),
