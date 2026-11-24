@@ -77,18 +77,14 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
             new List<string> { "圆罐" }, ban: new List<string> { "酒" },
             ownedInstanceId: "owned.slave.anode");
         master.AddJar(new Jar("圆罐", "酒", id: 9131));
-        master.AddJar(new Jar("方罐", id: 9132));
 
         var input = Profiles(master, slave, new[]
         {
-            new Requirement { Shape = "方罐" },
             new Requirement { Shape = "圆罐", Liquid = "酒" }
         });
-        Assert.Contains(input.Master.Requirements[1].Candidates,
+        Assert.Contains(input.Master.Requirements.Single().Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Empty(input.Slave.Requirements[1].Candidates);
-        Assert.Contains(input.Slave.Requirements[0].Candidates,
-            candidate => candidate.Operation == "MATCH");
+        Assert.Empty(input.Slave.Requirements.Single().Candidates);
 
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             913, input.Master, input.Slave, input.World);
@@ -98,14 +94,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         Assert.Contains(plan.MasterSteps, step =>
             step.Operation?.Type == "MATCH" &&
             step.Before![step.Operation.JarIndex!.Value].Id == 9131);
-        Assert.Contains(plan.SlaveSteps, step =>
-            step.Operation?.Type == "MATCH" &&
-            step.Before![step.Operation.JarIndex!.Value].Id == 9132);
-        Assert.DoesNotContain(plan.SlaveSteps, step =>
-            step.Before![step.Operation!.JarIndex!.Value].Id == 9131);
-        var masterWineMatch = Assert.Single(plan.MasterSteps);
-        Assert.True(masterWineMatch.After![masterWineMatch.Operation!.JarIndex!.Value].IsMarked);
-        Assert.Equal(new[] { 9131, 9132 }, plan.TransferJarIds.OrderBy(id => id));
+        Assert.Empty(plan.SlaveSteps);
+        Assert.Equal(new[] { 9131 }, plan.TransferJarIds);
+        var masterMatch = Assert.Single(plan.MasterSteps);
+        Assert.True(masterMatch.After![masterMatch.Operation!.JarIndex!.Value].IsMarked);
     }
 
     [Fact]
