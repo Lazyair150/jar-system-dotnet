@@ -426,7 +426,7 @@ namespace JarSystem.Core.Solver
         {
             var jar = state[jarIndex];
             if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) return false;
-            if (cap.IsBanned(jar.Liquid)) return false;
+            if (cap.IsBanned(jar.Liquid!)) return false;
             // POUR_OUT 的前提：该液体尚未灌满存储上限。
             return pool[jar.Liquid] < Constants.DEFAULT_MAX_LIQUIDS;
         }
@@ -450,7 +450,7 @@ namespace JarSystem.Core.Solver
                 if (usedSources.Contains(j)) continue;
                 var jar = state[j];
                 if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) continue;
-                if (cap.IsBanned(jar.Liquid)) continue;
+                if (cap.IsBanned(jar.Liquid!)) continue;
                 if (want != null && jar.Liquid != want) continue;
                 if (!CanRaise(pool, cap, state, j)) continue;
 
