@@ -44,10 +44,13 @@ public sealed class WorldOrderBClassBranchEnumerationResult
 }
 
 /// <summary>
-/// Enumerates the order's requirements exclusively in the Slave rule environment,
-/// while the Master may prepare only the free-liquid resources demanded by the Slave
-/// boundary. Slave-local preparation is also allowed. Every selected Jar originates
-/// in the initial Master inventory, crosses at most one atomic handoff, and is operated at most once.
+/// Current bounded B-class enumerator: requirement operations are compiled in the Slave
+/// rule environment, while Master preparation is limited to free-liquid resources required
+/// by those branches. This is a solver capability boundary, NOT a Jar-transfer restriction:
+/// physical Jars may cross the Master/Slave boundary regardless of either workshop polarity.
+/// Transfer itself does not operate the Jar or test polarity. A transferred Jar is checked
+/// against the receiving workshop only when an operation is attempted there. This solver's
+/// slave-only demand model remains a known limitation for orders requiring Master-side demand work.
 /// </summary>
 public static class WorldOrderBClassBranchEnumerator
 {
