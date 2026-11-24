@@ -110,11 +110,12 @@ public static class WorldOrderBClassBranchEnumerator
         // Every order requirement may be fulfilled by either role. The symbolic builder
         // chooses one role-specific candidate per requirement; physical Jar identity is
         // bound only after this role assignment has been selected.
-        var reusable = SameRequirements(master.Requirements, masterProfile.Requirements) &&
-                       SameRequirements(slave.Requirements, slaveProfile.Requirements)
-            ? precomputedSolutions
-            : null;
-        var symbolic = reusable ?? WorldOrderSymbolicSolutionBuilder.Build(
+        // A legacy precomputed set may have been built from only the Slave profile.
+        // The current role-assignment Cartesian product is different, and the set does
+        // not carry a profile-membership fingerprint, so reusing it could silently omit
+        // Master-owned requirement branches. Rebuild from both exact profiles until the
+        // cache key explicitly binds the complete role/profile set.
+        var symbolic = WorldOrderSymbolicSolutionBuilder.Build(
             new[] { master, slave }, maxBranches, maxNodes);
 
         if (symbolic.RuleSetVersion != slave.RuleSetVersion ||
