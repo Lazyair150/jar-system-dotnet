@@ -278,3 +278,27 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 7. 最后才做全仓文件引用审计、过期文档标注、死代码/临时文件清理与命名规范化；不删除 Oracle、历史决策、schema/replay fixtures 或活动验证脚本。
 
 验证纪律不变：后续任何源代码提交都必须重新查询该提交精确 head 的 Actions；本次 run `45402867828` 不为后续提交背书。
+## 11. 续接审计更新（2026-11-24 21:45 +08:00；以本节覆盖旧 head 状态）
+
+- 当前检查到 PR #60 head 已推进为 `d64a2b319bb096318a66211883dc91783ee25131`，base 仍是 `world-v2/phase-4.11b-space-produced-jar-import-v2` / `a52f9465ad4febdcfb821227f7b2e03b2ddc012c`；PR 仍 Draft/Open/未合并。
+- 精确 head `d64a2b3` 的 verify run 为 `45403667537`，查询时 `in_progress`。不得用旧 head `b8cde3e` 的成功 run `45402867828` 替代当前验证结果。
+- PR #60 的 78 个变更文件中，当前关键实现文件包括 `OrderTransferService.cs`、`WorldOrderExecutionSession.cs`、`WorkshopRulebook.cs`、`WorkshopRoleTransferTransitionAdapter.cs`、`WorldOrderExecutionSessionTests.cs`；当前代码仍将 B 类交接实现为同步预检/提交/后置核验/会话补偿流程。
+- 当前 `OrderTransferService` 已有完整来源 Jar ID 正数/唯一检查、Manifest ID 唯一检查、目标容量预检、精确 OwnedInstanceId 检查、operation ID 重放预检、exact Jar ID 提交后核验，以及交接账本 `RecordBatchOnce` 批次发布。`commitStarted` 在第一项实体移动前调用，因此会话失败收尾知道进入了提交边界。
+- 当前 `WorldOrderExecutionSession` 在 B 类交接成功后推进 Lease 到 SlaveExecuting；失败时通过 `_slaveTransferCommitted` 判断是否应执行从台资源回滚。回滚、Mark 清理、结算、Lease/Reservation 释放仍是多个顺序步骤，不是跨对象数据库事务。
+- `RestoreProgress` 会交叉校验会话阶段、主从 staging reservation、Lease 阶段、locked Jar IDs、liquid manifest 和进度游标；但现有证据尚未证明“交接中断/进程崩溃”时，资源实体、Lease、reservation 与 ledger 能作为一个原子 checkpoint 一致恢复。必须通过故障注入和恢复测试建立证据。
+- `OrderResourceSettlementService` 的结算顺序是 Drain staging → Ship Return → 保存 settlement receipt → RecordBatchOnce → 标记账本阶段 → ReleaseReservationOnly。receipt 与 operation ID 支持重试去重；仍需覆盖 Return 后、账本批次后、MarkSettlementLedgerRecorded 后、reservation release 前后的逐点恢复测试。
+- 当前 polarity 契约审查确认：`WorkshopRulebook` 对实际 Jar 操作检查 `CanOperateJar(jar.Polarity)`；`OrderTransferService` 明确禁止在 Jar handoff 中加入 polarity/Ban gate。已有跨极性 receiver-only B 类端到端测试，且断言交接 Transition 不伪造 Polarity 字段。
+- `docs/world-v2/circuit-system-model-and-bounded-resource-routing.md` 与 `order-funnel-and-workshop-replacement-contract.md` 已明确 Jar internal liquid、free-liquid staging、operation permission、handoff ownership 的区别；但电路模型文档仍有部分章节将 Transfer / staging 事务称为后续待完成，应在代码与测试达到门槛后再更新，不提前宣称全覆盖。
+- 本轮未读取到用户提供的 ChatGPT Share 对话：该分享 URL 的页面抓取被平台拒绝，历史对话检索也没有返回该链接内容。当前续接依据是仓库中的状态文档、当前 PR/分支、实际源文件与保留的连续对话摘要；不能声称已完整读取分享对话。
+
+### 本次审计后的执行顺序（不改变领域语义）
+
+1. 先完成交接事务测试接缝设计：让测试能在第 N 个 Jar move、液体 transfer、后置身份核验、ledger batch publish 处注入失败；优先抽象最小端口，不在生产代码加入随机/全局测试开关。测试必须验证精确 Jar ID 所有权、内部液体/Mark、两侧 staging、Lease、Reservation、账本 operation receipt。
+2. 对每个交接故障点执行失败收尾与 checkpoint/restore 对照；明确哪些边界能补偿、哪些边界必须 Faulted 并拒绝继续运行。不得将顺序补偿描述为真正原子事务。
+3. 对结算执行逐边界故障测试：Drain 前/后、Ship Return 前/后、receipt 写入后、ledger batch 写入后、settlement stage 标记后、reservation release 前/后。证明重试不会重复 Return、重复记账或丢失资源。
+4. 完成 A 类与 B 类共享 RuleTransition / JarPolarity / staging admission / Mark / ResourceEffect 的 parity 审计，重点覆盖 solver、physical binder、materializer、admission、replay 与 runtime 入口，而不是只测 WorkshopRulebook。
+5. 增加固定 seed 的跨极性、主从角色、Ban/capacity、exact identity、资源守恒矩阵；Feasible/Infeasible/Undetermined 必须区分，保留独立旧引擎 Oracle。
+6. 然后完成 Board topology、Assignment、Definition、Owned Instance、Rule Contribution、Effective Profile、Runtime projection 能力矩阵，并核对 Space PR #2 的 template ingress 与 Parser schema 3 import receipt。
+7. 最后进行全仓引用审计、过期文件治理、死代码与临时文件清理；保留 Oracle、决策记录、schema/replay fixture 和验证脚本。
+
+验证纪律：当前 `45403667537` 仅对应 `d64a2b3` 且仍运行中；任何后续提交必须重新查询精确 head 的 Actions。
