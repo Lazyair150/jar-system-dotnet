@@ -339,6 +339,38 @@ public sealed class RuleTransitionContractTests
     }
 
     [Fact]
+    public void JarHandoffIsIndependentOfEverySourceAndDestinationPolarityBanCombination()
+    {
+        var banProfiles = new[]
+        {
+            System.Array.Empty<string>(),
+            new[] { "蜜" },
+            new[] { "酒" },
+            new[] { "酒", "蜜" }
+        };
+
+        foreach (var sourceBan in banProfiles)
+        foreach (var destinationBan in banProfiles)
+        {
+            var transition = WorkshopRoleTransferTransitionAdapter.Create(
+                "source-instance", "destination-instance",
+                new[] { 101 }, new[] { 101 },
+                new Dictionary<string, int>(), new Dictionary<string, int>(),
+                sourceBan, destinationBan,
+                destinationJarCount: 0, destinationJarCapacity: 1,
+                destinationStagingUsedCapacity: 0, destinationStagingCapacity: 0);
+
+            var jarEffect = Assert.Single(transition.ResourceEffects);
+            Assert.Equal(RuleResourceEffectKind.Transfer, jarEffect.Kind);
+            Assert.Equal(RuleResourceKind.Jar, jarEffect.ResourceKind);
+            Assert.Equal("101", jarEffect.ResourceId);
+            Assert.Equal("source-instance", jarEffect.From!.OwnerId);
+            Assert.Equal("destination-instance", jarEffect.To!.OwnerId);
+            Assert.Null(transition.PolarityTransition);
+        }
+    }
+
+    [Fact]
     public void WorkshopRoleTransferRejectsDuplicateIdentityInSourceInventorySnapshot()
     {
         Assert.Throws<System.ArgumentException>(() =>
