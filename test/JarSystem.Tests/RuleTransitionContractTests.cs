@@ -32,6 +32,33 @@ public sealed class RuleTransitionContractTests
         new WorkshopCapability(new[] { "圆罐", "方罐" }, new[] { "三角罐" }));
 
     [Fact]
+    public void PolarityRuleContractAcceptsOnlyTheCanonicalOperationEdges()
+    {
+        JarPolarityRuleContract.Validate("jar.workshop.pour-in",
+            new JarPolarityTransition(JarPolarity.Neutral, JarPolarity.Cathode));
+        JarPolarityRuleContract.Validate("jar.workshop.pour-in",
+            new JarPolarityTransition(JarPolarity.Neutral, JarPolarity.Anode));
+        JarPolarityRuleContract.Validate("jar.workshop.pour-out",
+            new JarPolarityTransition(JarPolarity.Anode, JarPolarity.Neutral));
+        JarPolarityRuleContract.Validate("jar.workshop.reshape-empty",
+            new JarPolarityTransition(JarPolarity.Neutral, JarPolarity.Neutral));
+        JarPolarityRuleContract.Validate("jar.workshop.reshape-full",
+            new JarPolarityTransition(JarPolarity.Cathode, JarPolarity.Neutral));
+        JarPolarityRuleContract.Validate("jar.workshop.match",
+            new JarPolarityTransition(JarPolarity.Anode, JarPolarity.Anode));
+
+        Assert.Throws<System.ArgumentException>(() => JarPolarityRuleContract.Validate(
+            "jar.workshop.pour-in",
+            new JarPolarityTransition(JarPolarity.Cathode, JarPolarity.Anode)));
+        Assert.Throws<System.ArgumentException>(() => JarPolarityRuleContract.Validate(
+            "jar.workshop.reshape-full",
+            new JarPolarityTransition(JarPolarity.Neutral, JarPolarity.Anode)));
+        Assert.Throws<System.ArgumentException>(() => JarPolarityRuleContract.Validate(
+            "jar.workshop.match",
+            new JarPolarityTransition(JarPolarity.Cathode, JarPolarity.Neutral)));
+    }
+
+    [Fact]
     public void PourInConsumesWorkshopFreeLiquidAndDoesNotTouchJarLiquidAccount()
     {
         var before = new JarFacts("圆罐", null, false);
