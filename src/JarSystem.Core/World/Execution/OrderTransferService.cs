@@ -40,6 +40,9 @@ internal sealed class OrderTransferService
     /// <summary>True only after all physical postconditions and the optional ledger batch have committed.</summary>
     public bool IsCommitted { get; private set; }
 
+    /// <summary>Restores the committed handoff boundary from an authoritative SlaveSteps session checkpoint.</summary>
+    public void RestoreCommittedState() => IsCommitted = true;
+
     public string? Transfer(
         int demandId,
         OrderResourceLease lease,
