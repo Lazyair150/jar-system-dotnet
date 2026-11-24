@@ -922,15 +922,20 @@ public static class OrderLiquidTransfer
 /// </summary>
 public sealed class OrderLiquidScope
 {
-    public OrderLiquidScope(int orderId, WorkshopLiquidStaging staging)
+    public OrderLiquidScope(
+        int orderId, WorkshopLiquidStaging staging, string? workshopInstanceId = null)
     {
         if (orderId <= 0)
             throw new DomainValidationException("订单 ID 必须是正整数。");
+        if (workshopInstanceId != null && string.IsNullOrWhiteSpace(workshopInstanceId))
+            throw new ArgumentException("Workshop instance identity cannot be blank.", nameof(workshopInstanceId));
         Staging = staging ?? throw new ArgumentNullException(nameof(staging));
         OrderId = orderId;
+        WorkshopInstanceId = workshopInstanceId;
     }
 
     public int OrderId { get; }
+    public string? WorkshopInstanceId { get; }
     public WorkshopLiquidStaging Staging { get; }
     public IReadOnlyDictionary<string, int> Balance => Staging.GetBalance(OrderId);
     public int GetAmount(string liquid) => Staging.GetAmount(OrderId, liquid);
