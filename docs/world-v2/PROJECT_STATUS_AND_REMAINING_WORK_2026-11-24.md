@@ -440,3 +440,11 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 已在 service 开始处增加 receipt precondition。`ResourcesReturned` 仍允许 ledger batch 重试；`LedgerRecorded` 必须有 ledger operation receipt。
 - 扩展恢复测试：两侧 order staging Drain 后，人工构造 Lease=LedgerRecorded 且 ledger 缺 receipt；live `SettleAndRelease` 与 `RestoreProgress` 都必须拒绝。
 - 源码 SHA `13f645248b824a9866051327e33f59c81f44acdc`；测试 SHA `3702fb60bad251fd8cbce734a075e87e1c31b868`；精确 head Actions 尚待查询。上一测试 SHA `c9eb445` 对应 run `45409693136` 仍需查询最终状态。
+
+
+### 19.1 LedgerRecorded 阶段必须提供账本快照
+
+- 将 live 与 restore receipt guard 收紧：Lease 已为 `LedgerRecorded` 时，调用方必须提供 ResourceLedger 且其中存在 `SettlementOperationId`；缺少账本对象本身也视为无法证明提交，必须拒绝。
+- `OrderResourceSettlementService.SettleAndRelease` 与 `WorldOrderExecutionSession.RestoreProgress` 均已实施该规则。
+- 回归测试覆盖：账本对象缺失、账本对象存在但 operation receipt 缺失，两种情况在 live release 与 restore 入口都拒绝。
+- 源码提交 `dd7d7f4` / `d83e374`，测试提交 `7f421da` / `d5cd828`；最新测试 SHA `d5cd828...` 的精确 Actions run 尚待查询。
