@@ -142,6 +142,8 @@ public sealed class WorldV2FactoryTests
         var master = world.Roster.Master!;
         var slave = world.Roster.Slave!;
 
+        Assert.Equal("owned.master", master.OwnedInstanceId);
+        Assert.Equal("owned.slave", slave.OwnedInstanceId);
         Assert.Equal(new[] { "圆罐" }, master.BaseMarks);
         Assert.Equal(new[] { "方罐" }, slave.BaseMarks);
         Assert.True(master.IsBanned("酒"));
