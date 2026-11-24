@@ -70,20 +70,12 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     [Fact]
     public void BClassCanCompleteRequirementOnMasterWhenSlaveCannotOperateThatJar()
     {
-        var slaveRules = new ModifierStack();
-        slaveRules.Push(new SuppressModifier
-        {
-            Operation = "MATCH",
-            Shape = "圆罐",
-            Liquid = "酒",
-            Reason = "从台不能匹配阴极 Jar"
-        });
         var master = new Workshop("阴极主台",
             new List<string> { "圆罐" }, ban: new List<string> { "蜜" },
             ownedInstanceId: "owned.master.cathode");
         var slave = new Workshop("阳极从台",
             new List<string> { "圆罐" }, ban: new List<string> { "酒" },
-            modifiers: slaveRules, ownedInstanceId: "owned.slave.anode");
+            ownedInstanceId: "owned.slave.anode");
         master.AddJar(new Jar("圆罐", "酒", id: 9131));
         master.AddJar(new Jar("方罐", id: 9132));
 
@@ -551,20 +543,12 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
             Shape = "方罐",
             Reason = "主台不匹配方罐需求"
         });
-        var slaveRules = new ModifierStack();
-        slaveRules.Push(new SuppressModifier
-        {
-            Operation = "MATCH",
-            Shape = "圆罐",
-            Liquid = "酒",
-            Reason = "从台不匹配酒 Jar"
-        });
         var master = new Workshop("Cathode主台",
             new List<string> { "圆罐", "方罐" },
             ban: new List<string> { "蜜" }, modifiers: masterRules);
         var slave = new Workshop("Anode从台",
             new List<string> { "圆罐", "方罐" },
-            ban: new List<string> { "酒" }, modifiers: slaveRules);
+            ban: new List<string> { "酒" });
         master.AddJar(new Jar("圆罐", "酒", id: 9141));
         master.AddJar(new Jar("方罐", id: 9142));
 
