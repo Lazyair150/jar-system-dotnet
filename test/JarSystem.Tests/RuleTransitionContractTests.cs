@@ -97,7 +97,6 @@ public sealed class RuleTransitionContractTests
 
         Assert.Throws<System.ArgumentException>(() => invalid.Validate());
     }
-}
 
 
     [Fact]
@@ -111,7 +110,6 @@ public sealed class RuleTransitionContractTests
 
         Assert.True(result.IsAllowed);
         Assert.Equal("jar.workshop.match", result.Transition!.RuleId);
-        Assert.Equal("MATCH", result.Transition.Target == "jar.21" ? "MATCH" : "unexpected");
         Assert.Equal("jar.21", result.Transition.Target);
         Assert.Equal("workshop", result.Transition.Scope);
         Assert.Equal("false", result.Transition.Before.Values["marked"]);
@@ -145,4 +143,5 @@ public sealed class RuleTransitionContractTests
 
         Assert.Throws<System.ArgumentException>(() => MatchRuleTransitionAdapter.Evaluate(
             proof, before, "owned.workshop.master", "jar.23"));
-    }
+    
+}
