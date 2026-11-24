@@ -242,7 +242,7 @@ public sealed class RuleTransitionContractTests
             new[] { 31, 32, 33 }, new[] { 31, 32 },
             new Dictionary<string, int> { ["酒"] = 3, ["蜜"] = 1 },
             new Dictionary<string, int> { ["酒"] = 2 },
-            System.Array.Empty<string>(),
+            System.Array.Empty<string>(), System.Array.Empty<string>(),
             destinationJarCount: 0, destinationJarCapacity: 2,
             destinationStagingUsedCapacity: 1, destinationStagingCapacity: 3,
             transferJarFacts: new Dictionary<int, JarFacts>
