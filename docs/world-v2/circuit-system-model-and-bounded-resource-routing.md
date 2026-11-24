@@ -361,7 +361,7 @@ MATCH 不是普通 WorkshopOperation，现已由独立 Adapter 适配其生命�
 - 酒液 → `Cathode`（阴极）；
 - 蜜液 → `Anode`（阳极）。
 
-这是 Jar 内部液体身份的**派生分类**，不是额外资源，也不是独立可变字段。Core 通过 `JarPolarityResolver` 唯一映射；未知非空液体必须显式失败，不能猜测极性。规则转换快照同时记录实际 `liquid` 与派生 `polarity`，使求解模型可以使用统一的三态分类，同时保留实际资源身份。
+这是 Jar 内部液体身份的**派生分类**，不是额外资源，也不是独立可变字段。Core 通过 `JarPolarityResolver` 唯一映射，并由 `Jar` 与 `JarFacts` 暴露只读派生属性；未知非空液体必须显式失败，不能猜测极性。规则转换快照同时记录实际 `liquid` 与派生 `polarity`，使求解模型可以使用统一的三态分类，同时保留实际资源身份。
 
 极性状态只回答“Jar 当前属于哪一类”，不回答液体数量、账户所有权、所在工作台或可否被某个规则接收。所有资源流仍由 Jar/Liquid ResourceEffect 表达，工作台 Ban 仍只作用于该工作台的游离液体 staging。
 
