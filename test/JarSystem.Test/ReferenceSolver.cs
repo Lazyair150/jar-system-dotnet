@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Solver;
 
@@ -179,7 +180,7 @@ internal sealed class ReferenceSolver : ISolver
                 }
                 else
                 {
-                    // 仅在 Jar 内部完成自耗；不读取/写入工作台游离液体暂存区，因此不检查 staging Ban。
+                    // 资源从 Jar 内部扣除；但该操作仍受工作台-Jar 极性兼容权限约束。
                     s.Jars[i].Liquid = null;
                 }
                 s.Jars[i].Shape = op.TargetShape!;
