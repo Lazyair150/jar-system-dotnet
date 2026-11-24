@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Core.Solver;
@@ -227,7 +228,7 @@ public static class SolverPrecheck
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
                 && string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal);
 
-        if (jar.Liquid == null)
+        if (jar.Polarity == JarPolarity.Neutral)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
 
         // 满罐改形消耗 Jar 自有内部液体，不经过 staging；只有倒液才受 Ban。
@@ -274,11 +275,11 @@ public static class SolverPrecheck
             return cap.CanTransform(jar.Shape, req.Shape) && anyCostLiquid;
         }
 
-        // ③ 满罐改形：自耗罐内液体，不额外要液体（液体被禁则不可）
-        if (cap.IsBanned(jar.Liquid)) return false;
+        // ③ 满罐改形：自耗 Jar 内部液体，不经过 staging，故不检查 Ban。
         if (cap.CanTransform(jar.Shape, req.Shape)) return true;
-        // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH
-        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
+        // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH；此路径进入 staging，仍受 Ban。
+        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
+            && !cap.IsBanned(jar.Liquid!);
     }
 
     /// <summary>
