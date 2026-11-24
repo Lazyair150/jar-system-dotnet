@@ -104,6 +104,7 @@ internal sealed class OrderLiquidAllocationService
             return false;
         }
 
+        var rollbackAttempted = false;
         try
         {
             foreach (var item in manifest.MasterInitialLiquidAmounts)
@@ -111,6 +112,7 @@ internal sealed class OrderLiquidAllocationService
                 if (item.Value == 0) continue;
                 if (!masterStaging.TryReceiveExact(manifest.DemandId, item.Key, item.Value, out var grant))
                 {
+                    rollbackAttempted = true;
                     RollbackAllocation(
                         manifest.DemandId, masterStaging, slaveStaging, slaveReserved,
                         prefillGrant, remainingFromShip);
@@ -129,6 +131,9 @@ internal sealed class OrderLiquidAllocationService
         }
         catch (Exception allocationError)
         {
+            if (rollbackAttempted)
+                throw;
+
             try
             {
                 RollbackAllocation(
