@@ -606,4 +606,28 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
             new WorkshopCapability(ban: new[] { "酒", "蜜" }).PolarityMode);
     }
 
+    [Fact]
+    public void BClassPrefersSlaveWhenBothRoleProfilesCanFulfillTheRequirement()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        var slave = new Workshop("从台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐", id: 9151));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐" }
+        });
+        Assert.Contains(input.Master.Requirements.Single().Candidates,
+            candidate => candidate.Operation == "MATCH");
+        Assert.Contains(input.Slave.Requirements.Single().Candidates,
+            candidate => candidate.Operation == "MATCH");
+
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            915, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.Empty(result.Assembly!.CandidatePlan!.MasterSteps);
+        Assert.Single(result.Assembly.CandidatePlan.SlaveSteps);
+    }
+
 }
