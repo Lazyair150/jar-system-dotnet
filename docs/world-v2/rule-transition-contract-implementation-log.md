@@ -321,7 +321,7 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - 预检检查 Jar 是否属于 source、Jar ID 是否重复、destination Jar 容量、source 液体余额、destination Ban 与 destination staging 总容量；
 - Before / After 记录来源/目标实例、Jar 数量和目标 staging 占用；不把 Jar 液体/极性混入转移准入，因为这是跨账户所有权移动，不是 Jar 化学状态转换。
 
-该 Adapter 当前仍是纯构造器，尚未直接成为 `OrderTransferService` 的提交事务回执；实际 `OrderTransferService` 只对游离液体执行源/目标 staging Ban 与容量预检；Jar 转移仅检查来源所有权、重复身份和目标罐位，不检查任一工作台的 Jar 操作极性。原因是旧 Core `Workshop` 运行时对象目前只有显示 `Name`，没有可信的 Owned Instance ID；不能拿名称冒充身份。下一步必须由 World/Host 将 Assignment 中的 exact Owned Instance ID 传入交接服务，并让实际提交回执与此 Transition 来自同一事务边界，再接入账本/回放。
+`WorldV2Options` 现在从冻结的 `boardAssignmentSnapshot` 按 `BoardSlotId` 把 exact `OwnedInstanceId` 注入 Core `Workshop`；`OrderLiquidScope` 也保留该身份。`OrderTransferService` 在提交前使用两端 exact Owned Instance ID 构造此 Transition，继续执行既有 staging Ban/容量与 Jar 所有权/罐位预检；提交后核对真实来源/目标 Jar 数量和目标 staging 余额增量与 Transition.After 一致，只有核对通过才发布 `CommittedTransition`，`WorldOrderExecutionSession.TransferTransition` 可读取该不可变回执。该回执与实际提交处于同一同步事务边界；当前资源账本仍记录 Jar/Liquid Transfer，Transition 本身尚未进入执行进度快照/持久化回放。
 
 
 ## 15. Ban 与工作台极性统一（2026-11-24，语义纠正）
