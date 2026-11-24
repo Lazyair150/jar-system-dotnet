@@ -319,3 +319,9 @@ CHECKPOINT 23 — LedgerRecorded 阶段必须携带账本快照（2026-11-24）
 - `OrderResourceSettlementService.SettleAndRelease` 与 `WorldOrderExecutionSession.RestoreProgress` 都已改为：LedgerRecorded 时 `(ledger == null || !HasRecordedOperation(...))` 即 fail-stop。
 - 扩展测试同时验证 live settlement release 与 RestoreProgress 在 ledger 缺失、以及 ledger 对象存在但 operation receipt 缺失时都会拒绝。
 - 源码提交 `dd7d7f43b21b5587c4f9616bc68cefddb61cb579`、`d83e3745a8cee46d3c3af729dd985903398c62d4`；测试提交 `7f421da7c712f99f722b6105b1c7b839c6998a54`、`d5cd82823fed353d95e254ec2a9fa270e9ec2828`。最新测试 head 的精确 Actions run 尚未返回。
+
+
+VERIFICATION RESULT — settlement stage/balance consistency
+
+- 精确测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 对应 Actions run `45409693136` 已 completed / success。该 head 覆盖 SettlementStage 非 NotStarted 时主从订单子账必须为空，以及 LedgerRecorded 缺 Settlement receipt 时 RestoreProgress 拒绝恢复。
+- 后续新增的 live SettleAndRelease receipt guard、LedgerRecorded 必须携带 ResourceLedger 的更严格规则不包含在 `c9eb445` 的验证中；它们的最新测试提交 `d5cd828...` 正由 run `45410074563` 验证中。
