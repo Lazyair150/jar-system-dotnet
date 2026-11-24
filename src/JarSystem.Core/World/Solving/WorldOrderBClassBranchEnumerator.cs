@@ -44,13 +44,11 @@ public sealed class WorldOrderBClassBranchEnumerationResult
 }
 
 /// <summary>
-/// Current bounded B-class enumerator: requirement operations are compiled in the Slave
-/// rule environment, while Master preparation is limited to free-liquid resources required
-/// by those branches. This is a solver capability boundary, NOT a Jar-transfer restriction:
-/// physical Jars may cross the Master/Slave boundary regardless of either workshop polarity.
-/// Transfer itself does not operate the Jar or test polarity. A transferred Jar is checked
-/// against the receiving workshop only when an operation is attempted there. This solver's
-/// slave-only demand model remains a known limitation for orders requiring Master-side demand work.
+/// B-class enumerator. Requirement operations may be assigned to either role using each
+/// role's exact rule profile. Master operations execute before the one-way handoff; Slave
+/// operations execute after it. Jar transfer is ownership movement, not a workshop operation,
+/// and therefore never tests either workshop's polarity. A receiving workshop checks polarity
+/// only when it later attempts an operation on the transferred Jar.
 /// </summary>
 public static class WorldOrderBClassBranchEnumerator
 {
@@ -100,12 +98,14 @@ public static class WorldOrderBClassBranchEnumerator
         // rules, not a second source inventory. Filter both profiles against Master IDs.
         var master = FilterToAvailablePhysicalJarStates(masterProfile, world.Master);
         var slave = FilterToAvailablePhysicalJarStates(slaveProfile, world.Master);
-        if (slave.Requirements.Count != slaveProfile.Requirements.Count ||
+        if (master.Requirements.Count != masterProfile.Requirements.Count ||
+            slave.Requirements.Count != slaveProfile.Requirements.Count ||
+            master.Requirements.Select((item, index) =>
+                item.RequirementIndex != masterProfile.Requirements[index].RequirementIndex).Any(x => x) ||
             slave.Requirements.Select((item, index) =>
-                item.RequirementIndex != slaveProfile.Requirements[index].RequirementIndex ||
-                item.Candidates.Count == 0).Any(x => x))
-            return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
-                null, 0, 0, 0, "从台规则环境无法为每项订单需求找到可绑定的物理 Jar 初态");
+                item.RequirementIndex != slaveProfile.Requirements[index].RequirementIndex).Any(x => x))
+            return Result(WorldOrderBClassBranchEnumerationStatus.Undetermined,
+                null, 0, 0, 0, "主从规则候选 Profile 的需求索引无法与当前订单规格对齐");
 
         // Every order requirement may be fulfilled by either role. The symbolic builder
         // chooses one role-specific candidate per requirement; physical Jar identity is
