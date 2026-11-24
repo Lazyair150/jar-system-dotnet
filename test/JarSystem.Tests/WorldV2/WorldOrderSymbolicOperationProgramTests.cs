@@ -357,11 +357,11 @@ public sealed class WorldOrderSymbolicOperationProgramTests
             solution, true, "Master", "Slave");
 
         Assert.Equal(2, program.Nodes.Count);
-        var masterOperation = Assert.Single(program.Nodes.Where(
-            x => x.Kind == WorldOrderSymbolicOperationKind.Rule));
+        var masterOperation = Assert.Single(program.Nodes,
+            x => x.Kind == WorldOrderSymbolicOperationKind.Rule);
         Assert.Equal("Master", masterOperation.WorkshopRole);
-        var handoff = Assert.Single(program.Nodes.Where(
-            x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff));
+        var handoff = Assert.Single(program.Nodes,
+            x => x.Kind == WorldOrderSymbolicOperationKind.MasterToSlaveHandoff);
         var handedJar = Assert.Single(handoff.InputJars);
         Assert.Equal("requirement-0", handedJar.JarKey);
         Assert.True(handedJar.IsMarked);
