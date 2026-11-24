@@ -378,7 +378,7 @@ public sealed class WorldOrderExecutionAdmissionTests
     }
 
     [Fact]
-    public void NewAdmissionRejectsPrefilledJarAfterWorkshopBanRulesChange()
+    public void NewAdmissionAcceptsJarInternalLiquidAfterWorkshopStagingBanRulesChange()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             vocabulary: Words, liquidStagingCapacity: 4);
@@ -408,10 +408,10 @@ public sealed class WorldOrderExecutionAdmissionTests
 
         var second = admission.TryAdmit(secondDemand.Id);
 
-        // The Jar still contains 酒. A newly captured Master ban must reject operating it;
-        // an empty staging account does not make the prefilled Jar exempt from the workshop rule.
-        Assert.False(second.Success);
-        Assert.False(admission.GetLiquidScopes(secondDemand.Id).HasValue);
+        // The Jar still contains 酒, but MATCH/ownership does not consume or receive staging liquid.
+        // A new staging Ban must not retroactively invalidate Jar-owned liquid.
+        Assert.True(second.Success, second.Reason);
+        Assert.True(admission.GetLiquidScopes(secondDemand.Id).HasValue);
     }
 
     [Fact]
