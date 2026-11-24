@@ -69,6 +69,27 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void InvalidBatchPublishesNeitherPartialEventsNorOperationReceipt()
+    {
+        var ledger = new ResourceLedger();
+        var operationId = "world:order:8:transfer";
+        var batch = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Jar,
+                "圆罐", 1, From: "主台", To: "从台"),
+            new ResourceLedgerMutation(ResourceCauses.Transfer, "unsupported-kind",
+                "bad", 1, From: "主台", To: "从台")
+        };
+
+        Assert.Throws<DomainValidationException>(() =>
+            ledger.RecordBatchOnce(operationId, 5, batch));
+
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.Empty(ledger.Entries);
+        Assert.False(ledger.HasRecordedOperation(operationId));
+    }
+
+    [Fact]
     public void RestoreRejectsLastSequenceThatDoesNotMatchRetainedTail()
     {
         var invalid = new ResourceLedgerSnapshot(
