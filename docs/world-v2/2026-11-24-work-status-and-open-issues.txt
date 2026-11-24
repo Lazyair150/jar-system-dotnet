@@ -343,3 +343,13 @@ CHECKPOINT 24 — Settlement 四个提交边界故障注入与恢复（2026-11-2
 - 新增固定 Seed 资源守恒矩阵：4 个固定 Seed × 200 次主从订单液体交接样本（成功、源余额不足、Ban、目标容量不足）；另有 4 × 200 次自机液库 Return 样本，逐液种验证 requested = accepted + discarded、库存总量守恒、容量上限与其他订单账户隔离。
 - 新增 A/B polarity parity matrix：12 个组合（Neutral/Cathode/Anode × Unrestricted/Cathode/Anode/NeutralOnly），分别验证 A enumerator 与 B enumerator 对相同主从能力的接受/拒绝结果一致。
 - 精确 CI：`c1a6eb1` run `45411373717` success；`2d5c30a` run `45411404661` success；`f4a1ba7` run `45411519622` success；`fc16c14` run `45411564120` success；`97df879` run `45411592815` success。固定 Seed 交接 `7c15635` run `45411759149` 与液库 Return `8d461d9` run `45411804846` 查询时仍 in_progress；A/B parity `cddc572` 精确 run 尚未出现。最终判定以 PR 最新 head 对应 run 为准。
+
+
+CHECKPOINT 25 — Settlement / A-B parity / fixed Seed 阶段验收（2026-11-24）
+
+- Settlement fault matrix 代码与 6 个故障注入用例已通过最终精确 head 验证：主台 Drain 后、从台 Drain 后、Ship Return 已写但 receipt 未写、ledger batch 已写但 stage mark 未写、stage mark 已写但 reservation release 前。前 3 个边界验证回滚 Ship + 主从订单子账；后 3 个边界验证向前重放、operation receipt 去重、最终释放 reservation。
+- 旧兼容 `SettleLiquidResources` 同步增加 pre-receipt 三账户补偿；主从容量释放前做双边 pending-prefill preflight。
+- A/B parity 最终覆盖 8 个带液体 Jar 组合：Cathode/Anode × Unrestricted/Cathode/Anode/NeutralOnly；A 与 B 在相同主从能力配置下 Feasible/Infeasible 一致。最初额外加入的 4 个空 Jar 组合被移除：空 Jar 变形需要游离液体驱动，在 NeutralOnly 双 Ban 下没有可用驱动液体，测试期待“极性允许”却忽略了资源条件；这不是 A/B 极性差异。极性静态矩阵仍由 `WorkshopCapability` 独立测试覆盖。
+- 固定 Seed 样本已扩展：4 Seed × 200 次主从订单液体交接（总 800），覆盖成功、源余额不足、目标 Ban、目标容量不足；4 Seed × 200 次 Ship Return（总 800），逐液种检查 Requested = Accepted + Discarded、库存总量守恒、容量与账户隔离。一次测试失败仅因理论数据每次 200 样本，却误断言每次 800；已修正，不涉及生产代码缺陷。
+- 验证记录：`45411373717` (`c1a6eb1`) success；`45411404661` (`2d5c30a`) success；`45411519622` (`f4a1ba7`) success；`45411564120` (`fc16c14`) success；`45411592815` (`97df879`) success。旧固定 Seed 断言提交 `7c15635` / `45411759149` 与 `8d461d9` / `45411804846` 失败均为每次样本数断言 800/200；修正提交 `e56bf4d` 的 run `45412278553` 则只暴露空 Jar polarity test 的资源前提错误。修正后最终源码/测试 SHA `3e4a5195d9640fa166359217a5f69ff143439d8d` 对应 Actions `45413094112` completed / success。
+- PR #60 当前仍 Draft/Open/未合并；此时 head `3e4a5195d9640fa166359217a5f69ff143439d8d` 精确 verify success。进入 Space 跨仓库集成前，Core 侧本阶段 1–6 已完成；断电/进程崩溃下的持久化事务原子性仍未证明，必须保留为独立后续项。
