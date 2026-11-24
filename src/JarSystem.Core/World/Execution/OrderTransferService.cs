@@ -162,6 +162,9 @@ internal sealed class OrderTransferService
         // tick provider 在提交前取得；它抛错时仍没有罐子、液体或租约所有权变化。
         var ledgerTick = ledger == null ? 0 :
             (ledgerTickProvider ?? throw new InvalidOperationException("资源账本缺少逻辑 tick provider。"))();
+        // Collect facts while moving resources, but publish them as one idempotent batch
+        // only after exact ownership and RuleTransition postconditions have succeeded.
+        var ledgerMutations = new List<ResourceLedgerMutation>();
 
         // 从这里开始调用方拥有失败清理权限；之后出现异常不能伪装成普通预检拒绝。
         commitStarted();
@@ -178,8 +181,10 @@ internal sealed class OrderTransferService
                     throw new InvalidOperationException($"罐子 #{id} 转移失败且无法恢复主台归属");
                 throw new InvalidOperationException($"罐子 #{id} 在转移提交阶段违反预检结果");
             }
-            ledger?.Record(ledgerTick, ResourceCauses.Transfer,
-                ResourceKinds.Jar, jar.Shape, 1, from: master.Name, to: slave.Name);
+            if (ledger != null)
+                ledgerMutations.Add(new ResourceLedgerMutation(
+                    ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
+                    from: master.Name, to: slave.Name));
         }
 
         if (masterScope == null)
@@ -196,8 +201,10 @@ internal sealed class OrderTransferService
                         throw new InvalidOperationException($"液体「{item.Key}」转移失败且无法撤销从台入账");
                     throw new InvalidOperationException($"主台液体「{item.Key}」在转移提交阶段违反预检结果");
                 }
-                ledger?.Record(ledgerTick, ResourceCauses.Transfer,
-                    ResourceKinds.Liquid, item.Key, item.Value, from: master.Name, to: slave.Name);
+                if (ledger != null)
+                    ledgerMutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
+                        from: master.Name, to: slave.Name));
             }
         }
         else
@@ -208,8 +215,10 @@ internal sealed class OrderTransferService
                 throw new InvalidOperationException(
                     transferReason ?? "主从订单液体交接在提交阶段违反预检结果");
             foreach (var item in requiredTransfer!)
-                ledger?.Record(ledgerTick, ResourceCauses.Transfer,
-                    ResourceKinds.Liquid, item.Key, item.Value, from: master.Name, to: slave.Name);
+                if (ledger != null)
+                    ledgerMutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
+                        from: master.Name, to: slave.Name));
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
 
@@ -231,6 +240,15 @@ internal sealed class OrderTransferService
                 expected["destinationStagingUsedCapacity"] != destinationUsedCapacity.ToString(CultureInfo.InvariantCulture))
                 throw new InvalidOperationException("主从交接提交后的真实账户状态与同一事务构造的 RuleTransition 不一致。");
             CommittedTransition = transferTransition;
+        }
+
+        // The ledger is a projection of committed resource facts, not a sequence of
+        // intermediate writes. Publish the complete transfer once, after all checks.
+        if (ledger != null && ledgerMutations.Count > 0)
+        {
+            var operationId = lease.WorldVersion + ":order:" + demandId + ":transfer";
+            if (!ledger.RecordBatchOnce(operationId, ledgerTick, ledgerMutations))
+                throw new InvalidOperationException("该订单交接账本操作已记录，拒绝重复提交资源转移事实。");
         }
 
         return null;
