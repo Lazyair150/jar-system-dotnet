@@ -296,4 +296,83 @@ public sealed class WorkshopOrderLiquidScopeTests
 
         Assert.Equal(allowed, result);
     }
+
+    [Fact]
+    public void ScopedLiquidTransferRestoresBothAccountsWhenDestinationMutationThrows()
+    {
+        var master = new WorkshopLiquidStaging(8);
+        var slave = new WorkshopLiquidStaging(8);
+        master.Receive(301, "酒", 3);
+        master.Receive(301, "蜜", 2);
+        slave.Receive(301, "蜜", 1);
+        var masterBefore = master.GetBalance(301);
+        var slaveBefore = slave.GetBalance(301);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            OrderLiquidTransfer.TryExecute(
+                301, master, slave,
+                new Dictionary<string, int> { ["酒"] = 2, ["蜜"] = 1 },
+                out _, new ThrowAfterFirstDestinationMutationPort()));
+
+        Assert.Equal("injected destination mutation failure", error.Message);
+        Assert.Equal(masterBefore, master.GetBalance(301));
+        Assert.Equal(slaveBefore, slave.GetBalance(301));
+        Assert.Equal(5, master.UsedCapacity);
+        Assert.Equal(1, slave.UsedCapacity);
+    }
+
+    [Fact]
+    public void ScopedLiquidTransferRestoresBothAccountsWhenSourceMutationThrowsMidBatch()
+    {
+        var master = new WorkshopLiquidStaging(8);
+        var slave = new WorkshopLiquidStaging(8);
+        master.Receive(302, "酒", 3);
+        master.Receive(302, "蜜", 2);
+        slave.Receive(302, "蜜", 1);
+        var masterBefore = master.GetBalance(302);
+        var slaveBefore = slave.GetBalance(302);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            OrderLiquidTransfer.TryExecute(
+                302, master, slave,
+                new Dictionary<string, int> { ["酒"] = 2, ["蜜"] = 1 },
+                out _, new ThrowAfterFirstSourceMutationPort()));
+
+        Assert.Equal("injected source mutation failure", error.Message);
+        Assert.Equal(masterBefore, master.GetBalance(302));
+        Assert.Equal(slaveBefore, slave.GetBalance(302));
+        Assert.Equal(5, master.UsedCapacity);
+        Assert.Equal(1, slave.UsedCapacity);
+    }
+
+    private sealed class ThrowAfterFirstDestinationMutationPort : IOrderLiquidTransferMutationPort
+    {
+        private int _receives;
+
+        public bool TryTransferOut(WorkshopLiquidStaging staging, int orderId, string liquid, int amount) =>
+            staging.TryTransferOut(orderId, liquid, amount);
+
+        public void Receive(WorkshopLiquidStaging staging, int orderId, string liquid, int amount)
+        {
+            staging.ReceiveTransferUnchecked(orderId, liquid, amount);
+            if (++_receives == 1)
+                throw new InvalidOperationException("injected destination mutation failure");
+        }
+    }
+
+    private sealed class ThrowAfterFirstSourceMutationPort : IOrderLiquidTransferMutationPort
+    {
+        private int _withdrawals;
+
+        public bool TryTransferOut(WorkshopLiquidStaging staging, int orderId, string liquid, int amount)
+        {
+            var changed = staging.TryTransferOut(orderId, liquid, amount);
+            if (++_withdrawals == 1)
+                throw new InvalidOperationException("injected source mutation failure");
+            return changed;
+        }
+
+        public void Receive(WorkshopLiquidStaging staging, int orderId, string liquid, int amount) =>
+            staging.ReceiveTransferUnchecked(orderId, liquid, amount);
+    }
 }
