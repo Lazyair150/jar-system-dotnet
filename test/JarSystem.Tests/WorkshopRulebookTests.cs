@@ -427,7 +427,7 @@ public class WorkshopRulebookTests
     /// （原实现与契约都按这个口径；写成总数会悄悄改掉液池语义。）
     /// </summary>
     [Fact]
-    public void PourOutIsBlockedExactlyWhenThatLiquidStorageIsFull()
+    public void PourOutDiscardsOutputWhenThatLiquidStorageIsFull()
     {
         var cfg = new Cfg { Name = "自由台", Base = new[] { "圆罐" }, MaxLiquids = 3 };
         var facts = new JarFacts("圆罐", "酒", false);
@@ -438,8 +438,8 @@ public class WorkshopRulebookTests
         Assert.True(Execute(justBelow, op));
 
         var atCap = Build(cfg, "圆罐", "酒", false, new[] { ("酒", 3) });
-        Assert.False(WorkshopRulebook.IsAllowed(atCap.Rules, cfg.MaxLiquids, facts, op, atCap.LiquidStorage));
-        Assert.False(Execute(atCap, op));
+        Assert.True(WorkshopRulebook.IsAllowed(atCap.Rules, cfg.MaxLiquids, facts, op, atCap.LiquidStorage));
+        Assert.True(Execute(atCap, op));
 
         // 另一种液体满了不影响酒：账目里没有蜜，酒只到 2
         var otherFull = Build(cfg, "圆罐", "酒", false, new[] { ("蜜", 3) });
