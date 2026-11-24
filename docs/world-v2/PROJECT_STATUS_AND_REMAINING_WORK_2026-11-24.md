@@ -11,8 +11,9 @@ Core PR：[#60](https://github.com/Lazyair150/jar-system-dotnet/pull/60)（Draft
 - PR #60 当前 head：`2b795e382a6b2ab45c25ec07ea8f5c6bd372b6a4`。
 - PR #60 base：`world-v2/phase-4.11b-space-produced-jar-import-v2`，base SHA：`a52f9465ad4febdcfb821227f7b2e03b2ddc012c`。
 - PR #60 有 402 commits、76 changed files；它是 stacked draft PR，禁止在没有明确指示时合并。
-- 同一 head 的 Actions run `45396773904`（pull_request）与 `45396758020`（push）在本次记录时均为 in_progress。
-- 同一 PR 先前 run `45395927189` 失败，失败来自 xUnit 3 个测试，不是编译失败。Build、Godot host builds、StrategyExperiment、contract snapshot/schema、world config equivalence、protocol guard、solver differential、session replay、dependency security 均通过。
+- 历史 Actions run `45396773904`（pull_request）与 `45396758020`（push）均已结束并失败；其日志记录了 3 个 xUnit 用例失败（见下列测试名）。
+- 后续 run `45397213790` 在测试执行前因 xUnit analyzer `xUnit2031` 构建失败，具体是 `WorldOrderSymbolicOperationProgramTests.cs` 两处对 `Assert.Single(Where(...))` 的用法。已在 commit `b71aa76d3fa183b852fbe1ff50e257907c982573` 改为 `Assert.Single(collection, predicate)`；该修复尚待最新 CI 验证。
+- 先前失败运行中，Build 与两个 Godot host builds、StrategyExperiment、contract snapshot/schema、world config equivalence、protocol guard、solver differential、session replay、dependency security 均通过；失败阶段分别为 xUnit 断言和后续 analyzer build，不应混为一类。
 - 失败测试：
   1. `WorldOrderSolverTests.BClassEntryPointRejectsExplicitlyRejectedFreeLiquidBoundary`
   2. `WorldOrderBClassBranchEnumeratorTests.ExplicitSlaveRejectBlocksFreeLiquidBoundaryEvenWhenMasterHasSupply`
