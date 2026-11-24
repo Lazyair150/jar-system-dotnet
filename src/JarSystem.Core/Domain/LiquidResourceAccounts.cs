@@ -897,6 +897,80 @@ public sealed class WorkshopLiquidStagingSnapshot
         ShipLiquidInventory.TotalAmount(Accounts.Values.SelectMany(account => account)));
 }
 
+internal interface ILegacyWorkshopLiquidTransferPort
+{
+    bool AddToDestination(Workshop destination, string liquid, int amount);
+    bool RemoveFromSource(Workshop source, string liquid, int amount);
+}
+
+internal sealed class WorkshopLegacyLiquidTransferPort : ILegacyWorkshopLiquidTransferPort
+{
+    public bool AddToDestination(Workshop destination, string liquid, int amount) =>
+        destination.AddLiquid(liquid, amount);
+
+    public bool RemoveFromSource(Workshop source, string liquid, int amount) =>
+        source.RemoveLiquid(liquid, amount);
+}
+
+/// <summary>
+/// 旧版 Workshop free-liquid compatibility path. All requested liquid kinds move as one
+/// synchronous batch; a partial mutation restores both exact Workshop liquid accounts.
+/// </summary>
+internal static class LegacyWorkshopLiquidTransfer
+{
+    private static readonly ILegacyWorkshopLiquidTransferPort DefaultPort =
+        new WorkshopLegacyLiquidTransferPort();
+
+    public static void Execute(
+        Workshop master,
+        Workshop slave,
+        IReadOnlyDictionary<string, int> amounts) =>
+        Execute(master, slave, amounts, DefaultPort);
+
+    internal static void Execute(
+        Workshop master,
+        Workshop slave,
+        IReadOnlyDictionary<string, int> amounts,
+        ILegacyWorkshopLiquidTransferPort mutationPort)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(slave);
+        ArgumentNullException.ThrowIfNull(mutationPort);
+        ShipLiquidInventory.ValidateAmounts(amounts);
+        if (ReferenceEquals(master, slave))
+            throw new DomainValidationException("主工作台和从工作台不能是同一个实例。");
+
+        var masterBefore = new Dictionary<string, int>(master.LiquidStorage, StringComparer.Ordinal);
+        var slaveBefore = new Dictionary<string, int>(slave.LiquidStorage, StringComparer.Ordinal);
+        try
+        {
+            foreach (var item in amounts)
+            {
+                if (item.Value == 0) continue;
+                if (!mutationPort.AddToDestination(slave, item.Key, item.Value))
+                    throw new InvalidOperationException("从台游离液体在交接提交期间违反预检结果：" + item.Key);
+                if (!mutationPort.RemoveFromSource(master, item.Key, item.Value))
+                    throw new InvalidOperationException("主台游离液体在交接提交期间违反预检结果：" + item.Key);
+            }
+        }
+        catch (Exception transferError)
+        {
+            try
+            {
+                master.RestoreLiquidStorageSnapshot(masterBefore);
+                slave.RestoreLiquidStorageSnapshot(slaveBefore);
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "旧版主从游离液体交接失败，且双侧工作台账户补偿回滚失败；必须停止世界推进并保留故障现场。",
+                    transferError, rollbackError);
+            }
+            throw;
+        }
+    }
+}
+
 internal interface IOrderLiquidTransferMutationPort
 {
     bool TryTransferOut(WorkshopLiquidStaging staging, int orderId, string liquid, int amount);
