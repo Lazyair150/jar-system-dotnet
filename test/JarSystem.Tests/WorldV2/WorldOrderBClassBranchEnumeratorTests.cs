@@ -90,6 +90,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         {
             new Requirement { Shape = "圆罐", Liquid = "酒" }
         });
+        Assert.Contains(input.Master.Requirements.Single().Candidates,
+            candidate => candidate.Operation == "MATCH");
+        Assert.Empty(input.Slave.Requirements.Single().Candidates);
+
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             913, input.Master, input.Slave, input.World);
 
@@ -530,5 +534,57 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     {
         Assert.Equal(expected, JarPolarityResolver.Resolve(liquid));
     }
+
+    [Fact]
+    public void BClassCanSplitDifferentRequirementsAcrossMasterAndSlave()
+    {
+        var masterRules = new ModifierStack();
+        masterRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "方罐",
+            Reason = "主台不匹配方罐需求"
+        });
+        var slaveRules = new ModifierStack();
+        slaveRules.Push(new SuppressModifier
+        {
+            Operation = "MATCH",
+            Shape = "圆罐",
+            Liquid = "酒",
+            Reason = "从台不匹配酒 Jar"
+        });
+        var master = new Workshop("Cathode主台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "蜜" }, modifiers: masterRules);
+        var slave = new Workshop("Anode从台",
+            new List<string> { "圆罐", "方罐" },
+            ban: new List<string> { "酒" }, modifiers: slaveRules);
+        master.AddJar(new Jar("圆罐", "酒", id: 9141));
+        master.AddJar(new Jar("方罐", id: 9142));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐", Liquid = "酒" },
+            new Requirement { Shape = "方罐" }
+        });
+        Assert.Contains(input.Master.Requirements[0].Candidates,
+            candidate => candidate.Operation == "MATCH");
+        Assert.Empty(input.Slave.Requirements[0].Candidates);
+        Assert.Empty(input.Master.Requirements[1].Candidates);
+        Assert.Contains(input.Slave.Requirements[1].Candidates,
+            candidate => candidate.Operation == "MATCH");
+
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            914, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Equal(new[] { 9141 }, plan.MasterSteps.Select(step =>
+            step.Before![step.Operation!.JarIndex!.Value].Id));
+        Assert.Equal(new[] { 9142 }, plan.SlaveSteps.Select(step =>
+            step.Before![step.Operation!.JarIndex!.Value].Id));
+        Assert.Equal(new[] { 9141, 9142 }, plan.TransferJarIds.OrderBy(id => id));
+    }
+
 
 }
