@@ -67,6 +67,17 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
+    public void SolverJarAndRequirementExposeTheSameThreeStateClassification()
+    {
+        Assert.Equal(JarPolarity.Neutral, new JarState { Shape = "圆罐" }.Polarity);
+        Assert.Equal(JarPolarity.Cathode, new JarState { Shape = "圆罐", Liquid = "酒" }.Polarity);
+        Assert.Equal(JarPolarity.Anode, new JarState { Shape = "圆罐", Liquid = "蜜" }.Polarity);
+        Assert.Equal(JarPolarity.Neutral, new Requirement { Shape = "圆罐" }.Polarity);
+        Assert.Equal(JarPolarity.Cathode, new Requirement { Shape = "圆罐", Liquid = "酒" }.Polarity);
+        Assert.Equal(JarPolarity.Anode, new Requirement { Shape = "圆罐", Liquid = "蜜" }.Polarity);
+    }
+
+    [Fact]
     public void AStoredButBannedLiquidIsNeverASupply()
     {
         // 池里 2 份酒、台禁酒、罐子只有空圆罐：需求「圆罐:酒」必须判不可行/未判定，绝不能可行。
