@@ -597,16 +597,16 @@ public sealed class WorldOrderExecutionSessionTests
     [Fact]
     public void BTransferRollsBackEarlierJarMovesWhenTheNthJarMoveFails()
     {
-        var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
-        var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var master = new Workshop("Cathode主台", new List<string> { "圆罐" },
+            ban: new List<string> { "蜜" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("Anode从台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
         var firstJar = new Jar("圆罐", "酒", id: 9883, vocabulary: Words);
-        var secondJar = new Jar("圆罐", "蜜", id: 9884, vocabulary: Words);
+        var secondJar = new Jar("圆罐", "酒", id: 9884, vocabulary: Words);
         Assert.True(master.AddJar(firstJar));
         Assert.True(master.AddJar(secondJar));
         var demand = new OrderDemand(new JarOrderSpecification(
-            new[] { new Requirement { Shape = "圆罐" }, new Requirement { Shape = "圆罐" } },
+            new[] { new Requirement { Shape = "圆罐", Liquid = "酒" }, new Requirement { Shape = "圆罐", Liquid = "酒" } },
             Constants.OrderType.B, Words), 0, new SequentialIdGenerator());
         var setup = Prepare(master, slave, demand);
         var ledger = new ResourceLedger();
