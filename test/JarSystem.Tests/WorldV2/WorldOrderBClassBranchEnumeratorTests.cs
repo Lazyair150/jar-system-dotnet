@@ -499,4 +499,36 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Undetermined, result.Status);
     }
+    [Theory]
+    [InlineData(WorkshopPolarityMode.Unrestricted, JarPolarity.Neutral, true)]
+    [InlineData(WorkshopPolarityMode.Unrestricted, JarPolarity.Cathode, true)]
+    [InlineData(WorkshopPolarityMode.Unrestricted, JarPolarity.Anode, true)]
+    [InlineData(WorkshopPolarityMode.Cathode, JarPolarity.Neutral, true)]
+    [InlineData(WorkshopPolarityMode.Cathode, JarPolarity.Cathode, true)]
+    [InlineData(WorkshopPolarityMode.Cathode, JarPolarity.Anode, false)]
+    [InlineData(WorkshopPolarityMode.Anode, JarPolarity.Neutral, true)]
+    [InlineData(WorkshopPolarityMode.Anode, JarPolarity.Cathode, false)]
+    [InlineData(WorkshopPolarityMode.Anode, JarPolarity.Anode, true)]
+    [InlineData(WorkshopPolarityMode.NeutralOnly, JarPolarity.Neutral, true)]
+    [InlineData(WorkshopPolarityMode.NeutralOnly, JarPolarity.Cathode, false)]
+    [InlineData(WorkshopPolarityMode.NeutralOnly, JarPolarity.Anode, false)]
+    public void WorkshopPolarityPermissionMatrixIsIndependentFromJarPossession(
+        WorkshopPolarityMode workshopMode,
+        JarPolarity jarPolarity,
+        bool expected)
+    {
+        Assert.Equal(expected, WorkshopCapability.CanOperateJar(workshopMode, jarPolarity));
+    }
+
+    [Theory]
+    [InlineData(null, JarPolarity.Neutral)]
+    [InlineData("酒", JarPolarity.Cathode)]
+    [InlineData("蜜", JarPolarity.Anode)]
+    public void JarPolarityIsDerivedFromAuthoritativeInternalLiquid(
+        string? liquid,
+        JarPolarity expected)
+    {
+        Assert.Equal(expected, JarPolarityResolver.Resolve(liquid));
+    }
+
 }
