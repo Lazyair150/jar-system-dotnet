@@ -383,3 +383,12 @@ CHECKPOINT 27 — 固定 Seed A/B 逐液种资源守恒扩测（2026-11-24）
 - 本轮没有为这项纯测试断言增强而等待 Actions/CL；也没有把未运行的本地测试或 CI 说成通过。精确 head 尚未验证，状态保持“已提交、待后续有信息量的批量验证”。
 - 下一步：只继续增加能发现新类别错误的固定 Seed 不变量，不为扩大数字而堆叠重复样本；随后进入 Space 跨仓库闭环：Board Assignment/Definition/Owned Instance 指纹与运行时投影、Core 模板入口、Parser Schema 3 import receipt/outbox 幂等、战斗快照冻结。整体清理推迟到跨仓库契约稳定之后。
 - 进程崩溃/断电下的持久化事务原子性仍未证明，不能与当前同步异常补偿和 checkpoint/replay 测试混为一谈。
+
+
+CHECKPOINT 28 — Space 跨仓库首轮运行与快照探针修正（2026-11-24）
+
+- Core 固定 Seed A/B 计划样本已扩展到 8 Seed × 128 = 1,024，并增加 Master / Slave 逐液种资源核算；源码/测试 head 为 378dd1bf36e93fa02d0bf2c939f6e79905550136，状态文档后续提交为 2f15258976a2ee643192230d4aec38b340688677。该测试尚未声明已执行或通过。
+- Space PR #2 的 cross-repo run 45421741608 在精确 Core Bridge + Space C# build、Godot 4.7.1 project import / script scan 后进入 Parser ingress runtime probe，并失败于 SpaceBattleEffectStateStoreProbe：effect/dispatcher state was not preserved in the unified snapshot。
+- 归因是 probe 将内存 Dictionary 与 JSON 读回的 Variant 直接比较，未归一化 JSON 数字类型。已在 Space 提交 4c0ca87c1f3bcdb5cdf173ab111a0edf9a941517 增加 JSON round-trip 归一化比较，并在 90e46344ef8376640dfb2cc831712227b131aa53 统一既有缩进；Space 集成文档记录提交 4fec7c0af2b22216d00ca799753c788d6fb49436。
+- 该修正只更正测试探针的序列化比较，不改生产存档结构。新一轮工作流已因修正提交触发；截至本记录，未取得新 head 的最终结果，不能声称 Parser ingress 及后续生命周期探针通过。
+- 下一步继续处理首个失败探针，随后逐个推进 Runtime / lifecycle / fault / disposed-command / snapshot-isolation；只有这些边界真正闭合后，才进行 Space 生产 Hangar 启动路径与 Parser → Core → A/B execution 的端到端验收。清理仍然后置。
