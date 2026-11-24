@@ -409,7 +409,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
-    public void ExplicitSlaveRejectBlocksFreeLiquidBoundaryEvenWhenMasterHasSupply()
+    public void ExplicitSlaveRejectFallsBackToMasterJarOperationWithoutLiquidHandoff()
     {
         var master = new Workshop("主台", new List<string> { "方罐" });
         var slave = new Workshop("从台", new List<string> { "方罐" });
@@ -424,8 +424,13 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
             991, input.Master, input.Slave, input.World,
             slaveRejectedLiquids: new[] { "酒" });
 
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, result.Status);
-        Assert.Null(result.Assembly);
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = result.Assembly!.CandidatePlan!;
+        Assert.Empty(plan.TransferLiquids);
+        Assert.Empty(plan.SlaveSteps);
+        var masterStep = Assert.Single(plan.MasterSteps);
+        Assert.Equal("POUR_IN", masterStep.Operation!.Type);
+        Assert.Equal(new[] { 9911 }, plan.TransferJarIds);
     }
 
     [Fact]
