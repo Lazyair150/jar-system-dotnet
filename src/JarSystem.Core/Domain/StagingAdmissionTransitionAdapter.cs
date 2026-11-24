@@ -48,12 +48,10 @@ public static class StagingAdmissionTransitionAdapter
             workshopInstanceId + "/order/" + orderId.ToString(CultureInfo.InvariantCulture));
         var stagingAccount = new RuleResourceAccount(
             "workshop.free-liquid-staging", workshopInstanceId);
-        var effects = new List<RuleResourceEffect>(3);
+        var effects = new List<RuleResourceEffect>(2);
 
-        if (receipt.RequestedAmount > 0)
-            effects.Add(new RuleResourceEffect(
-                RuleResourceEffectKind.Produce, RuleResourceKind.Liquid, liquid,
-                receipt.RequestedAmount, null, outputBoundary));
+        // The producing operation has already transferred the full amount into this boundary.
+        // Admission settles that exact output: accepted liquid enters staging, the rest is discarded.
         if (receipt.AcceptedAmount > 0)
             effects.Add(new RuleResourceEffect(
                 RuleResourceEffectKind.Transfer, RuleResourceKind.Liquid, liquid,
@@ -70,7 +68,8 @@ public static class StagingAdmissionTransitionAdapter
             new KeyValuePair<string, string>("orderId", orderId.ToString(CultureInfo.InvariantCulture)),
             new KeyValuePair<string, string>("liquid", liquid),
             new KeyValuePair<string, string>("usedCapacity", usedCapacityBefore.ToString(CultureInfo.InvariantCulture)),
-            new KeyValuePair<string, string>("orderBalance", orderBalanceBefore.ToString(CultureInfo.InvariantCulture))
+            new KeyValuePair<string, string>("orderBalance", orderBalanceBefore.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("outputBoundaryAmount", receipt.RequestedAmount.ToString(CultureInfo.InvariantCulture))
         });
         var after = new RuleStateSnapshot(new[]
         {
@@ -79,6 +78,7 @@ public static class StagingAdmissionTransitionAdapter
             new KeyValuePair<string, string>("liquid", liquid),
             new KeyValuePair<string, string>("usedCapacity", usedCapacityAfter.ToString(CultureInfo.InvariantCulture)),
             new KeyValuePair<string, string>("orderBalance", orderBalanceAfter.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("outputBoundaryAmount", "0"),
             new KeyValuePair<string, string>("requestedAmount", receipt.RequestedAmount.ToString(CultureInfo.InvariantCulture)),
             new KeyValuePair<string, string>("acceptedAmount", receipt.AcceptedAmount.ToString(CultureInfo.InvariantCulture)),
             new KeyValuePair<string, string>("discardedAmount", receipt.DiscardedAmount.ToString(CultureInfo.InvariantCulture)),
