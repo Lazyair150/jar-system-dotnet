@@ -300,7 +300,7 @@ namespace JarSystem.Core.Solver
                 }
                 else
                 {
-                    if (jar.Shape == req.Shape && jar.Liquid == null)
+                    if (jar.Shape == req.Shape && jar.Polarity == JarPolarity.Neutral)
                         slots.Add(new Slot(j, Role.MatchEmpty, null));
                     else if (jar.Shape == req.Shape && jar.Polarity != JarPolarity.Neutral)
                     {
@@ -310,7 +310,7 @@ namespace JarSystem.Core.Solver
                     else
                     {
                         if (!cap.CanTransform(jar.Shape, req.Shape)) continue;
-                        if (jar.Liquid == null)
+                        if (jar.Polarity == JarPolarity.Neutral)
                         {
                             if (anyCost) slots.Add(new Slot(j, Role.ReshapeEmpty, null));
                         }
@@ -392,7 +392,7 @@ namespace JarSystem.Core.Solver
 
                 // 已经由 produce 阶段倒空过的那条，跳过重复执行。
                 if (head.role == Role.MatchEmpty && head.liquid == null
-                    && state[head.jar].Liquid == null && state[head.jar].Shape == head.req.Shape
+                    && state[head.jar].Polarity == JarPolarity.Neutral && state[head.jar].Shape == head.req.Shape
                     && state[head.jar].IsMarked)
                 {
                     consume.Dequeue();
@@ -425,7 +425,7 @@ namespace JarSystem.Core.Solver
             List<JarState> state, int jarIndex)
         {
             var jar = state[jarIndex];
-            if (jar.IsMarked || jar.Liquid == null) return false;
+            if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) return false;
             if (cap.IsBanned(jar.Liquid)) return false;
             // POUR_OUT 的前提：该液体尚未灌满存储上限。
             return pool[jar.Liquid] < Constants.DEFAULT_MAX_LIQUIDS;
@@ -449,7 +449,7 @@ namespace JarSystem.Core.Solver
             {
                 if (usedSources.Contains(j)) continue;
                 var jar = state[j];
-                if (jar.IsMarked || jar.Liquid == null) continue;
+                if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) continue;
                 if (cap.IsBanned(jar.Liquid)) continue;
                 if (want != null && jar.Liquid != want) continue;
                 if (!CanRaise(pool, cap, state, j)) continue;
@@ -526,7 +526,7 @@ namespace JarSystem.Core.Solver
                     break;
 
                 case Role.PourIn:
-                    if (jar.Liquid != null || jar.Shape != req.Shape) return false;
+                    if (jar.Polarity != JarPolarity.Neutral || jar.Shape != req.Shape) return false;
                     if (!cap.IsBaseMarked(req.Shape)) return false;
                     if (req.Liquid == null || liquid == null || !pool.ContainsKey(liquid)) return false;
                     if (cap.IsBanned(liquid) || pool[liquid] <= 0) return false;
@@ -535,7 +535,7 @@ namespace JarSystem.Core.Solver
                     break;
 
                 case Role.ReshapeEmpty:
-                    if (jar.Liquid != null) return false;
+                    if (jar.Polarity != JarPolarity.Neutral) return false;
                     if (!cap.CanTransform(jar.Shape, req.Shape)) return false;
                     cost = Constants.LIQUIDS.FirstOrDefault(l => !cap.IsBanned(l) && pool[l] > 0);
                     if (cost == null) return false;
