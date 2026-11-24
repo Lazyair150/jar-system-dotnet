@@ -361,9 +361,9 @@ public sealed class WorldOrderExecutionAdmission
 
         foreach (var active in snapshot.ActiveOrders)
         {
-            var masterScope = new OrderLiquidScope(active.DemandId, _stagingByWorkshop[master]);
+            var masterScope = new OrderLiquidScope(active.DemandId, _stagingByWorkshop[master], master.OwnedInstanceId);
             var slaveScope = active.UsesSlave
-                ? new OrderLiquidScope(active.DemandId, _stagingByWorkshop[slave!])
+                ? new OrderLiquidScope(active.DemandId, _stagingByWorkshop[slave!], slave!.OwnedInstanceId)
                 : null;
             var lease = _reservations.FindLease(active.DemandId)
                 ?? throw new InvalidOperationException("恢复活动液体范围时缺少资源租约：" + active.DemandId);
