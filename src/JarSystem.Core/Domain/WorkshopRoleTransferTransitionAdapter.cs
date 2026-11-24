@@ -53,6 +53,7 @@ public static class WorkshopRoleTransferTransitionAdapter
              transferJarFacts.Keys.Any(id => id <= 0)))
             throw new ArgumentException("Transfer Jar facts must map exactly the transferred Jar identities.", nameof(transferJarFacts));
 
+        var sourceBans = sourceBannedLiquids.ToHashSet(StringComparer.Ordinal);
         var destinationBans = destinationBannedLiquids.ToHashSet(StringComparer.Ordinal);
         var sourceCapability = new WorkshopCapability(ban: sourceBans);
         var destinationCapability = new WorkshopCapability(ban: destinationBans);
@@ -65,7 +66,6 @@ public static class WorkshopRoleTransferTransitionAdapter
             }
         }
 
-        var sourceBans = sourceBannedLiquids.ToHashSet(StringComparer.Ordinal);
         if (destinationJarCount < 0 || destinationJarCapacity < destinationJarCount ||
             jarIds.Length > destinationJarCapacity - destinationJarCount)
             throw new ArgumentException("Destination workshop does not have enough Jar capacity.");
