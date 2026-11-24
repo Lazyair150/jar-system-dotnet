@@ -83,17 +83,18 @@ public class ReshapeRulesTests
     }
 
     [Fact]
-    public void SelfConsumeUsesJarInternalLiquidOutsideTheWorkshopStagingBanScope()
+    public void SelfConsumeRequiresMatchingWorkshopPolarityAndUsesJarInternalAccount()
     {
         var rules = Rules();
 
         Assert.True(rules.SelfConsume("蜜").Granted);
-        Assert.True(rules.SelfConsume("酒").Granted);
+        Assert.False(rules.SelfConsume("酒").Granted);
+        Assert.Equal("polarity-incompatible", rules.SelfConsume("酒").Code);
         Assert.Equal("not-full", rules.SelfConsume(null).Code);
 
         // 玄武台 Ban 只约束游离液体暂存区；Jar 内部酒可以被满罐自耗。
         var w = Xuanwu();
-        var jar = new Jar("圆罐", "酒", null, Vocab());
+        var jar = new Jar("圆罐", "蜜", null, Vocab());
         w.AddJar(jar);
         var (execOk, execReason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
 
@@ -101,9 +102,9 @@ public class ReshapeRulesTests
         Assert.Equal("方罐", jar.Shape);
         Assert.Null(jar.Liquid);
         Assert.True(jar.IsMarked);
-        Assert.Equal(0, w.LiquidStorage["酒"]);
+        Assert.Equal(0, w.LiquidStorage["蜜"]);
 
-        // 不论工作台是否 Ban 酒，Jar 内部液体自耗都不扣减游离液体账户。
+        // 无 Ban 的从台也能自耗酒 Jar；资源仍只从 Jar 内部账户扣除。
         var permissive = new Workshop("从台", new List<string> { "圆罐", "方罐" });
         var received = new Jar("圆罐", "酒", null, Vocab());
         permissive.AddJar(received);
