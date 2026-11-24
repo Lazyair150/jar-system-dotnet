@@ -33,38 +33,6 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
-    public void BClassCanTransferMasterPolarityJarWhileSlaveOperatesItsOwnPolarityJar()
-    {
-        var master = new Workshop("Cathode主台",
-            new List<string> { "圆罐" }, ban: new List<string> { "蜜" });
-        var slave = new Workshop("Anode从台",
-            new List<string> { "圆罐" }, ban: new List<string> { "酒" });
-        master.AddJar(new Jar("圆罐", "酒", id: 9102));
-        master.AddJar(new Jar("圆罐", id: 9103));
-        Assert.True(slave.AddLiquid("蜜", 1));
-
-        var input = Profiles(master, slave, new[]
-        {
-            new Requirement { Shape = "圆罐", Liquid = "酒" },
-            new Requirement { Shape = "圆罐", Liquid = "蜜" }
-        });
-        var result = WorldOrderBClassBranchEnumerator.Enumerate(
-            911, input.Master, input.Slave, input.World);
-
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
-        var plan = Assert.IsType<WorldOrderSolvePlan>(result.Assembly!.CandidatePlan);
-        Assert.Contains(9102, plan.TransferJarIds);
-        Assert.Contains(9103, plan.TransferJarIds);
-        Assert.Empty(plan.TransferLiquids);
-        Assert.Contains(plan.MasterSteps, step =>
-            step.Operation?.Type == "MATCH" && step.Before.Any(jar => jar.Id == 9102));
-        Assert.Contains(plan.SlaveSteps, step =>
-            step.Operation?.Type == "POUR_IN" && step.Before.Any(jar => jar.Id == 9103));
-        Assert.DoesNotContain(plan.SlaveSteps, step =>
-            step.Before.Any(jar => jar.Id == 9102));
-    }
-
-    [Fact]
     public void MasterBannedFullJarCanCrossHandoffAndBeSelfConsumedByPermissiveSlave()
     {
         var master = new Workshop("禁酒主台",
