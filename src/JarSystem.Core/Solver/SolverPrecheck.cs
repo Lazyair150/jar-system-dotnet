@@ -224,7 +224,7 @@ public static class SolverPrecheck
     {
         var cap = info.Capability;
 
-        if (req.Liquid != null)
+        if (req.Polarity != JarPolarity.Neutral)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
                 && string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal);
 
