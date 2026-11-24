@@ -1,5 +1,7 @@
 # World V2 项目状态与未完成事项
 
+> **Historical snapshot (2026-11-24).** This file records an earlier project state and is retained for audit/history only. Its PR heads, CI statuses, remaining-work list and “not yet run” statements are superseded by [the current work status ledger](2026-11-24-work-status-and-open-issues.txt). Do not use this snapshot as the current source of truth.
+
 更新时间：2026-11-24  
 Core 仓库：`Lazyair150/jar-system-dotnet`  
 Core 分支：`world-v2/phase-4.11c-order-template-demand-ingress`  
