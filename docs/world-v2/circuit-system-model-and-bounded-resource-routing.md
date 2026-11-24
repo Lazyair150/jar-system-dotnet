@@ -414,7 +414,7 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 - **Ban 也管理游离液体暂存。** 游离液体进入/离开 staging 时，类别 Ban 与容量独立检查。Ban 拒收、容量溢出可导致丢弃。Jar 内液体不是 staging 液体；但对 Jar 执行 PourOut、MATCH、RESHAPE 等操作仍必须先满足当前工作台的极性操作权限。PourOut 将液体先转入精确订单 output boundary，再由 staging 接收可容纳部分，其余丢弃。
 - **Jar 转移只是换资源账户。** 主台→从台转移 Jar 不执行化学操作，不检查两台工作台的极性，也不检查 Jar 内液体的 Ban。转移保留 Jar 的形状、液体、身份和 Mark。转移游离液体则不同：源台/目标台 staging Ban 与数量都要检查。
 - **订单是目标，不是直接命令。** 求解器在现有 Jar、液体、工作台规则与订单需求中寻找操作顺序。它会区分找到解、完整证明无解，以及规则/预算不足导致的 Undetermined。运行时按冻结计划逐步执行并记账。
-- **主台/从台是位置角色。** 同一个工作台实例可以被玩家安装到任一角色槽位。角色改变不改变该实例自身的 Definition、成长或专注极性。B 类订单当前 Core solver 的能力边界是：需求分解仍限定从台规则环境，主台承担准备资源；这只是当前求解器实现限制，不能推导出物理 Jar 转移有极性限制。
+- **主台/从台是位置角色。** 同一个工作台实例可以被玩家安装到任一角色槽位。角色改变不改变该实例自身的 Definition、成长或专注极性。B 类订单的需求候选必须同时来自 Master 与 Slave 两个精确 Rule Profile；每条需求可以分配给任一角色。Master 的操作在单向 handoff 之前，Slave 的操作在 handoff 之后。Master 可以先完成 MATCH 等需求步骤，再把已标记 Jar 交给 Slave；Slave 即使不能操作该 Jar，也必须能够仅作为接收方持有它。Slave-first 只是当前搜索候选排序偏好，不是领域执行顺序，也不是“所有需求由 Slave 执行”的限制。
 
 ### 极性与转移的判定表
 
@@ -459,5 +459,9 @@ B 类订单不是“全部需求由从台执行，主台只负责准备”的固
 缓存命中只代表结构候选可复用，不代表当前资源可绑定；资源 Readiness、Jar 物理身份、staging 余额与 Lease 必须在当前世界重新验证。
 
 ### 当前求解边界
+
+
+
+**B 类符号解缓存边界：** 当前旧 `precomputedSolutions` 不携带完整 Master+Slave Profile 集合指纹，因此 B 类组合搜索不能复用由单角色或旧 profile 集合构建的缓存。恢复缓存前，key 必须覆盖两个角色的有序 Profile 集合及其 fingerprint/version、订单 specification version、Board Assignment fingerprint、Definition/Owned Instance identity 与 progression revision。候选排序可以影响搜索优先级，但不能改变领域可行性集合。
 
 当前实现仍是有界 B 类分支枚举器，不是通用 Circuit Compiler。它对两角色的候选集合做有限枚举，并枚举主/从台资源准备和操作顺序；默认保持 Slave-first 以兼容既有 B 类路径，当 Slave 无候选或其资源绑定不可行时再尝试 Master 候选；预算耗尽必须保持 Undetermined。任一角色没有某项需求候选，不应单独判定整个订单无解；只有两角色组合都没有完整候选，才可在完整搜索后判 Infeasible。任一角色 Profile 本身 Undetermined 时，不能把它当作“该角色不可用”并据此判无解；但若该角色不执行任何化学操作、只承担接收/交付边界，其不透明规则不影响该边界。若计划需要该角色执行操作，则必须保持 Undetermined。
