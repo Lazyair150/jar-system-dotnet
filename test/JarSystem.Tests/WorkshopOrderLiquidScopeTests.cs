@@ -297,6 +297,53 @@ public sealed class WorkshopOrderLiquidScopeTests
         Assert.Equal(allowed, result);
     }
 
+
+    [Fact]
+    public void ScopedLiquidTransferCommitsTheWholeBatchAndLeavesOtherOrdersUntouched()
+    {
+        var master = new WorkshopLiquidStaging(8);
+        var slave = new WorkshopLiquidStaging(8);
+        master.Receive(303, "酒", 3);
+        master.Receive(303, "蜜", 2);
+        master.Receive(999, "酒", 1);
+        slave.Receive(303, "蜜", 1);
+        slave.Receive(999, "蜜", 2);
+
+        Assert.True(OrderLiquidTransfer.TryExecute(
+            303, master, slave,
+            new Dictionary<string, int> { ["酒"] = 2, ["蜜"] = 1 },
+            out var reason));
+
+        Assert.Null(reason);
+        Assert.Equal(1, master.GetAmount(303, "酒"));
+        Assert.Equal(1, master.GetAmount(303, "蜜"));
+        Assert.Equal(2, slave.GetAmount(303, "酒"));
+        Assert.Equal(2, slave.GetAmount(303, "蜜"));
+        Assert.Equal(1, master.GetAmount(999, "酒"));
+        Assert.Equal(2, slave.GetAmount(999, "蜜"));
+    }
+
+    [Fact]
+    public void ScopedLiquidTransferPreflightRejectionDoesNotMutateEitherAccount()
+    {
+        var master = new WorkshopLiquidStaging(8);
+        var slave = new WorkshopLiquidStaging(2, new[] { "蜜" });
+        master.Receive(304, "酒", 3);
+        master.Receive(304, "蜜", 1);
+        slave.Receive(304, "酒", 1);
+        var masterBefore = master.GetBalance(304);
+        var slaveBefore = slave.GetBalance(304);
+
+        Assert.False(OrderLiquidTransfer.TryExecute(
+            304, master, slave,
+            new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 },
+            out var reason));
+
+        Assert.NotNull(reason);
+        Assert.Equal(masterBefore, master.GetBalance(304));
+        Assert.Equal(slaveBefore, slave.GetBalance(304));
+    }
+
     [Fact]
     public void ScopedLiquidTransferRestoresBothAccountsWhenDestinationMutationThrows()
     {
