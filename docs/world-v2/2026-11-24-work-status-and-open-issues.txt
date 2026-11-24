@@ -371,3 +371,15 @@ CHECKPOINT 25 — 固定 Seed A/B 计划资源守恒扩大样本（2026-11-24）
 - 每个 Feasible 计划都必须通过有序资源重放，核对 Master 初始/终态游离液体、交接液体、主从暂存峰值、物理 Jar ID 归属、B 类主从转移清单；Infeasible/Undetermined 不得附带可执行 Assembly。
 - 精确提交 `dfd2e172f78446e1e4a53f6f0db1dbe2f352397e` 对应 Actions run `45419131018` success。前一轮液体账户/Ship Return 固定 Seed 矩阵仍为 4 × 200 + 4 × 200，A/B polarity parity 为 8 个有效带液 Jar 组合（Neutral 需求不产生操作候选，故不作为 A/B feasibility parity 样本）。
 - 当前 PR #60 仍为 Draft/Open，未合并。下一步继续强化 B 类从台最终游离液体逐液种守恒见证，并与 Space 的 Board/Parser/订单模板/战斗 checkpoint 做跨仓库闭环。
+
+
+CHECKPOINT 27 — 固定 Seed A/B 逐液种资源守恒扩测（2026-11-24）
+
+- 将 `WorldOrderFixedSeedResourceConservationTests.FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity` 从 4 Seed × 128（512 样本）扩大到 8 Seed × 128（1,024 样本）；新增 Seed 为 `0x4A4156` 至 `0x4A4159`，原有 Seed 与全局样本序号保持不变，失败仍可复现。
+- 不再只比较主/从台游离液体的总量。现在分别对 Master 初始→最终账户、B 类 TransferLiquids→Slave 最终账户做逐液种重算：按每一步 `POUR_IN` 与空罐 `RESHAPE` 的精确 `CostLiquid` 扣减，只把 replay 明确接受的产出液种加回，再逐 key 比较最终余额。
+- 满罐 `RESHAPE_FULL` 不作为游离液体扣减，因为它消耗的是 Jar 内部液体。该边界被保留，避免把 Jar 内部资源错误计入工作台暂存账户。
+- 这项测试增加了独立于 replay 实现的逐液种核算，可以发现“总量相等但液种错账”、负余额、漏记/多记某种液体等聚合总量无法发现的问题。
+- 实现提交：`36c74dcb0f8939396cfb0cae6d40e6642a54c6e9`、`9341a3397f270159c0a926134e689943216770b6`、`378dd1bf36e93fa02d0bf2c939f6e79905550136`；进度文档提交：`4776406a1316fd55ce028fbf17cf08cb20b8e6e2`。PR #60 当前源码/测试 head 在文档更新前为 `378dd1bf36e93fa02d0bf2c939f6e79905550136`，PR 仍 Draft/Open/未合并。
+- 本轮没有为这项纯测试断言增强而等待 Actions/CL；也没有把未运行的本地测试或 CI 说成通过。精确 head 尚未验证，状态保持“已提交、待后续有信息量的批量验证”。
+- 下一步：只继续增加能发现新类别错误的固定 Seed 不变量，不为扩大数字而堆叠重复样本；随后进入 Space 跨仓库闭环：Board Assignment/Definition/Owned Instance 指纹与运行时投影、Core 模板入口、Parser Schema 3 import receipt/outbox 幂等、战斗快照冻结。整体清理推迟到跨仓库契约稳定之后。
+- 进程崩溃/断电下的持久化事务原子性仍未证明，不能与当前同步异常补偿和 checkpoint/replay 测试混为一谈。
