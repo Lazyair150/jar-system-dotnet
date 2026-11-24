@@ -243,3 +243,6 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 账本批次在交接提交的最后阶段发布；中间移动失败不会留下部分 Jar/Liquid transfer 事件。账本快照已有 operation ID 持久化机制，可跨裁剪和恢复去重。
 - 该实现仍依赖 session 在 Transfer 返回异常时完成实体资源补偿；下一步需测试账本批次发布前后的故障边界，并确认 checkpoint 不会出现“资源已转移但 lease 仍 TransferPending”或相反的半提交快照。
 - 相关提交：`9d46544`（批量账本提交）、`60b49be`（修正 ResourceLedgerMutation 命名参数）。当前两项均待精确 head CI 验证。
+
+
+- 后续审查发现账本批次去重必须在实体提交前检查：若 operation ID 已存在，不能先移动资源再让 `RecordBatchOnce` 返回 false，否则会触发不必要的资源补偿。已在 commit `38b6c8c970566c32a213a0cea790a5ffa4a9292d` 将重复 operation ID 与负逻辑 tick 检查前移到 commitStarted 之前，作为普通预检拒绝。批次发布仍在所有资源身份/状态后置条件通过后执行。
