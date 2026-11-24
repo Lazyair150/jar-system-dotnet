@@ -167,14 +167,8 @@ public static class WorldOrderBClassBranchEnumerator
         // The symbolic set already assigns every requirement to exactly one of the
         // two roles. Do not collapse it back to a Slave-only plan here.
         var orderedSolutions = symbolic.Solutions
-            .Where(solution =>
-                solution.Steps.All(x =>
-                    x.WorkshopRole == "Master" || x.WorkshopRole == "Slave") &&
-                // A B-class order must still cross the Slave-use boundary. Master may
-                // complete some requirements, but at least one remaining requirement
-                // must be concretely executed by Slave; a Jar-only handoff is not a
-                // substitute for the B-class Slave participation event.
-                solution.Steps.Any(x => x.WorkshopRole == "Slave"))
+            .Where(solution => solution.Steps.All(x =>
+                x.WorkshopRole == "Master" || x.WorkshopRole == "Slave"))
             .ToArray();
         if (orderedSolutions.Length == 0)
             return Result(
