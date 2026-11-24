@@ -241,7 +241,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                 $"{sampleContext} {role} liquid conservation failed for '{liquid}': expected={expectedAmount}, actual={actualAmount}; " +
                 $"initial=[{string.Join(",", initial.Select(x => x.Key + ":" + x.Value))}]; " +
                 $"final=[{string.Join(",", final.Select(x => x.Key + ":" + x.Value))}]; " +
-                $"steps=[{string.Join(" | ", steps.Select((step, index) => index + ":" + step.Operation?.Type + ":" + step.Operation?.CostLiquid + ":accepted=" + (acceptedOutputs[index] ?? "-")))}]");
+                $"steps=[{string.Join(" | ", steps.Select((step, index) => index + ":" + step.Operation?.Type + ":" + (step.Operation?.Type == "POUR_IN" ? step.Operation?.TargetLiquid : step.Operation?.CostLiquid) + ":accepted=" + (acceptedOutputs[index] ?? "-")))}]");
         }
     }
 
