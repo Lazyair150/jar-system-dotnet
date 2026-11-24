@@ -633,6 +633,67 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
+    public void RestoredSlaveSessionRetainsCommittedHandoffForLedgerReturnOnFailure()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        Assert.True(master.AddJar(jar));
+        using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：要求由从台执行灌注"
+        });
+
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        ReevaluateWithShip(book, roster, ship, demand.Id);
+        Assert.True(book.Find(demand.Id)!.Result!.IsFeasible);
+        Assert.Empty(book.Find(demand.Id)!.Result!.Plan!.MasterSteps);
+        Assert.Single(book.Find(demand.Id)!.Result!.Plan!.SlaveSteps);
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, board, book, admission, roster, 1_000, ledger, () => 1);
+        Assert.True(started.Success, started.Reason);
+
+        started.Session!.AdvanceLogicalTime(1_000); // Commit Master -> Slave handoff.
+        Assert.Equal(WorldOrderExecutionStage.SlaveSteps, started.Session.Stage);
+        var progress = started.Session.CaptureProgress();
+        Assert.True(progress.SlaveTransferCommitted);
+        Assert.Contains(ledger.For(ResourceCauses.Transfer), item => item.Kind == ResourceKinds.Jar);
+
+        var restored = WorldOrderExecutionSession.RestoreProgress(
+            progress, board, book, admission, roster, reservations, ledger, () => 1);
+        using var suppressSlavePourIn = slave.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：恢复后从台操作失败"
+        });
+        restored.AdvanceLogicalTime(1_000);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, restored.Stage);
+        Assert.Same(jar, Assert.Single(master.Jars));
+        Assert.Empty(slave.Jars);
+        Assert.Equal(1, ship.GetAmount("酒"));
+        Assert.Equal(0, reservations.Count);
+        Assert.Contains(ledger.For(ResourceCauses.Return), item =>
+            item.Kind == ResourceKinds.Jar && item.From == slave.Name && item.To == master.Name);
+        Assert.Contains(ledger.For(ResourceCauses.Return), item =>
+            item.Kind == ResourceKinds.Liquid && item.To == "自机液库");
+    }
+
+    [Fact]
     public void TransferPreflightDoesNotRollbackResourcesThatWereAlreadyOnTheSlave()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
