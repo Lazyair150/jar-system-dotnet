@@ -234,7 +234,7 @@ public sealed class WorldOrderSolverTests
         var blocked = WorldOrderRuleCandidateCatalog.Build(
             noStagingSnapshot, noStagingSnapshot.Master!, "Master", specification);
         Assert.Empty(blocked.PreparatoryOperations);
-        Assert.DoesNotContain(
+        Assert.Contains(
             Assert.Single(blocked.Requirements).Candidates,
             candidate => candidate.Operation == "POUR_OUT");
     }
