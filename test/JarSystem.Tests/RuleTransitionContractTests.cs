@@ -27,7 +27,9 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("workshop.free-liquid-staging", effect.From!.AccountKind);
         Assert.Equal("owned.workshop.master", effect.From.OwnerId);
         Assert.Null(effect.To);
-        Assert.Equal(new JarFacts("圆罐", "水", true), result.Transition.After);
+        Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
+        Assert.Equal("水", result.Transition.After.Values["liquid"]);
+        Assert.Equal("true", result.Transition.After.Values["marked"]);
     }
 
     [Fact]
