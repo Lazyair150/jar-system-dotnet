@@ -222,3 +222,38 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - 化学操作与 MATCH Transition 快照包含派生极性。
 
 当前最新已知 CI（提交 `a1cf2bbf07b1d3c23ac92145bf49cc3f2e3cb43f`，run `45364836852`）失败：xUnit 有一个 `AJarCarryingABannedLiquidCanBeReshapedBySelfConsumption` 用例失败，Solver differential 阶段报告两处 mismatch。该 CI 早于本节代码，不能用它判断本次新增代码是否通过；本次新增提交尚待新 CI 验证。未运行的本地/Godot Probe 不记作通过。
+
+
+## 13. 三态极性接入求解器与转换边（2026-11-24）
+
+### 13.1 状态分类已进入求解器事实模型
+
+- `Requirement.Polarity` 从需求液体派生；
+- `JarState.Polarity` 从 Jar 内部液体派生；
+- `SolverState.IsEmpty`、`StateSpaceSolver.GenOps`、`MatchingSolver.BuildOptions`、`SolverPrecheck` 的空/满分类使用 Neutral 判定；
+- 求解器仍保留实际液体 ID 参与匹配、数量核算和账户记账；极性没有替代液体身份。
+
+极性不作为第二份可写状态，也不额外加入状态键：液体 ID 已经是状态键的一部分，且唯一决定当前三态，重复序列化极性会制造无必要的双重事实。
+
+### 13.2 转换契约显式表达极性边
+
+`JarPolarityTransition` 从不可变 Before / After Jar snapshots 派生：
+- PourIn：Neutral → Cathode / Anode；
+- PourOut：Cathode / Anode → Neutral；
+- ReshapeFull：Cathode / Anode → Neutral；
+- ReshapeEmpty：Neutral → Neutral（内部状态仍为空，液体成本来自 staging）；
+- MATCH：极性保持不变。
+
+转换构造时必须能解析 Before / After 极性，且快照构造器会验证极性与实际液体 ID 一致。极性边不是资源效果；液体数量仍由 ResourceEffects 描述。
+
+### 13.3 Ban 语义回归修复
+
+上一轮 CI 的失败不是三态映射问题，而是旧求解器优化路径仍将 staging Ban 错误套用到 Jar 内液体自耗。已修正：
+- `SolverPrecheck.CanServe` / `CanServeFree`：满罐改形自耗不读取 staging Ban；只有 PourOut 进入 staging 时才受 Ban；
+- `SolverPrecheck.LowerBound`：满罐改形不再因 staging Ban 被排除；
+- `MatchingSolver.BuildOptions` / `Apply(Role.ReshapeFull)`：允许使用被 Ban 的 Jar 内部液体自耗；
+- PourIn、空罐改形成本、PourOut 的 staging admission 仍保留 Ban。
+
+### 13.4 验证边界
+
+已添加求解器事实模型的三态映射测试、显式转换边测试，并保留 `AJarCarryingABannedLiquidCanBeReshapedBySelfConsumption` 对三个求解器实现的回归覆盖。新提交 CI 尚未完成时，不把代码编译或测试结果记为通过。
