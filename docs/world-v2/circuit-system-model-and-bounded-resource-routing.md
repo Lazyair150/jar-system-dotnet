@@ -291,3 +291,4 @@ Implemented in Core:
 - `WorkshopRuleTransitionAdapter` adapts the existing four Workshop chemical operation proofs to the shared contract. PourIn and ReshapeEmpty consume Workshop free-liquid staging; PourOut produces into the current Workshop staging account; ReshapeFull consumes the liquid owned by that exact Jar. It does not confuse Jar-internal self-consumption with Workshop free-liquid balance.
 
 Tests authored for these invariants in `RuleTransitionContractTests`. This is a compatibility adapter slice, not yet a replacement for WorkshopRulebook, not yet the Circuit Compiler, and not yet a universal evaluator. MATCH currently remains on its existing lifecycle proof path and must be adapted separately because it has no `WorkshopOperationKind` value.
+- State before/after is represented by `RuleStateSnapshot`, a sorted, immutable key/value snapshot; mutable domain object references are not embedded in the transition contract.
