@@ -162,7 +162,14 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - Space PR #2 尚未验证与当前 Core head 的集成。
 - 本地容器没有 .NET SDK，不能把本地未执行的 build/test 标为通过；使用 CI 或独立可运行环境作为验证证据。
 
-## 7. 下一次会话的第一动作
+## 7. 本轮追加修复（2026-11-24）
+
+- Commit `7804d2c2ba49cba045a68284c31c7f9addc31209` 修改 `WorldOrderOrderedResourceReplay`：不再因为 Slave 存在 opaque solver rules 就无条件拒绝所有 B 类 replay；只有当前具体 program 确实包含 Slave Rule 节点时才返回 Undetermined。
+- 领域理由：receiver-only handoff 不执行 Slave operation；接收 Jar 不检查接收台 polarity，也不解释接收台化学规则。Slave opaque rule 只应阻止需要 Slave 执行操作的分支。
+- 该修复尚待 CI / xUnit 验证；没有将相关测试标为通过。
+- 仍需检查 `WorldOrderSlaveBoundaryProjector` 是否在无 Slave 操作时仍把 opaque rule 或 staging policy 误作为 Jar transfer 的限制；只允许 staging policy 影响游离液体边界，不得影响 Jar handoff。
+
+## 8. 下一次会话的第一动作
 
 1. 查询 PR #60 当前 head 与 Actions 状态。
 2. 获取最新运行的 xUnit 详细结果；若 Actions 仍无 Assert message，则用可运行的 .NET 10 环境复现。
