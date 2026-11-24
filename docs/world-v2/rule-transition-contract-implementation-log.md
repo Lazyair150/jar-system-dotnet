@@ -175,3 +175,50 @@ Adapter 从旧 `WorkshopOperationEvaluation` 读取判定和转换，不重新�
 Mark 不是资源数量，也不是液体账户余额。它是 Jar 的订单周期生命周期状态：MATCH/化学操作会置位；订单终态清理后才允许下一个订单周期重新使用。主从交接只改变资源所在工作台，不开启新订单周期，因此必须保留 Mark。
 
 后续测试需要把“同一 Jar 在 Master 已操作后转入 Slave，仍保持 marked”作为跨台不变量，并覆盖成功、失败、取消三种终态清理。
+
+
+## 12. Jar 三态极性：派生领域状态（2026-11-24）
+
+### 12.1 状态映射
+
+当前 Jar 的内部液体词表只有两种液体，空罐加两种满罐形成三个离散状态：
+
+| 权威内部液体 | 派生极性 |
+|---|---|
+| `null`（空罐） | `Neutral`（中性） |
+| `酒` | `Cathode`（阴极） |
+| `蜜` | `Anode`（阳极） |
+
+实现位于 `src/JarSystem.Core/Domain/JarPolarity.cs`：
+
+- `JarPolarity` 是三态枚举；
+- `JarPolarityResolver` 是唯一映射入口；
+- 未知非空液体不会被猜测映射，`TryFromLiquid` 返回 false，`Resolve` 明确失败；
+- `Jar.Polarity` 是从当前权威 `Liquid` 派生的只读属性，不保存第二份可变状态。
+
+因此不存在可独立写入的 Polarity 字段，也不会出现“Cathode + 蜜液”这类互相矛盾的数据。未来若改变液体词汇或极性映射，必须显式修改唯一 Resolver 与对应测试。
+
+### 12.2 对共享规则转换的接入
+
+Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化的 `polarity` 字段。求解/转换模型可以同时读取：
+- `liquid`：实际液体身份；
+- `polarity`：三态分类；
+- ResourceEffects：资源数量与账户流动。
+
+极性不替代液体身份、数量或资源账户，也不改变现有操作语义。特别是：
+- Cathode / Anode 不是游离液体账户；
+- 极性不能表示液体数量；
+- Jar 内液体自耗仍消耗 `jar.internal-liquid:<jarId>`；
+- PourOut 仍需经过目标工作台 staging 的 Ban / 容量准入；
+- MATCH 只改变 Mark，不改变极性；
+- 本抽象不是电化学模拟，不引入电压、电流强度、电阻或真实阴阳极反应。
+
+### 12.3 已添加的测试与验证边界
+
+`RuleTransitionContractTests` 新增：
+- null / 酒 / 蜜 到 Neutral / Cathode / Anode 的映射；
+- Jar 实例的只读派生 Polarity；
+- 未知液体 fail-closed；
+- 化学操作与 MATCH Transition 快照包含派生极性。
+
+当前最新已知 CI（提交 `a1cf2bbf07b1d3c23ac92145bf49cc3f2e3cb43f`，run `45364836852`）失败：xUnit 有一个 `AJarCarryingABannedLiquidCanBeReshapedBySelfConsumption` 用例失败，Solver differential 阶段报告两处 mismatch。该 CI 早于本节代码，不能用它判断本次新增代码是否通过；本次新增提交尚待新 CI 验证。未运行的本地/Godot Probe 不记作通过。
