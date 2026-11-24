@@ -10,9 +10,11 @@ namespace JarSystem.Core.Domain;
 /// <see cref="Workshop"/>、<see cref="WorkshopSnapshot"/>、<c>Solver.WorkshopInfo</c>
 /// 可以**共用同一份**，不必三处各存一份标记表（S1：消除重复）。
 ///
-/// 语义（与重构前逐字一致，勿改）：
+/// 语义：
 /// <list type="bullet">
 /// <item>禁令在构造时规范化为**裸液体名**（去掉「禁」前缀），避免 "酒" 与 "禁酒" 两种写法并存；</item>
+/// <item>Ban 同时表达暂存液体类别限制与工作台专注极性：Ban 酒 => 阳极专注；Ban 蜜 => 阴极专注；</item>
+/// <item>同极 Jar 可操作，异极 Jar 不可；Neutral Jar 对两种专注工作台均可操作；</item>
 /// <item>形状转换**公式**属于核心（在 <see cref="ShapeRules"/>），本类只提供**参数**；
 /// 因此加/减形状不需要改规则引擎，只需换一份 <see cref="WorkshopCapability"/>。</item>
 /// </list>
