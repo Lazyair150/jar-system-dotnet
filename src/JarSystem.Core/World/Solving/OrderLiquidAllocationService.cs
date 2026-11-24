@@ -104,27 +104,70 @@ internal sealed class OrderLiquidAllocationService
             return false;
         }
 
-        foreach (var item in manifest.MasterInitialLiquidAmounts)
+        try
         {
-            if (item.Value == 0) continue;
-            if (!masterStaging.TryReceiveExact(manifest.DemandId, item.Key, item.Value, out var grant))
+            foreach (var item in manifest.MasterInitialLiquidAmounts)
             {
-                masterStaging.DrainOrder(manifest.DemandId);
-                _ship.Return(remainingFromShip);
-                masterStaging.RestorePrefill(prefillGrant);
-                if (slaveReserved) slaveStaging!.ReleaseOrderCapacity(manifest.DemandId);
-                masterStaging.ReleaseOrderCapacity(manifest.DemandId);
-                reason = grant.Reason ?? "主工作台暂存区无法接收订单初始供给";
-                return false;
+                if (item.Value == 0) continue;
+                if (!masterStaging.TryReceiveExact(manifest.DemandId, item.Key, item.Value, out var grant))
+                {
+                    RollbackAllocation(
+                        manifest.DemandId, masterStaging, slaveStaging, slaveReserved,
+                        prefillGrant, remainingFromShip);
+                    reason = grant.Reason ?? "主工作台暂存区无法接收订单初始供给";
+                    return false;
+                }
             }
-        }
 
-        var masterScope = new OrderLiquidScope(manifest.DemandId, masterStaging, master.OwnedInstanceId);
-        var slaveScope = slaveStaging == null ? null : new OrderLiquidScope(manifest.DemandId, slaveStaging, slave!.OwnedInstanceId);
-        var lease = _reservations.FindLease(manifest.DemandId)
-            ?? throw new InvalidOperationException("订单液体分配完成后缺少资源租约。");
-        lease.AttachLiquidScopes(masterScope, slaveScope);
-        reason = null;
-        return true;
+            var masterScope = new OrderLiquidScope(manifest.DemandId, masterStaging, master.OwnedInstanceId);
+            var slaveScope = slaveStaging == null ? null : new OrderLiquidScope(manifest.DemandId, slaveStaging, slave!.OwnedInstanceId);
+            var lease = _reservations.FindLease(manifest.DemandId)
+                ?? throw new InvalidOperationException("订单液体分配完成后缺少资源租约。");
+            lease.AttachLiquidScopes(masterScope, slaveScope);
+            reason = null;
+            return true;
+        }
+        catch (Exception allocationError)
+        {
+            try
+            {
+                RollbackAllocation(
+                    manifest.DemandId, masterStaging, slaveStaging, slaveReserved,
+                    prefillGrant, remainingFromShip);
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "订单液体分配失败，且资源补偿回滚也失败；世界必须停止继续准入并保留故障现场。",
+                    allocationError, rollbackError);
+            }
+            throw;
+        }
+    }
+
+    private void RollbackAllocation(
+        int demandId,
+        WorkshopLiquidStaging masterStaging,
+        WorkshopLiquidStaging? slaveStaging,
+        bool slaveReserved,
+        IReadOnlyDictionary<string, int> prefillGrant,
+        IReadOnlyDictionary<string, int> withdrawnFromShip)
+    {
+        // Release peak reservations before restoring prefill: the prefill account and
+        // the order reservation share one physical staging-capacity budget.
+        masterStaging.DrainOrder(demandId);
+        if (slaveReserved)
+            slaveStaging!.DrainOrder(demandId);
+        if (slaveReserved)
+            slaveStaging!.ReleaseOrderCapacity(demandId);
+        masterStaging.ReleaseOrderCapacity(demandId);
+
+        // The inventory debit happened before any exact staging write. Return only
+        // the ship-funded remainder; prefill-funded units go back to their own account.
+        if (withdrawnFromShip.Count > 0)
+            _ship.Return(withdrawnFromShip);
+        if (prefillGrant.Count > 0)
+            masterStaging.RestorePrefill(prefillGrant);
+    }
     }
 }
