@@ -39,11 +39,16 @@ public static class WorkshopRoleTransferTransitionAdapter
         ArgumentNullException.ThrowIfNull(sourceBannedLiquids);
         ArgumentNullException.ThrowIfNull(destinationBannedLiquids);
 
-        var sourceIds = sourceJarIds.ToHashSet();
+        var sourceInventory = sourceJarIds.ToArray();
+        var sourceIds = sourceInventory.ToHashSet();
         var jarIds = transferJarIds.ToArray();
-        if (sourceIds.Any(id => id <= 0) || jarIds.Any(id => id <= 0) ||
-            jarIds.Distinct().Count() != jarIds.Length || jarIds.Any(id => !sourceIds.Contains(id)))
-            throw new ArgumentException("Transfer Jar identities must be unique positive IDs owned by the exact source workshop.");
+        if (sourceInventory.Any(id => id <= 0) ||
+            sourceIds.Count != sourceInventory.Length ||
+            jarIds.Any(id => id <= 0) ||
+            jarIds.Distinct().Count() != jarIds.Length ||
+            jarIds.Any(id => !sourceIds.Contains(id)))
+            throw new ArgumentException(
+                "Source inventory and transfer Jar identities must be unique positive IDs, and every transferred Jar must belong to the exact source workshop.");
 
         var sourceBans = sourceBannedLiquids.ToHashSet(StringComparer.Ordinal);
         var destinationBans = destinationBannedLiquids.ToHashSet(StringComparer.Ordinal);
