@@ -353,3 +353,12 @@ CHECKPOINT 25 — Settlement / A-B parity / fixed Seed 阶段验收（2026-11-24
 - 固定 Seed 样本已扩展：4 Seed × 200 次主从订单液体交接（总 800），覆盖成功、源余额不足、目标 Ban、目标容量不足；4 Seed × 200 次 Ship Return（总 800），逐液种检查 Requested = Accepted + Discarded、库存总量守恒、容量与账户隔离。一次测试失败仅因理论数据每次 200 样本，却误断言每次 800；已修正，不涉及生产代码缺陷。
 - 验证记录：`45411373717` (`c1a6eb1`) success；`45411404661` (`2d5c30a`) success；`45411519622` (`f4a1ba7`) success；`45411564120` (`fc16c14`) success；`45411592815` (`97df879`) success。旧固定 Seed 断言提交 `7c15635` / `45411759149` 与 `8d461d9` / `45411804846` 失败均为每次样本数断言 800/200；修正提交 `e56bf4d` 的 run `45412278553` 则只暴露空 Jar polarity test 的资源前提错误。修正后最终源码/测试 SHA `3e4a5195d9640fa166359217a5f69ff143439d8d` 对应 Actions `45413094112` completed / success。
 - PR #60 当前仍 Draft/Open/未合并；此时 head `3e4a5195d9640fa166359217a5f69ff143439d8d` 精确 verify success。进入 Space 跨仓库集成前，Core 侧本阶段 1–6 已完成；断电/进程崩溃下的持久化事务原子性仍未证明，必须保留为独立后续项。
+
+
+CHECKPOINT 26 — A/B 固定 Seed 具体计划资源守恒样本（2026-11-24）
+
+- 新增 `WorldOrderFixedSeedResourceConservationTests.FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity`：固定 Seed `0x4A4152`，64 个随机样本，混合 A/B 订单、1–3 个真实 Jar、空/酒/蜜状态、随机主从 Ban、主从暂存容量和 1–2 条需求。
+- 每个 Feasible 结果必须携带完整 concrete assembly、ordered resource replay 与 Manifest；逐项核对 MasterInitial/MasterFinal、TransferLiquids、Master/Slave staging peak、每步 accepted output、实际 Jar ID 集合与 transfer Jar ID 唯一性。主从液体守恒还显式计入 POUR_IN 与空罐 RESHAPE 的游离液体消耗，满罐 RESHAPE_FULL 只自耗 Jar 内液体，不误扣暂存资源。
+- 首轮 run `45413997354` 失败原因是随机生成的需求顺序违反 `JarOrderSpecification` 的领域契约（空罐需求必须在满罐需求之前），并非求解器资源守恒失败。已在生成器中按 `Liquid == null` 排序，保留原固定 Seed 与样本范围。
+- 修正后的精确提交 `6e3d4b96c6adb0d0c3a10f83dd2910b9ecd4952d` 对应 Actions run `45414637038` completed / success；所有 build、xUnit、contract/schema、protocol、solver differential、session replay 与质量门成功。
+- 当前 Core 阶段 1–6 的同步故障补偿、A/B polarity parity、固定 Seed 账户转移与具体计划 replay 样本均完成并通过精确 head 验证。持久化进程崩溃/断电原子性仍未证明。随后进入 Space 跨仓库构建/探针阶段，不提前清理。
