@@ -119,7 +119,7 @@ public class ModifierProjectionTests
     /// 或把抑制实现成"往 Ban 里加一项"，两个概念就会被合并，而既有测试全都还是绿的。</para>
     /// </summary>
     [Fact]
-    public void BanBlocksEveryUseOfThatLiquidWhileSuppressionBlocksOnlyTheNamedOperation()
+    public void BanBlocksStagingFlowsButNotJarInternalSelfConsumeWhileSuppressionIsOperationScoped()
     {
         // 同形状配置、同罐子；唯一差别是 Ban 列表里有没有酒。
         static Workshop Make(List<string> ban) => new("自由台", new List<string> { "圆罐", "方罐" },
@@ -142,8 +142,8 @@ public class ModifierProjectionTests
         Assert.True(free.PourOut, "不禁酒时，倒出应当合法");
 
         var banned = Run(new List<string> { "酒" });
-        Assert.False(banned.Reshape, "禁酒时，满罐改形自耗罐内的酒也必须失败");
-        Assert.Contains("禁酒", banned.ReshapeReason ?? "");
-        Assert.False(banned.PourOut, "禁酒时，倒出也必须失败");
+        Assert.True(banned.Reshape, "Jar 内部液体自耗不读取工作台 staging Ban");
+        Assert.True(string.IsNullOrEmpty(banned.ReshapeReason));
+        Assert.False(banned.PourOut, "倒出会把液体送入 staging，必须受 Ban 约束");
     }
 }
