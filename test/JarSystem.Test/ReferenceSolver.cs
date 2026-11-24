@@ -140,12 +140,12 @@ internal sealed class ReferenceSolver : ISolver
                     };
         }
 
-        // 倒出：任何"未禁液体的满罐 + 液体仓库还有空间"（不推进需求，除非正好倒空当前空罐需求的形状）
+        // PourOut 的操作许可只看工作台极性；staging Ban/容量在 Apply 时结算为接收或丢弃。
         for (int i = 0; i < s.Jars.Count; i++)
         {
             var liquid = s.Jars[i].Liquid;
-            if (liquid == null || s.Jars[i].IsMarked || !cap.CanOperateJar(JarPolarityResolver.Resolve(liquid)) || cap.IsBanned(liquid)) continue;
-            if (s.Liquids.GetValueOrDefault(liquid) >= info.MaxLiquids) continue;
+            if (liquid == null || s.Jars[i].IsMarked ||
+                !cap.CanOperateJar(JarPolarityResolver.Resolve(liquid))) continue;
             yield return new SolverOperation { Type = "POUR_OUT", JarIndex = i, Consumed = new() };
         }
     }
@@ -191,7 +191,11 @@ internal sealed class ReferenceSolver : ISolver
                 var liquid = s.Jars[i].Liquid!;
                 s.Jars[i].Liquid = null;
                 s.Jars[i].IsMarked = true;
-                s.Liquids[liquid] = s.Liquids.GetValueOrDefault(liquid) + 1;
+                // The operation completes even when staging rejects the output.
+                // Accepted liquid enters the free pool; banned/overflow liquid is discarded.
+                if (!info.Capability.IsBanned(liquid) &&
+                    s.Liquids.GetValueOrDefault(liquid) < info.MaxLiquids)
+                    s.Liquids[liquid] = s.Liquids.GetValueOrDefault(liquid) + 1;
                 break;
             default:
                 return false;
