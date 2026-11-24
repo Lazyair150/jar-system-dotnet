@@ -173,12 +173,12 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - A 类搜索的预计算解集复用经检查：只有 inventory filtering 未改变 requirements 且候选列表逐项完全相等时才复用；profile versions/specification 和 Master role 另行校验。Preparation 操作独立于 symbolic solution cache，因此目前未发现候选内容错用，但缓存仍缺少显式 fingerprint 类型，未来可进一步收敛为带 Profile fingerprint 的 key。
 - `StagingAdmissionTransitionAdapter` 已显式把输出边界拆分为 accepted Transfer 与 discarded Discard，且验证 requested = accepted + discarded 及 staging/order balance delta；这符合“先进入当前订单输出边界，再结算到 staging 或丢弃”的分层。后续需继续检查实际执行事务是否原子提交这两条效果。
 
-## 7. 本轮追加修复（2026-11-24）
+### 早期 receiver-only replay 修复
 
 - Commit `7804d2c2ba49cba045a68284c31c7f9addc31209` 修改 `WorldOrderOrderedResourceReplay`：不再因为 Slave 存在 opaque solver rules 就无条件拒绝所有 B 类 replay；只有当前具体 program 确实包含 Slave Rule 节点时才返回 Undetermined。
 - 领域理由：receiver-only handoff 不执行 Slave operation；接收 Jar 不检查接收台 polarity，也不解释接收台化学规则。Slave opaque rule 只应阻止需要 Slave 执行操作的分支。
-- 该修复尚待 CI / xUnit 验证；没有将相关测试标为通过。
-- 仍需检查 `WorldOrderSlaveBoundaryProjector` 是否在无 Slave 操作时仍把 opaque rule 或 staging policy 误作为 Jar transfer 的限制；只允许 staging policy 影响游离液体边界，不得影响 Jar handoff。
+- 该修复已包含在 `1f04b11` 的整套 Actions success 中；后续 transfer inventory 修复是新提交，尚待验证。
+- 后续检查确认 `WorldOrderSlaveBoundaryProjector` 只将 Ban/reject 用于 Slave 游离液体消耗、生产与边界需求；JarState handoff requirements 不读取 Jar polarity 或接收端操作能力。仍需用真实 session 集成测试覆盖该路径。
 
 ## 8. 下一次会话的第一动作
 
