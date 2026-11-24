@@ -128,7 +128,7 @@ internal sealed class ReferenceSolver : ISolver
                         };
             }
 
-            // 满罐改形消耗 Jar 自有内部液体，不经过 staging；Ban 不适用于这条自耗路径。
+            // 满罐改形消耗 Jar 自有内部液体；操作许可仍由工作台极性判定，不读取 staging 余额。
             for (int i = 0; i < s.Jars.Count; i++)
                 if (s.Jars[i].Liquid != null && !s.Jars[i].IsMarked
                     && cap.CanOperateJar(JarPolarityResolver.Resolve(s.Jars[i].Liquid))
