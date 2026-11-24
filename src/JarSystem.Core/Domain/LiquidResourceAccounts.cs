@@ -773,6 +773,40 @@ public sealed class WorkshopLiquidStaging
         AddUnchecked(orderId, liquid, amount);
     }
 
+    /// <summary>
+    /// 同步批量转移失败时恢复该订单在本暂存区的精确余额快照。
+    /// 只恢复调用前已存在的合法状态，不经过普通 Receive/ban 入口。
+    /// </summary>
+    internal void RestoreOrderAccount(int orderId, IReadOnlyDictionary<string, int> balances)
+    {
+        EnsureNoPendingPrefillTransaction();
+        ValidateOrderId(orderId);
+        ShipLiquidInventory.ValidateAmounts(balances);
+        var total = ShipLiquidInventory.TotalAmount(balances);
+        if (_reservedCapacityByOrder.TryGetValue(orderId, out var quota))
+        {
+            if (total > quota)
+                throw new InvalidOperationException("订单液体回滚快照超过其容量预留。");
+        }
+        else
+        {
+            var otherOccupied = OccupiedCapacity -
+                Math.Max(0, _accounts.TryGetValue(orderId, out var current)
+                    ? ShipLiquidInventory.TotalAmount(current) : 0);
+            if (checked(otherOccupied + total) > Capacity)
+                throw new InvalidOperationException("订单液体回滚快照超过暂存区总容量。");
+        }
+
+        _accounts.Remove(orderId);
+        if (balances.Count == 0) return;
+        var restored = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in balances)
+        {
+            if (item.Value > 0) restored.Add(item.Key, item.Value);
+        }
+        if (restored.Count > 0) _accounts.Add(orderId, restored);
+    }
+
     private int AvailableCapacityFor(int orderId)
     {
         if (_reservedCapacityByOrder.TryGetValue(orderId, out var quota))
@@ -863,18 +897,46 @@ public sealed class WorkshopLiquidStagingSnapshot
         ShipLiquidInventory.TotalAmount(Accounts.Values.SelectMany(account => account)));
 }
 
+internal interface IOrderLiquidTransferMutationPort
+{
+    bool TryTransferOut(WorkshopLiquidStaging staging, int orderId, string liquid, int amount);
+    void Receive(WorkshopLiquidStaging staging, int orderId, string liquid, int amount);
+}
+
+internal sealed class WorkshopOrderLiquidTransferMutationPort : IOrderLiquidTransferMutationPort
+{
+    public bool TryTransferOut(WorkshopLiquidStaging staging, int orderId, string liquid, int amount) =>
+        staging.TryTransferOut(orderId, liquid, amount);
+
+    public void Receive(WorkshopLiquidStaging staging, int orderId, string liquid, int amount) =>
+        staging.ReceiveTransferUnchecked(orderId, liquid, amount);
+}
+
 /// <summary>主台到从台的订单液体单向交接。整批原子提交，不允许部分交接。</summary>
 public static class OrderLiquidTransfer
 {
+    private static readonly IOrderLiquidTransferMutationPort DefaultPort =
+        new WorkshopOrderLiquidTransferMutationPort();
+
     public static bool TryExecute(
         int orderId,
         WorkshopLiquidStaging master,
         WorkshopLiquidStaging slave,
         IReadOnlyDictionary<string, int> amounts,
-        out string? rejectionReason)
+        out string? rejectionReason) =>
+        TryExecute(orderId, master, slave, amounts, out rejectionReason, DefaultPort);
+
+    internal static bool TryExecute(
+        int orderId,
+        WorkshopLiquidStaging master,
+        WorkshopLiquidStaging slave,
+        IReadOnlyDictionary<string, int> amounts,
+        out string? rejectionReason,
+        IOrderLiquidTransferMutationPort mutationPort)
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(slave);
+        ArgumentNullException.ThrowIfNull(mutationPort);
         ShipLiquidInventory.ValidateAmounts(amounts);
 
         if (ReferenceEquals(master, slave))
@@ -905,11 +967,36 @@ public static class OrderLiquidTransfer
             }
         }
 
-        // 所有前置条件均通过后才提交；提交阶段没有可失败的业务分支。
-        foreach (var pair in amounts)
-            master.TryTransferOut(orderId, pair.Key, pair.Value);
-        foreach (var pair in amounts)
-            slave.ReceiveTransferUnchecked(orderId, pair.Key, pair.Value);
+        // Keep both original accounts until every mutation has completed. A fault-injected
+        // or unexpected exception must restore the exact two-account state, not emit a
+        // partial one-way pump operation.
+        var masterBefore = master.GetBalance(orderId);
+        var slaveBefore = slave.GetBalance(orderId);
+        try
+        {
+            foreach (var pair in amounts)
+            {
+                if (!mutationPort.TryTransferOut(master, orderId, pair.Key, pair.Value))
+                    throw new InvalidOperationException("主工作台订单液体在交接提交期间发生变化：" + pair.Key);
+            }
+            foreach (var pair in amounts)
+                mutationPort.Receive(slave, orderId, pair.Key, pair.Value);
+        }
+        catch (Exception transferError)
+        {
+            try
+            {
+                master.RestoreOrderAccount(orderId, masterBefore);
+                slave.RestoreOrderAccount(orderId, slaveBefore);
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "主从订单液体交接失败，且双侧账户补偿回滚失败；必须停止世界推进并保留故障现场。",
+                    transferError, rollbackError);
+            }
+            throw;
+        }
 
         rejectionReason = null;
         return true;
