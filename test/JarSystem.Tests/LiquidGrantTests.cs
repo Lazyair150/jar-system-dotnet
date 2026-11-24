@@ -100,9 +100,11 @@ public class LiquidGrantTests
 
         w.AddJar(bomb);
         var fullBanned = w.TryReshape(bomb, "方罐", ReshapeMode.Full);
-        Assert.False(fullBanned.Success);
-        Assert.Equal("工作台禁酒", fullBanned.Reason);
-        Assert.Equal("酒", bomb.Liquid);                     // 被拒时液体放回罐里
+        Assert.True(fullBanned.Success, fullBanned.Reason);
+        Assert.Null(bomb.Liquid);                            // Jar 内液体自耗不读取 staging Ban
+        Assert.Equal("方罐", bomb.Shape);
+        Assert.True(bomb.IsMarked);
+        Assert.Equal(0, w.LiquidStorage.GetValueOrDefault("酒"));
     }
 
     [Fact]
