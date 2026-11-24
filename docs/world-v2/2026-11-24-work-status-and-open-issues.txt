@@ -32,12 +32,13 @@ This is the handoff ledger for continued implementation. A source edit is not ve
 - Unknown/unimplemented rules and unsupported scopes fail closed as Undetermined/Rejected. Budget exhaustion is Undetermined, never proof of Infeasible.
 
 3. B-CLASS ROLE ASSIGNMENT MODEL
-- Both Master and Slave candidate profiles participate in demand assignment.
+- Both Master and Slave candidate profiles participate in demand assignment. The enumerator uses Slave-first ordering for compatibility, then tries Master alternatives when needed.
 - Each requirement is fulfilled exactly once by one role. A B-class plan must contain at least one concrete Slave demand operation; a pure Jar-only handoff is not a replacement for the B-class Slave-use event.
 - Master demand operations execute before handoff; Slave demand operations execute after handoff.
 - A Master-completed requirement Jar may still be handed off as B-class output without a second Slave operation.
 - Master preparation may fund Master operations and may cross the liquid handoff boundary for Slave operations only when source and destination staging rules permit it.
 - Slave preparation only funds Slave-side needs.
+- B-class plans require at least one concrete Slave demand operation; pure Jar-only handoff is not a substitute for the B-class Slave-use event.
 - Old precomputedSolutions is intentionally ignored until its cache key fingerprints the complete Master+Slave profile set. A stale Slave-only solution set can omit Master branches.
 - Current enumerator is bounded, not a universal circuit compiler. Verify mixed-role schedules, operation order, resource replay, materialization, manifest and execution.
 
