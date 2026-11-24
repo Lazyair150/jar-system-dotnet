@@ -26,10 +26,13 @@ public class WorkshopRulebookTests
     [Fact]
     public void RuleVersionsTrackTheWorkshopPolarityContract()
     {
+        var pourOut = WorkshopRulebook.Definitions.Single(x => x.Operator == "POUR_OUT");
         var full = WorkshopRulebook.Definitions.Single(x => x.Operator == "RESHAPE_FULL");
         var match = WorkshopRulebook.Definitions.Single(x => x.Operator == "MATCH");
 
         Assert.Equal(4, WorkshopRulebook.RuleContractVersion);
+        Assert.Equal("jar.workshop.pour-out", pourOut.RuleId);
+        Assert.Equal(2, pourOut.RuleVersion);
         Assert.Equal("jar.workshop.reshape-full", full.RuleId);
         Assert.Equal(3, full.RuleVersion);
         Assert.Equal("jar.workshop.match", match.RuleId);
@@ -99,7 +102,7 @@ public class WorkshopRulebookTests
     }
 
     [Fact]
-    public void PourOutBanIsEvaluatedAtTheDestinationStagingAccount()
+    public void PourOutRequiresWorkshopPolarityAndDestinationStagingAdmission()
     {
         var bannedCapability = new WorkshopCapability(
             new[] { "圆罐" }, System.Array.Empty<string>(), new[] { "酒" });
