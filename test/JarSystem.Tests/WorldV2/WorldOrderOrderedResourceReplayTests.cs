@@ -104,6 +104,51 @@ public sealed class WorldOrderOrderedResourceReplayTests
     }
 
     [Fact]
+    public void SlaveStagingOverflowDiscardsOnlyTheExcessProducedLiquid()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" });
+        master.AddJar(new Jar("圆罐", "酒", id: 925));
+        master.AddJar(new Jar("圆罐", "酒", id: 926));
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            liquidStagingCapacity: 1);
+        var world = WorldSnapshotFactory.Capture(new WorkshopRoster(
+            new[] { master, slave }, master, slave));
+
+        var firstInput = new WorldOrderSymbolicJarVersion("first", 0, "Master", "圆罐", "酒");
+        var secondInput = new WorldOrderSymbolicJarVersion("second", 0, "Master", "圆罐", "酒");
+        var handoff = WorldOrderSymbolicOperationNode.MasterToSlaveHandoff(
+            "handoff-overflow", 0, "Master", "Slave", new[] { firstInput, secondInput });
+        var candidate = new WorldOrderRuleCandidate(
+            -1, "圆罐", "酒", "PREPARE_POUR_OUT", "pour-out.rule", 1,
+            "圆罐", null, null, null, "酒", null);
+        var first = WorldOrderSymbolicOperationNode.Rule(
+            "slave-first-pour", 1, "Slave", null, candidate,
+            handoff.OutputJars[0],
+            new WorldOrderSymbolicJarVersion("first", 2, "Slave", "圆罐", null, true));
+        var second = WorldOrderSymbolicOperationNode.Rule(
+            "slave-second-pour", 2, "Slave", null, candidate,
+            handoff.OutputJars[1],
+            new WorldOrderSymbolicJarVersion("second", 2, "Slave", "圆罐", null, true));
+        var program = new WorldOrderSymbolicOperationProgram(
+            true, "Master", "Slave", new[] { handoff, first, second },
+            new[]
+            {
+                WorldOrderSymbolicOperationDependency.JarState(
+                    handoff.NodeId, first.NodeId, "first", 1),
+                WorldOrderSymbolicOperationDependency.JarState(
+                    handoff.NodeId, second.NodeId, "second", 1)
+            });
+
+        var result = WorldOrderOrderedResourceReplay.Replay(program, world);
+
+        Assert.Equal(WorldOrderOrderedResourceReplayStatus.Complete, result.Status);
+        Assert.Equal(new[] { "酒", null }, result.SlaveAcceptedProducedLiquids);
+        Assert.Equal(1, result.SlaveStagingPeakCapacity);
+        Assert.Equal(1, result.SlaveFinalLiquids["酒"]);
+        Assert.Empty(result.TransferLiquids);
+    }
+
+    [Fact]
     public void BannedMasterStagingLiquidCannotBeProducedAndThenConsumed()
     {
         var result = WorldOrderOrderedResourceReplay.Replay(
