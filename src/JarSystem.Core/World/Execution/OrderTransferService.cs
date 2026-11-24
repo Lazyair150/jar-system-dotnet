@@ -50,6 +50,15 @@ internal sealed class OrderTransferService
         // Do NOT gate this loop by source/target polarity or liquid Ban: an opposite-polarity
         // Jar is still a valid physical resource on either side. Operation permission is
         // evaluated later by the Workshop that actually executes the operation.
+        // Validate the complete source inventory and requested set before building the move plan;
+        // otherwise duplicate manifest IDs can escape as Dictionary.Add exceptions mid-preflight.
+        var sourceJarIds = master.Jars.Select(jar => jar.Id ?? 0).ToArray();
+        if (sourceJarIds.Any(id => id <= 0) || sourceJarIds.Distinct().Count() != sourceJarIds.Length)
+            return "主台 Jar 库存包含无效或重复身份，拒绝交接";
+        if (manifest.TransferJarIds.Any(id => id <= 0) ||
+            manifest.TransferJarIds.Distinct().Count() != manifest.TransferJarIds.Count)
+            return "B 类交接清单包含无效或重复 Jar 身份";
+
         var jars = new Dictionary<int, Jar>();
         foreach (var id in manifest.TransferJarIds)
         {
@@ -203,6 +212,14 @@ internal sealed class OrderTransferService
                     ResourceKinds.Liquid, item.Key, item.Value, from: master.Name, to: slave.Name);
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
+
+        // Verify exact physical ownership after commit, not merely aggregate counts.
+        // Equal counts can conceal a wrong Jar being moved or an unexpected substitution.
+        var requestedJarIds = manifest.TransferJarIds.ToHashSet();
+        if (master.Jars.Any(jar => jar.Id is { } id && requestedJarIds.Contains(id)) ||
+            !slave.Jars.Where(jar => jar.Id is { } id && requestedJarIds.Contains(id))
+                .Select(jar => jar.Id!.Value).ToHashSet().SetEquals(requestedJarIds))
+            throw new InvalidOperationException("Jar 交接提交后的精确身份归属与 Manifest 不一致。");
 
         if (transferTransition != null)
         {
