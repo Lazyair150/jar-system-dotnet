@@ -409,24 +409,6 @@ public static class WorldOrderBClassBranchEnumerator
         }
     }
 
-    private static bool SameRequirements(
-        IReadOnlyList<WorldOrderRequirementCandidates> left,
-        IReadOnlyList<WorldOrderRequirementCandidates> right)
-    {
-        if (left.Count != right.Count) return false;
-        for (var index = 0; index < left.Count; index++)
-        {
-            var a = left[index];
-            var b = right[index];
-            if (a.RequirementIndex != b.RequirementIndex ||
-                !string.Equals(a.TargetShape, b.TargetShape, StringComparison.Ordinal) ||
-                !string.Equals(a.TargetLiquid, b.TargetLiquid, StringComparison.Ordinal) ||
-                !a.Candidates.SequenceEqual(b.Candidates))
-                return false;
-        }
-        return true;
-    }
-
     private static WorldOrderRuleCandidateProfile FilterToAvailablePhysicalJarStates(
         WorldOrderRuleCandidateProfile profile,
         WorkshopSolveSnapshot master)
