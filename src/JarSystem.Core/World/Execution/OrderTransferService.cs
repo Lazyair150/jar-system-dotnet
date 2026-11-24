@@ -274,10 +274,12 @@ internal sealed class OrderTransferService
         // Verify exact physical ownership after commit, not merely aggregate counts.
         // Equal counts can conceal a wrong Jar being moved or an unexpected substitution.
         var requestedJarIds = manifest.TransferJarIds.ToHashSet();
+        var destinationJarIds = slave.Jars.Select(jar => jar.Id ?? 0).ToArray();
         if (master.Jars.Any(jar => jar.Id is { } id && requestedJarIds.Contains(id)) ||
-            !slave.Jars.Where(jar => jar.Id is { } id && requestedJarIds.Contains(id))
-                .Select(jar => jar.Id!.Value).ToHashSet().SetEquals(requestedJarIds))
-            throw new InvalidOperationException("Jar 交接提交后的精确身份归属与 Manifest 不一致。");
+            destinationJarIds.Any(id => id <= 0) ||
+            destinationJarIds.Distinct().Count() != destinationJarIds.Length ||
+            !destinationJarIds.ToHashSet().SetEquals(requestedJarIds))
+            throw new InvalidOperationException("Jar 交接提交后的主从精确身份归属与 Manifest 不一致。");
 
         if (transferTransition != null)
         {
