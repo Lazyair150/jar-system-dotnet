@@ -440,6 +440,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(slave.HasResources);
         Assert.Null(setup.Board.Find(demand.Id));
         Assert.Equal(0, setup.Reservations.Count);
+        Assert.False(jar.IsMarked, "成功终态必须清理本订单参与 Jar 的 Mark");
     }
 
     [Fact]
@@ -558,6 +559,8 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Contains(master.Jars, item => item.Liquid == "酒");
         Assert.Equal(1, master.LiquidStorage["酒"]);
         Assert.Equal(0, setup.Reservations.Count);
+        Assert.False(firstJar.IsMarked, "失败终态必须清理已操作并回流的 Jar Mark");
+        Assert.False(secondJar.IsMarked);
     }
 
     [Fact]
@@ -1022,6 +1025,8 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(0, scopes.Value.Slave.Staging.UsedCapacity);
         Assert.Empty(master.Jars);
         Assert.Empty(slave.Jars);
+        Assert.False(sourceJar.IsMarked, "成功交付前必须清理跨台保留的 Mark");
+        Assert.False(toolJar.IsMarked);
     }
 
 }
