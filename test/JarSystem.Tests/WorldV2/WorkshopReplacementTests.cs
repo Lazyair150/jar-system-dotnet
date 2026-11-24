@@ -104,7 +104,7 @@ public sealed class WorkshopReplacementTests
     }
 
     [Fact]
-    public void MasterReplacementTransfersFullJarEvenWhenTargetBansItsInternalLiquid()
+    public void MasterReplacementTransfersFullJarWhileTargetBansItsStagingLiquid()
     {
         var oldMaster = new Workshop("允许酒的旧主台",
             new List<string> { "圆罐", "方罐" });
