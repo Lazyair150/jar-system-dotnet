@@ -324,8 +324,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             snapshot.SlaveTransferCommitted,
             snapshot.Reason);
 
-        var reservation = reservations.Find(snapshot.DemandId)
+        var lease = reservations.FindLease(snapshot.DemandId)
             ?? throw new InvalidOperationException("恢复执行会话缺少资源预留。");
+        var reservation = lease.Reservation;
         if (reservation.UsesSlave != snapshot.Manifest.IsPartitioned ||
             !string.Equals(reservation.WorldVersion, snapshot.Manifest.WorldVersion, StringComparison.Ordinal) ||
             !reservation.LockedJarIds.ToHashSet().SetEquals(snapshot.Manifest.LockedJarIds) ||
@@ -382,6 +383,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 throw new InvalidOperationException(
                     "恢复会话报告主从交接已提交，但资源账本缺少对应的 Transfer operation receipt。");
         }
+
+        // A restored lease may already have crossed the settlement ledger boundary even
+        // while its reservation is still present in a checkpoint. Never trust the stage
+        // bit alone: the idempotency receipt must exist in the same restored ledger.
+        if (lease.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
+            resourceLedger != null &&
+            !resourceLedger.HasRecordedOperation(lease.SettlementOperationId))
+            throw new InvalidOperationException(
+                "恢复会话报告结算账本已提交，但资源账本缺少对应的 Settlement operation receipt。");
 
         var restored = new WorldOrderExecutionSession(
             snapshot.DemandId, board, solveBook, admission, roster,
