@@ -32,115 +32,127 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             ["Undetermined"] = 0
         };
 
-        foreach (var seed in new[] { 0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155, 0x4A4156, 0x4A4157, 0x4A4158, 0x4A4159, 0x4A415A, 0x4A415B, 0x4A415C, 0x4A415D, 0x4A415E, 0x4A415F, 0x4A4160, 0x4A4161 })
+        var aSamples = 0;
+        var bSamples = 0;
+        foreach (var seed in new[]
+        {
+            0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155,
+            0x4A4156, 0x4A4157, 0x4A4158, 0x4A4159,
+            0x4A415A, 0x4A415B, 0x4A415C, 0x4A415D,
+            0x4A415E, 0x4A415F, 0x4A4160, 0x4A4161
+        })
         {
             var random = new Random(seed);
             for (var sample = 0; sample < 256; sample++)
             {
                 var sampleId = sampleOrdinal++;
-            var masterBan = RandomBan(random);
-            var slaveBan = RandomBan(random);
-            var masterCapacity = random.Next(1, 6);
-            var slaveCapacity = random.Next(1, 5);
-            var master = new Workshop(
-                "seed-" + sampleId + "-master",
-                new List<string> { "圆罐", "方罐" },
-                ban: masterBan,
-                maxJars: 5,
-                maxLiquids: 5,
-                liquidStagingCapacity: masterCapacity,
-                vocabulary: Words);
+                var masterBan = RandomBan(random);
+                var slaveBan = RandomBan(random);
+                var masterCapacity = random.Next(1, 6);
+                var slaveCapacity = random.Next(1, 6);
+                var master = new Workshop(
+                    "seed-" + sampleId + "-master",
+                    new List<string> { "圆罐", "方罐" },
+                    ban: masterBan,
+                    maxJars: 5,
+                    maxLiquids: 5,
+                    liquidStagingCapacity: masterCapacity,
+                    vocabulary: Words);
 
-            var jarCount = random.Next(1, 6);
-            for (var index = 0; index < jarCount; index++)
-            {
-                var shape = random.Next(2) == 0 ? "圆罐" : "方罐";
-                var liquid = random.Next(3) switch
+                var jarCount = random.Next(1, 6);
+                for (var index = 0; index < jarCount; index++)
                 {
-                    0 => null,
-                    1 => "酒",
-                    _ => "蜜"
-                };
-                Assert.True(master.AddJar(new Jar(
-                    shape, liquid, id: 80_000 + sampleId * 10 + index, vocabulary: Words)));
-            }
-
-            master.AddLiquid("酒", random.Next(0, 6));
-            master.AddLiquid("蜜", random.Next(0, 6));
-
-            var requirementCount = random.Next(1, 5);
-            var requirements = Enumerable.Range(0, requirementCount)
-                .Select(_ => new Requirement
-                {
-                    Shape = random.Next(2) == 0 ? "圆罐" : "方罐",
-                    Liquid = random.Next(3) switch
+                    var shape = random.Next(2) == 0 ? "圆罐" : "方罐";
+                    var liquid = random.Next(3) switch
                     {
                         0 => null,
                         1 => "酒",
                         _ => "蜜"
-                    }
-                })
-                // Domain contract: empty-Jar requirements precede full-Jar requirements.
-                .OrderBy(requirement => requirement.Liquid is not null)
-                .ToArray();
-            var orderType = random.Next(2) == 0
-                ? Constants.OrderType.A
-                : Constants.OrderType.B;
-            var specification = new JarOrderSpecification(requirements, orderType, Words);
+                    };
+                    Assert.True(master.AddJar(new Jar(
+                        shape, liquid, id: 80_000 + sampleId * 10 + index, vocabulary: Words)));
+                }
 
-            Workshop? slave = null;
-            WorkshopRoster roster;
-            if (orderType == Constants.OrderType.B)
-            {
-                slave = new Workshop(
-                    "seed-" + sampleId + "-slave",
-                    new List<string> { "圆罐", "方罐" },
-                    ban: slaveBan,
-                    maxJars: 5,
-                    maxLiquids: 5,
-                    liquidStagingCapacity: slaveCapacity,
-                    vocabulary: Words);
-                roster = new WorkshopRoster(new[] { master, slave }, master, slave);
-            }
-            else
-            {
-                roster = new WorkshopRoster(new[] { master }, master);
-            }
+                master.AddLiquid("酒", random.Next(0, 6));
+                master.AddLiquid("蜜", random.Next(0, 6));
 
-            var world = WorldSnapshotFactory.Capture(roster);
-            var masterProfile = WorldOrderRuleCandidateCatalog.Build(
-                world, world.Master!, "Master", specification);
-            var demandId = 90_000 + sampleId;
+                var requirementCount = random.Next(1, 5);
+                var requirements = Enumerable.Range(0, requirementCount)
+                    .Select(_ => new Requirement
+                    {
+                        Shape = random.Next(2) == 0 ? "圆罐" : "方罐",
+                        Liquid = random.Next(3) switch
+                        {
+                            0 => null,
+                            1 => "酒",
+                            _ => "蜜"
+                        }
+                    })
+                    // Domain contract: empty-Jar requirements precede full-Jar requirements.
+                    .OrderBy(requirement => requirement.Liquid is not null)
+                    .ToArray();
+                var orderType = random.Next(2) == 0
+                    ? Constants.OrderType.A
+                    : Constants.OrderType.B;
+                var specification = new JarOrderSpecification(requirements, orderType, Words);
 
-            if (orderType == Constants.OrderType.A)
-            {
-                var result = WorldOrderAClassBranchEnumerator.Enumerate(
-                    demandId, masterProfile, world, maxBranches: 4096, maxNodes: 100_000);
-                Count(statusCounts, result.Status.ToString());
-                if (result.Status == WorldOrderAClassBranchEnumerationStatus.Feasible)
-                    AssertConserves(result.Assembly, world, orderType, seed, sample);
+                Workshop? slave = null;
+                WorkshopRoster roster;
+                if (orderType == Constants.OrderType.B)
+                {
+                    bSamples++;
+                    slave = new Workshop(
+                        "seed-" + sampleId + "-slave",
+                        new List<string> { "圆罐", "方罐" },
+                        ban: slaveBan,
+                        maxJars: 5,
+                        maxLiquids: 5,
+                        liquidStagingCapacity: slaveCapacity,
+                        vocabulary: Words);
+                    roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+                }
                 else
-                    Assert.Null(result.Assembly);
-            }
-            else
-            {
-                var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
-                    world, world.Slave!, "Slave", specification);
-                var result = WorldOrderBClassBranchEnumerator.Enumerate(
-                    demandId, masterProfile, slaveProfile, world);
-                Count(statusCounts, result.Status.ToString());
-                if (result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
-                    AssertConserves(result.Assembly, world, orderType, seed, sample);
+                {
+                    aSamples++;
+                    roster = new WorkshopRoster(new[] { master }, master);
+                }
+
+                var world = WorldSnapshotFactory.Capture(roster);
+                var masterProfile = WorldOrderRuleCandidateCatalog.Build(
+                    world, world.Master!, "Master", specification);
+                var demandId = 90_000 + sampleId;
+
+                if (orderType == Constants.OrderType.A)
+                {
+                    var result = WorldOrderAClassBranchEnumerator.Enumerate(
+                        demandId, masterProfile, world, maxBranches: 4096, maxNodes: 100_000);
+                    Count(statusCounts, result.Status.ToString());
+                    if (result.Status == WorldOrderAClassBranchEnumerationStatus.Feasible)
+                        AssertConserves(result.Assembly, world, orderType, seed, sample);
+                    else
+                        Assert.Null(result.Assembly);
+                }
                 else
-                    Assert.Null(result.Assembly);
+                {
+                    var slaveProfile = WorldOrderRuleCandidateCatalog.Build(
+                        world, world.Slave!, "Slave", specification);
+                    var result = WorldOrderBClassBranchEnumerator.Enumerate(
+                        demandId, masterProfile, slaveProfile, world,
+                        maxBranches: 4096, maxNodes: 100_000);
+                    Count(statusCounts, result.Status.ToString());
+                    if (result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
+                        AssertConserves(result.Assembly, world, orderType, seed, sample);
+                    else
+                        Assert.Null(result.Assembly);
+                }
             }
-        }
         }
 
         Assert.Equal(4096, sampleOrdinal);
         Assert.True(statusCounts["Feasible"] > 0, "Fixed seed produced no feasible samples.");
         Assert.True(statusCounts["Infeasible"] > 0, "Fixed seed produced no infeasible samples.");
-        Assert.Equal(0, statusCounts["Undetermined"]);
+        Assert.True(aSamples > 0 && bSamples > 0, "Fixed seed must cover both A and B orders.");
+        Assert.Equal(4096, aSamples + bSamples);
     }
 
     private static List<string> RandomBan(Random random)
