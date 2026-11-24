@@ -12,7 +12,7 @@ namespace JarSystem.Tests;
 /// 求解器是静态/纯值的，拿不到活的 Workshop。过去它们各自拼 "禁令 + 数量 + 上限"，
 /// 同一条规则五六个说法。现在规则收敛成这个纯函数：**禁令在构造时给，账目由调用方传**。
 ///
-/// 本组测试钉它的三件性质：①禁令同时约束游离液体取用/存入及含该液体 Jar 的操作；②容量 &lt;= 0 表示不限；
+/// 本组测试钉它的三件性质：①禁令只约束工作台游离液体取用/存入；②容量 &lt;= 0 表示不限；
 /// ③它和活的工作台给出**同一批结论**（否则"只有一个说法"就只是口号）。
 /// </summary>
 public class LiquidRulesTests
@@ -50,13 +50,17 @@ public class LiquidRulesTests
     }
 
     [Fact]
-    public void JarOperationBanIsDistinctFromFreeLiquidAccounting()
+    public void JarInternalLiquidSelfConsumeIsOutsideTheStagingBanScope()
     {
-        var rules = new LiquidRules(Cap(new List<string> { "酒" }), capacity: 2);
-        Assert.Equal("banned", rules.CheckJarOperation("酒").Code);
-        Assert.True(rules.CheckJarOperation("蜜").Granted);
-        // 该检查不消费任何游离液体。
-        Assert.True(rules.CanPay("蜜", 1, 1).Granted);
+        var capability = Cap(new List<string> { "酒" });
+        var rules = new LiquidRules(capability, capacity: 2);
+        Assert.Equal("banned", rules.CanPay("酒", 1, 1).Code);
+        Assert.Equal("banned", rules.CanStore("酒", 1, 0).Code);
+
+        // 满罐自耗使用 Jar 自己的内部液体，不读取工作台游离液体暂存账户。
+        var reshape = new ReshapeRules(capability, rules);
+        Assert.True(reshape.SelfConsume("酒").Granted);
+        Assert.Equal("not-full", reshape.SelfConsume(null).Code);
     }
 
     [Fact]
