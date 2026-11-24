@@ -696,6 +696,58 @@ public sealed class WorldOrderExecutionSessionTests
             item.Kind == ResourceKinds.Liquid && item.To == "自机液库");
     }
 
+
+    [Fact]
+    public void RestoreRejectsLedgerRecordedSettlementWithoutMatchingLedgerReceipt()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        Assert.True(master.AddJar(jar));
+        using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：从台执行"
+        });
+
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
+        {
+            new JarOrderSpecificationSolver(new StateSpaceSolver())
+        });
+        book.Evaluate(demand.Id, WorldSnapshotFactory.Capture(roster), registry);
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, board, book, admission, roster, 1_000, ledger, () => 17);
+        Assert.True(started.Success, started.Reason);
+
+        started.Session!.AdvanceLogicalTime(1_000);
+        var progress = started.Session.CaptureProgress();
+        Assert.True(progress.SlaveTransferCommitted);
+        Assert.True(ledger.HasRecordedOperation(
+            reservations.FindLease(demand.Id)!.WorldVersion + ":order:" + demand.Id + ":transfer"));
+
+        var lease = reservations.FindLease(demand.Id)!;
+        var empty = new Dictionary<string, int>();
+        lease.RecordSettlement(new LiquidBatchReceipt(empty, empty, empty));
+        lease.MarkSettlementLedgerRecorded();
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            WorldOrderExecutionSession.RestoreProgress(
+                progress, board, book, admission, roster, reservations, ledger, () => 17));
+        Assert.Contains("Settlement operation receipt", error.Message);
+    }
+
     [Fact]
     public void TransferPreflightDoesNotRollbackResourcesThatWereAlreadyOnTheSlave()
     {
