@@ -396,3 +396,10 @@ Jar 三态现已成为规则输入/输出的可验证边，而不是 UI 标签�
 本轮还校正了差分参考求解器：其旧版满罐改形路径曾错误套用 staging Ban。现在参考实现与“Ban 只约束工作台游离液体 staging”的领域契约一致，并新增被 Ban Jar 内液体自耗的定向差分场景。Mark 跨主从交接保留、成功终态清理与失败终态清理也增加了执行会话回归断言。
 
 当前 head 的 CI 尚待完成；仅 `4f9f98a` 上的 verify 步骤已成功，不能据此宣称后续 staging adapter 和 Mark 断言通过。下一步继续完成 Transfer 的统一 ResourceEffect，再接线实际 staging 入口；此时仍不进入 Circuit Compiler。
+
+
+### 10.7 主从 Transfer 适配器与身份缺口
+
+新增 `WorkshopRoleTransferTransitionAdapter`，为 B 类主→从交接构造显式资源效果。每只 Jar 按 exact Jar ID 从来源工作台库存 Transfer 到目标工作台库存；游离液体按液种/数量从来源 staging Transfer 到目标 staging。构造前校验来源 Jar 所有权、重复 ID、目标罐位、来源液体余额、目标 Ban 和目标 staging 总容量。所有 Transfer 都绑定精确 source/destination instance ID，不使用主台/从台角色名作为 OwnerId。
+
+该适配器尚未接入 `OrderTransferService`。当前旧 Core `Workshop` 对象只有显示名称，没有可信 Owned Instance ID。不能把 Name 当作稳定资源所有权身份；需要由 World/Host 从 Board Assignment 提供 exact Owned Instance ID，并在实际交接事务中生成/提交同一份 Transfer receipt 与 Transition。
