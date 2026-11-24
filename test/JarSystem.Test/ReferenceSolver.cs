@@ -93,7 +93,7 @@ internal sealed class ReferenceSolver : ISolver
         if (req.Liquid != null)
         {
             // 满罐需求：现成满罐，或"同形空罐 + 倒入液体"
-            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == req.Liquid && !j.IsMarked);
+            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == req.Liquid && !j.IsMarked && cap.CanOperateJar(j.Polarity));
             if (match >= 0)
                 yield return new SolverOperation { Type = "MATCH", JarIndex = match, Consumed = new() };
 
@@ -111,7 +111,7 @@ internal sealed class ReferenceSolver : ISolver
         else
         {
             // 空罐需求：现成空罐 / 空罐改形（消耗任一可用成本液体）/ 满罐自耗改形
-            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == null && !j.IsMarked);
+            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == null && !j.IsMarked && cap.CanOperateJar(j.Polarity));
             if (match >= 0)
                 yield return new SolverOperation { Type = "MATCH", JarIndex = match, Consumed = new() };
 
@@ -119,7 +119,7 @@ internal sealed class ReferenceSolver : ISolver
             {
                 if (cap.IsBanned(cost) || s.Liquids.GetValueOrDefault(cost) < 1) continue;
                 for (int i = 0; i < s.Jars.Count; i++)
-                    if (s.Jars[i].Liquid == null && !s.Jars[i].IsMarked && cap.CanTransform(s.Jars[i].Shape, req.Shape))
+                    if (s.Jars[i].Liquid == null && !s.Jars[i].IsMarked && cap.CanOperateJar(JarPolarity.Neutral) && cap.CanTransform(s.Jars[i].Shape, req.Shape))
                         yield return new SolverOperation
                         {
                             Type = "RESHAPE", JarIndex = i, TargetShape = req.Shape, CostLiquid = cost,
@@ -130,6 +130,7 @@ internal sealed class ReferenceSolver : ISolver
             // 满罐改形消耗 Jar 自有内部液体，不经过 staging；Ban 不适用于这条自耗路径。
             for (int i = 0; i < s.Jars.Count; i++)
                 if (s.Jars[i].Liquid != null && !s.Jars[i].IsMarked
+                    && cap.CanOperateJar(JarPolarityResolver.Resolve(s.Jars[i].Liquid))
                     && cap.CanTransform(s.Jars[i].Shape, req.Shape))
                     yield return new SolverOperation
                     {
@@ -142,7 +143,7 @@ internal sealed class ReferenceSolver : ISolver
         for (int i = 0; i < s.Jars.Count; i++)
         {
             var liquid = s.Jars[i].Liquid;
-            if (liquid == null || s.Jars[i].IsMarked || cap.IsBanned(liquid)) continue;
+            if (liquid == null || s.Jars[i].IsMarked || !cap.CanOperateJar(JarPolarityResolver.Resolve(liquid)) || cap.IsBanned(liquid)) continue;
             if (s.Liquids.GetValueOrDefault(liquid) >= info.MaxLiquids) continue;
             yield return new SolverOperation { Type = "POUR_OUT", JarIndex = i, Consumed = new() };
         }
@@ -152,7 +153,7 @@ internal sealed class ReferenceSolver : ISolver
     {
         int i = op.JarIndex!.Value;
         if (i < 0 || i >= s.Jars.Count) return false;
-        if (s.Jars[i].IsMarked) return false;
+        if (s.Jars[i].IsMarked || !info.Capability.CanOperateJar(JarPolarityResolver.Resolve(s.Jars[i].Liquid))) return false;
         // 选择性转移预算：主台来源罐子在预算用尽后不可用
         if (s.Jars[i].MasterOrigin && s.Used >= s.Budget) return false;
 
