@@ -235,7 +235,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
                 // Only advance if POUR_OUT satisfies an EMPTY requirement:
                 // the jar becomes empty of the matching shape.
                 bool shapeMatch = jBefore.Shape == reqs[idx].Shape;
-                bool isEmptyReq = reqs[idx].Liquid == null;
+                bool isEmptyReq = reqs[idx].Polarity == JarPolarity.Neutral;
                 ni = (shapeMatch && isEmptyReq) ? idx + 1 : idx;
             }
             // 以从台路径所需的最小初始供给重放当前前缀；容量只约束实际需要的资源，
