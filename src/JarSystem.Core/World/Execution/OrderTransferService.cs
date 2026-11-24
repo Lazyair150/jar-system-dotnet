@@ -221,6 +221,10 @@ internal sealed class OrderTransferService
                 // established. Never leave a Jar in an unowned limbo between the two accounts.
                 var sourceOwnsJar = master.Jars.Any(item => ReferenceEquals(item, jar));
                 var destinationOwnsJar = slave.Jars.Any(item => ReferenceEquals(item, jar));
+                if (sourceOwnsJar && destinationOwnsJar &&
+                    !ReferenceEquals(slave.TransferOut(jar), jar))
+                    throw new InvalidOperationException(
+                        $"罐子 #{id} 转移失败且无法撤销重复的双端归属", transferError);
                 if (!sourceOwnsJar && !destinationOwnsJar && !master.TransferIn(jar))
                     throw new InvalidOperationException(
                         $"罐子 #{id} 转移失败且无法恢复主台归属", transferError);
