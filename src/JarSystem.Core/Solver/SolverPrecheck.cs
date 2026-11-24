@@ -267,7 +267,7 @@ public static class SolverPrecheck
         }
 
         // 空罐需求：形状 S（或能变成 S）
-        if (jar.Liquid == null)
+        if (jar.Polarity == JarPolarity.Neutral)
         {
             // ① 已经是空 S 罐 ⇒ MATCH
             if (string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return true;
