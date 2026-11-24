@@ -397,10 +397,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         // while its reservation is still present in a checkpoint. Never trust the stage
         // bit alone: the idempotency receipt must exist in the same restored ledger.
         if (lease.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
-            resourceLedger != null &&
-            !resourceLedger.HasRecordedOperation(lease.SettlementOperationId))
+            (resourceLedger == null ||
+             !resourceLedger.HasRecordedOperation(lease.SettlementOperationId)))
             throw new InvalidOperationException(
-                "恢复会话报告结算账本已提交，但资源账本缺少对应的 Settlement operation receipt。");
+                "恢复会话报告结算账本已提交，但缺少对应的 ResourceLedger 或 Settlement operation receipt。");
 
         var restored = new WorldOrderExecutionSession(
             snapshot.DemandId, board, solveBook, admission, roster,
