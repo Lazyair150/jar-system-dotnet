@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace JarSystem.Core.Domain;
 
 /// <summary>Deterministic result of evaluating one rule against one frozen state.</summary>
