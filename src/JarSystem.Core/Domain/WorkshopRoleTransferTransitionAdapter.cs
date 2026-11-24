@@ -137,14 +137,19 @@ public static class WorkshopRoleTransferTransitionAdapter
             beforeValues.Add(new(prefix + "polarity", facts.Polarity.ToString()));
             beforeValues.Add(new(prefix + "marked", facts.IsMarked ? "true" : "false"));
         }
-        var afterValues = new List<KeyValuePair<string, string>>(beforeValues)
+        var afterValues = beforeValues
+            .Where(item => item.Key != "sourceJarCount" &&
+                           item.Key != "destinationJarCount" &&
+                           item.Key != "destinationStagingUsedCapacity")
+            .ToList();
+        afterValues.AddRange(new[]
         {
-            new("sourceJarCount", (sourceIds.Count - jarIds.Length).ToString(CultureInfo.InvariantCulture)),
-            new("destinationJarCount", (destinationJarCount + jarIds.Length).ToString(CultureInfo.InvariantCulture)),
-            new("destinationStagingUsedCapacity", (destinationStagingUsedCapacity + liquidTotal).ToString(CultureInfo.InvariantCulture)),
-            new("transferredJarCount", jarIds.Length.ToString(CultureInfo.InvariantCulture)),
-            new("transferredLiquidAmount", liquidTotal.ToString(CultureInfo.InvariantCulture))
-        };
+            new KeyValuePair<string, string>("sourceJarCount", (sourceIds.Count - jarIds.Length).ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("destinationJarCount", (destinationJarCount + jarIds.Length).ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("destinationStagingUsedCapacity", (destinationStagingUsedCapacity + liquidTotal).ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("transferredJarCount", jarIds.Length.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("transferredLiquidAmount", liquidTotal.ToString(CultureInfo.InvariantCulture))
+        });
         var before = new RuleStateSnapshot(beforeValues);
         var after = new RuleStateSnapshot(afterValues);
 
