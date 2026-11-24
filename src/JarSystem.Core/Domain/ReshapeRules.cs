@@ -56,11 +56,19 @@ public readonly struct ReshapeRules
     }
 
     /// <summary>
-    /// 满罐自耗只消费 Jar 自己持有的内部液体，不读取工作台游离液体账户。
-    /// 因此工作台暂存区 Ban 不参与该操作；Ban 仍约束 POUR_IN / 空罐改形成本等游离液体取用。
+    /// Full-Jar self-consumption spends Jar-owned liquid, but the Jar must first be
+    /// compatible with this Workshop's operating polarity. Internal ownership does
+    /// not bypass the Workshop's authority to operate only its polarity category.
     /// </summary>
-    public ReshapeGrant SelfConsume(string? liquidInJar) =>
-        liquidInJar == null
-            ? ReshapeGrant.No("not-full", "必须为满罐")
-            : ReshapeGrant.Yes();
+    public ReshapeGrant SelfConsume(string? liquidInJar)
+    {
+        if (liquidInJar == null)
+            return ReshapeGrant.No("not-full", "必须为满罐");
+        var polarity = JarPolarityResolver.Resolve(liquidInJar);
+        if (_context != null && !_context.CanOperateJar(polarity))
+            return ReshapeGrant.No("polarity-incompatible", "工作台当前极性不能操作该极性的 Jar");
+        if (_context == null && _capability != null && !_capability.CanOperateJar(polarity))
+            return ReshapeGrant.No("polarity-incompatible", "工作台当前极性不能操作该极性的 Jar");
+        return ReshapeGrant.Yes();
+    }
 }
