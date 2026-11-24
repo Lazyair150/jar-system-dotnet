@@ -41,27 +41,47 @@ public sealed class WorkshopOrderLiquidScopeTests
     }
 
     [Fact]
-    public void PourOutRequiresBanAndAggregateCapacityToAllowExactReceive()
+    public void PourOutDiscardsRejectedOutputAndTransfersOnlyAcceptedStagingAmount()
     {
-        var workshop = CreateWorkshop();
-        var jar = new Jar("圆罐", "酒");
-        Assert.True(workshop.AddJar(jar));
+        var workshop = new Workshop("owned-output", new List<string> { "圆罐" },
+            maxJars: 8, maxLiquids: 3, ownedInstanceId: "owned.workshop.output");
+        var firstJar = new Jar("圆罐", "酒", id: 1001);
+        var secondJar = new Jar("圆罐", "蜜", id: 1002);
+        Assert.True(workshop.AddJar(firstJar));
+        Assert.True(workshop.AddJar(secondJar));
 
         var staging = new WorkshopLiquidStaging(2);
         staging.Receive(202, "蜜", 2);
-        var scope = new OrderLiquidScope(101, staging);
+        var scope = new OrderLiquidScope(101, staging, "owned.workshop.output");
 
-        var blocked = workshop.PourOut(jar, scope);
-        Assert.False(blocked.Success);
-        Assert.Equal("酒", jar.Liquid);
+        var discarded = workshop.PourOutWithSettlement(firstJar, scope);
+        Assert.True(discarded.Success, discarded.Reason);
+        Assert.Null(firstJar.Liquid);
         Assert.Equal(2, staging.UsedCapacity);
+        Assert.Equal(1, discarded.Receipt!.RequestedAmount);
+        Assert.Equal(0, discarded.Receipt.AcceptedAmount);
+        Assert.Equal(1, discarded.Receipt.DiscardedAmount);
+        Assert.NotNull(discarded.OperationTransition);
+        Assert.NotNull(discarded.StagingTransition);
+        var outputEffect = Assert.Single(discarded.OperationTransition!.ResourceEffects);
+        var discardEffect = Assert.Single(discarded.StagingTransition!.ResourceEffects);
+        Assert.Equal(RuleResourceEffectKind.Transfer, outputEffect.Kind);
+        Assert.Equal("jar.internal-liquid", outputEffect.From!.AccountKind);
+        Assert.Equal("workshop.order-output-boundary", outputEffect.To!.AccountKind);
+        Assert.Equal(RuleResourceEffectKind.Discard, discardEffect.Kind);
+        Assert.Equal(outputEffect.To, discardEffect.From);
 
         Assert.True(staging.TryConsume(202, "蜜", 1));
-        var allowed = workshop.PourOut(jar, scope);
-        Assert.True(allowed.Success);
-        Assert.Null(jar.Liquid);
-        Assert.Equal(1, staging.GetAmount(101, "酒"));
-        Assert.Equal(1, staging.GetAmount(202, "蜜"));
+        var accepted = workshop.PourOutWithSettlement(secondJar, scope);
+        Assert.True(accepted.Success, accepted.Reason);
+        Assert.Null(secondJar.Liquid);
+        Assert.Equal(1, accepted.Receipt!.AcceptedAmount);
+        Assert.Equal(0, accepted.Receipt.DiscardedAmount);
+        var acceptedEffect = Assert.Single(accepted.StagingTransition!.ResourceEffects);
+        Assert.Equal(RuleResourceEffectKind.Transfer, acceptedEffect.Kind);
+        Assert.Equal(outputEffect.To, acceptedEffect.From);
+        Assert.Equal("workshop.free-liquid-staging", acceptedEffect.To!.AccountKind);
+        Assert.Equal(2, staging.UsedCapacity);
     }
 
     [Fact]
@@ -185,7 +205,7 @@ public sealed class WorkshopOrderLiquidScopeTests
     }
 
     [Fact]
-    public void OrderScopedRulebookUsesAggregateCapacityAndBanForPourOut()
+    public void OrderScopedRulebookSeparatesPourOutPolarityFromStagingAdmission()
     {
         var workshop = CreateWorkshop();
         var jar = new Jar("圆罐", "酒");
@@ -194,8 +214,9 @@ public sealed class WorkshopOrderLiquidScopeTests
         staging.Receive(202, "蜜", 2);
         var scope = new OrderLiquidScope(101, staging);
 
-        Assert.False(WorkshopRulebook.IsAllowed(
-            workshop.Rules, scope, JarFacts.Of(jar), WorkshopOperation.PourOut()));
+        Assert.True(WorkshopRulebook.IsAllowed(
+            workshop.Rules, scope, JarFacts.Of(jar), WorkshopOperation.PourOut()),
+            "Storage capacity is settled after production; it does not invalidate Jar chemistry.");
 
         var bannedWorkshop = CreateWorkshop(ban: new[] { "酒" });
         var bannedJar = new Jar("圆罐", "酒");
