@@ -475,6 +475,38 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
+    public void BTransferRejectsJarThatBecameOppositePolarityForTheSlave()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        master.AddJar(jar);
+        master.AddLiquid("酒", 1);
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var started = runtime.TryStartExecutionSession(
+            demand.Id, setup.Book, setup.Admission, 1_000);
+        Assert.True(started.Success, started.Reason);
+
+        // Admission happened under an unrestricted Slave. Before transfer, focus Slave on Anode.
+        // The Master-produced Cathode Jar must not enter a bench that cannot operate it.
+        slave.ReplaceCapability(new WorkshopCapability(
+            new[] { "圆罐" }, ban: new[] { "酒" }));
+
+        var session = started.Session!;
+        for (var i = 0; i < 10 && !session.IsTerminal; i++)
+            runtime.AdvanceWorldTime(1_000);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.Contains(master.Jars, item => item.Id == jar.Id);
+        Assert.DoesNotContain(slave.Jars, item => item.Id == jar.Id);
+        Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
     public void TransferPreflightDoesNotRollbackResourcesThatWereAlreadyOnTheSlave()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
