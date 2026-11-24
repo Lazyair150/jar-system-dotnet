@@ -112,6 +112,8 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("jar.workshop.match", result.Transition!.RuleId);
         Assert.Equal("jar.21", result.Transition.Target);
         Assert.Equal("workshop", result.Transition.Scope);
+        Assert.Equal("owned.workshop.master", result.Transition.Before.Values["workshopInstanceId"]);
+        Assert.Equal("jar.21", result.Transition.Before.Values["jarInstanceId"]);
         Assert.Equal("false", result.Transition.Before.Values["marked"]);
         Assert.Equal("true", result.Transition.After.Values["marked"]);
         Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
@@ -144,4 +146,5 @@ public sealed class RuleTransitionContractTests
         Assert.Throws<System.ArgumentException>(() => MatchRuleTransitionAdapter.Evaluate(
             proof, before, "owned.workshop.master", "jar.23"));
     
+}
 }
