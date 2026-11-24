@@ -170,7 +170,7 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 已在 commit `88d1a61ed0f61a36e4e17e10c530b6f7a952b6f7` 修复：来源 inventory 必须自身唯一、正数；transfer IDs 必须唯一、正数且属于 exact source owner。
 - 在 commit `0acca11fc8ec67c29fcc046f6638b15a74105f84` 新增重复来源库存 ID 回归测试。
 - 在 commit `73c7e5165ae20c150a3b3c5850adc440a28d9a2b` 增加 4×4 工作台 Ban 组合的 Jar handoff 矩阵测试（Neutral / Cathode / Anode / NeutralOnly 对应的 staging ban profile）；16 种来源/目标组合均要求只产生 exact Jar ownership Transfer，不生成 polarity transition。
-- 上述两个最新提交尚未获得 CI 验证；前述 `1f04b11` 的 success 不覆盖这两个提交。
+- 来源库存唯一性修复与重复 ID 回归测试已包含在 head `0acca11fc8ec67c29fcc046f6638b15a74105f84` 的 PR run `45398742181` success 中。后续 4×4 handoff 矩阵测试（`73c7e51`）仍待 CI 验证。
 - A 类搜索的预计算解集复用经检查：只有 inventory filtering 未改变 requirements 且候选列表逐项完全相等时才复用；profile versions/specification 和 Master role 另行校验。Preparation 操作独立于 symbolic solution cache，因此目前未发现候选内容错用，但缓存仍缺少显式 fingerprint 类型，未来可进一步收敛为带 Profile fingerprint 的 key。
 - `StagingAdmissionTransitionAdapter` 已显式把输出边界拆分为 accepted Transfer 与 discarded Discard，且验证 requested = accepted + discarded 及 staging/order balance delta；这符合“先进入当前订单输出边界，再结算到 staging 或丢弃”的分层。后续需继续检查实际执行事务是否原子提交这两条效果。
 
