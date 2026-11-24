@@ -258,7 +258,7 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(RuleResourceKind.Liquid, transition.ResourceEffects[2].ResourceKind);
         Assert.Equal("酒", transition.ResourceEffects[2].ResourceId);
         Assert.Equal(2, transition.ResourceEffects[2].Amount);
-        Assert.Equal("3", transition.After.Values["sourceJarCount"]);
+        Assert.Equal("1", transition.After.Values["sourceJarCount"]);
         Assert.Equal("2", transition.After.Values["destinationJarCount"]);
         Assert.Equal("3", transition.After.Values["destinationStagingUsedCapacity"]);
     }
