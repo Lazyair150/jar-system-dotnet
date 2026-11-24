@@ -137,6 +137,8 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                     var result = WorldOrderAClassBranchEnumerator.Enumerate(
                         demandId, masterProfile, world, maxBranches: 4096, maxNodes: 100_000);
                     Count(statusCounts, result.Status.ToString());
+                    Assert.True(result.Status != WorldOrderAClassBranchEnumerationStatus.Undetermined,
+                        $"seed=0x{seed:X} sample={sample} A-class enumeration undetermined: {result.Reason}");
                     if (result.Status == WorldOrderAClassBranchEnumerationStatus.Feasible)
                         AssertConserves(result.Assembly, world, orderType, seed, sample);
                     else
@@ -150,6 +152,8 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                         demandId, masterProfile, slaveProfile, world,
                         maxBranches: 4096, maxNodes: 100_000);
                     Count(statusCounts, result.Status.ToString());
+                    Assert.True(result.Status != WorldOrderBClassBranchEnumerationStatus.Undetermined,
+                        $"seed=0x{seed:X} sample={sample} B-class enumeration undetermined: {result.Reason}");
                     if (result.Status == WorldOrderBClassBranchEnumerationStatus.Feasible)
                         AssertConserves(result.Assembly, world, orderType, seed, sample);
                     else
