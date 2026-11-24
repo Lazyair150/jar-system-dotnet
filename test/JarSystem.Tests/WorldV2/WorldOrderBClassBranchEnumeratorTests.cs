@@ -85,14 +85,18 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
             new List<string> { "圆罐" }, ban: new List<string> { "酒" },
             modifiers: slaveRules, ownedInstanceId: "owned.slave.anode");
         master.AddJar(new Jar("圆罐", "酒", id: 9131));
+        master.AddJar(new Jar("方罐", id: 9132));
 
         var input = Profiles(master, slave, new[]
         {
-            new Requirement { Shape = "圆罐", Liquid = "酒" }
+            new Requirement { Shape = "圆罐", Liquid = "酒" },
+            new Requirement { Shape = "方罐" }
         });
-        Assert.Contains(input.Master.Requirements.Single().Candidates,
+        Assert.Contains(input.Master.Requirements[0].Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Empty(input.Slave.Requirements.Single().Candidates);
+        Assert.Empty(input.Slave.Requirements[0].Candidates);
+        Assert.Contains(input.Slave.Requirements[1].Candidates,
+            candidate => candidate.Operation == "MATCH");
 
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             913, input.Master, input.Slave, input.World);
@@ -102,8 +106,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         Assert.Contains(plan.MasterSteps, step =>
             step.Operation?.Type == "MATCH" &&
             step.Before![step.Operation.JarIndex!.Value].Id == 9131);
-        Assert.Empty(plan.SlaveSteps);
-        Assert.Equal(new[] { 9131 }, plan.TransferJarIds);
+        Assert.Contains(plan.SlaveSteps, step =>
+            step.Operation?.Type == "MATCH" &&
+            step.Before![step.Operation.JarIndex!.Value].Id == 9132);
+        Assert.Equal(new[] { 9131, 9132 }, plan.TransferJarIds.OrderBy(id => id));
     }
 
     [Fact]
