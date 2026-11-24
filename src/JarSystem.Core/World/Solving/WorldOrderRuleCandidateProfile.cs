@@ -317,6 +317,15 @@ public static class WorldOrderRuleCandidateCatalog
             rules, scope, new JarFacts(sourceShape, sourceLiquid, false), operation);
         if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
         var transition = evaluation.Transition.Value;
+        // A preparatory PourOut is selected specifically to supply later free-liquid
+        // operations, so its output must actually be admitted. A requirement-level
+        // PourOut may still complete and discard its output when staging is full/banned.
+        if (operatorName == "PREPARE_POUR_OUT" &&
+            transition.ProducedFreeLiquid is { } produced)
+        {
+            var admission = staging.Receive(1, produced, 1);
+            if (admission.AcceptedAmount != 1) return;
+        }
         candidates.Add(new WorldOrderRuleCandidate(
             requirementIndex,
             sourceShape,
