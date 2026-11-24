@@ -166,10 +166,20 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         var manifest = Assert.IsType<WorldOrderResourceManifest>(assembly.Manifest);
         var replay = Assert.IsType<WorldOrderOrderedResourceReplayResult>(assembly.ResourceReplay);
         Assert.True(replay.IsComplete);
+        Assert.Equal(replay.MasterInitialLiquids.OrderBy(item => item.Key),
+            manifest.MasterInitialLiquidAmounts.OrderBy(item => item.Key));
+        Assert.Equal(replay.MasterFinalLiquids.OrderBy(item => item.Key),
+            manifest.MasterFinalLiquidBalances.OrderBy(item => item.Key));
+        Assert.Equal(replay.TransferLiquids.OrderBy(item => item.Key),
+            manifest.TransferLiquids.OrderBy(item => item.Key));
+        Assert.Equal(replay.MasterStagingPeakCapacity, manifest.MasterStagingPeakCapacity);
+        Assert.Equal(replay.SlaveStagingPeakCapacity, manifest.SlaveStagingPeakCapacity);
 
         Assert.Equal(plan.MasterSteps.Count, replay.MasterAcceptedProducedLiquids.Count);
         var masterProduced = replay.MasterAcceptedProducedLiquids.Count(item => item != null);
-        var masterConsumed = plan.MasterSteps.Count(step => step.Operation?.Type == "POUR_IN");
+        var masterConsumed = plan.MasterSteps.Count(step =>
+            step.Operation?.Type == "POUR_IN" ||
+            (step.Operation?.Type == "RESHAPE" && step.Operation.FullReshape == false));
         var masterExpectedFinal = checked(
             Total(manifest.MasterInitialLiquidAmounts) + masterProduced - masterConsumed);
         Assert.Equal(masterExpectedFinal, Total(manifest.MasterFinalLiquidBalances));
@@ -193,7 +203,9 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             Assert.Equal(plan.SlaveSteps.Count, replay.SlaveAcceptedProducedLiquids.Count);
 
             var slaveProduced = replay.SlaveAcceptedProducedLiquids.Count(item => item != null);
-            var slaveConsumed = plan.SlaveSteps.Count(step => step.Operation?.Type == "POUR_IN");
+            var slaveConsumed = plan.SlaveSteps.Count(step =>
+                step.Operation?.Type == "POUR_IN" ||
+                (step.Operation?.Type == "RESHAPE" && step.Operation.FullReshape == false));
             var slaveFinal = checked(
                 Total(manifest.TransferLiquids) + slaveProduced - slaveConsumed);
             Assert.True(slaveFinal >= 0, "Slave free-liquid replay consumed more than its transferred and accepted supply.");
