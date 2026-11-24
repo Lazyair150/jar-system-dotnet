@@ -325,3 +325,9 @@ VERIFICATION RESULT — settlement stage/balance consistency
 
 - 精确测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 对应 Actions run `45409693136` 已 completed / success。该 head 覆盖 SettlementStage 非 NotStarted 时主从订单子账必须为空，以及 LedgerRecorded 缺 Settlement receipt 时 RestoreProgress 拒绝恢复。
 - 后续新增的 live SettleAndRelease receipt guard、LedgerRecorded 必须携带 ResourceLedger 的更严格规则不包含在 `c9eb445` 的验证中；它们的最新测试提交 `d5cd828...` 正由 run `45410074563` 验证中。
+
+
+VERIFICATION RESULT — live settlement release guard
+
+- 源码提交 `13f645248b824a9866051327e33f59c81f44acdc` 的 Actions run `45409859456` 已 completed / success，确认 live SettleAndRelease 在 LedgerRecorded 且账本缺 receipt 时 fail-stop。
+- 后续进一步要求 LedgerRecorded 必须提供 ResourceLedger 对象的源码/测试提交 `d5cd82823fed353d95e254ec2a9fa270e9ec2828` 对应 run `45410074563`，当前仍 in_progress；该 run 才是本轮最终判定依据。
