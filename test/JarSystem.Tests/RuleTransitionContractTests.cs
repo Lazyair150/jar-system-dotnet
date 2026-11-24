@@ -20,6 +20,12 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(JarPolarity.Cathode, new JarFacts("圆罐", "酒", false).Polarity);
         Assert.Equal(JarPolarity.Anode, new JarFacts("圆罐", "蜜", false).Polarity);
         Assert.Throws<System.ArgumentException>(() => JarPolarityResolver.Resolve("未知液体"));
+        Assert.Throws<System.ArgumentException>(() => new RuleStateSnapshot(new[]
+        {
+            new KeyValuePair<string, string>("jarInstanceId", "jar.invalid"),
+            new KeyValuePair<string, string>("liquid", "酒"),
+            new KeyValuePair<string, string>("polarity", nameof(JarPolarity.Anode))
+        }));
     }
 
     private static readonly RuleContext Rules = RuleContext.From(
@@ -83,6 +89,8 @@ public sealed class RuleTransitionContractTests
         Assert.Equal("jar.internal-liquid", effect.From!.AccountKind);
         Assert.Equal("jar.19", effect.From.OwnerId);
         Assert.Equal("酒", effect.ResourceId);
+        Assert.Equal(string.Empty, result.Transition.After.Values["liquid"]);
+        Assert.Equal(nameof(JarPolarity.Neutral), result.Transition.After.Values["polarity"]);
     }
 
     [Fact]
