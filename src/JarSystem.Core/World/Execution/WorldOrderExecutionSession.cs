@@ -774,15 +774,22 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         {
             if (_slave.HasResources)
             {
-                Func<int>? tickOf = ledgerTickOverride.HasValue
-                    ? () => ledgerTickOverride.Value
-                    : _resourceLedgerTick;
+                // A partial handoff has no Transfer ledger batch. Its compensation restores
+                // provisional ownership only; publishing Return without the matching Transfer
+                // would create a false resource history. Once the handoff batch commits, later
+                // Slave rollback is a real Return and must be recorded.
+                var rollbackLedger = _transferService.IsCommitted ? _resourceLedger : null;
+                Func<int>? tickOf = rollbackLedger == null
+                    ? null
+                    : ledgerTickOverride.HasValue
+                        ? () => ledgerTickOverride.Value
+                        : _resourceLedgerTick;
                 _slaveRollback.Execute(
                     _master, _slave,
                     entry => _resourceSettlementLog.Add(entry),
-                    ledger: _resourceLedger,
+                    ledger: rollbackLedger,
                     tickOf: tickOf,
-                    ledgerTickOverride: ledgerTickOverride);
+                    ledgerTickOverride: rollbackLedger == null ? null : ledgerTickOverride);
             }
             _slaveTransferCommitted = false;
         }
@@ -828,7 +835,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             (scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
              (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false));
         var needsSlaveRollback = _manifest.IsPartitioned &&
-            _slaveTransferCommitted && _slave?.HasResources == true;
+            _slaveTransferCommitted && _slave?.HasResources == true &&
+            _transferService.IsCommitted;
         return hasLiquidBalance || needsSlaveRollback
             ? _resourceLedgerTick!()
             : null;
