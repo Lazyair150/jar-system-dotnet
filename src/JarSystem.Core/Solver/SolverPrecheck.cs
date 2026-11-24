@@ -263,7 +263,7 @@ public static class SolverPrecheck
             if (cap.IsBanned(req.Liquid!)) return false;
             return jar.Polarity == JarPolarity.Neutral
                 && cap.IsBaseMarked(req.Shape)
-                && canObtainLiquid(req.Liquid);
+                && canObtainLiquid(req.Liquid!);
         }
 
         // 空罐需求：形状 S（或能变成 S）
@@ -324,9 +324,9 @@ public static class SolverPrecheck
                     }
                     // POUR_IN
                     if (j.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!)
-                        && pool.TryGetValue(req.Liquid, out var have) && have > 0)
+                        && pool.TryGetValue(req.Liquid!, out var have) && have > 0)
                     {
-                        pool[req.Liquid] = have - 1;
+                        pool[req.Liquid!] = have - 1;
                         j.Liquid = req.Liquid;
                         j.IsMarked = true;
                         applied = true;
