@@ -386,3 +386,15 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - 源码 SHA `8d4dc977b97ed841c298f318b8fef1f582f7b436`；故障注入测试 SHA `73974d5a9be41db9097661fe2cfe3f4e3cdc665b`；补充成功/预检测试 SHA `594e627633babe59a7dadd32bdc03be169880188`。PR #60 最新源码/测试 head `594e627...`，仍 Draft/Open/未合并。
 - 验证状态：run `45407820794` 对应 `8d4dc97`，run `45407856822` 对应 `73974d5`；记录时仍运行中。`594e627` 尚无精确 head run。前一 `694b225` 的 CI 通过不能覆盖本轮改动。
 - 限制：该保证覆盖同步异常补偿，不等于进程崩溃/断电下的持久化原子事务。后续继续覆盖 Settlement Return、receipt、ledger batch、stage mark 与 reservation release 的故障点及 checkpoint/replay。
+
+
+## 16. 旧版 Workshop 游离液体交接批次补偿
+
+- `OrderTransferService` 的 `masterScope == null` 兼容分支此前逐液种执行目标 `AddLiquid` 与来源 `RemoveLiquid`。若多液种批次中途失败，服务内部可能留下已完成的前序液种移动，后续只能依赖外层从台回滚。
+- 新增 `Workshop.RestoreLiquidStorageSnapshot`：用于恢复同一 Workshop 原本存在的完整游离液体账户，检查已知液种与 `MaxLiquids` 单液种容量，不走普通产液 Ban 路径。
+- 新增 `LegacyWorkshopLiquidTransfer.Execute` 和内部 mutation port。执行前捕获主/从 LiquidStorage；任一液种入账/扣款失败或抛异常时，恢复两侧完整账户；补偿失败抛 AggregateException 并要求 fail-stop。
+- `OrderTransferService` 旧兼容分支改为调用该 helper；Transfer ledger facts 只在整批成功后加入提交批次。原有主台/从台 Ban 预检没有改变，仍仅作用于游离液体工作台账户。
+- 测试覆盖：首个液种完成移动后源端异常；目标 Add 已变更后异常。两种情况均断言主从完整库存快照恢复。
+- 源码/测试提交：`e4ec1440a2c4371427201535bbd0f22e271fe805`、`151d18efee9249e3467671a79297b54ad3c13fe7`、`f64f3513789218c5176f57ccb985562347d9ac6d`、`c3b007a77748fadcaae3a5efd9e1b91f7e6de3eb`。PR #60 最新 head `c3b007a...`，仍 Draft/Open/未合并。
+- 精确 Actions runs `45408382098`、`45408417704`、`45408441187`、`45408478221` 分别对应上述提交，记录时仍在运行；最新 head 以 `45408478221` 为准。此前 `594e627` run `45407969711` 已 success，但不覆盖本节变更。
+- 新旧两条液体交接路径现在均有同步异常补偿；不代表进程崩溃/断电下的持久化事务已完成。下一阶段仍需逐边界覆盖 Settlement Return、receipt、ledger batch、stage mark、reservation release 和 checkpoint/replay。
