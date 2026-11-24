@@ -341,6 +341,15 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (!scopes.HasValue || scopes.Value.Master.OrderId != snapshot.DemandId)
             throw new InvalidOperationException("执行会话快照缺少订单主台液体范围。");
 
+        // Once settlement has returned the order-scoped balances, those accounts must
+        // remain empty in the same checkpoint. Otherwise replaying a stored receipt
+        // would release still-present staging resources and duplicate their ownership.
+        if (lease.SettlementStage != OrderResourceSettlementStage.NotStarted &&
+            (scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
+             (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false)))
+            throw new InvalidOperationException(
+                "恢复会话报告订单液体已结算，但主从订单暂存账户仍包含未结算余额。");
+
         var masterReservations = scopes.Value.Master.Staging.Capture().ReservedCapacityByOrder;
         var hasMasterReservation = masterReservations.TryGetValue(snapshot.DemandId, out var masterQuota);
         var expectsMasterReservation = snapshot.Stage != WorldOrderExecutionStage.SlaveSteps;
