@@ -23,6 +23,8 @@ public sealed class WorldOrderOrderedResourceReplayResult
     public IReadOnlyDictionary<string, int> MasterInitialLiquids { get; }
     public IReadOnlyDictionary<string, int> MasterFinalLiquids { get; }
     public IReadOnlyDictionary<string, int> TransferLiquids { get; }
+    /// <summary>Exact per-liquid Slave staging balances after ordered Slave replay, before settlement drain.</summary>
+    public IReadOnlyDictionary<string, int> SlaveFinalLiquids { get; }
     public int MasterStagingPeakCapacity { get; }
     public int SlaveStagingPeakCapacity { get; }
     public WorldOrderResourceRequirementGroup? SlaveBoundaryGroup { get; }
@@ -40,6 +42,7 @@ public sealed class WorldOrderOrderedResourceReplayResult
         IReadOnlyDictionary<string, int>? masterInitial,
         IReadOnlyDictionary<string, int>? masterFinal,
         IReadOnlyDictionary<string, int>? transfer,
+        IReadOnlyDictionary<string, int>? slaveFinal,
         int peak,
         int slavePeak,
         WorldOrderResourceRequirementGroup? slaveBoundary,
@@ -52,6 +55,7 @@ public sealed class WorldOrderOrderedResourceReplayResult
         MasterInitialLiquids = Freeze(masterInitial);
         MasterFinalLiquids = Freeze(masterFinal);
         TransferLiquids = Freeze(transfer);
+        SlaveFinalLiquids = Freeze(slaveFinal);
         MasterStagingPeakCapacity = peak;
         SlaveStagingPeakCapacity = slavePeak;
         SlaveBoundaryGroup = slaveBoundary;
@@ -225,6 +229,7 @@ public static class WorldOrderOrderedResourceReplay
                     "自机液库/主台初始资源不足以提供有序重放所需的主台游离液体");
 
             var acceptedSlaveOutputs = new List<string?>();
+            IReadOnlyDictionary<string, int> slaveFinal = new Dictionary<string, int>(StringComparer.Ordinal);
             if (program.IsBClass)
             {
                 var slaveReplay = ReplaySlave(slaveNodes, transfer,
@@ -236,6 +241,7 @@ public static class WorldOrderOrderedResourceReplay
                     return Failure(WorldOrderOrderedResourceReplayStatus.Undetermined,
                         "从台有序重放峰值与边界投影不一致");
                 acceptedSlaveOutputs.AddRange(slaveReplay.AcceptedOutputs);
+                slaveFinal = slaveReplay.FinalBalances;
             }
 
             return new WorldOrderOrderedResourceReplayResult(
@@ -243,6 +249,7 @@ public static class WorldOrderOrderedResourceReplay
                 initial,
                 balances,
                 transfer,
+                slaveFinal,
                 peak,
                 slavePeak,
                 boundary,
@@ -257,11 +264,12 @@ public static class WorldOrderOrderedResourceReplay
 
         WorldOrderOrderedResourceReplayResult Failure(
             WorldOrderOrderedResourceReplayStatus status, string reason) =>
-            new(status, null, null, null, 0, 0, null, null, null,
+            new(status, null, null, null, null, 0, 0, null, null, null,
                 explicitRejectedSnapshot, reason);
     }
 
-    private static (bool IsComplete, string? Reason, IReadOnlyList<string?> AcceptedOutputs, int PeakCapacity)
+    private static (bool IsComplete, string? Reason, IReadOnlyList<string?> AcceptedOutputs, int PeakCapacity,
+        IReadOnlyDictionary<string, int> FinalBalances)
         ReplaySlave(
             IReadOnlyList<WorldOrderSymbolicOperationNode> nodes,
             IReadOnlyDictionary<string, int> initial,
@@ -272,7 +280,8 @@ public static class WorldOrderOrderedResourceReplay
             .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
         var peak = Total(balances);
         if (peak > capacity)
-            return (false, "从台边界初始液体超过暂存容量", Array.Empty<string?>(), 0);
+            return (false, "从台边界初始液体超过暂存容量", Array.Empty<string?>(), 0,
+                new Dictionary<string, int>(StringComparer.Ordinal));
 
         var acceptedOutputs = new List<string?>();
         foreach (var node in nodes)
@@ -283,7 +292,7 @@ public static class WorldOrderOrderedResourceReplay
                 var available = balances.GetValueOrDefault(consumed);
                 if (available <= 0)
                     return (false, "从台边界投影后仍缺少游离液体：" + consumed,
-                        Array.Empty<string?>(), 0);
+                        Array.Empty<string?>(), 0, new Dictionary<string, int>(StringComparer.Ordinal));
                 if (available == 1) balances.Remove(consumed);
                 else balances[consumed] = available - 1;
             }
@@ -299,7 +308,9 @@ public static class WorldOrderOrderedResourceReplay
             acceptedOutputs.Add(accepted);
         }
 
-        return (true, null, Array.AsReadOnly(acceptedOutputs.ToArray()), peak);
+        return (true, null, Array.AsReadOnly(acceptedOutputs.ToArray()), peak,
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+                new Dictionary<string, int>(balances, StringComparer.Ordinal)));
     }
 
     private static int Total(IReadOnlyDictionary<string, int> balances)
