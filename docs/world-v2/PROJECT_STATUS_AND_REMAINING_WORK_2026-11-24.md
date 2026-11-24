@@ -187,3 +187,29 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 2. 获取最新运行的 xUnit 详细结果；若 Actions 仍无 Assert message，则用可运行的 .NET 10 环境复现。
 3. 优先修复三项失败，再做真实 session handoff 集成测试。
 4. 按第 5 节 A→B→C→D→E→F 顺序继续；每阶段更新本文件。
+
+
+## 9. 继续推进记录（2026-11-24，接续会话）
+
+### 当前仓库事实校正
+
+- 本节以 GitHub PR 元数据与分支文件为准，覆盖本文件前文过期的 head 记录：PR #60 当前 head 为 `6a8a3a892f1318488ce2cc2f482e27960cb5a019`，base 仍为 `a52f9465ad4febdcfb821227f7b2e03b2ddc012c`；PR 仍为 Draft / Open / 未合并。
+- 精确 head `6a8a3a8` 的 pull_request Actions run `45399153217` 与 push run `45399139586` 均为 success。此前 `73c7e51` 的 4×4 Jar handoff / staging-ban 矩阵已进入这个通过验证的 head；16 个来源/目标 Ban profile 组合均验证只生成 exact Jar ownership Transfer，不产生 polarity transition。
+- 上述 success 只证明该 head 的 CI，不代表之后新提交的测试已经通过。后续每次提交均需核对其精确 head 的 Actions。
+
+### 真实 B 类会话边界审查
+
+- 检查了 `WorldOrderExecutionSession`、`WorldOrderConcretePlanAssembler`、`WorldOrderConcreteOperationMaterializer` 与现有 session tests。
+- 已有端到端场景 `BTransferAllowsMasterPolarityJarToCrossIntoOppositePolaritySlaveWithoutLiquidHandoff`：阴极主台对酒 Jar 执行 MATCH，阳极从台不执行任何操作步骤；B 类计划仍把 Jar 纳入 TransferJarIds，执行会话提交主台到从台的精确 Jar Transfer Transition，且不将 polarity 写入转移前后状态。
+- 本次发现原测试主要检查最终订单完成和最终 TransferTransition，未直接断言 MATCH 完成后的 TransferPending 阶段边界。已在 commit `85405d8d87228357b13ad2f56f730c154290ece1` 加强该测试：会话启动后必须处于 Transfer 阶段、主台步骤数为 1、从台步骤数为 0、TransferTransition 尚未提交、Jar 仍在主台且从台为空；随后单次逻辑 tick 完成 receiver-only handoff。
+- 这项增强把“主台先操作、后交接、从台不必操作接收 Jar”的时序不变量固定为真实会话回归测试。该新提交的 Actions 尚待检查，不能标记为已通过。
+- 当前真实执行会话在 B 类交接后直接执行从台步骤；若从台步骤为空，则完成交付并移除交付 Jar。因此本测试能验证接收端不需要执行异极 Jar 操作，但不会在完成态保留该 Jar。若未来需要在交付前观察从台持有 Jar 的中间态，应新增显式 runtime handoff checkpoint/event，而不能通过延迟订单完成或伪造 Slave operation 来实现。
+
+### 下一步未完成项（按优先级）
+
+1. 查询 commit `85405d8` 的 push 与 PR Actions；失败时读取 job logs 并修复。
+2. 扩大真实 session 测试：覆盖 Master MATCH 后 handoff、Master 多步操作后 handoff、Slave 有后续合法操作、Slave receiver-only、跨台后 checkpoint/restore；重点验证操作资格标记、Jar identity、库存归属与资源租约阶段一致。
+3. 审查 `OrderTransferService`、`WorkshopRoleTransferTransitionAdapter`、`StagingAdmissionTransitionAdapter` 的实际状态提交边界，确认 ResourceEffect 与实体库存/暂存余额在同一事务中提交，失败不得只提交一侧。
+4. 追加 staging conservation / idempotency / partial capacity 固定 seed 性质测试，并记录 seed 与 case count。
+5. 回到 A 类缓存 fingerprint、Board/Compiler/Runtime capability matrix、Space PR #2 对齐和旧文件清理；未验证的 Godot 运行环境继续明确标注未运行。
+6. 每一阶段都更新本文件，并记录精确 commit 与 CI run；不得将旧 head 的绿色结果挪用到新 head。
