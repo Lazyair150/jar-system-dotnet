@@ -283,9 +283,8 @@ public static class WorkshopRulebook
                 if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) is { } suppressed)
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
 
-                var usable = liquidRules.CheckJarOperation(liquid);
-                if (!usable.Granted)
-                    return WorkshopRuleDecision.Reject("liquid.banned", usable.Reason ?? "当前工作台禁止操作含该液体的 Jar");
+                // The Jar's internal liquid is not staging stock. Ban/capacity is checked only
+                // at the destination staging admission below (scope or workshop liquid pool).
                 if (scope != null)
                 {
                     var receive = scope.CanReceiveOperation(liquid, 1);
