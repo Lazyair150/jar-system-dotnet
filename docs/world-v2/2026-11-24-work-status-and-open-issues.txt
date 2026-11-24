@@ -400,3 +400,13 @@ CHECKPOINT 29 — Space Parser Catalog Probe 跟进双工作台契约（2026-11-
 - 第二个失败来自旧测试夹具：其 jarWorldOptions 只包含一个 Workshop，且没有 slaveWorkshopName；当前 SpaceBattleLoadoutSnapshot.validate_data 已要求所有 World V2 loadout 明确冻结两个不同的主/从工作台位置。
 - 已修正 Space 的 scripts/industrial/world_v2/SpaceOreParserCatalogProbe.gd：加入独立 Slave workshop 条目与 slaveWorkshopName。提交 407932714935b33721c0a1198fc1072e7b5f6358；Space 集成文档提交 f5f49451a739f843aa4aec0101b29e1b7624a295。
 - 不放宽生产模型约束。下一轮继续检查 Parser ingress 与其后的 lifecycle/fault/snapshot probes；最新修复 head 的最终运行结果尚未取得。
+
+
+10. FIXED-SEED RESOURCE CONSERVATION EXPANSION (2026-11-24)
+- Existing WorldOrderFixedSeedResourceConservationTests covered 1,024 fixed-seed A/B plan/replay samples (8 seeds × 128 cases).
+- The first exact-head run exposed a test-oracle mismatch: POUR_IN consumes TargetLiquid, while empty RESHAPE consumes CostLiquid. The test had incorrectly read CostLiquid for both operations. Core's operation semantics and production replay were not changed; the conservation oracle now selects the correct operation field.
+- Expanded the fixed-seed matrix to 4,096 cases (16 fixed seeds × 256 cases), with 1–5 physical Jars, 1–4 ordered requirements, empty/酒/蜜 Jar states, four Ban modes, and Master/Slave staging capacities 1–5. Both A and B orders are guaranteed to appear in the sample set.
+- B-class sample search uses an explicit 4,096 branch / 100,000 node budget. Feasible cases are checked against the exact ordered replay witness and manifest; bounded Undetermined remains a valid solver status and is not mislabeled as Infeasible.
+- Each conservation failure now reports the fixed seed, per-seed sample index, role, liquid, initial/final balances and ordered operation/output trace.
+- Exact source head for the 4,096-case expansion: 0a45e6d6fd215efce3c8c42f7c604676334cdb24. The matching Actions verify run is pending at the time of this note. Do not mark the expanded sample suite green until the exact head's run completes successfully.
+- Next: inspect the exact-head result once; if it reveals a new counterexample, fix the underlying contract or oracle and retain the seed. Do not add repeated CI-only checks that provide no new information.
