@@ -314,8 +314,9 @@ namespace JarSystem.Core.Solver
                         {
                             if (anyCost) slots.Add(new Slot(j, Role.ReshapeEmpty, null));
                         }
-                        else if (!cap.IsBanned(jar.Liquid))
+                        else
                         {
+                            // Full reshape self-consumes Jar-owned liquid; staging Ban does not apply.
                             slots.Add(new Slot(j, Role.ReshapeFull, jar.Liquid));
                         }
                     }
