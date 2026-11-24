@@ -475,7 +475,7 @@ public sealed class WorldOrderExecutionSessionTests
     }
 
     [Fact]
-    public void BTransferRejectsJarThatBecameOppositePolarityForTheSlave()
+    public void BTransferAllowsJarWhosePolarityDiffersFromSlaveFocus()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
@@ -492,7 +492,8 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(started.Success, started.Reason);
 
         // Admission happened under an unrestricted Slave. Before transfer, focus Slave on Anode.
-        // The Master-produced Cathode Jar must not enter a bench that cannot operate it.
+        // The Master-produced Cathode Jar still transfers: role-to-role Jar ownership movement
+        // is independent of either Workshop's chemical-operation polarity.
         slave.ReplaceCapability(new WorkshopCapability(
             new[] { "圆罐" }, ban: new[] { "酒" }));
 
@@ -500,9 +501,11 @@ public sealed class WorldOrderExecutionSessionTests
         for (var i = 0; i < 10 && !session.IsTerminal; i++)
             runtime.AdvanceWorldTime(1_000);
 
-        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
-        Assert.Contains(master.Jars, item => item.Id == jar.Id);
+        Assert.True(session.Succeeded, session.Reason);
+        Assert.DoesNotContain(master.Jars, item => item.Id == jar.Id);
         Assert.DoesNotContain(slave.Jars, item => item.Id == jar.Id);
+        Assert.Equal("酒", jar.Liquid);
+        Assert.False(jar.IsMarked);
         Assert.Equal(0, setup.Reservations.Count);
     }
 
