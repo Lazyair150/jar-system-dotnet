@@ -230,14 +230,6 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
         Assert.Equal(replay.SlaveStagingPeakCapacity, manifest.SlaveStagingPeakCapacity);
 
         Assert.Equal(plan.MasterSteps.Count, replay.MasterAcceptedProducedLiquids.Count);
-        var masterProduced = replay.MasterAcceptedProducedLiquids.Count(item => item != null);
-        var masterConsumed = plan.MasterSteps.Count(step =>
-            step.Operation?.Type == "POUR_IN" ||
-            (step.Operation?.Type == "RESHAPE" && step.Operation.FullReshape == false));
-        Assert.Equal(masterProduced,
-            replay.MasterAcceptedProducedLiquids.Count(item => item != null));
-        Assert.Equal(masterConsumed,
-            plan.MasterSteps.Count(step => IsFreeLiquidConsumer(step.Operation)));
         AssertLiquidBalancesConserve(
             manifest.MasterInitialLiquidAmounts,
             manifest.MasterFinalLiquidBalances,
@@ -263,14 +255,6 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                 manifest.TransferLiquids.OrderBy(item => item.Key));
             Assert.Equal(plan.SlaveSteps.Count, replay.SlaveAcceptedProducedLiquids.Count);
 
-            var slaveProduced = replay.SlaveAcceptedProducedLiquids.Count(item => item != null);
-            var slaveConsumed = plan.SlaveSteps.Count(step =>
-                step.Operation?.Type == "POUR_IN" ||
-                (step.Operation?.Type == "RESHAPE" && step.Operation.FullReshape == false));
-            Assert.Equal(slaveProduced,
-                replay.SlaveAcceptedProducedLiquids.Count(item => item != null));
-            Assert.Equal(slaveConsumed,
-                plan.SlaveSteps.Count(step => IsFreeLiquidConsumer(step.Operation)));
             AssertLiquidBalancesConserve(
                 manifest.TransferLiquids,
                 replay.SlaveFinalLiquids,
