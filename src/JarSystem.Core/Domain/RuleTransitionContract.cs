@@ -155,7 +155,7 @@ public sealed class RuleTransition
 
 /// <summary>
 /// Adapts the existing authoritative WorkshopRulebook proof into the shared transition contract.
-/// This adapter is intentionally limited to the four chemical operations and MATCH.
+/// This adapter is intentionally limited to the four chemical operations. MATCH has its own lifecycle adapter.
 /// </summary>
 public static class WorkshopRuleTransitionAdapter
 {
