@@ -59,7 +59,7 @@ public sealed class WorldOrderBClassDifferentialTests
     }
 
     [Fact]
-    public void ConcreteEnumeratorAndPartitionOracleBothRejectWhenBothRolesBanJarLiquid()
+    public void ConcreteEnumeratorAndPartitionOracleBothAllowJarSelfConsumeWhenBothRolesBanStagingLiquid()
     {
         var master = new Workshop("禁酒主台",
             new List<string> { "圆罐", "方罐" },
@@ -84,7 +84,7 @@ public sealed class WorldOrderBClassDifferentialTests
         var concrete = WorldOrderBClassBranchEnumerator.Enumerate(
             demand.Id, masterProfile, slaveProfile, world);
 
-        Assert.Equal(WorldOrderSolveStatus.Infeasible, legacy.Status);
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, concrete.Status);
+        Assert.Equal(WorldOrderSolveStatus.Feasible, legacy.Status);
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, concrete.Status);
     }
 }
