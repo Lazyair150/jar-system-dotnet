@@ -246,3 +246,11 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 
 
 - 后续审查发现账本批次去重必须在实体提交前检查：若 operation ID 已存在，不能先移动资源再让 `RecordBatchOnce` 返回 false，否则会触发不必要的资源补偿。已在 commit `38b6c8c970566c32a213a0cea790a5ffa4a9292d` 将重复 operation ID 与负逻辑 tick 检查前移到 commitStarted 之前，作为普通预检拒绝。批次发布仍在所有资源身份/状态后置条件通过后执行。
+
+
+### CI 失败定位与修复（2026-11-24）
+
+- commit `9d46544` 的 push run `45402521348` 失败，日志明确指向 `OrderTransferService.cs` 三处 `CS1739`：`ResourceLedgerMutation` record 构造参数名是大小写敏感的 `From` / `To`，提交时误用了小写 `from` / `to`。其余验证步骤因 Core build 失败而级联退出，不能据此认定为多个独立问题。
+- 已在 commit `60b49be6d3e8b3549d5c186e7931c78a296a93f4` 修正三处参数名。
+- 最新后续 commit `38b6c8c` 将账本重复操作 ID 和负 tick 检查提前到实体提交之前；文档提交 head 为 `a4da8d3`。
+- `9d46544` 是明确失败的历史 head；只有 `60b49be` 或更新 head 的完整 CI success 才能解除此问题。最新 head Actions 尚在运行，不能标记通过。
