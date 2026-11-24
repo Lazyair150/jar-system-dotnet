@@ -51,6 +51,28 @@ public class WorkshopRulebookTests
         Assert.Equal("rule.allowed", decision.ReasonCode);
     }
 
+
+    [Fact]
+    public void PourOutBanIsEvaluatedAtTheDestinationStagingAccount()
+    {
+        var bannedCapability = new WorkshopCapability(
+            new[] { "圆罐" }, System.Array.Empty<string>(), new[] { "酒" });
+        var rules = RuleContext.From(bannedCapability);
+        var fullJar = new JarFacts("圆罐", "酒", false);
+        var operation = WorkshopOperation.PourOut();
+
+        var ordinary = WorkshopRulebook.Evaluate(
+            rules, 3, fullJar, operation, new Dictionary<string, int>());
+        Assert.True(ordinary.IsRejected);
+        Assert.Equal("liquid.banned", ordinary.ReasonCode);
+
+        var staging = new WorkshopLiquidStaging(3, new[] { "酒" });
+        var scope = new OrderLiquidScope(41, staging);
+        var orderScoped = WorkshopRulebook.Evaluate(rules, scope, fullJar, operation);
+        Assert.True(orderScoped.IsRejected);
+        Assert.Equal("liquid.banned", orderScoped.ReasonCode);
+    }
+
     private sealed class Cfg
     {
         public string Name = "";
