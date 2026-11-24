@@ -33,6 +33,30 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void BClassCanDeliverMasterPolarityJarAcrossOppositePolaritySlaveWithoutLiquidHandoff()
+    {
+        var master = new Workshop("Cathode主台",
+            new List<string> { "圆罐" }, ban: new List<string> { "蜜" });
+        var slave = new Workshop("Anode从台",
+            new List<string> { "圆罐" }, ban: new List<string> { "酒" });
+        master.AddJar(new Jar("圆罐", "酒", id: 9102));
+
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐", Liquid = "酒" }
+        });
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            911, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
+        var plan = Assert.IsType<WorldOrderSolvePlan>(result.Assembly!.CandidatePlan);
+        Assert.Equal(new[] { 9102 }, plan.TransferJarIds);
+        Assert.Empty(plan.TransferLiquids);
+        Assert.Contains(plan.MasterSteps, step => step.Operation?.Type == "MATCH");
+        Assert.Empty(plan.SlaveSteps);
+    }
+
+    [Fact]
     public void MasterBannedFullJarCanCrossHandoffAndBeSelfConsumedByPermissiveSlave()
     {
         var master = new Workshop("禁酒主台",
