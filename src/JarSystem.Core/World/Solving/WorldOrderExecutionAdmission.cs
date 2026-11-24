@@ -401,13 +401,25 @@ public sealed class WorldOrderExecutionAdmission
         if (_shipLiquidInventory == null || !scopes.HasValue)
             return null;
 
-        var requested = new Dictionary<string, int>(StringComparer.Ordinal);
-        Merge(requested, scopes.Value.Master.Staging.DrainOrder(demandId));
-        if (scopes.Value.Slave != null)
-            Merge(requested, scopes.Value.Slave.Staging.DrainOrder(demandId));
+        if (lease!.SettlementStage != OrderResourceSettlementStage.NotStarted)
+            throw new InvalidOperationException("订单结算阶段已推进，但缺少可重放的结算收据。");
 
+        // Validate/aggregate before mutating either Workshop account. A checked overflow
+        // across two individually valid staging scopes must not strand the first drained scope.
+        var requested = new Dictionary<string, int>(StringComparer.Ordinal);
+        Merge(requested, scopes.Value.Master.Balance);
+        scopes.Value.Master.Staging.EnsureCanTransferOrderLiquids();
+        if (scopes.Value.Slave != null)
+        {
+            Merge(requested, scopes.Value.Slave.Balance);
+            scopes.Value.Slave.Staging.EnsureCanTransferOrderLiquids();
+        }
+
+        scopes.Value.Master.Staging.DrainOrder(demandId);
+        if (scopes.Value.Slave != null)
+            scopes.Value.Slave.Staging.DrainOrder(demandId);
         var receipt = _shipLiquidInventory.Return(requested);
-        return lease!.RecordSettlement(receipt);
+        return lease.RecordSettlement(receipt);
     }
 
     /// <summary>
