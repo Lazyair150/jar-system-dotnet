@@ -706,7 +706,6 @@ public sealed class WorldOrderExecutionSessionTests
             maxJars: 4, maxLiquids: 4, vocabulary: Words);
         var jar = new Jar("圆罐", vocabulary: Words);
         Assert.True(master.AddJar(jar));
-        Assert.True(master.AddLiquid("酒", 1));
         using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
         {
             Operation = "POUR_IN",
@@ -720,13 +719,10 @@ public sealed class WorldOrderExecutionSessionTests
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
         var book = new WorldOrderSolveBook(board);
-        var registry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
-        {
-            new JarOrderSpecificationSolver(new StateSpaceSolver())
-        });
-        book.Evaluate(demand.Id, WorldSnapshotFactory.Capture(roster), registry);
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        ReevaluateWithShip(book, roster, ship, demand.Id);
         var reservations = new WorldResourceReservationBook();
-        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations);
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
         var ledger = new ResourceLedger();
         var started = WorldOrderExecutionSession.TryStart(
             demand.Id, board, book, admission, roster, 1_000, ledger, () => 17);
