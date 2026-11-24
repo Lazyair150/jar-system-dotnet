@@ -115,8 +115,11 @@ public static class WorldOrderBClassBranchEnumerator
         // not carry a profile-membership fingerprint, so reusing it could silently omit
         // Master-owned requirement branches. Rebuild from both exact profiles until the
         // cache key explicitly binds the complete role/profile set.
+        // Keep the established Slave-first preference for ordinary B-class orders.
+        // Master candidates remain in the same combined search and are selected when
+        // Slave lacks a candidate or when the Slave-first branch cannot bind resources.
         var symbolic = WorldOrderSymbolicSolutionBuilder.Build(
-            new[] { master, slave }, maxBranches, maxNodes);
+            new[] { slave, master }, maxBranches, maxNodes);
 
         if (symbolic.RuleSetVersion != slave.RuleSetVersion ||
             symbolic.WorkshopProfileVersion != slave.WorkshopProfileVersion ||
