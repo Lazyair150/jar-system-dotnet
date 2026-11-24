@@ -18,13 +18,13 @@ public static class WorkshopRoleTransferTransitionAdapter
         IEnumerable<int> transferJarIds,
         IReadOnlyDictionary<string, int> sourceStagingBalances,
         IReadOnlyDictionary<string, int> transferLiquidAmounts,
+        IEnumerable<string> sourceBannedLiquids,
         IEnumerable<string> destinationBannedLiquids,
         int destinationJarCount,
         int destinationJarCapacity,
         int destinationStagingUsedCapacity,
         int destinationStagingCapacity,
-        IReadOnlyDictionary<int, JarFacts>? transferJarFacts = null,
-        IEnumerable<string>? sourceBannedLiquids = null)
+        IReadOnlyDictionary<int, JarFacts>? transferJarFacts = null)
     {
         if (string.IsNullOrWhiteSpace(sourceWorkshopInstanceId))
             throw new ArgumentException("Exact source workshop instance identity is required.", nameof(sourceWorkshopInstanceId));
@@ -36,6 +36,7 @@ public static class WorkshopRoleTransferTransitionAdapter
         ArgumentNullException.ThrowIfNull(transferJarIds);
         ArgumentNullException.ThrowIfNull(sourceStagingBalances);
         ArgumentNullException.ThrowIfNull(transferLiquidAmounts);
+        ArgumentNullException.ThrowIfNull(sourceBannedLiquids);
         ArgumentNullException.ThrowIfNull(destinationBannedLiquids);
 
         var sourceIds = sourceJarIds.ToHashSet();
@@ -62,7 +63,7 @@ public static class WorkshopRoleTransferTransitionAdapter
             }
         }
 
-        var sourceBans = (sourceBannedLiquids ?? Array.Empty<string>()).ToHashSet(StringComparer.Ordinal);
+        var sourceBans = sourceBannedLiquids.ToHashSet(StringComparer.Ordinal);
         if (destinationJarCount < 0 || destinationJarCapacity < destinationJarCount ||
             jarIds.Length > destinationJarCapacity - destinationJarCount)
             throw new ArgumentException("Destination workshop does not have enough Jar capacity.");
