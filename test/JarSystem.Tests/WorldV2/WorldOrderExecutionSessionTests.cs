@@ -63,6 +63,15 @@ public sealed class WorldOrderExecutionSessionTests
             throw new InvalidOperationException("模拟中断结果不确定");
     }
 
+    private sealed class ThrowAfterSourceJarRemovalPort : IOrderJarTransferPort
+    {
+        public bool Move(Workshop source, Workshop destination, Jar jar)
+        {
+            if (!ReferenceEquals(source.TransferOut(jar), jar)) return false;
+            throw new InvalidOperationException("Injected failure after source Jar removal");
+        }
+    }
+
     private static void ReevaluateWithShip(
         WorldOrderSolveBook book, WorkshopRoster roster, ShipLiquidInventory ship,
         params int[] demandIds)
@@ -538,6 +547,37 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.DoesNotContain(transfer.Before.Values.Keys,
             key => key.Contains("Polarity", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(0, reservations.Count);
+    }
+
+    [Fact]
+    public void BTransferRestoresDetachedJarWhenMutationPortFailsAfterSourceRemoval()
+    {
+        var master = new Workshop("Cathode主台", new List<string> { "圆罐" },
+            ban: new List<string> { "蜜" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("Anode从台", new List<string> { "圆罐" },
+            ban: new List<string> { "酒" }, maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", "酒", id: 9882, vocabulary: Words);
+        Assert.True(master.AddJar(jar));
+
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster,
+            1_000, ledger, () => 1, new ThrowAfterSourceJarRemovalPort());
+
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+        Assert.Equal(WorldOrderExecutionStage.Transfer, session.Stage);
+        var error = Assert.Throws<InvalidOperationException>(() => session.AdvanceLogicalTime(1_000));
+        Assert.Contains("Injected failure", error.Message, StringComparison.Ordinal);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.Same(jar, Assert.Single(master.Jars));
+        Assert.Empty(slave.Jars);
+        Assert.False(jar.IsMarked);
+        Assert.Equal(0, setup.Reservations.Count);
+        Assert.Empty(ledger.For(ResourceCauses.Transfer));
     }
 
     [Fact]
