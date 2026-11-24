@@ -111,7 +111,7 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
-    public void StagingUseScenariosBecomeFeasibleOnceBanIsLiftedAndSelfConsumeRemainsIndependent()
+    public void StagingUseScenariosRespectBanAndMatchingPolaritySelfConsume()
     {
         // 反向对照：证明游离液体灌入与空罐改形成本确实受 Ban 约束；满罐 Jar 自耗则独立于 staging Ban。
         var free = new Workshop("自由台", new List<string> { "圆罐", "方罐" },
