@@ -313,15 +313,15 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 
 ### 14.6 主从 Transfer 的账户级适配器
 
-新增 `WorkshopRoleTransferTransitionAdapter`，把一次已完成只读预检的主从交接描述为单向资源转换，并冻结源/目标工作台极性模式与被转移 Jar 的状态：
+新增 `WorkshopRoleTransferTransitionAdapter`，把一次已完成只读预检的主从交接描述为单向资源转换。Jar 身份转移与工作台极性无关；极性只约束工作台对 Jar 执行化学操作：
 
 - Jar 使用 `workshop.jar-inventory:<exact workshop instance>` 账户，按每个 exact Jar ID 产生一条 Transfer；
 - 游离液体使用 `workshop.free-liquid-staging:<exact workshop instance>` 账户，按液种和数量产生 Transfer；
-- 只允许 source → destination，不生成反向效果；来源 staging Ban 阻断游离液体出站，目标 staging Ban/容量阻断入站，目标工作台必须能够操作每只被转移 Jar 的极性；
+- 只允许 source → destination，不生成反向效果；Jar 库存归属移动不检查来源或目标工作台极性；来源 staging Ban 阻断游离液体出站，目标 staging Ban/容量阻断液体入站；
 - 预检检查 Jar 是否属于 source、Jar ID 是否重复、destination Jar 容量、source 液体余额、destination Ban 与 destination staging 总容量；
-- Before / After 记录来源/目标实例、Jar 数量和目标 staging 占用；不伪造 Jar polarity，因为这是跨账户批量转移，不是单个 Jar 化学状态转换。
+- Before / After 记录来源/目标实例、Jar 数量和目标 staging 占用；不把 Jar 液体/极性混入转移准入，因为这是跨账户所有权移动，不是 Jar 化学状态转换。
 
-该 Adapter 当前仍是纯构造器，尚未直接成为 `OrderTransferService` 的提交事务回执；但实际 `OrderTransferService` 已增加同一预检：主台 Ban 液体不得出站，从台 Ban 液体不得入站，且从台必须能够操作每只转移 Jar 的极性。原因是旧 Core `Workshop` 运行时对象目前只有显示 `Name`，没有可信的 Owned Instance ID；不能拿名称冒充身份。下一步必须由 World/Host 将 Assignment 中的 exact Owned Instance ID 传入交接服务，并让实际提交回执与此 Transition 来自同一事务边界，再接入账本/回放。
+该 Adapter 当前仍是纯构造器，尚未直接成为 `OrderTransferService` 的提交事务回执；实际 `OrderTransferService` 只对游离液体执行源/目标 staging Ban 与容量预检；Jar 转移仅检查来源所有权、重复身份和目标罐位，不检查任一工作台的 Jar 操作极性。原因是旧 Core `Workshop` 运行时对象目前只有显示 `Name`，没有可信的 Owned Instance ID；不能拿名称冒充身份。下一步必须由 World/Host 将 Assignment 中的 exact Owned Instance ID 传入交接服务，并让实际提交回执与此 Transition 来自同一事务边界，再接入账本/回放。
 
 
 ## 15. Ban 与工作台极性统一（2026-11-24，语义纠正）
@@ -351,5 +351,5 @@ Workshop 化学操作与 MATCH 的 Before / After 快照现在都包含规范化
 - 同时 Ban 两类液体：仅 Neutral Jar 允许。
 - 无 Ban：保留双极性兼容。
 - 暂存区取用与接收仍按 Ban 类别与容量校验；Jar 内部液体自耗只改变 Jar 内部账户，但仍受工作台极性操作权限约束。
-- 主从交接不能改变 Jar 的极性，也不能清除一次订单操作 Mark；目标工作台必须重新检查自身极性权限。
+- 主从交接不能改变 Jar 的极性，也不能清除一次订单操作 Mark；Jar 可以跨不同极性的工作台角色转移。只有后续某个工作台实际对该 Jar 执行 MATCH/化学操作时，才检查该工作台的极性兼容。
 
