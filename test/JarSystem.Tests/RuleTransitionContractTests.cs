@@ -228,6 +228,83 @@ public sealed class RuleTransitionContractTests
         }));
     }
 
+
+    [Fact]
+    public void WorkshopRoleTransferTransitionPreservesOneWayExactOwnership()
+    {
+        var transition = WorkshopRoleTransferTransitionAdapter.Create(
+            "owned.workshop.master", "owned.workshop.slave",
+            new[] { 31, 32, 33 }, new[] { 31, 32 },
+            new Dictionary<string, int> { ["酒"] = 3, ["蜜"] = 1 },
+            new Dictionary<string, int> { ["酒"] = 2 },
+            System.Array.Empty<string>(),
+            destinationJarCount: 0, destinationJarCapacity: 2,
+            destinationStagingUsedCapacity: 1, destinationStagingCapacity: 3);
+
+        Assert.Equal("workshop.role-transfer", transition.RuleId);
+        Assert.Equal("owned.workshop.master->owned.workshop.slave", transition.Target);
+        Assert.Null(transition.PolarityTransition);
+        Assert.Equal(3, transition.ResourceEffects.Count);
+        Assert.All(transition.ResourceEffects, effect =>
+        {
+            Assert.Equal(RuleResourceEffectKind.Transfer, effect.Kind);
+            Assert.Equal("owned.workshop.master", effect.From!.OwnerId);
+            Assert.Equal("owned.workshop.slave", effect.To!.OwnerId);
+        });
+        Assert.Equal(RuleResourceKind.Jar, transition.ResourceEffects[0].ResourceKind);
+        Assert.Equal("31", transition.ResourceEffects[0].ResourceId);
+        Assert.Equal(RuleResourceKind.Jar, transition.ResourceEffects[1].ResourceKind);
+        Assert.Equal("32", transition.ResourceEffects[1].ResourceId);
+        Assert.Equal(RuleResourceKind.Liquid, transition.ResourceEffects[2].ResourceKind);
+        Assert.Equal("酒", transition.ResourceEffects[2].ResourceId);
+        Assert.Equal(2, transition.ResourceEffects[2].Amount);
+        Assert.Equal("3", transition.After.Values["sourceJarCount"]);
+        Assert.Equal("2", transition.After.Values["destinationJarCount"]);
+        Assert.Equal("3", transition.After.Values["destinationStagingUsedCapacity"]);
+    }
+
+    [Fact]
+    public void WorkshopRoleTransferRejectsDestinationBanAndCapacityBeforeCreatingEffects()
+    {
+        var sourceJars = new[] { 41 };
+        var sourceLiquids = new Dictionary<string, int> { ["蜜"] = 1, ["酒"] = 2 };
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "slave", sourceJars, sourceJars,
+                sourceLiquids, new Dictionary<string, int> { ["蜜"] = 1 },
+                new[] { "蜜" }, 0, 1, 0, 4));
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "slave", sourceJars, sourceJars,
+                sourceLiquids, new Dictionary<string, int> { ["酒"] = 2 },
+                System.Array.Empty<string>(), 0, 1, 3, 4));
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "slave", sourceJars, sourceJars,
+                sourceLiquids, new Dictionary<string, int> { ["酒"] = 3 },
+                System.Array.Empty<string>(), 0, 1, 0, 4));
+    }
+
+    [Fact]
+    public void WorkshopRoleTransferRejectsForeignOrDuplicateJarIdentityAndSameOwner()
+    {
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "slave", new[] { 51 }, new[] { 52 },
+                new Dictionary<string, int>(), new Dictionary<string, int>(),
+                System.Array.Empty<string>(), 0, 1, 0, 1));
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "slave", new[] { 51 }, new[] { 51, 51 },
+                new Dictionary<string, int>(), new Dictionary<string, int>(),
+                System.Array.Empty<string>(), 0, 2, 0, 1));
+        Assert.Throws<System.ArgumentException>(() =>
+            WorkshopRoleTransferTransitionAdapter.Create(
+                "master", "master", new[] { 51 }, new[] { 51 },
+                new Dictionary<string, int>(), new Dictionary<string, int>(),
+                System.Array.Empty<string>(), 0, 1, 0, 1));
+    }
+
     [Fact]
     public void ResourceEffectRejectsAmbiguousAccountEndpoints()
     {
