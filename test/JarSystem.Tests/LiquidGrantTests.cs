@@ -81,12 +81,12 @@ public class LiquidGrantTests
     }
 
     [Fact]
-    public void BannedStagingBlocksPourInButNotJarInternalSelfConsume()
+    public void BannedCategoryBlocksPourInButSamePolarityJarCanSelfConsume()
     {
         // 这一步是纯重构：对外说的话必须逐字不变，否则回放与接口的可见行为就漂了。
         var w = Bench(new List<string> { "酒" });
         w.AddLiquid("蜜", 2);
-        var bomb = new Jar("圆罐", "酒", null, Vocab);
+        var bomb = new Jar("圆罐", "蜜", null, Vocab);
 
         w.AddJar(new Jar("圆罐", null, null, Vocab));
         var empty = w.Jars[0];
@@ -101,10 +101,10 @@ public class LiquidGrantTests
         w.AddJar(bomb);
         var fullBanned = w.TryReshape(bomb, "方罐", ReshapeMode.Full);
         Assert.True(fullBanned.Success, fullBanned.Reason);
-        Assert.Null(bomb.Liquid);                            // Jar 内液体自耗不读取 staging Ban
+        Assert.Null(bomb.Liquid);                            // 同极 Jar 自耗仍从 Jar 自有账户扣除
         Assert.Equal("方罐", bomb.Shape);
         Assert.True(bomb.IsMarked);
-        Assert.Equal(0, w.LiquidStorage.GetValueOrDefault("酒"));
+        Assert.Equal(2, w.LiquidStorage.GetValueOrDefault("蜜"));
     }
 
     [Fact]
