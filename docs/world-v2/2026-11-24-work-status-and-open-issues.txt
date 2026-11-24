@@ -266,3 +266,14 @@ CHECKPOINT 18 — legacy Workshop 游离液体交接批次补偿（2026-11-24）
 - 新提交：`e4ec1440a2c4371427201535bbd0f22e271fe805`（Workshop snapshot restore）、`151d18efee9249e3467671a79297b54ad3c13fe7`（legacy batch helper）、`f64f3513789218c5176f57ccb985562347d9ac6d`（接入 OrderTransferService）、`c3b007a77748fadcaae3a5efd9e1b91f7e6de3eb`（legacy 故障测试）。PR #60 当前 head 为 `c3b007a...`，仍 Draft/Open/未合并。
 - 对应 runs：`45408382098` / `45408417704` / `45408441187` / `45408478221` 分别对应以上精确提交，记录时均 in_progress；最新 head 必须以 `45408478221` 的最终结果为准。此前 `594e627` 的 run `45407969711` 已 success，但不覆盖本节新增代码。
 - 目前新旧两条主从液体交接路径均有同步异常补偿；进程崩溃/断电持久化原子性仍未声称完成。下一阶段继续 settlement 的 Return/receipt/ledger/stage/release 故障边界与 checkpoint/replay。
+
+
+CHECKPOINT 19 — settlement restore ledger receipt + writer boundary（2026-11-24）
+
+- 发现活动订单 checkpoint 若记录 `SettlementStage=LedgerRecorded`，但恢复时传入的 ResourceLedger 缺少 `SettlementOperationId` receipt，旧恢复路径会仅信任阶段位；之后结算服务可能跳过 ledger batch，造成资源状态已返还但账本缺事实。
+- `WorldOrderExecutionSession.RestoreProgress` 现在取得 authoritative `OrderResourceLease`；当结算阶段为 `LedgerRecorded` 且恢复时提供 ResourceLedger，必须存在对应 Settlement operation receipt，否则拒绝恢复。`ResourcesReturned` 阶段仍允许缺 receipt，以便重试 `RecordBatchOnce` 并完成阶段推进。
+- 新增回归测试，先保留真实 Transfer ledger receipt，再构造 LedgerRecorded 阶段但不写 Settlement receipt，验证 RestoreProgress 明确拒绝。测试使用 ShipLiquidInventory / OrderLiquidScope 的生产准入路径。
+- 新增 `Domain/LiquidResourceAccounts.cs` 的领域转移 helper 后，工作台写入清单测试 `WorkshopWritersTests.EveryWorkshopWriterIsOnTheList` 报告该文件未登记；这是工程白名单缺项，不是编译失败。已在 `WorkshopWritersTests.AllowedWriters` 登记其原因：该文件的 helper 只经 Workshop 正式领域端口变更游离液体账户。
+- 运行 `45408441187` 对应 `f64f351` 失败，唯一 xUnit 失败为上述 writer whitelist；`45408478221` 对应 `c3b007a` 同样因该清单未更新而失败。已提交白名单修正 `95d727bb4e2a40482e0c73df62f203ebb495ab94`，对应 run `45408955115`。
+- `e4ec144` 的 run `45408382098` 已 success；`151d18e` 的 run `45408417704` 当时仍 in_progress；Settlement restore guard 源码 `9020f1f` 与测试 `b20655b` 的 runs `45408756749` / `45408814064` 当时 in_progress；测试 fixture 改用 Ship-backed scope 的修正提交 `5b23607b1b74e3df242df729ae91effa68ecf451` 尚未返回精确 run。
+- 当前分支新增的同步交接补偿、restore receipt guard 均需以最新 PR head 对应 Actions 结果为最终判定；PR 仍 Draft/Open/未合并。
