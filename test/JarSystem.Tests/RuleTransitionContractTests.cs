@@ -326,7 +326,7 @@ public sealed class RuleTransitionContractTests
             WorkshopRoleTransferTransitionAdapter.Create(
                 "master", "master", new[] { 51 }, new[] { 51 },
                 new Dictionary<string, int>(), new Dictionary<string, int>(),
-                System.Array.Empty<string>(), 0, 1, 0, 1));
+                System.Array.Empty<string>(), System.Array.Empty<string>(), 0, 1, 0, 1));
     }
 
     [Fact]
