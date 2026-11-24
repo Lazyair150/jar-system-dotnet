@@ -302,3 +302,12 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 7. 最后进行全仓引用审计、过期文件治理、死代码与临时文件清理；保留 Oracle、决策记录、schema/replay fixture 和验证脚本。
 
 验证纪律：当前 `45403667537` 仅对应 `d64a2b3` 且仍运行中；任何后续提交必须重新查询精确 head 的 Actions。
+## 12. 最新续接提交校正（2026-11-24 21:55 +08:00）
+
+- 当前 PR #60 head：`c02dab4341dee4d4a0a2064a31132bdd073bddc0`；仍 Draft/Open/未合并，base SHA `a52f9465ad4febdcfb821227f7b2e03b2ddc012c`。
+- 本次 `d64a2b3` 后的 Core 提交只修改了两份状态/交接文档；`d64a2b3` 对应 verify run `45403667537` 查询时仍在运行。当前 `c02dab4` 没有返回 PR workflow run 或 combined status，因此严格状态是“源码 head d64a2b3 有运行中验证；当前文档 head c02dab4 无精确 head 验证结果”，不是全绿。
+- Space PR #2 当前 head 已推进至 `efd1049f47149872f8e16cd55ac16eb424b0b8ab`（本次仅更新 Space 执行基线文档）；仍 Draft/Open/未合并，无 Actions run/status 返回。
+- Space 代码提交 `99ef15d` 与 `1425cf5` 之间已增加 Owned assembler 必须具有完整 frozen Board Assignment 的生产约束和对应 probe；该 probe 尚未由 Godot 执行。Space 文档更新提交 `efd1049f`。
+- 下一步仍优先完成 Core B 类 transfer/settlement 故障注入与 checkpoint 恢复验证，以及 Space Board Assignment 唯一权威源审计；两者验证前不进入全仓垃圾文件清理。
+
+不要将本节以前的 head/run 数字作为当前验证结论。
