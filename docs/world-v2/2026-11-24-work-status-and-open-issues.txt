@@ -475,3 +475,5 @@ CHECKPOINT 31 — Space integration cleanup and local playable handoff (2026-11-
 - Local play has not been manually observed in this environment. The repository is source-configured for clone/build/import/run using the README, but the user-side first launch remains a required real-desktop acceptance check. No merge was performed.
 
 - Final Space PR #2 source/documentation checkpoint after correcting the Core clone branch instruction: f047a76e17dd2527a47d57611f2750dca8ee47c3. Clone Core from branch world-v2/phase-4.11c-order-template-demand-ingress before checking out pinned source SHA b342259fe04363386085dc9a4ca995112954ed43; this ensures the commit is reachable from the fetched ref. The final Space exact-head workflow is pending; earlier cancelled runs are not evidence of failure in source code, but neither are they a pass.
+
+- Space PR #2 final code/docs head after statically typing the mounted HUD node in its scene probe: 7230fdcbe29928110f770dbe223c1398950468c2. The exact-head workflow must be read from Space Actions after this final commit; prior runs were cancelled by subsequent branch updates and are not pass/fail evidence for this head.
