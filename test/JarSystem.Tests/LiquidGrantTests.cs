@@ -81,7 +81,7 @@ public class LiquidGrantTests
     }
 
     [Fact]
-    public void OperationFailureReasonsAreUnchanged()
+    public void BannedStagingBlocksPourInButNotJarInternalSelfConsume()
     {
         // 这一步是纯重构：对外说的话必须逐字不变，否则回放与接口的可见行为就漂了。
         var w = Bench(new List<string> { "酒" });
