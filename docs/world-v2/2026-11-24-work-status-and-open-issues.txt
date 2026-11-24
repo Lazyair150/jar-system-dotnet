@@ -362,3 +362,12 @@ CHECKPOINT 26 — A/B 固定 Seed 具体计划资源守恒样本（2026-11-24）
 - 首轮 run `45413997354` 失败原因是随机生成的需求顺序违反 `JarOrderSpecification` 的领域契约（空罐需求必须在满罐需求之前），并非求解器资源守恒失败。已在生成器中按 `Liquid == null` 排序，保留原固定 Seed 与样本范围。
 - 修正后的精确提交 `6e3d4b96c6adb0d0c3a10f83dd2910b9ecd4952d` 对应 Actions run `45414637038` completed / success；所有 build、xUnit、contract/schema、protocol、solver differential、session replay 与质量门成功。
 - 当前 Core 阶段 1–6 的同步故障补偿、A/B polarity parity、固定 Seed 账户转移与具体计划 replay 样本均完成并通过精确 head 验证。持久化进程崩溃/断电原子性仍未证明。随后进入 Space 跨仓库构建/探针阶段，不提前清理。
+
+
+CHECKPOINT 25 — 固定 Seed A/B 计划资源守恒扩大样本（2026-11-24）
+
+- `WorldOrderFixedSeedResourceConservationTests.FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity` 扩大为 4 个固定 Seed × 每 Seed 128 个样本，共 512 个 A/B 混合计划样本。
+- 每个样本随机组合主从 Ban、主台/从台暂存容量、Jar 形状/液体状态、初始游离液体、订单 A/B 类型和空罐优先的需求顺序；固定 Seed 和全局样本序号使失败可精确复现。
+- 每个 Feasible 计划都必须通过有序资源重放，核对 Master 初始/终态游离液体、交接液体、主从暂存峰值、物理 Jar ID 归属、B 类主从转移清单；Infeasible/Undetermined 不得附带可执行 Assembly。
+- 精确提交 `dfd2e172f78446e1e4a53f6f0db1dbe2f352397e` 对应 Actions run `45419131018` success。前一轮液体账户/Ship Return 固定 Seed 矩阵仍为 4 × 200 + 4 × 200，A/B polarity parity 为 8 个有效带液 Jar 组合（Neutral 需求不产生操作候选，故不作为 A/B feasibility parity 样本）。
+- 当前 PR #60 仍为 Draft/Open，未合并。下一步继续强化 B 类从台最终游离液体逐液种守恒见证，并与 Space 的 Board/Parser/订单模板/战斗 checkpoint 做跨仓库闭环。
