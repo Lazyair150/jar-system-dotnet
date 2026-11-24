@@ -288,12 +288,13 @@ namespace JarSystem.Core.Solver
             for (var j = 0; j < jars.Count; j++)
             {
                 var jar = jars[j];
+                if (!cap.CanOperateJar(jar.Polarity)) continue;
                 if (req.Polarity != JarPolarity.Neutral)
                 {
                     // 满罐需求：形状必须已经是它自己 —— 改形 + 灌液是两次操作。
                     if (jar.Shape != req.Shape) continue;
 
-                    // MATCH 是无条件的：禁令只拦「新倒入」，不拦「罐里本来就是这种液体」。
+                    // MATCH 仍要求 Jar 极性与当前工作台专注方向兼容。
                     if (jar.Liquid == req.Liquid) slots.Add(new Slot(j, Role.MatchFull, null));
                     else if (jar.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!))
                         slots.Add(new Slot(j, Role.PourIn, req.Liquid));
@@ -316,7 +317,7 @@ namespace JarSystem.Core.Solver
                         }
                         else
                         {
-                            // Full reshape self-consumes Jar-owned liquid; staging Ban does not apply.
+                            // Full reshape consumes Jar-owned liquid but still requires Workshop/Jar polarity compatibility.
                             slots.Add(new Slot(j, Role.ReshapeFull, jar.Liquid));
                         }
                     }
@@ -426,7 +427,7 @@ namespace JarSystem.Core.Solver
         {
             var jar = state[jarIndex];
             if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) return false;
-            if (cap.IsBanned(jar.Liquid!)) return false;
+            if (!cap.CanOperateJar(jar.Polarity) || cap.IsBanned(jar.Liquid!)) return false;
             // POUR_OUT 的前提：该液体尚未灌满存储上限。
             return pool[jar.Liquid!] < Constants.DEFAULT_MAX_LIQUIDS;
         }
@@ -450,7 +451,7 @@ namespace JarSystem.Core.Solver
                 if (usedSources.Contains(j)) continue;
                 var jar = state[j];
                 if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) continue;
-                if (cap.IsBanned(jar.Liquid!)) continue;
+                if (!cap.CanOperateJar(jar.Polarity) || cap.IsBanned(jar.Liquid!)) continue;
                 if (want != null && jar.Liquid != want) continue;
                 if (!CanRaise(pool, cap, state, j)) continue;
 
@@ -509,7 +510,7 @@ namespace JarSystem.Core.Solver
         {
             if (jarIndex < 0 || jarIndex >= state.Count) return false;
             var jar = state[jarIndex];
-            if (jar.IsMarked) return false;
+            if (jar.IsMarked || !cap.CanOperateJar(jar.Polarity)) return false;
 
             var cap = info.Capability;
             string type;
