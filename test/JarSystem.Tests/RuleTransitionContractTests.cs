@@ -78,11 +78,12 @@ public sealed class RuleTransitionContractTests
 
         Assert.True(result.IsAllowed);
         var effect = Assert.Single(result.Transition!.ResourceEffects);
-        Assert.Equal(RuleResourceEffectKind.Consume, effect.Kind);
+        Assert.Equal(RuleResourceEffectKind.Transfer, effect.Kind);
         Assert.Equal("酒", effect.ResourceId);
         Assert.Equal("workshop.free-liquid-staging", effect.From!.AccountKind);
         Assert.Equal("owned.workshop.master", effect.From.OwnerId);
-        Assert.Null(effect.To);
+        Assert.Equal("jar.internal-liquid", effect.To!.AccountKind);
+        Assert.Equal("jar.17", effect.To.OwnerId);
         Assert.Equal("圆罐", result.Transition.After.Values["shape"]);
         Assert.Equal("酒", result.Transition.After.Values["liquid"]);
         Assert.Equal(nameof(JarPolarity.Cathode), result.Transition.After.Values["polarity"]);
@@ -94,7 +95,7 @@ public sealed class RuleTransitionContractTests
     }
 
     [Fact]
-    public void PourOutProducesIntoTheCurrentWorkshopStagingAccount()
+    public void PourOutTransfersJarLiquidToAnOrderOutputBoundaryBeforeAdmission()
     {
         var before = new JarFacts("圆罐", "酒", false);
         var operation = WorkshopOperation.PourOut();
@@ -102,12 +103,15 @@ public sealed class RuleTransitionContractTests
             Rules, 5, before, operation, new Dictionary<string, int>());
 
         var result = WorkshopRuleTransitionAdapter.Evaluate(
-            evaluation, before, operation, "owned.workshop.slave", "jar.18");
+            evaluation, before, operation, "owned.workshop.slave", "jar.18",
+            scope: "workshop", orderId: 303);
 
         var effect = Assert.Single(result.Transition!.ResourceEffects);
-        Assert.Equal(RuleResourceEffectKind.Produce, effect.Kind);
-        Assert.Equal("workshop.free-liquid-staging", effect.To!.AccountKind);
-        Assert.Equal("owned.workshop.slave", effect.To.OwnerId);
+        Assert.Equal(RuleResourceEffectKind.Transfer, effect.Kind);
+        Assert.Equal("jar.internal-liquid", effect.From!.AccountKind);
+        Assert.Equal("jar.18", effect.From.OwnerId);
+        Assert.Equal("workshop.order-output-boundary", effect.To!.AccountKind);
+        Assert.Equal("owned.workshop.slave/order/303", effect.To.OwnerId);
         Assert.Equal(nameof(WorkshopPolarityMode.Unrestricted), result.Transition.Before.Values["workshopPolarityMode"]);
         Assert.Equal("酒", effect.ResourceId);
     }
@@ -166,16 +170,17 @@ public sealed class RuleTransitionContractTests
         Assert.Null(transition.PolarityTransition);
         Assert.Equal("1", transition.After.Values["acceptedAmount"]);
         Assert.Equal("2", transition.After.Values["discardedAmount"]);
-        Assert.Equal(3, transition.ResourceEffects.Count);
-        Assert.Equal(RuleResourceEffectKind.Produce, transition.ResourceEffects[0].Kind);
-        Assert.Equal(3, transition.ResourceEffects[0].Amount);
-        Assert.Equal(RuleResourceEffectKind.Transfer, transition.ResourceEffects[1].Kind);
-        Assert.Equal(1, transition.ResourceEffects[1].Amount);
-        Assert.Equal("workshop.free-liquid-staging", transition.ResourceEffects[1].To!.AccountKind);
-        Assert.Equal("owned.workshop.master", transition.ResourceEffects[1].To!.OwnerId);
-        Assert.Equal(RuleResourceEffectKind.Discard, transition.ResourceEffects[2].Kind);
-        Assert.Equal(2, transition.ResourceEffects[2].Amount);
-        Assert.Equal("workshop.order-output-boundary", transition.ResourceEffects[2].From!.AccountKind);
+        Assert.Equal(2, transition.ResourceEffects.Count);
+        Assert.Equal("3", transition.Before.Values["outputBoundaryAmount"]);
+        Assert.Equal("0", transition.After.Values["outputBoundaryAmount"]);
+        Assert.Equal(RuleResourceEffectKind.Transfer, transition.ResourceEffects[0].Kind);
+        Assert.Equal(1, transition.ResourceEffects[0].Amount);
+        Assert.Equal("workshop.order-output-boundary", transition.ResourceEffects[0].From!.AccountKind);
+        Assert.Equal("workshop.free-liquid-staging", transition.ResourceEffects[0].To!.AccountKind);
+        Assert.Equal("owned.workshop.master", transition.ResourceEffects[0].To!.OwnerId);
+        Assert.Equal(RuleResourceEffectKind.Discard, transition.ResourceEffects[1].Kind);
+        Assert.Equal(2, transition.ResourceEffects[1].Amount);
+        Assert.Equal("workshop.order-output-boundary", transition.ResourceEffects[1].From!.AccountKind);
     }
 
     [Fact]
@@ -189,9 +194,9 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(0, receipt.AcceptedAmount);
         Assert.Equal(2, receipt.DiscardedAmount);
         Assert.Equal("staging.liquid-banned", transition.After.Values["reasonCode"]);
-        Assert.Equal(2, transition.ResourceEffects.Count);
-        Assert.Equal(RuleResourceEffectKind.Produce, transition.ResourceEffects[0].Kind);
-        Assert.Equal(RuleResourceEffectKind.Discard, transition.ResourceEffects[1].Kind);
+        Assert.Single(transition.ResourceEffects);
+        Assert.Equal(RuleResourceEffectKind.Discard, transition.ResourceEffects[0].Kind);
+        Assert.Equal(2, transition.ResourceEffects[0].Amount);
         Assert.Equal(0, staging.UsedCapacity);
     }
 
