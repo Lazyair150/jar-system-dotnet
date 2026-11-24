@@ -24,7 +24,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
     [Fact]
     public void FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity()
     {
-        var random = new Random(0x4A4152);
+        var sampleOrdinal = 0;
         var statusCounts = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["Feasible"] = 0,
@@ -32,14 +32,18 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             ["Undetermined"] = 0
         };
 
-        for (var sample = 0; sample < 64; sample++)
+        foreach (var seed in new[] { 0x4A4152, 0x4A4153, 0x4A4154, 0x4A4155 })
         {
+            var random = new Random(seed);
+            for (var sample = 0; sample < 128; sample++)
+            {
+                var sampleId = sampleOrdinal++;
             var masterBan = RandomBan(random);
             var slaveBan = RandomBan(random);
             var masterCapacity = random.Next(1, 5);
             var slaveCapacity = random.Next(1, 5);
             var master = new Workshop(
-                "seed-" + sample + "-master",
+                "seed-" + sampleId + "-master",
                 new List<string> { "圆罐", "方罐" },
                 ban: masterBan,
                 maxJars: 5,
@@ -58,7 +62,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                     _ => "蜜"
                 };
                 Assert.True(master.AddJar(new Jar(
-                    shape, liquid, id: 80_000 + sample * 10 + index, vocabulary: Words)));
+                    shape, liquid, id: 80_000 + sampleId * 10 + index, vocabulary: Words)));
             }
 
             master.AddLiquid("酒", random.Next(0, 4));
@@ -89,7 +93,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             if (orderType == Constants.OrderType.B)
             {
                 slave = new Workshop(
-                    "seed-" + sample + "-slave",
+                    "seed-" + sampleId + "-slave",
                     new List<string> { "圆罐", "方罐" },
                     ban: slaveBan,
                     maxJars: 5,
@@ -106,7 +110,7 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
             var world = WorldSnapshotFactory.Capture(roster);
             var masterProfile = WorldOrderRuleCandidateCatalog.Build(
                 world, world.Master!, "Master", specification);
-            var demandId = 90_000 + sample;
+            var demandId = 90_000 + sampleId;
 
             if (orderType == Constants.OrderType.A)
             {
@@ -131,7 +135,9 @@ public sealed class WorldOrderFixedSeedResourceConservationTests
                     Assert.Null(result.Assembly);
             }
         }
+        }
 
+        Assert.Equal(512, sampleOrdinal);
         Assert.True(statusCounts["Feasible"] > 0, "Fixed seed produced no feasible samples.");
         Assert.True(statusCounts["Infeasible"] > 0, "Fixed seed produced no infeasible samples.");
     }
