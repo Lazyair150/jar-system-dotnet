@@ -138,9 +138,12 @@ public static class WorldOrderBClassBranchEnumerator
                 null, 0, symbolic.ExploredNodes, 0,
                 symbolic.Reason ?? "B 类规则候选组合枚举达到预算上限");
         if (symbolic.Status != WorldOrderSymbolicSolutionStatus.EnumerationComplete)
-            return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
+            return Result(
+                master.IsUndetermined || slave.IsUndetermined
+                    ? WorldOrderBClassBranchEnumerationStatus.Undetermined
+                    : WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, 0, symbolic.ExploredNodes, 0,
-                symbolic.Reason ?? "从台规则环境没有完整的订单需求候选组合");
+                symbolic.Reason ?? "主从规则环境没有完整的订单需求候选组合");
 
         var effectiveSlaveRejects = new SortedSet<string>(
             world.Slave.Capability.Ban, StringComparer.Ordinal);
@@ -172,7 +175,10 @@ public static class WorldOrderBClassBranchEnumerator
                 solution.Steps.Any(x => x.WorkshopRole == "Slave"))
             .ToArray();
         if (orderedSolutions.Length == 0)
-            return Result(WorldOrderBClassBranchEnumerationStatus.Infeasible,
+            return Result(
+                master.IsUndetermined || slave.IsUndetermined
+                    ? WorldOrderBClassBranchEnumerationStatus.Undetermined
+                    : WorldOrderBClassBranchEnumerationStatus.Infeasible,
                 null, exploredNodes, exploredNodes, 0,
                 "主从规则环境没有可执行的完整订单需求分支");
         foreach (var solution in orderedSolutions)
