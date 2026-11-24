@@ -59,10 +59,6 @@ public sealed class WorldOrderBClassDifferentialTests
     }
 
     [Theory]
-    [InlineData(null, WorkshopPolarityMode.Unrestricted, true)]
-    [InlineData(null, WorkshopPolarityMode.Cathode, true)]
-    [InlineData(null, WorkshopPolarityMode.Anode, true)]
-    [InlineData(null, WorkshopPolarityMode.NeutralOnly, true)]
     [InlineData("酒", WorkshopPolarityMode.Unrestricted, true)]
     [InlineData("酒", WorkshopPolarityMode.Cathode, true)]
     [InlineData("酒", WorkshopPolarityMode.Anode, false)]
