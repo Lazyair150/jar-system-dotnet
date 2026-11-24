@@ -52,6 +52,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             WorldOrderExecutionStage.Failed or WorldOrderExecutionStage.Interrupted or
             WorldOrderExecutionStage.Cancelled;
     public bool Succeeded => Stage == WorldOrderExecutionStage.Completed;
+    /// <summary>Immutable resource transition produced by the committed B-class handoff, when exact Board identities are available.</summary>
+    public RuleTransition? TransferTransition => _transferService.CommittedTransition;
     public string? Reason { get; private set; }
     public long UnitDurationLogicalMilli => _unitDurationLogicalMilli;
     public long UnitElapsedLogicalMilli => _unitElapsedLogicalMilli;
