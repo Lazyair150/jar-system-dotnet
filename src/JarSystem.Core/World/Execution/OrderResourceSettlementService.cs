@@ -35,11 +35,25 @@ public sealed class OrderResourceSettlementService
         LiquidBatchReceipt? receipt = lease?.SettlementReceipt;
         if (receipt == null && scopes.HasValue && admission.ShipLiquidInventory != null)
         {
+            if (lease!.SettlementStage != OrderResourceSettlementStage.NotStarted)
+                throw new InvalidOperationException("订单结算阶段已推进，但缺少可重放的结算收据。");
+
+            // Aggregate and validate the complete request before draining either account.
+            // Two independently bounded Workshops can together exceed Int32 even when
+            // each account is valid; checked aggregation must never happen after a drain.
             var requested = new System.Collections.Generic.Dictionary<string, int>(StringComparer.Ordinal);
-            Merge(requested, scopes.Value.Master.Staging.DrainOrder(demandId));
+            Merge(requested, scopes.Value.Master.Balance);
+            scopes.Value.Master.Staging.EnsureCanTransferOrderLiquids();
             if (scopes.Value.Slave != null)
-                Merge(requested, scopes.Value.Slave.Staging.DrainOrder(demandId));
-            receipt = lease!.RecordSettlement(admission.ShipLiquidInventory.Return(requested));
+            {
+                Merge(requested, scopes.Value.Slave.Balance);
+                scopes.Value.Slave.Staging.EnsureCanTransferOrderLiquids();
+            }
+
+            scopes.Value.Master.Staging.DrainOrder(demandId);
+            if (scopes.Value.Slave != null)
+                scopes.Value.Slave.Staging.DrainOrder(demandId);
+            receipt = lease.RecordSettlement(admission.ShipLiquidInventory.Return(requested));
         }
 
         if (receipt != null && lease!.SettlementStage == OrderResourceSettlementStage.ResourcesReturned &&
