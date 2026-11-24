@@ -367,3 +367,10 @@ Jar 是离散资源，包含形状、内部液体、标记/生命周期状态；
 - `694b225` 对兼容入口 `WorldOrderExecutionAdmission.SettleLiquidResources` 施加相同顺序，避免旧入口保留 drain-before-merge 问题。
 - 该修复覆盖了聚合/前置检查异常导致的提前 Drain；不代表 Return、receipt、ledger batch、stage mark、reservation release 之间已经具备 crash-atomic 保证，后续仍需故障注入与 checkpoint/replay 测试。
 - 验证状态：run `45406862320` 精确对应 `136d9c5`，查询时仍在运行；它不覆盖之后的源码提交 `994a93a` / `694b225`。截至记录时尚未取得 `694b225` 的精确 head run。
+
+
+### 14.3 精确 head 验证结果更正
+
+- run `45406862320` 已 completed / success，精确验证源码 SHA `136d9c599682fe3c2e466cdcdaf6246b73b2e7ef`；它确认分配服务括号修正后的版本通过，但不覆盖后续结算代码。
+- 最新源码 SHA `694b22546d6ad06d08b7ea18b04db834beb9bb0b` 对应独立 run `45407187598`，当前 `in_progress`，包含 settlement pre-drain aggregation 改动。
+- PR #60 当前 head 是文档提交 `5add77237f37cf155a55d6ce21afc91b41efc3af`，仍 Draft/Open/未合并；源码 head 是 `694b225`。
