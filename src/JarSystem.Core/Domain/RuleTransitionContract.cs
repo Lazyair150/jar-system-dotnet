@@ -339,7 +339,8 @@ public static class MatchRuleTransitionAdapter
     private static RuleStateSnapshot Snapshot(
         in JarFacts facts,
         string workshopInstanceId,
-        string jarInstanceId) =>
+        string jarInstanceId,
+        WorkshopPolarityMode workshopPolarityMode) =>
         new(new[]
         {
             new KeyValuePair<string, string>("shape", facts.Shape),
@@ -347,6 +348,7 @@ public static class MatchRuleTransitionAdapter
             new KeyValuePair<string, string>("polarity", facts.Polarity.ToString()),
             new KeyValuePair<string, string>("marked", facts.IsMarked ? "true" : "false"),
             new KeyValuePair<string, string>("workshopInstanceId", workshopInstanceId),
+            new KeyValuePair<string, string>("workshopPolarityMode", workshopPolarityMode.ToString()),
             new KeyValuePair<string, string>("jarInstanceId", jarInstanceId)
         });
 
@@ -390,8 +392,8 @@ public static class MatchRuleTransitionAdapter
             transition.RuleVersion,
             scope,
             jarInstanceId,
-            Snapshot(before, workshopInstanceId, jarInstanceId),
-            Snapshot(transition.After, workshopInstanceId, jarInstanceId),
+            Snapshot(before, workshopInstanceId, jarInstanceId, transition.WorkshopPolarityMode),
+            Snapshot(transition.After, workshopInstanceId, jarInstanceId, transition.WorkshopPolarityMode),
             Array.Empty<RuleResourceEffect>());
         resultTransition.Validate();
 
