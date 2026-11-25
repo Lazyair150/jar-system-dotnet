@@ -674,3 +674,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 精确 Adapter↔staging 实例绑定修正与稳定 ReasonCode 修正发生在该成功快照之后；对应最新 Run `45621807840` 仍在执行，不能将旧快照的通过结果等同于最新 HEAD 验证。
 
 - 精确 Adapter↔staging 绑定修正后的 Run `45621575330`（提交 `76bfa86740063f9c7220f6b36854ee3b982dbccf`）通过：Build 成功；xUnit 895 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+
+- 并发边界已明确写入架构文档：当前订单液体参与者提供同步补偿，不自行建立跨线程锁；Commit 必须运行在权威 World 串行命令执行边界内。若将来启用并行账户写入，必须补充跨账户隔离/锁定，不能把乐观版本令牌误当成锁。
