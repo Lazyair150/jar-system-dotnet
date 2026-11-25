@@ -761,3 +761,11 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 - 将六条参与者统一到 `ResourcePortTransferGuards.CreateCommittedReceipt`：每个物理事务的补偿回调中先读取两端提交后版本令牌，构造并 Validate 完整成功回执，再执行 `ResourceLedger.RecordBatchOnce`。因此回执验证失败或账本发布失败都会发生在物理事务仍可补偿的阶段；只有两者成功后，领域事务才执行不可逆封口。订单、Prefill、Warehouse 液体、Warehouse Jar、Workshop 液体、Workshop Jar 六条路径均已核对使用该顺序。
 - 此修正由共享 helper 提交 `45efeb68c9bdb7d5bee6c18749efd7b451e1b8be` 及参与者接入提交完成；架构文档更新提交 `02189613150bcab60d791cbfcd1a6a607bf07394`。最新 HEAD 的完整 CI 仍待结束。
+
+- 事务最终提交继续收敛：新增 `ResourceLedger.RecordTransferOnce`，把已验证成功回执、事件批次、OperationId 在同一账本锁内作为一次提交发布；先校验 receipt 与操作 ID、资源量纲、液体身份/Jar 单位、来源/目标账户和事件总量，再预分配三个 backing store，最后发布。事件裁剪不会清除 OperationId 或回执。
+- 新增 `ResourceLedger.TryGetTransferReceipt`。Commit 前先检查已提交回执：OperationId、Connection、端口、资源类型/身份、数量、账户及 Prepare 前版本全部一致才返回历史回执；同 ID 不同请求拒绝。若 OperationId 已存在但没有 transfer receipt（例如旧事件批次），仍拒绝，不会猜测成功。
+- `ResourceLedgerSnapshot` 和 `ResourceLedgerWireDto` 增加 TransferReceipts；Restore 校验每张回执均有对应 OperationId 且唯一，wire DTO 也执行同样检查。检查点 JSON 因而可恢复 OperationId→Receipt 映射。
+- 六条参与者统一使用 `ResourcePortTransferCommitCoordinator.Finalize`，并在物理领域事务的补偿回调中先构造/验证 receipt，再调用 `RecordTransferOnce`；回执发布失败时仍能回滚物理账户。Coordinator 对无 Ledger 的测试/兼容调用保持可用，但正式 World 路径仍必须注入账本。
+- 新增测试：账本回执与 OperationId 的 snapshot + wire JSON round-trip、不同请求载荷的 OperationId 冲突、事件端点与回执账户不匹配拒绝；六条参与者的跨实例/恢复后重放测试改为验证返回同一历史回执且不再次移动资源。
+- 相关提交：`55262de12ebb05f4e3c64d68490acef50df87de5`、`478e0d6a330475f4966396d803f0108af6caa51d`、`253517c9f88a871b3b120717c1b3b0c759acbed2`、`e067f283677a1f8f5c1019b42980ef6e8a1325f9`、`b9adfcc195a353a2b6117e1f2e928e0fe3e3cd3e`、`934d19c0064f1c45c1326e84730a466f84746313`、`5a15ea6868955c013ed3456af31bf4b0b9845183`、`e1d3127827bc5e6128390763774ae989a34bde51`、`d86a09a0c99a02209e137cdc31c67467538e6f5c`、`b671ea1fab0b68c24a26529b7af4e0dfaaba37ab`、`bff00261e3c6cbf61f9ba02d9d4af815f2c238fb`。
+- 当前最新 HEAD `bff00261e3c6cbf61f9ba02d9d4af815f2c238fb` 的 Run `45633354091` 正在执行；PR #63 仍 Open/Draft。GitHub 当前暂报 mergeable=false（验证尚未结束），不合并、不把未完成 CI 记作通过。
