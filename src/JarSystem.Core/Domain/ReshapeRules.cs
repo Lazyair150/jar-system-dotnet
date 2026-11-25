@@ -56,19 +56,11 @@ public readonly struct ReshapeRules
     }
 
     /// <summary>
-    /// Full-Jar self-consumption spends Jar-owned liquid, but the Jar must first be
-    /// compatible with this Workshop's operating polarity. Internal ownership does
-    /// not bypass the Workshop's authority to operate only its polarity category.
+    /// Full-Jar self-consumption spends the liquid owned by the Jar itself.
+    /// Workshop staging Ban and free-liquid balances do not participate in this check.
     /// </summary>
-    public ReshapeGrant SelfConsume(string? liquidInJar)
-    {
-        if (liquidInJar == null)
-            return ReshapeGrant.No("not-full", "必须为满罐");
-        var polarity = JarPolarityResolver.Resolve(liquidInJar);
-        if (_context != null && !_context.CanOperateJar(polarity))
-            return ReshapeGrant.No("polarity-incompatible", "工作台当前极性不能操作该极性的 Jar");
-        if (_context == null && _capability != null && !_capability.CanOperateJar(polarity))
-            return ReshapeGrant.No("polarity-incompatible", "工作台当前极性不能操作该极性的 Jar");
-        return ReshapeGrant.Yes();
-    }
+    public ReshapeGrant SelfConsume(string? liquidInJar) =>
+        liquidInJar == null
+            ? ReshapeGrant.No("not-full", "必须为满罐")
+            : ReshapeGrant.Yes();
 }
