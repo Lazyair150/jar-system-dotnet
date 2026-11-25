@@ -61,7 +61,8 @@ public sealed class WorldV2HostServiceTests
         Assert.Throws<InvalidOperationException>(() =>
             host.ExecuteExclusive(_ => { }));
 
-        host.Replace(ValidOptions());
+        var options = ValidOptions();
+        host.Replace(options);
 
         string? masterName = null;
         host.ExecuteExclusive(context => masterName = context.Roster.Master!.Name);
