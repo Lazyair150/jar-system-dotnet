@@ -769,3 +769,11 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 新增测试：账本回执与 OperationId 的 snapshot + wire JSON round-trip、不同请求载荷的 OperationId 冲突、事件端点与回执账户不匹配拒绝；六条参与者的跨实例/恢复后重放测试改为验证返回同一历史回执且不再次移动资源。
 - 相关提交：`55262de12ebb05f4e3c64d68490acef50df87de5`、`478e0d6a330475f4966396d803f0108af6caa51d`、`253517c9f88a871b3b120717c1b3b0c759acbed2`、`e067f283677a1f8f5c1019b42980ef6e8a1325f9`、`b9adfcc195a353a2b6117e1f2e928e0fe3e3cd3e`、`934d19c0064f1c45c1326e84730a466f84746313`、`5a15ea6868955c013ed3456af31bf4b0b9845183`、`e1d3127827bc5e6128390763774ae989a34bde51`、`d86a09a0c99a02209e137cdc31c67467538e6f5c`、`b671ea1fab0b68c24a26529b7af4e0dfaaba37ab`、`bff00261e3c6cbf61f9ba02d9d4af815f2c238fb`。
 - 当前最新 HEAD `bff00261e3c6cbf61f9ba02d9d4af815f2c238fb` 的 Run `45633354091` 正在执行；PR #63 仍 Open/Draft。GitHub 当前暂报 mergeable=false（验证尚未结束），不合并、不把未完成 CI 记作通过。
+
+- 统一提交协调器 `ResourcePortTransferCommitCoordinator` 已接入六条资源路径：Warehouse→Workshop 液体、Warehouse→Workshop Jar、Workshop→Workshop 游离液体、Workshop→Workshop Jar、订单子账液体、Ship→Workshop Prefill 液体。各路径都在原有物理补偿回调内调用协调器；协调器先读取提交后版本并构造/验证回执，再将事件批次、OperationId 和回执交给 `ResourceLedger.RecordTransferOnce` 最终发布。
+- 新增最终回执账本：`ResourceLedgerSnapshot`、`ResourceLedgerWireDto`、World V2 checkpoint JSON wire 均保存 `TransferReceipts`；OperationId 匹配相同请求时可返回历史回执，匹配到不同连接/端口/资源/数量/账户/提交前版本时拒绝。账本批次还验证资源种类、液体身份、数量、来源/目标账户与回执一致。
+- 账本并发/恢复审查补强：统一 `_gate` 保护事件、去重索引、回执索引和检查点捕获/恢复；事件读取提供只读副本；`RestoreFrom` 预留所有集合容量后再在锁内替换状态；回执克隆和事件/OperationId/回执索引在可见修改前完成预分配。新增同 OperationId 并发 32 次发布只产生一组事件/一份回执的测试。
+- 新增测试覆盖：成功回执/OperationId/事件一起恢复、World checkpoint JSON wire 往返、同 ID 不同回执拒绝、账本事件端点与回执账户不一致拒绝、空批次不占用 ID、事件集合只读、重复 ID 快照验证、并发幂等发布。
+- 验证过程中发现并修复 xUnit analyzer 错误 `xUnit2013`：集合计数断言改为 `Assert.Single`。该失败只发生在测试分析阶段，构建主项目、Godot Host、协议/配置检查、求解器差分、回放和安全扫描均已通过；不得把该失败的 Run 计作通过。
+- 幂等存储取舍已写入架构文档 3.13：当前保留 World 检查点生命周期内的全部 OperationId tombstone 和成功回执，事件历史仍有界；明确指出索引/回执内存随成功转移次数增长，未来长时在线需持久化唯一索引/归档或有证明的 epoch 水位压缩。另明确账本锁不等于账户联合锁：现阶段物理账户仍由 World 单写者命令序列执行，未来并发必须按稳定账户 ID 顺序锁住两端并覆盖整个提交窗口。
+- 当前代码分支 HEAD 包含回执预克隆、原子 RestoreFrom、六路径协调器、账本端点校验和并发幂等测试；最新 HEAD 的 CI 尚在运行，必须以其最终 Run 结果更新本记录。PR #63 继续 Open / Draft，未合并。
