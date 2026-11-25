@@ -758,3 +758,6 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 源码复核发现 `src/JarSystem.Core/Production/WarehouseWorkshopJarPortTransfer.cs` 的 namespace 错误地写成 `JarSystem.Tests`，使生产转移实现泄漏到测试命名空间。已修正为 `JarSystem.Core.Production`，并删除无意义的同命名空间 using。提交：`a54ac39c346572323621c2c4f53cef8ebf99865b`。该修正后的 CI 尚待确认。
 - 事务一致性审查结论：当前参与者在领域补偿回调内写入 `RecordBatchOnce`，但成功回执是在回调返回、物理事务完成后才构造。需要把“构造并验证成功回执 + 账本 OperationId/事件提交”移入领域补偿边界；否则提交后的回执构造异常会形成已变更资源/已写账本、调用方却没有确定回执的窗口。
 - 当前账本 `RecordBatchOnce` 已先验证并构造整批事件，再 EnsureCapacity，最后写入 OperationId 与事件；但只保存 OperationId，不保存成功 TransferReceipt，因此跨实例重复请求只能被拒绝，不能返回同一历史回执。下一步应把成功回执并入账本提交和检查点 Wire DTO，形成 OperationId → Receipt 的可恢复映射；旧的纯事件批次接口继续用于非端口结算，不能伪造回执。
+
+- 将六条参与者统一到 `ResourcePortTransferGuards.CreateCommittedReceipt`：每个物理事务的补偿回调中先读取两端提交后版本令牌，构造并 Validate 完整成功回执，再执行 `ResourceLedger.RecordBatchOnce`。因此回执验证失败或账本发布失败都会发生在物理事务仍可补偿的阶段；只有两者成功后，领域事务才执行不可逆封口。订单、Prefill、Warehouse 液体、Warehouse Jar、Workshop 液体、Workshop Jar 六条路径均已核对使用该顺序。
+- 此修正由共享 helper 提交 `45efeb68c9bdb7d5bee6c18749efd7b451e1b8be` 及参与者接入提交完成；架构文档更新提交 `02189613150bcab60d791cbfcd1a6a607bf07394`。最新 HEAD 的完整 CI 仍待结束。
