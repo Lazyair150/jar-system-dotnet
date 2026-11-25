@@ -237,7 +237,7 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(ResourceEndpointKind.Account, discard.FromEndpoint.Kind);
         Assert.Equal(ResourceEndpointKind.ExternalSink, discard.ToEndpoint.Kind);
         Assert.Equal("switch-old", AccountIdentity.ParseV2(discard.FromEndpoint.AccountId!).Owner.LocalOwnerId);
-        Assert.Equal("workshop.jar-storage.capacity-overflow", discard.ToEndpoint.ExternalEndpointId);
+        Assert.Equal("workshop.jar-storage.capacity-overflow", discard.ToEndpoint.ExternalIdentity);
         Assert.Equal(1, pool.Returned);
         Assert.True(jar.IsRecycled);
         Assert.Throws<InvalidOperationException>(() => successfulMigration.Rollback());
