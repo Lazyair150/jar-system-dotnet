@@ -465,3 +465,11 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 因此 Area 是所有权与访问边界；Area 内可以有多个具有不同生命周期和容量语义的账户/子作用域。端口不能把这些账户合并为“工作台总液体”。
 
 同时核对到 ResourceArea 已组合 Jar Producer/Warehouse、LiquidProduction 和 ShipLiquidInventory；Jar 生产入仓库后按流率进入主台，液体生产进入自机液库，不自动灌入工作台。OrderDemandBoard/OrderDemandArea 管理主动/被动需求归属、顺序、成功保留策略和冷却，不负责求解/执行。这些既有边界必须被未来 Circuit Image 显式引用，而不是重造第二份资源状态。
+
+
+### 第十七轮架构裁决补记：ADR 0008
+
+新增 ADR 0008，正式决定 Area/Port/Connection/Route 的职责、资源账户不可合并规则、端口预检与跨账户原子转移协议，以及 Circuit Image / Solver / Binder / Admission / Executor 的依赖边界。
+
+特别明确：CanReceive / CanWithdraw 是纯预检；跨区域提交必须由 Transfer Coordinator 同时验证源 Output 与目标 Input，不能让调用方分别调用两个独立写接口造成半提交。部分接收必须有明确保留/丢弃结果，版本冲突不得重复扣款。
+
