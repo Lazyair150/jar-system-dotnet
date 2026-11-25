@@ -153,7 +153,11 @@ public sealed class ResourceLedgerSnapshotTests
 
         var wire = ResourceLedgerWireDto.FromSnapshot(restored.Capture());
         wire.Validate();
-        var roundTripped = ResourceLedger.Restore(wire.ToSnapshot());
+        var json = JsonSerializer.Serialize(wire);
+        var decodedWire = JsonSerializer.Deserialize<ResourceLedgerWireDto>(json)
+            ?? throw new System.InvalidOperationException("Ledger wire DTO deserialized as null.");
+        decodedWire.Validate();
+        var roundTripped = ResourceLedger.Restore(decodedWire.ToSnapshot());
         Assert.True(roundTripped.TryGetTransferReceipt(receipt.OperationId, out var wireReceipt));
         Assert.Equal(receipt, wireReceipt);
         Assert.False(roundTripped.RecordTransferOnce(
@@ -257,6 +261,30 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.Equal(receipt, restoredReceipt);
         Assert.True(restored.HasRecordedOperation(receipt.OperationId));
         Assert.Equal(1, restored.LastSeq);
+    }
+
+    [Fact]
+    public void TransferJournalRejectsEventsThatDoNotMatchReceiptEndpoints()
+    {
+        var ledger = new ResourceLedger();
+        var receipt = new ResourceTransferReceipt(
+            "operation.transfer.endpoint", "connection.1", "source.out", "target.in",
+            RuleResourceKind.Liquid, "酒",
+            new RuleResourceAccount("workshop.free-liquid-staging", "workshop.source"),
+            new RuleResourceAccount("workshop.free-liquid-staging", "workshop.target"),
+            1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+
+        Assert.Throws<DomainValidationException>(() => ledger.RecordTransferOnce(
+            receipt.OperationId, 1,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "酒", 1, From: "wrong-source", To: "workshop.target")
+            },
+            receipt));
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.False(ledger.HasRecordedOperation(receipt.OperationId));
     }
 
     [Fact]
