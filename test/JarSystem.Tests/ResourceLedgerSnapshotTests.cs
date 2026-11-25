@@ -285,6 +285,17 @@ public sealed class ResourceLedgerSnapshotTests
             receipt));
         Assert.Equal(0, ledger.LastSeq);
         Assert.False(ledger.HasRecordedOperation(receipt.OperationId));
+
+        Assert.Throws<DomainValidationException>(() => ledger.RecordTransferOnce(
+            receipt.OperationId, 1,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Stock, ResourceKinds.Liquid,
+                    "酒", 1, From: "workshop.source", To: "workshop.target")
+            },
+            receipt));
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.False(ledger.HasRecordedOperation(receipt.OperationId));
     }
 
     [Fact]
