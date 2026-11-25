@@ -126,6 +126,7 @@ public sealed class WorldV2Options
         else
         {
             var producerNames = new HashSet<string>(StringComparer.Ordinal);
+            var producerInstanceIds = new HashSet<string>(StringComparer.Ordinal);
             for (var i = 0; i < Producers.Count; i++)
             {
                 var producer = Producers[i];
@@ -195,6 +196,7 @@ public sealed class WorldV2Options
         else
         {
             var workshopNames = new HashSet<string>(StringComparer.Ordinal);
+            var workshopInstanceIds = new HashSet<string>(StringComparer.Ordinal);
             for (var i = 0; i < Workshops.Count; i++)
             {
                 var workshop = Workshops[i];
