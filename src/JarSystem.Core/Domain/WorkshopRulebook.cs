@@ -75,9 +75,6 @@ public readonly struct JarFacts
     public string? Liquid { get; }
     public bool IsMarked { get; }
 
-    /// <summary>Three-state classification derived from the authoritative internal liquid identity.</summary>
-    public JarPolarity Polarity => JarPolarityResolver.Resolve(Liquid);
-
     public static JarFacts Of(Jar jar) => new(jar.Shape, jar.Liquid, jar.IsMarked);
 }
 
