@@ -18,6 +18,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
 {
     public List<string> Shapes { get; set; } = new();
     public List<string> Liquids { get; set; } = new();
+    public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } = new(StringComparer.Ordinal);
     public ResourceAreaWireDto ResourceArea { get; set; } = new();
     public DemandBoardWireDto DemandBoard { get; set; } = new();
     public ShipLiquidInventoryWireDto ShipLiquidInventory { get; set; } = new();
@@ -38,6 +39,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         {
             Shapes = checkpoint.Shapes.ToList(),
             Liquids = checkpoint.Liquids.ToList(),
+            LiquidPolarities = new Dictionary<string, LiquidPolarity>(checkpoint.LiquidPolarities, StringComparer.Ordinal),
             ResourceArea = ResourceAreaWireDto.FromSnapshot(checkpoint.ResourceArea),
             DemandBoard = DemandBoardWireDto.FromSnapshot(checkpoint.DemandBoard),
             ShipLiquidInventory = ShipLiquidInventoryWireDto.FromSnapshot(checkpoint.ShipLiquidInventory),
@@ -58,7 +60,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
     public WorldV2ExecutionResourceCheckpoint ToCheckpoint(string? configurationFingerprint)
     {
         Validate();
-        var vocabulary = new Vocabulary(Shapes, Liquids);
+        var vocabulary = new Vocabulary(Shapes, Liquids, LiquidPolarities);
         var resourceArea = ResourceArea.ToSnapshot(vocabulary);
         var demandBoard = DemandBoard.ToSnapshot();
         var ship = ShipLiquidInventory.ToSnapshot();
@@ -74,7 +76,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         return new WorldV2ExecutionResourceCheckpoint(
             resourceArea, demandBoard, configurationFingerprint, ship,
             master, slave, admission, reservations, leases, ledger, clock,
-            RuntimeLedgerTick, Shapes, Liquids, sessions);
+            RuntimeLedgerTick, Shapes, Liquids, LiquidPolarities, sessions);
     }
 
     public void Validate()
@@ -83,7 +85,12 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             Shapes.Count == 0 || Liquids.Count != 2 ||
             Shapes.Any(string.IsNullOrWhiteSpace) || Liquids.Any(string.IsNullOrWhiteSpace) ||
             Shapes.Distinct(StringComparer.Ordinal).Count() != Shapes.Count ||
-            Liquids.Distinct(StringComparer.Ordinal).Count() != Liquids.Count)
+            Liquids.Distinct(StringComparer.Ordinal).Count() != Liquids.Count ||
+            LiquidPolarities == null || LiquidPolarities.Count != 2 ||
+            Liquids.Any(liquid => !LiquidPolarities.ContainsKey(liquid)) ||
+            LiquidPolarities.Keys.Any(key => !Liquids.Contains(key, StringComparer.Ordinal)) ||
+            LiquidPolarities.Values.Count(value => value == LiquidPolarity.Cathode) != 1 ||
+            LiquidPolarities.Values.Count(value => value == LiquidPolarity.Anode) != 1)
             throw new InvalidOperationException("根级检查点词表缺失、重复或无效。");
         if (ResourceArea == null || DemandBoard == null || ShipLiquidInventory == null ||
             MasterWorkshop == null || Admission == null || ReservationLeases == null ||
