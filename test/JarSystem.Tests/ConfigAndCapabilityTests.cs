@@ -57,6 +57,24 @@ public class ConfigAndCapabilityTests
     }
 
     [Fact]
+    public void LegacyWorldOptionsRoundTripPreservesOptionalStableInstanceIdsWithoutChangingOldPayloads()
+    {
+        var configured = CloneDefault();
+        configured.Producers[0].ProducerInstanceId = "producer-owned-save-1";
+        configured.Workshops[0].OwnedInstanceId = "workshop-owned-save-1";
+
+        var json = WorldOptionsJson.ToJson(configured);
+        var restored = WorldOptionsJson.FromJson(json);
+
+        Assert.Equal("producer-owned-save-1", restored.Producers[0].ProducerInstanceId);
+        Assert.Equal("workshop-owned-save-1", restored.Workshops[0].OwnedInstanceId);
+
+        var legacyJson = WorldOptionsJson.ToJson(CloneDefault());
+        Assert.DoesNotContain("producerInstanceId", legacyJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("ownedInstanceId", legacyJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UnknownShapeOrDuplicateNames_AreRejected()
     {
         var unknownShape = CloneDefault();
