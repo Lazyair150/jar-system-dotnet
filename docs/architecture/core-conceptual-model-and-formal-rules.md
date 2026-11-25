@@ -323,3 +323,45 @@ RuleContributionSchemaRegistry.CurrentVersion 是 Effect 参数校验与投影�
 - 生产区不得因同板安装而隐式共享资源；必须通过生产元件输出端、明确连接、目标输入端和准入后才形成资源流。
 - 所有跨 Area 资源转移通过端口意图与统一 ResourceEffect/Transfer Receipt；不得由 Solver/UI/Host 直接改写账户。
 - 当前 Workshop 已有 Jar/液体独立容器与领域操作方法，WorldSnapshot 已区分 Ship Liquid Inventory；统一 Area/Port/Circuit Image 尚未实现。目标模型和当前代码事实必须分开记录。
+
+
+## 21. Resource Receipt Journal 与零资源结算不变量（2026-11-25）
+
+### 21.1 三种账本状态不得混为一谈
+
+ResourceLedger 分别维护：
+
+- **Event Window**：有界的资源变化事实窗口；容量裁剪只影响历史事件可见范围，并通过 Dropped/LastSeq 表达缺口。
+- **OperationId Tombstones**：已处理操作的去重身份。不得随 Event Window 裁剪。
+- **Transfer Receipt Journal**：OperationId 对应的最终成功转移回执。必须与 OperationId 一起捕获、恢复和持久化。
+
+因此，事件历史有界不代表幂等证据也可以按同一窗口删除。当前实现保留 World 检查点生命周期内的 OperationId 与 TransferReceipt；长期增长压缩尚未实现。未来只能使用有证明的 epoch/序列水位或独立持久唯一索引，禁止按事件裁剪窗口猜测 tombstone 已安全过期。
+
+### 21.2 Transfer Receipt 的严格契约
+
+ResourcePortTransferCommitCoordinator 只在物理账户仍可补偿时构造并验证最终回执，再调用 ResourceLedger.RecordTransferOnce 发布事件、OperationId 与 Receipt。RecordTransferOnce 必须验证：
+
+- OperationId 与 Receipt.OperationId 相同；
+- Receipt 是已提交结果；
+- 事件批次非空且所有数量为正；
+- 事件资源类型、资源身份、来源/目标账户、数量总和与 Receipt 一致；
+- Jar 是离散个体：资源身份必须是 canonical 正整数 JarId，请求和转移数量均为 1，不允许部分转移或一条回执代表多个 Jar。
+
+同一 OperationId 重放只有在完整请求身份与历史 Receipt 一致时才可返回原始 Receipt；不同请求载荷必须拒绝。OperationId 已存在但没有 TransferReceipt 时，不能推断上次转移成功。
+
+### 21.3 零资源结算与资源转移是不同操作
+
+订单结算可以在没有液体返还、没有容量丢弃的情况下合法完成。此时：
+
+- 必须保留有效的 LiquidBatchReceipt（Requested/Accepted/Discarded 均可为空或为零）；
+- Lease 的 SettlementStage 仍按 ResourcesReturned → LedgerRecorded 推进，故障后可以恢复并继续释放 Reservation；
+- 不产生 ResourceEvent；
+- 结算服务不得为了表示“已处理”而创建虚假的 TransferReceipt 或空资源转移 OperationId。
+
+若 Accepted 或 Discarded 存在正数量，LedgerRecorded 则必须有对应 ResourceLedger OperationId。恢复校验按“是否存在实际账目事实”区分两种情况，不得将零资源结算误判为账本丢失，也不得将有资源变化的结算误判为已记账。
+
+RecordBatchOnce 的通用接口仍保留空事实批次的去重语义，供明确需要“无资源变化但操作本身需幂等”的领域操作使用；但订单资源结算服务在本次结算没有任何资源事实时必须跳过账本批次调用。RecordTransferOnce 则始终拒绝空批次。
+
+### 21.4 并发边界
+
+ResourceLedger 的内部锁只保证账本 Event/OperationId/Receipt 三者一致，不会自动锁住源、目标物理账户。当前六条参与者仍以 World 单写者命令序列为物理账户一致性前提。任何未来并发化必须以稳定账户身份排序获取双账户锁，并覆盖版本复核、物理提交、Receipt 构造、账本发布和补偿窗口；仅增加账本锁不构成联合原子性。
