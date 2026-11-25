@@ -42,6 +42,7 @@ public class Workshop
 
     /// <summary>Exact player-owned Board Assignment identity; null only for legacy/non-Board fixtures.</summary>
     public string? OwnedInstanceId { get; }
+    public OwnerIdentity? OwnerIdentity { get; }
 
     /// <summary>Liquid vocabulary used to materialize effective Ban rules into auditable snapshots.</summary>
     public IReadOnlyList<string> KnownLiquids => _knownLiquids;
@@ -142,12 +143,20 @@ public class Workshop
         List<string>? ban = null, int? maxJars = null, int? maxLiquids = null, IIdGenerator? ids = null,
         Vocabulary? vocabulary = null, ModifierStack? modifiers = null,
         int? liquidStagingCapacity = null, RuleContext? initialRules = null,
-        string? ownedInstanceId = null)
+        string? ownedInstanceId = null, OwnerIdentity? ownerIdentity = null)
     {
         if (ownedInstanceId != null && string.IsNullOrWhiteSpace(ownedInstanceId))
             throw new ArgumentException("Owned workshop instance identity cannot be blank.", nameof(ownedInstanceId));
+        if (ownerIdentity.HasValue &&
+            (!ownerIdentity.Value.IsValid ||
+             ownerIdentity.Value.OwnerKind != ResourceOwnerKind.Workshop ||
+             !string.Equals(ownerIdentity.Value.LocalOwnerId, ownedInstanceId, StringComparison.Ordinal)))
+            throw new ArgumentException("Workshop OwnerIdentity must match its exact OwnedInstanceId.", nameof(ownerIdentity));
+        if (ownerIdentity.HasValue && ownedInstanceId == null)
+            throw new ArgumentException("Workshop OwnerIdentity requires OwnedInstanceId.", nameof(ownerIdentity));
         Name = name;
         OwnedInstanceId = ownedInstanceId;
+        OwnerIdentity = ownerIdentity;
         var worldVocabulary = vocabulary ?? Vocabulary.Default;
         _vocabulary = worldVocabulary;
         _rules = initialRules?.WithVocabulary(worldVocabulary) ??
