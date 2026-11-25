@@ -19,6 +19,31 @@ public interface IResourcePortAdapter
     ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount);
 }
 
+internal static class ResourceOwnerIdentityGuard
+{
+    public static void Require(
+        OwnerIdentity owner,
+        ResourceOwnerKind expectedKind,
+        string? expectedLocalOwnerId = null)
+    {
+        if (!owner.IsValid || owner.OwnerKind != expectedKind ||
+            (expectedLocalOwnerId != null &&
+             !string.Equals(owner.LocalOwnerId, expectedLocalOwnerId, StringComparison.Ordinal)))
+            throw new ArgumentException("Resource adapter requires the exact expected World-scoped owner identity.", nameof(owner));
+    }
+
+    public static OwnerIdentity ForOrderStaging(OwnerIdentity workshopOwner, int orderId)
+    {
+        Require(workshopOwner, ResourceOwnerKind.Workshop);
+        if (orderId <= 0) throw new ArgumentOutOfRangeException(nameof(orderId));
+        var scopedLocalId = "order-staging:" +
+            OwnerIdentity.EncodeUtf8Field(workshopOwner.LocalOwnerId) +
+            OwnerIdentity.EncodeUtf8Field(orderId.ToString(CultureInfo.InvariantCulture));
+        return new OwnerIdentity(
+            workshopOwner.WorldInstanceId, ResourceOwnerKind.Workshop, scopedLocalId);
+    }
+}
+
 internal static class ResourcePortVersionToken
 {
     public static string Create(IEnumerable<KeyValuePair<string, string>> values)
@@ -126,6 +151,17 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
         Account.Validate();
     }
 
+    public WorkshopFreeLiquidPortAdapter(
+        Workshop workshop, string areaId, OwnerIdentity workshopOwner)
+    {
+        _workshop = workshop ?? throw new ArgumentNullException(nameof(workshop));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
+        Account = new RuleResourceAccount(workshopOwner, "workshop.free-liquid-staging");
+        Account.Validate();
+    }
+
+
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
         ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
@@ -181,6 +217,19 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
         Account.Validate();
     }
 
+    public WorkshopOrderLiquidPortAdapter(
+        WorkshopLiquidStaging staging, OwnerIdentity workshopOwner, string areaId, int orderId)
+    {
+        _staging = staging ?? throw new ArgumentNullException(nameof(staging));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        if (orderId <= 0) throw new ArgumentOutOfRangeException(nameof(orderId));
+        _orderId = orderId;
+        var stagingOwner = ResourceOwnerIdentityGuard.ForOrderStaging(workshopOwner, orderId);
+        Account = new RuleResourceAccount(stagingOwner, "workshop.order-liquid-staging");
+        Account.Validate();
+    }
+
+
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
         ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
@@ -232,6 +281,17 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
             CircuitAreaDefinition.RequireIdentity(shipIndividualId, nameof(shipIndividualId)));
         Account.Validate();
     }
+
+    public ShipLiquidInventoryPortAdapter(
+        ShipLiquidInventory inventory, OwnerIdentity shipOwner, string areaId)
+    {
+        _inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        ResourceOwnerIdentityGuard.Require(shipOwner, ResourceOwnerKind.Ship);
+        Account = new RuleResourceAccount(shipOwner, "ship.liquid-inventory");
+        Account.Validate();
+    }
+
 
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
@@ -290,6 +350,17 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter
         Account.Validate();
     }
 
+    public WorkshopPrefillLiquidPortAdapter(
+        WorkshopLiquidStaging staging, OwnerIdentity workshopOwner, string areaId)
+    {
+        _staging = staging ?? throw new ArgumentNullException(nameof(staging));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop);
+        Account = new RuleResourceAccount(workshopOwner, "workshop.prefill-liquid-staging");
+        Account.Validate();
+    }
+
+
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
         ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
@@ -344,6 +415,17 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
         Account = new RuleResourceAccount("workshop.jar-storage", workshop.OwnedInstanceId);
         Account.Validate();
     }
+
+    public WorkshopJarStoragePortAdapter(
+        Workshop workshop, string areaId, OwnerIdentity workshopOwner)
+    {
+        _workshop = workshop ?? throw new ArgumentNullException(nameof(workshop));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
+        Account = new RuleResourceAccount(workshopOwner, "workshop.jar-storage");
+        Account.Validate();
+    }
+
 
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
@@ -426,6 +508,17 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
         Account.Validate();
     }
 
+    public WarehouseJarStoragePortAdapter(
+        Warehouse warehouse, OwnerIdentity productionAreaOwner, string areaId)
+    {
+        _warehouse = warehouse ?? throw new ArgumentNullException(nameof(warehouse));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        ResourceOwnerIdentityGuard.Require(productionAreaOwner, ResourceOwnerKind.ProductionArea);
+        Account = new RuleResourceAccount(productionAreaOwner, "production.warehouse.jar-storage");
+        Account.Validate();
+    }
+
+
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
         ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
@@ -507,6 +600,17 @@ public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter
             CircuitAreaDefinition.RequireIdentity(productionIndividualId, nameof(productionIndividualId)));
         Account.Validate();
     }
+
+    public WarehouseLiquidStoragePortAdapter(
+        Warehouse warehouse, OwnerIdentity productionAreaOwner, string areaId)
+    {
+        _warehouse = warehouse ?? throw new ArgumentNullException(nameof(warehouse));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        ResourceOwnerIdentityGuard.Require(productionAreaOwner, ResourceOwnerKind.ProductionArea);
+        Account = new RuleResourceAccount(productionAreaOwner, "production.warehouse.liquid-storage");
+        Account.Validate();
+    }
+
 
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
