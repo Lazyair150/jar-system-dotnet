@@ -27,8 +27,6 @@ internal static class ResourcePortTransferCommitCoordinator
         ArgumentNullException.ThrowIfNull(readTargetAfter);
         ArgumentNullException.ThrowIfNull(mutations);
 
-        if (ledger is null && mutations.Count != 0)
-            throw new ArgumentException("Ledger mutations cannot be supplied without a ResourceLedger.", nameof(mutations));
         if (ledger is not null && ledgerTick < 0)
             throw new ArgumentOutOfRangeException(nameof(ledgerTick));
 
