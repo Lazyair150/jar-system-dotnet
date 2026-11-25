@@ -131,6 +131,36 @@ public sealed class Warehouse
         }
     }
 
+    /// <summary>
+    /// Remove one exact Jar entity from the Warehouse by its stable positive identity.
+    /// Duplicate or invalid identities fail closed; this does not inspect the Jar's liquid.
+    /// </summary>
+    internal bool TryTakeJarExact(int jarId, out Jar? jar)
+    {
+        jar = null;
+        if (jarId <= 0) return false;
+        var matches = _jars.Select((item, index) => (item, index))
+            .Where(pair => pair.item.Id == jarId)
+            .ToArray();
+        if (matches.Length != 1) return false;
+        jar = matches[0].item;
+        _jars.RemoveAt(matches[0].index);
+        return true;
+    }
+
+    /// <summary>Restore the same Jar entity after a failed synchronous ownership transfer.</summary>
+    internal void RestoreJarExact(Jar jar)
+    {
+        ArgumentNullException.ThrowIfNull(jar);
+        if (jar.IsRecycled || jar.Id is not > 0)
+            throw new InvalidOperationException("Warehouse Jar rollback requires a live Jar with a positive identity.");
+        if (_jars.Count >= Constants.WAREHOUSE_MAX_JARS)
+            throw new InvalidOperationException("Warehouse Jar rollback exceeds its storage capacity.");
+        if (_jars.Any(item => item.Id == jar.Id))
+            throw new InvalidOperationException("Warehouse Jar rollback would create duplicate ownership identity.");
+        _jars.Add(jar);
+    }
+
     /// <summary>产液：超出仓库上限的部分丢弃并计数（容量感知）。</summary>
     public void ProduceLiquid(string liquid, int amount)
     {
