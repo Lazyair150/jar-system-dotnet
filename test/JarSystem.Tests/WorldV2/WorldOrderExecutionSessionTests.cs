@@ -842,6 +842,7 @@ public sealed class WorldOrderExecutionSessionTests
         {
             Assert.Equal(ResourceEndpointKind.Account, allocation.SourceEndpoint.Kind);
             Assert.Equal(ResourceEndpointKind.Account, allocation.TargetEndpoint.Kind);
+            Assert.Equal(ResourceEndpointKind.ExternalSink, allocation.DiscardEndpoint.Kind);
         });
 
         var leaseWire = OrderResourceLeaseWireDto.FromLease(lease);
