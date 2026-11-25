@@ -19,7 +19,7 @@ internal static class WarehouseWorkshopJarTransfer
         System.Action? beforeFinalize = null)
     {
         var workshopBefore = workshop.Jars.ToArray();
-        if (!warehouse.TryTakeJarExact(jarId, out var jar) || jar is null)
+        if (!warehouse.TryTakeJarExact(jarId, out var jar, out var originalIndex) || jar is null)
         {
             rejectionReason = "jar.identity.not-owned";
             return false;
@@ -40,7 +40,7 @@ internal static class WarehouseWorkshopJarTransfer
                 if (workshop.Jars.Any(item => ReferenceEquals(item, jar)) &&
                     !ReferenceEquals(workshop.TransferOut(jar), jar))
                     throw new System.InvalidOperationException("Could not remove the transferred Jar from Workshop during compensation.");
-                warehouse.RestoreJarExact(jar);
+                warehouse.RestoreJarExact(jar, originalIndex);
                 if (workshop.Jars.Count != workshopBefore.Length ||
                     !workshop.Jars.SequenceEqual(workshopBefore, ReferenceEqualityComparer.Instance))
                     throw new System.InvalidOperationException("Workshop Jar account did not restore its exact pre-transfer ownership.");
