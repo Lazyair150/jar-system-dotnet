@@ -32,6 +32,8 @@ public sealed class Warehouse
     private readonly IReadOnlyList<Jar> _jarsView;
     private readonly IReadOnlyDictionary<string, int> _liquidWarehouseView;
     private readonly IReadOnlyDictionary<string, int> _discardedLiquidsView;
+    public IReadOnlyList<WarehouseJarFact> LastReceivedJarFacts { get; private set; } = Array.Empty<WarehouseJarFact>();
+    public IReadOnlyList<WarehouseJarFact> LastDiscardedJarFacts { get; private set; } = Array.Empty<WarehouseJarFact>();
 
     /// <summary>仓库中的罐子（只读视图；增删只能经 <see cref="StoreJars"/> / <see cref="FlowToMaster"/>）。</summary>
     public IReadOnlyList<Jar> Jars => _jarsView;
@@ -129,23 +131,31 @@ public sealed class Warehouse
 
     public void StoreJars(IEnumerable<Jar> jars)
     {
+        var receivedFacts = new List<WarehouseJarFact>();
+        var discardedFacts = new List<WarehouseJarFact>();
         foreach (var jar in jars)
         {
             if (jar.Id == null) jar.Id = _ids.Next();
-            if (jar.Id is not > 0 || _jars.Any(existing => existing.Id == jar.Id))
+            if (jar.Id is not > 0 || _jars.Any(existing => existing.Id == jar.Id) ||
+                receivedFacts.Any(item => item.JarId == jar.Id))
                 throw new DomainValidationException("Warehouse cannot accept a Jar with an invalid or duplicate identity.");
+
+            var fact = new WarehouseJarFact(jar.Id.Value, jar.Shape);
+            receivedFacts.Add(fact);
             if (_jars.Count < Constants.WAREHOUSE_MAX_JARS)
             {
                 _jars.Add(jar);
             }
             else
             {
-                // 仓库溢出**直接丢弃**（`规则.txt`：溢出丢弃并计数，不回流）—— 丢弃即"已彻底离开世界"，
-                // 这是可以安全归还对象池的少数位置之一。
+                // Capture the immutable identity/display fact before returning the entity to its pool.
+                discardedFacts.Add(fact);
                 DiscardedJars++;
                 _pool?.Return(jar);
             }
         }
+        LastReceivedJarFacts = Array.AsReadOnly(receivedFacts.ToArray());
+        LastDiscardedJarFacts = Array.AsReadOnly(discardedFacts.ToArray());
     }
 
     /// <summary>
@@ -306,3 +316,7 @@ public sealed class WarehouseRuntimeStateSnapshot
     public IReadOnlyDictionary<string, int> DiscardedLiquids { get; }
     public int DiscardedJars { get; }
 }
+
+
+/// <summary>Immutable identity/display projection captured before a Warehouse Jar may be pooled.</summary>
+public sealed record WarehouseJarFact(int JarId, string Shape);

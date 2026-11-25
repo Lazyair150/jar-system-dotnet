@@ -34,11 +34,10 @@ internal sealed class ProductionService
     internal void TickStep()
     {
         var warehouse = _system.ProducerModule.Warehouse;
-        var discardedJarsBefore = warehouse.DiscardedJars;
         var discardedLiquidsBefore = new Dictionary<string, int>(warehouse.DiscardedLiquids);
 
-        var producedJars = _system.ProducerModule.Tick(1);
-        RecordJars(ResourceCauses.Production, producedJars, from: "生产者", to: "仓库");
+        _system.ProducerModule.Tick(1);
+        RecordJarFacts(ResourceCauses.Production, warehouse.LastReceivedJarFacts, from: "生产者", to: "仓库");
 
         // S0（数据驱动）：按**词表**产出，不再写死 酒/蜜 两个名字。
         // 液体的产能现在是一个概念体（Production.LiquidProduction）：它自己攒累加器，
@@ -51,7 +50,7 @@ internal sealed class ProductionService
             RecordLiquid(ResourceCauses.Production, liquid, amount, from: "液体产能", to: "仓库");
         }
 
-        RecordDiscards(discardedJarsBefore, discardedLiquidsBefore);
+        RecordDiscards(discardedLiquidsBefore);
     }
 
     /// <summary>
@@ -101,13 +100,26 @@ internal sealed class ProductionService
     // 账本记录（纯投影：不改世界）
     // ============================================================
 
-    /// <summary>把一批罐子按形状聚成事实（"圆罐×2" 比两行同形状更好读，也不丢信息）。</summary>
+    /// <summary>逐只记录 Jar 实体；Shape 仅作展示，ResourceIdentity 必须是 JarId。</summary>
     private void RecordJars(string cause, IReadOnlyList<Jar> jars, string from, string to)
     {
         if (jars.Count == 0) return;
         var tick = _system.Processes.Clock.Tick;
-        foreach (var group in jars.GroupBy(j => j.Shape, StringComparer.Ordinal))
-            _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, group.Key, group.Count(), from, to);
+        foreach (var jar in jars)
+        {
+            if (jar.Id is not > 0)
+                throw new DomainValidationException("账本 Jar 事实缺少 canonical JarId。");
+            _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, jar.Shape, 1, from, to,
+                resourceIdentity: jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    private void RecordJarFacts(string cause, IReadOnlyList<WarehouseJarFact> jars, string from, string to)
+    {
+        var tick = _system.Processes.Clock.Tick;
+        foreach (var jar in jars)
+            _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, jar.Shape, 1, from, to,
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private void RecordLiquid(string cause, string liquid, int amount, string from, string to)
@@ -122,15 +134,15 @@ internal sealed class ProductionService
     /// 溢出丢弃：仓库满了放不下的部分。**必须单独记**，否则读者会以为"产了却没到"是丢事件。
     /// 逐液体比较前后计数，只为真的有丢弃的那几种液体记一条。
     /// </summary>
-    private void RecordDiscards(int discardedJarsBefore, IReadOnlyDictionary<string, int> discardedLiquidsBefore)
+    private void RecordDiscards(IReadOnlyDictionary<string, int> discardedLiquidsBefore)
     {
         var warehouse = _system.ProducerModule.Warehouse;
         var tick = _system.Processes.Clock.Tick;
 
-        var jars = warehouse.DiscardedJars - discardedJarsBefore;
-        if (jars > 0)
-            _system.ResourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Jar, "罐", jars,
-                from: "仓库", reason: "仓库罐位已满");
+        foreach (var jar in warehouse.LastDiscardedJarFacts)
+            _system.ResourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
+                from: "仓库", reason: "仓库罐位已满",
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         foreach (var (liquid, total) in warehouse.DiscardedLiquids)
         {
