@@ -64,7 +64,9 @@ public sealed class ResourceLedgerSnapshotTests
 
         var restored = ResourceLedger.Restore(ledger.Capture());
         Assert.True(restored.HasRecordedOperation("world:order:7:settlement"));
-        Assert.False(restored.RecordBatchOnce("world:order:7:settlement", 13,
+        Assert.False(restored.RecordBatchOnce("world:order:7:settlement", 13, batch));
+        Assert.Throws<System.InvalidOperationException>(() => restored.RecordBatchOnce(
+            "world:order:7:settlement", 13,
             new[] { new ResourceLedgerMutation(
                 ResourceCauses.Return, ResourceKinds.Liquid, "酒", 99) }));
         Assert.Equal(2, restored.LastSeq);
