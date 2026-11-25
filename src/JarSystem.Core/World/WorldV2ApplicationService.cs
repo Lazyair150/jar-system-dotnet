@@ -30,8 +30,21 @@ public sealed class WorldV2ApplicationService
         _host = host ?? throw new ArgumentNullException(nameof(host));
     }
 
-    /// <summary>创建或替换世界。配置在 Factory 内完成校验和复制。</summary>
+    /// <summary>创建或替换世界。普通新世界的实例身份由 Host 边界生成。</summary>
     public void CreateOrReplaceWorld(WorldV2Options options) => _host.Replace(options);
+
+    /// <summary>使用宿主已持久化的身份创建世界，供确定性重建与重放使用。</summary>
+    public void CreateOrReplaceWorld(WorldV2Options options, WorldInstanceId worldInstanceId) =>
+        _host.Replace(options, worldInstanceId);
+
+    /// <summary>读取当前世界的稳定实例身份。</summary>
+    public WorldInstanceId GetWorldInstanceId()
+    {
+        WorldInstanceId? identity = null;
+        _host.ExecuteExclusive(context => identity = context.WorldInstanceId);
+        return identity ?? throw new InvalidOperationException(
+            "当前世界未配置 WorldInstanceId；该兼容工厂路径不能用于持久化身份。");
+    }
 
     /// <summary>设置世界流速倍率；1000 表示 1 倍，0 表示逻辑时间停止增长。</summary>
     public void SetWorldSpeedRatio(double ratio)
