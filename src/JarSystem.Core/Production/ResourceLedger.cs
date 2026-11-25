@@ -81,9 +81,11 @@ public sealed class ResourceLedger
     /// <summary>默认容量（条）。够一局看完整因果链，又不至于长跑吃内存。</summary>
     public const int DefaultCapacity = 512;
 
+    private readonly object _gate = new();
     private readonly List<ResourceEvent> _entries = new();
     private readonly IReadOnlyList<ResourceEvent> _entriesView;
     private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ResourceTransferReceipt> _transferReceipts = new(StringComparer.Ordinal);
     private long _seq;
 
     public ResourceLedger(int capacity = DefaultCapacity)
@@ -415,6 +417,8 @@ public sealed class ResourceLedgerSnapshot
         }).ToArray());
         OperationIds = Array.AsReadOnly((operationIds ?? Array.Empty<string>())
             .OrderBy(item => item, StringComparer.Ordinal).ToArray());
+        TransferReceipts = Array.AsReadOnly((transferReceipts ?? Array.Empty<ResourceTransferReceipt>())
+            .Select(item => item with { }).ToArray());
     }
 
     public int Capacity { get; }
