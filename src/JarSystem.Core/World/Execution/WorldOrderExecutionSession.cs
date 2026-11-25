@@ -496,7 +496,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             if (resourceLedger != null && admission.ShipLiquidInventory != null)
             {
                 var tick = resourceLedgerTick?.Invoke() ?? 0;
-                var shipOwner = admission.ShipLiquidInventory.OwnerIdentity;
+                var shipOwner = admission.ShipLiquidInventory?.OwnerIdentity;
                 var source = shipOwner is { } owner
                     ? ResourceEndpoint.ForAccount(new RuleResourceAccount(owner, "ship.liquid-inventory").AccountId)
                     : ResourceEndpoint.LegacyUnknown;
