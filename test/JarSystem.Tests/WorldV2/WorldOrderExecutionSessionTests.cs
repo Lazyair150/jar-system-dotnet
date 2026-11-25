@@ -711,10 +711,16 @@ public sealed class WorldOrderExecutionSessionTests
     [Fact]
     public void RestoredSlaveSessionRetainsCommittedHandoffForLedgerReturnOnFailure()
     {
+        var worldId = new WorldInstanceId("world-slave-rollback-endpoints");
+        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "rollback-master");
+        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "rollback-slave");
+        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "rollback-ship");
         var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "rollback-master", ownerIdentity: masterOwner);
         var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "rollback-slave", ownerIdentity: slaveOwner);
         var jar = new Jar("圆罐", vocabulary: Words);
         Assert.True(master.AddJar(jar));
         using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
@@ -730,7 +736,7 @@ public sealed class WorldOrderExecutionSessionTests
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
         var book = new WorldOrderSolveBook(board);
-        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 }, shipOwner);
         ReevaluateWithShip(book, roster, ship, demand.Id);
         Assert.True(book.Find(demand.Id)!.Result!.IsFeasible);
         Assert.Empty(book.Find(demand.Id)!.Result!.Plan!.MasterSteps);
