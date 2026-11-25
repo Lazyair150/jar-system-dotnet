@@ -67,6 +67,22 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
+    public void BannedLiquidInsideJarCanBeConsumedOrPouredOutForAnEmptyRequirement()
+    {
+        var workshop = Bench();
+        var info = Info(workshop);
+        var requirements = new List<Requirement> { new() { Shape = "圆罐" } };
+        var jars = Jars("酒");
+
+        foreach (var solver in Solvers())
+        {
+            var result = solver.Solve(requirements, info, jars, new Dictionary<string, int>());
+            Assert.True(result.Feasible,
+                solver.GetType().Name + " incorrectly applied staging Ban to Jar-owned liquid: " + result.Blockage);
+        }
+    }
+
+    [Fact]
     public void SolverJarAndRequirementExposeTheSameThreeStateClassification()
     {
         Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
