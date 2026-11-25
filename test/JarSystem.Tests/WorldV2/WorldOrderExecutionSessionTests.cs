@@ -114,17 +114,21 @@ public sealed class WorldOrderExecutionSessionTests
         ShipLiquidInventory Ship,
         ResourceLedger Ledger);
 
-    private static SettlementScenario PrepareSettlementScenario()
+    private static SettlementScenario PrepareSettlementScenario(bool withOwnerIdentities = false)
     {
-        var worldId = new WorldInstanceId("settlement-world");
-        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "master-owned");
-        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "slave-owned");
+        var worldId = withOwnerIdentities ? new WorldInstanceId("settlement-world") : default;
+        OwnerIdentity? masterOwner = withOwnerIdentities
+            ? new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "master-owned") : null;
+        OwnerIdentity? slaveOwner = withOwnerIdentities
+            ? new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "slave-owned") : null;
         var master = new Workshop("主台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words,
-            ownedInstanceId: "master-owned", ownerIdentity: masterOwner);
+            ownedInstanceId: withOwnerIdentities ? "master-owned" : null,
+            ownerIdentity: masterOwner);
         var slave = new Workshop("从台", new List<string> { "圆罐" },
             maxJars: 4, maxLiquids: 4, vocabulary: Words,
-            ownedInstanceId: "slave-owned", ownerIdentity: slaveOwner);
+            ownedInstanceId: withOwnerIdentities ? "slave-owned" : null,
+            ownerIdentity: slaveOwner);
         Assert.True(master.AddJar(new Jar("圆罐", vocabulary: Words)));
         using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
         {
@@ -139,7 +143,8 @@ public sealed class WorldOrderExecutionSessionTests
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
         var book = new WorldOrderSolveBook(board);
-        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "ship-owned");
+        OwnerIdentity? shipOwner = withOwnerIdentities
+            ? new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "ship-owned") : null;
         var ship = new ShipLiquidInventory(
             4, new Dictionary<string, int> { ["酒"] = 1 }, shipOwner);
         ReevaluateWithShip(book, roster, ship, demand.Id);
@@ -807,7 +812,7 @@ public sealed class WorldOrderExecutionSessionTests
     [Fact]
     public void MultiSourceSettlementPreservesEachWorkshopOrderAccountAllocation()
     {
-        var setup = PrepareSettlementScenario();
+        var setup = PrepareSettlementScenario(withOwnerIdentities: true);
         var lease = setup.Reservations.FindLease(setup.Demand.Id)!;
         var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
         Assert.True(scopes.Master.Staging.TryReceiveExact(
