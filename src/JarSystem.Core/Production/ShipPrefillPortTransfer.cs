@@ -184,8 +184,6 @@ public static class ShipPrefillPortTransfer
         ArgumentNullException.ThrowIfNull(staging);
         request.Validate();
 
-        if (ReferenceEquals(ship, null) || ReferenceEquals(staging, null))
-            throw new ArgumentNullException("Transfer accounts are required.");
         if (connection.ConnectionId != request.ConnectionId ||
             connection.SourcePortId != request.SourcePortId ||
             connection.TargetPortId != request.TargetPortId)
