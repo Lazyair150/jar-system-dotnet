@@ -185,6 +185,20 @@ public readonly record struct AccountIdentity
         }
     }
 
+    public static void ValidateWorldScope(string accountId, WorldInstanceId? expectedWorldInstanceId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId))
+            throw new ArgumentException("AccountId cannot be blank.", nameof(accountId));
+        if (!accountId.StartsWith("account:v2:", StringComparison.Ordinal))
+            return; // account:v1 remains a legacy read-only identity without World scope.
+
+        var identity = ParseV2(accountId);
+        if (!expectedWorldInstanceId.HasValue || !expectedWorldInstanceId.Value.IsValid ||
+            identity.Owner.WorldInstanceId != expectedWorldInstanceId.Value)
+            throw new InvalidOperationException(
+                "AccountId v2 belongs to a different or unknown WorldInstanceId.");
+    }
+
     public string ToCanonicalString()
     {
         if (!IsValid)
