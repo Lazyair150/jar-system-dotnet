@@ -386,6 +386,14 @@ public class Workshop
     /// <summary>为当前 World 的新 Jar 实体分配全局身份；在进入任何权威账户前调用。</summary>
     internal int AllocateJarId() => _ids.Next();
 
+    internal void RestoreJarIdGeneratorAtLeast(int value)
+    {
+        if (value < 0) throw new ArgumentOutOfRangeException(nameof(value));
+        if (_ids is not IRestorableIdGenerator restorable)
+            throw new InvalidOperationException("Checkpoint restore requires a restorable Jar ID generator.");
+        restorable.RestoreAtLeast(value);
+    }
+
     public bool AddJar(Jar j)
     {
         if (!HasJarCapacity()) return false;
