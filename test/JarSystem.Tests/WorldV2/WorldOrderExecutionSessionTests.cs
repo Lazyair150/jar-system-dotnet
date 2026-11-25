@@ -868,17 +868,25 @@ public sealed class WorldOrderExecutionSessionTests
             reservations.FindLease(demand.Id)!.WorldVersion + ":order:" + demand.Id + ":transfer"));
 
         var lease = reservations.FindLease(demand.Id)!;
-        var empty = new Dictionary<string, int>();
-        lease.RecordSettlement(new LiquidBatchReceipt(empty, empty, empty));
+        var scopes = admission.GetLiquidScopes(demand.Id)!.Value;
+        var settlementRequested = new Dictionary<string, int>(
+            scopes.Master.Balance, StringComparer.Ordinal);
+        foreach (var item in scopes.Slave!.Balance)
+            settlementRequested[item.Key] =
+                checked(settlementRequested.GetValueOrDefault(item.Key) + item.Value);
+        Assert.NotEmpty(settlementRequested);
+        lease.RecordSettlement(new LiquidBatchReceipt(
+            settlementRequested,
+            new Dictionary<string, int>(settlementRequested, StringComparer.Ordinal),
+            new Dictionary<string, int>(StringComparer.Ordinal)));
 
         var balanceError = Assert.Throws<InvalidOperationException>(() =>
             WorldOrderExecutionSession.RestoreProgress(
                 progress, board, book, admission, roster, reservations, ledger, () => 17));
         Assert.Contains("暂存账户仍包含未结算余额", balanceError.Message);
 
-        var scopes = admission.GetLiquidScopes(demand.Id)!.Value;
         scopes.Master.Staging.DrainOrder(demand.Id);
-        scopes.Slave!.Staging.DrainOrder(demand.Id);
+        scopes.Slave.Staging.DrainOrder(demand.Id);
         lease.MarkSettlementLedgerRecorded();
 
         var serviceError = Assert.Throws<InvalidOperationException>(() =>
