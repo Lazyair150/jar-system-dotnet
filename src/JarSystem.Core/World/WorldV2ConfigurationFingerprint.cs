@@ -30,13 +30,21 @@ public static class WorldV2ConfigurationFingerprint
         return Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant();
     }
 
+    // Runtime owner IDs are persisted independently in the World owner identity map.
+    // They must not alter the immutable definition/configuration fingerprint.
+    private static bool IsRuntimeOwnerIdentityProperty(string propertyName) =>
+        string.Equals(propertyName, "OwnedInstanceId", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(propertyName, "ProducerInstanceId", StringComparison.OrdinalIgnoreCase);
+
     private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
                 writer.WriteStartObject();
-                foreach (var property in element.EnumerateObject().OrderBy(item => item.Name, StringComparer.Ordinal))
+                foreach (var property in element.EnumerateObject()
+                    .Where(item => !IsRuntimeOwnerIdentityProperty(item.Name))
+                    .OrderBy(item => item.Name, StringComparer.Ordinal))
                 {
                     writer.WritePropertyName(property.Name);
                     WriteCanonical(property.Value, writer);
