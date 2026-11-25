@@ -270,7 +270,7 @@ public class Workshop
     /// <summary>本台的液体规则纯值（禁令 + 每液容量）。规则在 <see cref="LiquidRules"/>，库存仍在本类里。</summary>
     public LiquidRules Liquid => new(_capability, MaxLiquids);
 
-    /// <summary>当前工作台是否禁止该液体（用于游离液体池和含液 Jar 的操作许可）。</summary>
+    /// <summary>当前工作台是否禁止该液体进入或离开游离液体暂存账户。</summary>
     public LiquidGrant CheckLiquid(string liquid) => Liquid.Check(liquid);
 
     /// <summary>能不能从池子里取出 amount 份（禁令 + 库存）。倒液、付空罐改形成本都走这里。</summary>
@@ -525,6 +525,8 @@ public class Workshop
             return (false, evaluation.Decision.Reason ?? "倒出规则拒绝该操作", null);
         var transition = evaluation.Transition!.Value;
         var liquid = transition.ProducedFreeLiquid!;
+        // Jar chemistry commits independently from staging admission. Ban/capacity rejection
+        // discards the produced liquid; it must never roll back the Jar operation.
         AddLiquid(liquid);
         ApplyJarTransition(j, transition);
         return (true, null, liquid);
