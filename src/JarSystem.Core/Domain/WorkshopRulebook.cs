@@ -451,7 +451,7 @@ public static class WorkshopRulebook
         var decision = Evaluate(rules, scope, jar, op);
         return new WorkshopOperationEvaluation(
             decision,
-            decision.IsAllowed ? CreateTransitionCore(jar, op, rules.PolarityMode) : null);
+            decision.IsAllowed ? CreateTransitionCore(jar, op, rules) : null);
     }
 
     public static WorkshopOperationTransition? CreateTransition(
