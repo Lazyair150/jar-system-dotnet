@@ -243,7 +243,7 @@ public sealed class WorldV2ContextTests
             new WorldClockSnapshot(-1, checkpoint.Clock.LogicalTimeMilli,
                 checkpoint.Clock.SpeedRatioMilli, checkpoint.Clock.IsPaused,
                 checkpoint.Clock.ConversionRemainder),
-            checkpoint.RuntimeLedgerTick, checkpoint.Shapes, checkpoint.Liquids, checkpoint.Sessions);
+            checkpoint.RuntimeLedgerTick, checkpoint.Shapes, checkpoint.Liquids, checkpoint.LiquidPolarities, checkpoint.Sessions);
         Assert.Throws<System.ArgumentOutOfRangeException>(() =>
             secondWorld.RestoreExecutionResourceCheckpoint(invalidClockCheckpoint));
         Assert.Equal(0, secondShip.GetAmount("酒"));
