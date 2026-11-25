@@ -192,7 +192,7 @@ public class ProducerModule
     public IReadOnlyDictionary<string, int> LiquidWarehouse => Warehouse.LiquidWarehouse;
 
     /// <param name="vocabulary">词表（S2）；null 表示内置默认词表（行为与重构前一致）。</param>
-    public ProducerModule(Vocabulary? vocabulary = null, IIntensitySource? intensity = null, JarPool? pool = null)
+    public ProducerModule(Vocabulary? vocabulary = null, IIntensitySource? intensity = null, JarPool? pool = null, IIdGenerator? jarIds = null)
     {
         _vocabulary = vocabulary ?? Vocabulary.Default;
         _intensity = intensity;
@@ -203,7 +203,7 @@ public class ProducerModule
         _pool = pool;
         foreach (var s in _vocabulary.Shapes)
             _generators[s] = new ShapeProductionLine(s, _vocabulary, _intensity, _pool);
-        Warehouse = new Warehouse(_vocabulary, pool);
+        Warehouse = new Warehouse(_vocabulary, pool, jarIds);
     }
 
     /// <summary>
