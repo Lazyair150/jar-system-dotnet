@@ -677,4 +677,17 @@ public sealed class WorldV2ContextTests
         Assert.Contains("WorldInstanceId", error.Message);
     }
 
+
+    [Fact]
+    public void CreateRejectsDefaultWorldInstanceIdValue()
+    {
+        var master = CreateMaster();
+        Assert.Throws<ArgumentException>(() => WorldV2Context.Create(
+            CreateResources(), new[] { master }, master, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            worldInstanceId: default(WorldInstanceId)));
+    }
+
 }
