@@ -40,3 +40,4 @@ architecture/core-liquid-identity-consolidation
 - [资源事件身份与幂等性审查（2026-11-26）](2026-11-26-resource-event-identity-and-idempotency.md)
 - [ADR 0011：World-scoped Resource Owner 与 Account Identity](../decisions/0011-world-scoped-resource-owner-and-account-identity.md)
 - [World-scoped Resource Owner Identity 审查（2026-11-26）](2026-11-26-world-scoped-resource-owner-identity.md)
+- [Tagged Resource Ledger Endpoints 与多来源结算分配（2026-11-26）](2026-11-26-tagged-resource-ledger-endpoints-and-source-allocation.md)
