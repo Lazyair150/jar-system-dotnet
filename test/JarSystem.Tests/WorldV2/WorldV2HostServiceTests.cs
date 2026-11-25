@@ -156,6 +156,35 @@ public sealed class WorldV2HostServiceTests
     }
 
     [Fact]
+    public void OwnerIdentityMapSurvivesCheckpointWireAndAtomicHostRestore()
+    {
+        using var host = new WorldV2HostService();
+        var options = ValidOptions();
+        var worldId = new WorldInstanceId("world-owner-map-1");
+        var ownerMap = new WorldV2OwnerIdentityMap(
+            worldId,
+            "ship-owned-1",
+            "circuit-runtime-1",
+            "production-area-1",
+            "warehouse-1",
+            new[] { "producer-instance-1" },
+            new[] { "workshop-owned-1", "workshop-owned-2" });
+
+        host.Replace(options, worldId, ownerMap);
+        var application = new WorldV2ApplicationService(host);
+        var checkpoint = application.CaptureExecutionResourceCheckpoint();
+        Assert.True(ownerMap.IsEquivalentTo(checkpoint.OwnerIdentities));
+
+        var json = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(checkpoint);
+        var decoded = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(json);
+        Assert.True(ownerMap.IsEquivalentTo(decoded.OwnerIdentities));
+
+        application.RestoreExecutionResourceCheckpoint(options, decoded);
+        Assert.True(ownerMap.IsEquivalentTo(application.GetOwnerIdentityMap()));
+        Assert.Equal(worldId, application.GetWorldInstanceId());
+    }
+
+    [Fact]
     public void LegacyCheckpointRestoreRequiresAndPersistsExplicitMigrationIdentity()
     {
         using var host = new WorldV2HostService();
