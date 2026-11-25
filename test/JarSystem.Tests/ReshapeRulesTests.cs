@@ -20,6 +20,9 @@ namespace JarSystem.Tests;
 /// </summary>
 public class ReshapeRulesTests
 {
+    private static JarFacts DefaultFacts(string shape, string? liquid, bool isMarked) =>
+        new(shape, liquid, isMarked, JarPolarityResolver.Resolve(liquid, JarSystem.Core.Config.Vocabulary.Default));
+
     private static Vocabulary Vocab() => new(
         new[] { "圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐" },
         new[] { "酒", "蜜" });
@@ -150,7 +153,7 @@ public class ReshapeRulesTests
 
             // ② 规则表（同一个世界状态喂给纯函数）
             var ctx = new RuleContext(XuanwuCap(), new ModifierStack());
-            var facts = new JarFacts(shape, liquid, false);
+            var facts = DefaultFacts(shape, liquid, false);
             var pool = new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 };
             var op = liquid == null
                 ? WorkshopOperation.ReshapeEmpty(to, "蜜")
