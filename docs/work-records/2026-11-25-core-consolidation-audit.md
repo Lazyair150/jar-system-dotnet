@@ -195,3 +195,31 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 更新液体身份重命名测试：同步替换库存、流入速率、Ban 与订单模板中的身份键，验证完整 World 配置在显式映射下合法，而不只是修改词表数组。
 - 修订 B 类角色测试：Ban 不再让 Slave 缺少 Jar 操作候选；同一 Jar 可在交接后被从台操作。A/B partition differential 的预期已调整为允许 Jar 自耗，具体结果待最新 CI 复验。
 - 最新代码提交 `549afcd1efff5b909ad6b581212bc6052506ffff` 已触发 Core verify workflow；仍在执行，尚未标记通过。
+
+
+## 2026-11-25 第九轮：检查点极性映射闭环与 B 类角色测试对齐
+
+### CI 证据与根因
+- PR #63 初始整合 head `2a4b306b83328909c930707fbd2737b4e9012008` 的 verify run `45584186423` / `45584176474` 完成失败：Release build 通过，853 项 xUnit 中 5 项失败。
+- 日志确认 2 项失败是旧测试仍构造单液体 World；2 项 B 类执行测试与枚举器明确的 Slave-first 角色优先策略不一致；另 1 项 B 类分支测试错误地强制要求 MasterSteps。
+- 逐项读取测试和执行器源码后，未通过删除回归、降低约束或修改生产求解器来消除断言。
+
+### 发现并修复的真实数据生命周期缺陷
+- WorldV2Context 捕获检查点时只保存 Shapes/Liquids，恢复时使用 `new Vocabulary(checkpoint.Shapes, checkpoint.Liquids)`，丢失 World-owned 的 LiquidPolarity 映射。
+- 根级 World V2 checkpoint wire DTO 也未序列化该映射；自定义液体身份或反序映射可能无法 JSON 往返/恢复。
+- 现已贯通 WorkshopCapability → WorldV2Context → WorldV2ExecutionResourceCheckpoint → WorldV2ExecutionCheckpointWireDto → JSON encode/decode → restore 的显式映射。
+- 恢复前同时校验词表与映射和当前目标 World 完全一致；不对未知身份、旧自定义映射或缺失映射猜测极性。
+- checkpoint JSON schema 从 2 升为 3；旧 schema 2 不被静默解释为新格式。
+- 新增 WorldV2FactoryTests：自定义 fuel/coolant 映射经过完整 checkpoint JSON round-trip 后仍保持 fuel→Anode、coolant→Cathode，并可恢复到同配置 Context。
+- 更新所有手工构造 checkpoint 的测试夹具，使映射成为显式字段。
+
+### 失败测试修正
+- ProducerSlot fixture 改为合法二元液体世界，不再构造单液体 WorldOptions。
+- B 类执行测试按生产枚举器既有 Slave-first 策略检查：Jar 先从 Master 转移，再由 Slave 执行 MATCH；Ban 仍只作用于游离液体 staging。
+- 多 Jar handoff fault test 现在从 Transfer 阶段验证第二次物理移动失败时会话失败、Jar 身份回到 Master、Slave 为空、Mark 清理、Reservation 释放，且未提交 Transfer/Return 账目。
+
+### 本轮提交与验证边界
+- 相关连续提交：`b855198b94478be9bf9de5ef716b36d2a3832db7`、`9e5b34355e1df5a22e25988753f042e3a991aa68`、`2e059b27f8330d4903f9890d1917c1f6bb1cefcd`、`f943bf5591e7107ca51df3373a9bcf0beecd1533`、`5e676e14b969738fa6ec44c24588f2a5cafc2d0f`、`f8167a8430893c4e529e1e981c15d2e02b8bbba5`、`1e42ec26810e2abb551444494ab88dfd40812514`、`ec6218fec00587b8fe79118f76239488b04480cc`、`adcec987d927ef50ed2e0f50fa51b96b6c15b23b`、`ea8af5906af986c26a5ed4f0c9a76a7ac560b97a`、`9afabdefb9d989f91ec57600cbc2fae09c1babc8`、`bd6b1437ba454f367301f1b26699727bd5732e70`、`ee37b8595474c228039727fe573d823aad1d3a41`。
+- head `ee37b8595474c228039727fe573d823aad1d3a41` 的 verify runs `45586817186` / `45586828250` 在记录时仍执行中；不得写为通过。
+- Space PR #2 当前仍使用 sibling ProjectReference，但 cross-repo workflow 固定 pin 仍是旧 Core SHA `b342259fe04363386085dc9a4ca995112954ed43`。待 Core 精确 head 绿色后，必须将 Space workflow 的 Core checkout 和 `CORE_EXPECTED_SHA` 同步到该精确 head，再跑完整 Godot 4.7.1 cross-repo 验证。
+- PR #63 继续 Draft/Open；Core main 不直接修改。旧 PR 仅保留关闭状态与历史分支，不删除历史证据。
