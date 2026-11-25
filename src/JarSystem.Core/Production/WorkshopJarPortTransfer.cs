@@ -140,24 +140,18 @@ public sealed class PreparedWorkshopJarPortTransfer
                 _sourceWorkshop, _targetWorkshop, jarId, out _,
                 () =>
                 {
-                    var sourceAfter = _sourceAdapter.Preflight(
-                        _sourcePort, _request.ResourceIdentity, _request.Amount);
-                    var targetAfter = _targetAdapter.Preflight(
-                        _targetPort, _request.ResourceIdentity, _request.Amount);
-                    committedReceipt = ResourcePortTransferGuards.CreateCommittedReceipt(
-                        _request, source, target, sourceAfter, targetAfter);
-                    if (_ledger is not null)
-                    {
-                        var jar = _targetWorkshop.Jars.Single(item => item.Id == jarId);
-                        if (!_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
+                    var jar = _targetWorkshop.Jars.Single(item => item.Id == jarId);
+                    committedReceipt = ResourcePortTransferCommitCoordinator.Finalize(
+                        _request, source, target,
+                        () => _sourceAdapter.Preflight(_sourcePort, _request.ResourceIdentity, _request.Amount),
+                        () => _targetAdapter.Preflight(_targetPort, _request.ResourceIdentity, _request.Amount),
+                        _ledger, ledgerTick,
+                        new[]
                         {
                             new ResourceLedgerMutation(
                                 ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
                                 From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
-                        }))
-                            throw new InvalidOperationException(
-                                "The transfer OperationId was recorded while its physical commit was in progress.");
-                    }
+                        });
                 }))
             {
                 var sourceAfterFailure = _sourceAdapter.Preflight(
