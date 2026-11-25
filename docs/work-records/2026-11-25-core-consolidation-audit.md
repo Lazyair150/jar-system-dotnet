@@ -777,3 +777,6 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 验证过程中发现并修复 xUnit analyzer 错误 `xUnit2013`：集合计数断言改为 `Assert.Single`。该失败只发生在测试分析阶段，构建主项目、Godot Host、协议/配置检查、求解器差分、回放和安全扫描均已通过；不得把该失败的 Run 计作通过。
 - 幂等存储取舍已写入架构文档 3.13：当前保留 World 检查点生命周期内的全部 OperationId tombstone 和成功回执，事件历史仍有界；明确指出索引/回执内存随成功转移次数增长，未来长时在线需持久化唯一索引/归档或有证明的 epoch 水位压缩。另明确账本锁不等于账户联合锁：现阶段物理账户仍由 World 单写者命令序列执行，未来并发必须按稳定账户 ID 顺序锁住两端并覆盖整个提交窗口。
 - 当前代码分支 HEAD 包含回执预克隆、原子 RestoreFrom、六路径协调器、账本端点校验和并发幂等测试；最新 HEAD 的 CI 尚在运行，必须以其最终 Run 结果更新本记录。PR #63 继续 Open / Draft，未合并。
+
+- Receipt Journal 第一轮验证 Run `45633568146` 在测试项目 Build 阶段失败：`ResourceLedgerSnapshotTests.cs` 的 using 列表重复引入 `JarSystem.Core.World`，同时遗漏 `System.Text.Json`，导致 CS0105/CS0103。当前分支已修正 using（文件头为 System.Text.Json、Domain、Production、World、Xunit），并继续验证后续提交；这不是账本逻辑失败。
+- 增加账本并发发布测试：多个线程对同一 OperationId 竞争 `RecordTransferOnce` 时，账本锁确保仅发布一份事件和回执；后续还需注意该保证只覆盖账本，不替代 World 对物理账户的单写者命令边界。
