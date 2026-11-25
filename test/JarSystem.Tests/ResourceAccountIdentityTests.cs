@@ -231,4 +231,22 @@ public sealed class ResourceAccountIdentityTests
                 "Producer B", new Dictionary<string, double> { ["圆罐"] = 1 }, "producer-duplicate"));
     }
 
+
+    [Fact]
+    public void CheckpointAccountEndpointValidationEnforcesWorldScopeForV2Only()
+    {
+        var accountId = new RuleResourceAccount(
+            new OwnerIdentity(new WorldInstanceId("world-a"), ResourceOwnerKind.Ship, "ship-1"),
+            "ship.liquid-inventory").AccountId;
+
+        AccountIdentity.ValidateWorldScope(accountId, new WorldInstanceId("world-a"));
+        Assert.Throws<System.InvalidOperationException>(() =>
+            AccountIdentity.ValidateWorldScope(accountId, new WorldInstanceId("world-b")));
+        Assert.Throws<System.InvalidOperationException>(() =>
+            AccountIdentity.ValidateWorldScope(accountId, null));
+
+        var legacyAccountId = new RuleResourceAccount("ship.liquid-inventory", "ship-1").AccountId;
+        AccountIdentity.ValidateWorldScope(legacyAccountId, null);
+    }
+
 }
