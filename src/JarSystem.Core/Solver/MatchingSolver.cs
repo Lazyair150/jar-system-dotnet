@@ -168,7 +168,7 @@ namespace JarSystem.Core.Solver
             for (var i = 0; i < n; i++)
                 if (options[order[i]].Count == 0) return null;
 
-            var liquidKeys = Constants.LIQUIDS.ToArray();
+            var liquidKeys = info.Capability.Liquids.ToArray();
             var consPin = new int[liquidKeys.Length];
             var prodOut = new int[liquidKeys.Length];
             var flex = 0;
@@ -240,7 +240,7 @@ namespace JarSystem.Core.Solver
             // 收尾：把"产出 − 消耗"与剩余的液体来源对齐，确认真的付得起。
             bool Balance()
             {
-                foreach (var l in Constants.LIQUIDS)
+                foreach (var l in info.Capability.Liquids)
                     if (info.Capability.IsBanned(l) && consPin[Array.IndexOf(liquidKeys, l)] > 0) return false;
 
                 var surplus = 0;
@@ -281,7 +281,7 @@ namespace JarSystem.Core.Solver
             var cap = info.Capability;
             var slots = new List<Slot>();
             // 成本液体只要"世界上还取得出来"就算数：池里有，或者还有满罐可以倒空。
-            var anyCost = Constants.LIQUIDS.Any(l => !cap.IsBanned(l)
+            var anyCost = info.Capability.Liquids.Any(l => !cap.IsBanned(l)
                 && ((liquids.TryGetValue(l, out var v) && v > 0)
                     || jars.Any(j => j.Liquid == l)));
 
@@ -338,7 +338,7 @@ namespace JarSystem.Core.Solver
             var cap = info.Capability;
             var state = jars.Select(j => JarState.Copy(j)).ToList();
             var pool = new Dictionary<string, int>(liquids);
-            foreach (var l in Constants.LIQUIDS) if (!pool.ContainsKey(l)) pool[l] = 0;
+            foreach (var l in info.Capability.Liquids) if (!pool.ContainsKey(l)) pool[l] = 0;
 
             var steps = new List<SolverStep>();
 
@@ -436,7 +436,7 @@ namespace JarSystem.Core.Solver
             List<JarState> state, Assignment a, HashSet<int> usedSources, string? liquid)
         {
             if (liquid != null) return pool[liquid] > 0;
-            foreach (var l in Constants.LIQUIDS)
+            foreach (var l in info.Capability.Liquids)
                 if (!cap.IsBanned(l) && pool[l] > 0) return true;
             return false;
         }
@@ -535,9 +535,9 @@ namespace JarSystem.Core.Solver
                     break;
 
                 case Role.ReshapeEmpty:
-                    if (jar.Polarity != JarPolarity.Neutral) return false;
+                    if (cap.ResolvePolarity(jar.Liquid) != JarPolarity.Neutral) return false;
                     if (!cap.CanTransform(jar.Shape, req.Shape)) return false;
-                    cost = Constants.LIQUIDS.FirstOrDefault(l => !cap.IsBanned(l) && pool[l] > 0);
+                    cost = info.Capability.Liquids.FirstOrDefault(l => !cap.IsBanned(l) && pool[l] > 0);
                     if (cost == null) return false;
                     type = "RESHAPE";
                     targetShape = req.Shape;
