@@ -1,5 +1,7 @@
 using System;
 using System.Text.Json;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 using JarSystem.Core.World;
 using Xunit;
 
