@@ -175,7 +175,7 @@ public readonly record struct AccountIdentity
             throw new FormatException("Account identity field is truncated.");
         try
         {
-            var field = StrictUtf8.GetString(bytes, offset, byteLength);
+            var field = new UTF8Encoding(false, true).GetString(bytes, offset, byteLength);
             offset += byteLength;
             return field;
         }
