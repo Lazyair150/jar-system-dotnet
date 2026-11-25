@@ -230,3 +230,19 @@ After completing the Host lifecycle boundary, the next implementation slice adds
 - GitHub branch reads confirmed the new type, parser, adapter overloads, transfer guards and tests are present.
 - No local .NET build/test execution is available in this environment.
 - The latest queried commit status/workflow endpoints returned no PR-associated run. The connector's workflow-run wrapper filters to PR-triggered runs, so this is not proof that no push workflow ran. Current-head CI remains **unconfirmed**.
+
+
+### Follow-up hardening after the first OwnerIdentity commit
+
+- Added strict AccountId v2 parsing and round-trip validation. The parser requires exactly four canonical UTF-8 length-prefixed fields and rejects malformed lengths, leading zeros, truncation, invalid UTF-8, unknown owner-kind tokens, trailing data and v1 input.
+- Transfer request and receipt validation now call the World-scope guard directly; same-World v2 transfers are accepted, cross-World v2 transfers and mixed v1/v2 transfers are rejected. Legacy v1-to-v1 remains a deliberate compatibility path.
+- Workshop typed adapter overloads now require the supplied OwnerIdentity.LocalOwnerId to exactly match the live Workshop.OwnedInstanceId; a mismatched identity is rejected.
+- Adapter optimistic version tokens use full canonical AccountId rather than LocalOwnerId, avoiding token collisions between same-local-ID owners in separate Worlds.
+- Added regression coverage for parser round-trip/rejection, cross-World and mixed-version transfer rejection, exact Workshop owner binding and distinct order-scoped staging identities.
+
+Latest lifecycle/identity implementation commits include:
+- Host lifecycle and restore migration: `18e094f0f13679f058c34747e966365b2d46032f`, `4288f204d8956cc2ff4558a8a69489d827539aa7`, `4a6a9b762350a3390998138756beb93c0977449c`, `8f6194bbf1bfb0414b6368f1e17bd1d649d540f4`.
+- Typed OwnerIdentity and AccountId v2: `3902e1b021d4b101763b152b9536c1067394bc2b`, `86e445d485ce08aedddda616cdae3488ed2a0bf7`, `f0eb02fb423aa70c25977f17e9557da8a4c9a0f0`, `d401b2d349eefb8df5fbe3d0dfb13b1b104e26d4`.
+- Transfer isolation and adapter hardening: `227f50f5042ae1f7f38ecd4ec32f5d29f65f21f8`, `7065d67b7b44ac17f894fc6d63386442ccf5e6ed`, `f88ca26fcc1bb887394f55149b20f366f7150925`, `bfbea930143c44b12191e4ba04b24f4937595a88`.
+
+The integration branch compares as 61 commits ahead and 0 behind the previously verified code baseline `e78abd388aeee0785933feef894e53292b955e60`. The latest queried commit has no returned combined status or PR-associated workflow run; CI remains unconfirmed. No local .NET build or xUnit execution is claimed.
