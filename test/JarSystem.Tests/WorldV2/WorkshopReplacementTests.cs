@@ -643,19 +643,27 @@ public sealed class WorkshopReplacementTests
     public void WorldV2ProductionCannotConsumeMasterPrefillRollbackCapacity()
     {
         var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
-        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 3 });
+        var worldId = new WorldInstanceId("world-prefill-rollback-endpoints");
+        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "ship-rollback");
+        var productionOwner = new OwnerIdentity(worldId, ResourceOwnerKind.ProductionArea, "production-rollback");
+        var warehouseOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Warehouse, "warehouse-rollback");
+        var oldMasterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "old-master-rollback");
+        var targetOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "target-master-rollback");
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 3 }, shipOwner);
         var resources = new ResourceArea(
-            new ProducerModule(vocabulary),
+            new ProducerModule(vocabulary, warehouseOwnerIdentity: warehouseOwner),
             new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
             {
                 ["酒"] = 0.001,
                 ["蜜"] = 0.001
             }),
-            0, 0, ship);
+            0, 0, ship, productionOwner);
         var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4,
+            ownedInstanceId: "old-master-rollback", ownerIdentity: oldMasterOwner);
         var target = new Workshop("目标主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4,
+            ownedInstanceId: "target-master-rollback", ownerIdentity: targetOwner);
         oldMaster.AddJar(new Jar("圆罐", vocabulary: vocabulary));
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
         {
@@ -666,7 +674,11 @@ public sealed class WorkshopReplacementTests
             logicalTimePerUnit: 1_000,
             passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
-            shipLiquidInventory: ship);
+            shipLiquidInventory: ship,
+            worldInstanceId: worldId,
+            ownerIdentities: new WorldV2OwnerIdentityMap(
+                worldId, "ship-rollback", "board-rollback", "production-rollback", "warehouse-rollback",
+                Array.Empty<string>(), new[] { "old-master-rollback", "target-master-rollback" }));
 
         var begin = world.Runtime.BeginReplacement(
             WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 2_000_000);
@@ -686,9 +698,13 @@ public sealed class WorkshopReplacementTests
         Assert.InRange(ship.GetAmount("酒"), 3, 4);
         Assert.Equal(4, ship.UsedCapacity);
         Assert.Empty(world.Admission.GetPrefillBalances(target));
-        Assert.Contains(world.ResourceLedger.For(ResourceCauses.Return), item =>
+        var rollbackEvent = Assert.Single(world.ResourceLedger.For(ResourceCauses.Return), item =>
             item.From == "主台预置" && item.To == "自机液库" &&
             item.Reason == "主工作台切换回滚");
+        Assert.Equal(ResourceEndpointKind.Account, rollbackEvent.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, rollbackEvent.ToEndpoint.Kind);
+        Assert.Equal("target-master-rollback", AccountIdentity.ParseV2(rollbackEvent.FromEndpoint.AccountId!).Owner.LocalOwnerId);
+        Assert.Equal("ship-rollback", AccountIdentity.ParseV2(rollbackEvent.ToEndpoint.AccountId!).Owner.LocalOwnerId);
     }
 
     [Fact]
