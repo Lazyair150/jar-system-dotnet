@@ -223,8 +223,6 @@ public static class SolverPrecheck
     private static bool CanServeFree(Requirement req, JarState jar, WorkshopInfo info)
     {
         var cap = info.Capability;
-        if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) return false;
-
         if (req.Liquid != null)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
                 && string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal);
@@ -254,10 +252,10 @@ public static class SolverPrecheck
 
         if (req.Liquid != null)
         {
-            // 满罐需求：形状必须已经是 req.Shape，且工作台必须能操作该 Jar 极性
+            // 满罐需求：形状必须已经是 req.Shape；Ban 不参与 Jar 操作许可
             if (!string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return false;
 
-            // ① 已经是 S/l 满罐 ⇒ MATCH（仍须满足工作台与 Jar 的极性兼容）
+            // ① 已经是 S/l 满罐 ⇒ MATCH
             if (string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal)) return true;
 
             // ② 是空 S 罐 ⇒ POUR_IN（要求 S 在基础标记内、液体未被禁、且还弄得一份）
@@ -279,8 +277,7 @@ public static class SolverPrecheck
         // ③ 满罐改形：资源只从 Jar 内部扣除，不经过 staging Ban。
         if (cap.CanTransform(jar.Shape, req.Shape)) return true;
         // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH；Jar 状态变化允许，产液在 staging 被拒绝时丢弃。
-        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
-            && !cap.IsBanned(jar.Liquid!);
+        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -311,7 +308,7 @@ public static class SolverPrecheck
             for (int i = 0; i < st.Count && !applied; i++)
             {
                 var j = st[i];
-                if (j.IsMarked || !cap.CanOperateJar(cap.ResolvePolarity(j.Liquid))) continue;
+                if (j.IsMarked) continue;
 
                 if (req.Liquid != null)
                 {
@@ -344,9 +341,9 @@ public static class SolverPrecheck
                     break;
                 }
                 // 满罐改形（自耗）
-                if (cap.ResolvePolarity(j.Liquid) != JarPolarity.Neutral && cap.CanOperateJar(cap.ResolvePolarity(j.Liquid)) && cap.CanTransform(j.Shape, req.Shape))
+                if (cap.ResolvePolarity(j.Liquid) != JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
                 {
-                    // Liquid is consumed from the Jar, while Workshop polarity authority still applies.
+                    // Liquid is consumed from the Jar; staging Ban is not consulted.
                     j.Liquid = null;
                     j.Shape = req.Shape;
                     j.IsMarked = true;
