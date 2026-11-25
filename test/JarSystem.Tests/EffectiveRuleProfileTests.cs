@@ -127,8 +127,7 @@ public sealed class EffectiveRuleProfileTests
         var first = Contribution("rule.alpha", "instance.a", "slot.a", 1);
         var progressed = first with
         {
-            Source = first.Source with { SourceRevision = 2 },
-            Parameters = [new RuleContributionParameter("strength", "2")]
+            Source = first.Source with { SourceRevision = 2 }
         };
 
         var before = EffectiveRuleProfile.Create("board.demo", 1, 1, [first]);
