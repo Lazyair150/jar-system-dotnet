@@ -661,3 +661,6 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 该路径只针对 Workshop 订单子账到另一 Workshop 同一订单子账；不触及 Workshop 游离液体、预置液体、Ship 库存、Warehouse 或 Jar 账户，也不合并这些账户。
 - 提交：实现 `e04ca3734379eda491d497e5dccff86769e94805`；测试 `c8f2e8d8b9b7c717740f250f315c562783e15e20`；取消幂等语义提交 `44d5c3461ca2d34df1f72120528efcb1111d92d4`；测试调整提交 `651b915685d4401bf759707250d67023fa0ae152`。
 - 验证 Run `45620718472` 正在执行，结果待记录。
+
+- 首轮事务参与者验证 Run `45620718472`：Build 通过，但 xUnit 894 项中 1 项失败，失败测试为 `CancelBeforeCommitIsTerminalAndDoesNotMoveResources`。失败原因是测试把第二次 Cancel 放在 Commit 完成之后，而契约只承诺提交前重复 Cancel 幂等；提交完成后取消应被拒绝。实现行为正确，测试调用顺序错误。
+- 已将重复 Cancel 移至 Commit 前，验证其幂等性；提交 `5b452f9deeda290c7ee5c7258fd526f9bf1f49f2`。新 CI 待完成，不能把上一轮失败运行算作通过。
