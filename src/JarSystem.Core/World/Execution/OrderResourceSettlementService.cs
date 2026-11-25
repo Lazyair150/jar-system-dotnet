@@ -171,6 +171,7 @@ public sealed class OrderResourceSettlementService
         var targetEndpoint = ship.OwnerIdentity is { } shipOwner
             ? ResourceEndpoint.ForAccount(new RuleResourceAccount(shipOwner, "ship.liquid-inventory").AccountId)
             : ResourceEndpoint.LegacyUnknown;
+        var discardEndpoint = ResourceEndpoint.ExternalSink("ship.liquid-inventory.capacity-overflow");
         var acceptedRemaining = new Dictionary<string, int>(aggregate.Accepted, StringComparer.Ordinal);
         var discardedRemaining = new Dictionary<string, int>(aggregate.Discarded, StringComparer.Ordinal);
         var result = new List<LiquidBatchSourceAllocation>();
@@ -209,7 +210,8 @@ public sealed class OrderResourceSettlementService
             }
             if (requested.Count > 0)
                 result.Add(new LiquidBatchSourceAllocation(
-                    GetOrderSourceEndpoint(scope), targetEndpoint, requested, accepted, discarded));
+                    GetOrderSourceEndpoint(scope), targetEndpoint, discardEndpoint,
+                    requested, accepted, discarded));
         }
     }
 
@@ -261,7 +263,7 @@ public sealed class OrderResourceSettlementService
                     From: "订单暂存", To: null, Reason: "自机液库总容量不足", ResourceIdentity: item.Key,
                     FromAccountId: sourceAccountId,
                     FromEndpoint: source.SourceEndpoint,
-                    ToEndpoint: ResourceEndpoint.ExternalSink("ship.liquid-inventory.capacity-overflow")));
+                    ToEndpoint: source.DiscardEndpoint));
         }
         return mutations;
     }
