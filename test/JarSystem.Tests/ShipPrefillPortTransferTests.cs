@@ -79,6 +79,43 @@ public sealed class ShipPrefillPortTransferTests
     }
 
     [Fact]
+    public void ResourceLedgerPersistsOperationIdAndPreventsCrossInstanceReplay()
+    {
+        var path = CreatePath();
+        var request = Request(path.SourceAdapter, path.TargetAdapter,
+            path.SourcePort, path.TargetPort, "酒", 2);
+        var ledger = new ResourceLedger();
+        var prepared = ShipPrefillPortTransfer.Prepare(
+            request, path.Connection, path.SourcePort, path.TargetPort,
+            path.SourceAdapter, path.TargetAdapter, path.Ship, path.Staging,
+            ledger, () => 91);
+
+        var receipt = prepared.Commit();
+
+        Assert.Equal(ResourceTransferOutcome.Transferred, receipt.Outcome);
+        Assert.True(ledger.HasRecordedOperation(request.OperationId));
+        var entry = Assert.Single(ledger.Entries);
+        Assert.Equal(91, entry.Tick);
+        Assert.Equal(ResourceCauses.Flow, entry.Cause);
+        Assert.Equal(ResourceKinds.Liquid, entry.Kind);
+        Assert.Equal("酒", entry.Name);
+        Assert.Equal(2, entry.Amount);
+        Assert.Equal(path.SourceAdapter.Account.OwnerId, entry.From);
+        Assert.Equal(path.TargetAdapter.Account.OwnerId, entry.To);
+
+        var restoredLedger = ResourceLedger.Restore(ledger.Capture());
+        var replay = ShipPrefillPortTransfer.Prepare(
+            request, path.Connection, path.SourcePort, path.TargetPort,
+            path.SourceAdapter, path.TargetAdapter, path.Ship, path.Staging,
+            restoredLedger, () => 92);
+
+        Assert.Throws<System.InvalidOperationException>(() => replay.Commit());
+        Assert.Equal(1, restoredLedger.Entries.Count);
+        Assert.Equal(3, path.Ship.GetAmount("酒"));
+        Assert.Equal(2, path.Staging.PrefillBalances["酒"]);
+    }
+
+    [Fact]
     public void ExactPrefillReservationRollbackRestoresBothAuthoritativeAccounts()
     {
         var path = CreatePath();
