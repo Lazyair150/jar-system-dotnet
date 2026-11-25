@@ -238,7 +238,8 @@ internal sealed class OrderTransferService
                     FromAccountId: WorkshopAccountId(master, "workshop.jar-storage"),
                     ToAccountId: WorkshopAccountId(slave, "workshop.jar-storage"),
                     FromEndpoint: WorkshopAccountEndpoint(master, "workshop.jar-storage"),
-                    ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.jar-storage")));
+                    ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.jar-storage"),
+                    DisplayName: jar.Shape));
         }
 
         if (masterScope == null)
@@ -253,7 +254,8 @@ internal sealed class OrderTransferService
                         FromAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"),
                         ToAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging"),
                         FromEndpoint: WorkshopAccountEndpoint(master, "workshop.free-liquid-staging"),
-                        ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.free-liquid-staging")));
+                        ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.free-liquid-staging"),
+                        DisplayName: item.Key));
             }
         }
         else
@@ -271,7 +273,8 @@ internal sealed class OrderTransferService
                         FromAccountId: WorkshopOrderAccountId(master, demandId),
                         ToAccountId: WorkshopOrderAccountId(slave, demandId),
                         FromEndpoint: WorkshopOrderAccountEndpoint(master, demandId),
-                        ToEndpoint: WorkshopOrderAccountEndpoint(slave, demandId)));
+                        ToEndpoint: WorkshopOrderAccountEndpoint(slave, demandId),
+                        DisplayName: item.Key));
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
 
