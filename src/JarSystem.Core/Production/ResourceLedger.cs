@@ -246,9 +246,14 @@ public sealed class ResourceLedger
                 Reason = item.Reason
             });
         }
-        _seq = nextSeq;
+        // Allocate all backing storage before publishing either the operation marker or
+        // its facts. After these reservations, publication is a bounded in-memory append;
+        // this avoids a capacity-growth exception splitting the event batch from its ID.
+        _entries.EnsureCapacity(checked(_entries.Count + events.Count));
+        _operationIds.EnsureCapacity(checked(_operationIds.Count + 1));
+        if (!_operationIds.Add(operationId)) return false;
         _entries.AddRange(events);
-        _operationIds.Add(operationId);
+        _seq = nextSeq;
         Trim();
         return true;
     }
