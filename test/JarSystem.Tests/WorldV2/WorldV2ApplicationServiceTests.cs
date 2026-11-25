@@ -659,11 +659,11 @@ public sealed class WorldV2ApplicationServiceTests
 
         var json = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(
             firstApp.CaptureExecutionResourceCheckpoint());
+        var persistedOptions = firstApp.CaptureWorldOptions();
 
         using var restoredHost = new WorldV2HostService();
         var restoredApp = new WorldV2ApplicationService(restoredHost);
-        restoredApp.CreateOrReplaceWorld(Options());
-        restoredApp.RestoreExecutionResourceCheckpointJson(Options(), json);
+        restoredApp.RestoreExecutionResourceCheckpointJson(persistedOptions, json);
 
         var restoredEvent = Assert.Single(restoredApp.GetPendingOrderCycleEvents());
         Assert.Equal(firstRead.EventId, restoredEvent.EventId);
@@ -760,11 +760,11 @@ public sealed class WorldV2ApplicationServiceTests
 
         var checkpointJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(
             firstApp.CaptureExecutionResourceCheckpoint());
+        var persistedOptions = firstApp.CaptureWorldOptions();
 
         using var restoredHost = new WorldV2HostService();
         var restoredApp = new WorldV2ApplicationService(restoredHost);
-        restoredApp.CreateOrReplaceWorld(Options());
-        restoredApp.RestoreExecutionResourceCheckpointJson(Options(), checkpointJson);
+        restoredApp.RestoreExecutionResourceCheckpointJson(persistedOptions, checkpointJson);
 
         var duplicate = restoredApp.ImportProducedJars("stone-batch-checkpoint",
             new Dictionary<string, int> { ["方罐"] = 2 });
