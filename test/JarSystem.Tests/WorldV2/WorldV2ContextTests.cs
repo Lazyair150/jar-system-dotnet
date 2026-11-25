@@ -647,6 +647,7 @@ public sealed class WorldV2ContextTests
             CreateSolverRegistry(), logicalTimePerUnit: 1_000,
             passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: new ShipLiquidInventory(4),
             worldInstanceId: new WorldInstanceId("world-session-a"));
 
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
@@ -673,6 +674,7 @@ public sealed class WorldV2ContextTests
             CreateSolverRegistry(), logicalTimePerUnit: 1_000,
             passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: new ShipLiquidInventory(4),
             worldInstanceId: new WorldInstanceId("world-session-b"));
 
         Assert.NotEqual(firstWorld.WorldInstanceId, secondWorld.WorldInstanceId);
