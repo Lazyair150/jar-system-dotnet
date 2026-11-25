@@ -11,11 +11,20 @@ public sealed class ShipLiquidInventory
     private int _reservedReturnCapacity;
     private readonly IReadOnlyDictionary<string, int> _view;
 
-    public ShipLiquidInventory(int capacity, IReadOnlyDictionary<string, int>? initialBalances = null)
+    public OwnerIdentity? OwnerIdentity { get; }
+
+    public ShipLiquidInventory(
+        int capacity,
+        IReadOnlyDictionary<string, int>? initialBalances = null,
+        OwnerIdentity? ownerIdentity = null)
     {
         if (capacity < 0)
             throw new DomainValidationException("自机液库容量不能为负数。");
+        if (ownerIdentity.HasValue &&
+            (!ownerIdentity.Value.IsValid || ownerIdentity.Value.OwnerKind != ResourceOwnerKind.Ship))
+            throw new ArgumentException("ShipLiquidInventory requires a Ship OwnerIdentity.", nameof(ownerIdentity));
 
+        OwnerIdentity = ownerIdentity;
         Capacity = capacity;
         if (initialBalances is not null)
         {
