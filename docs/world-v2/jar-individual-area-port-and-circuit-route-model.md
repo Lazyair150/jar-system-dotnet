@@ -237,6 +237,17 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 - 共享 `ResourcePortTransferGuards` 统一两端版本令牌、规则决策与 OperationId 检查；同一个 OperationId 的跨实例重放由 ResourceLedger 检查点阻断。
 - 当前只支持一个液种、精确数量、全有或全无；旧换台/订单迁徙流程不因此自动改写。
 
+### 3.11 第六条事务参与者：工作台 Jar 存储区到工作台 Jar 存储区
+
+`WorkshopJarPortTransfer.Prepare` 连接两个不同 Workshop 的 Jar Storage Output/Input：
+
+- Jar 仍按一个离散实体处理：资源身份为正整数 JarId，数量固定为 1。
+- 提交时从来源 Workshop 移出原 Jar 对象，再把同一引用放入目标 Workshop；不复制 Jar，也不修改形状、液体或操作标记。
+- 失败补偿使用两端 `WorkshopSnapshot`。快照保留原始 Jar 引用，恢复时先还原目标，再还原来源，因此可恢复实体身份而非仅恢复聚合数量。
+- Workshop Ban 只限制游离液体账户，不限制 Jar 内部液体；目标 Workshop 禁止“蜜”时，装有“蜜”的 Jar 仍可作为 Jar 移动。
+- 账本写入 `transfer/jar` 事实，记录 Jar Shape 与两端账户身份；OperationId 通过 ResourceLedger 检查点去重。
+- 当前不涉及 B 类订单租约/Manifest/步骤交接语义，也不代替 `OrderTransferService`；它只是两个 Jar 存储账户之间的精确所有权事务。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
