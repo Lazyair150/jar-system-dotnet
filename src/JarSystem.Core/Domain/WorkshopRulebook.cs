@@ -65,12 +65,12 @@ public readonly struct WorkshopOperation
 /// <summary>罐子的规则相关状态（不含身份与词表：规则不看这些）。</summary>
 public readonly struct JarFacts
 {
-    public JarFacts(string shape, string? liquid, bool isMarked, JarPolarity? polarity = null)
+    public JarFacts(string shape, string? liquid, bool isMarked, JarPolarity polarity)
     {
         Shape = shape;
         Liquid = liquid;
         IsMarked = isMarked;
-        Polarity = polarity ?? JarPolarityResolver.Resolve(liquid, Vocabulary.Default);
+        Polarity = polarity;
         if ((liquid == null) != (Polarity == JarPolarity.Neutral))
             throw new ArgumentException("Jar facts must pair empty liquid with Neutral and non-empty liquid with a liquid polarity.");
     }
