@@ -258,4 +258,29 @@ public class ResourceProvenanceTests
                                   && e.Reason == "主台罐子容量满");
         Assert.All(lost, e => Assert.False(string.IsNullOrEmpty(e.Reason)));
     }
+
+    [Fact]
+    public void ProducerModuleReplacementAndWorldResetKeepTheInjectedJarIdentitySource()
+    {
+        var world = QuietWorld();
+        world.Producers = [new ProducerOptions { Name = "陶工", Rates = new() { ["圆罐"] = 1.0 } }];
+        var ids = new SequentialIdGenerator();
+        var sys = new JarSystem.Core.JarSystem(
+            randomSeed: 29, world: world, jarIds: ids, orderIds: new SequentialIdGenerator());
+
+        var beforeReplacement = ids.CurrentValue;
+        sys.ResetProducerModule();
+        sys.Tick();
+        var firstProducedJar = Assert.Single(sys.ProducerModule.Warehouse.Jars);
+        Assert.Equal(beforeReplacement + 1, firstProducedJar.Id);
+        Assert.Equal(beforeReplacement + 1, ids.CurrentValue);
+
+        var beforeWorldReset = ids.CurrentValue;
+        sys.Reset();
+        sys.Tick();
+        var secondProducedJar = Assert.Single(sys.ProducerModule.Warehouse.Jars);
+        Assert.Equal(beforeWorldReset + 1, secondProducedJar.Id);
+        Assert.Equal(beforeWorldReset + 1, ids.CurrentValue);
+    }
+
 }
