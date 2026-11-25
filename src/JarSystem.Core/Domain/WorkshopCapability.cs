@@ -68,40 +68,17 @@ public sealed class WorkshopCapability
 
     public bool IsBanned(string liquid) => Ban.Contains(liquid) || Ban.Contains("禁" + liquid);
 
-    /// <summary>
-    /// The bench operating polarity is derived from its liquid Ban:
-    /// banning one configured liquid identity focuses the workshop on the opposite configured polarity.
-    /// No bans preserve unrestricted legacy operation; banning both leaves Neutral Jars only.
-    /// </summary>
+    /// <summary>Liquid identities known to this World; Ban is a staging-account policy only.</summary>
     public IReadOnlyList<string> Liquids => _vocabulary.Liquids;
 
-    public JarPolarity ResolvePolarity(string? liquid)
-    {
-        if (liquid is null) return JarPolarity.Neutral;
-        return _vocabulary.ResolveLiquidPolarity(liquid) == LiquidPolarity.Cathode
-            ? JarPolarity.Cathode
-            : JarPolarity.Anode;
-    }
+    /// <summary>
+    /// Kept as a compatibility projection. A liquid Ban does not define a Jar-operation
+    /// polarity restriction, so workshop polarity remains unrestricted.
+    /// </summary>
+    public WorkshopPolarityMode PolarityMode => WorkshopPolarityMode.Unrestricted;
 
-    public WorkshopPolarityMode PolarityMode
-    {
-        get
-        {
-            var firstLiquid = _vocabulary.Liquids[0];
-            var secondLiquid = _vocabulary.Liquids[1];
-            var firstBlocked = IsBanned(firstLiquid);
-            var secondBlocked = IsBanned(secondLiquid);
-            if (firstBlocked && secondBlocked) return WorkshopPolarityMode.NeutralOnly;
-            if (!firstBlocked && !secondBlocked) return WorkshopPolarityMode.Unrestricted;
-
-            var allowedPolarity = _vocabulary.ResolveLiquidPolarity(firstBlocked ? secondLiquid : firstLiquid);
-            return allowedPolarity == LiquidPolarity.Cathode
-                ? WorkshopPolarityMode.Cathode
-                : WorkshopPolarityMode.Anode;
-        }
-    }
-
-    public bool CanOperateJar(JarPolarity polarity) => CanOperateJar(PolarityMode, polarity);
+    /// <summary>Ban never restricts possession or operation of a Jar's internal liquid.</summary>
+    public bool CanOperateJar(JarPolarity polarity) => true;
 
     public static bool CanOperateJar(WorkshopPolarityMode mode, JarPolarity polarity) => mode switch
     {
