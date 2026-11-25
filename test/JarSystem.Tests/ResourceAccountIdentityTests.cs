@@ -191,4 +191,24 @@ public sealed class ResourceAccountIdentityTests
             RuleResourceAccount.ValidateTransferScope(source, legacyTarget));
     }
 
+
+    [Fact]
+    public void WorldOwnerIdentityMapRequiresUniqueExactLocalInstanceIdsAndOneWorld()
+    {
+        var worldId = new WorldInstanceId("world-map");
+        var map = new WorldV2OwnerIdentityMap(
+            worldId, "ship-1", "board-1", "production-1", "warehouse-1",
+            new[] { "producer-1" }, new[] { "workshop-1", "workshop-2" });
+
+        map.ValidateForWorld(worldId);
+        Assert.Equal(ResourceOwnerKind.Producer, map.GetProducer("producer-1").OwnerKind);
+        Assert.Equal(ResourceOwnerKind.Workshop, map.GetWorkshop("workshop-2").OwnerKind);
+        Assert.Throws<System.ArgumentException>(() =>
+            map.ValidateForWorld(new WorldInstanceId("another-world")));
+        Assert.Throws<System.ArgumentException>(() =>
+            new WorldV2OwnerIdentityMap(
+                worldId, "ship-1", "board-1", "production-1", "warehouse-1",
+                new[] { "producer-1", "producer-1" }, new[] { "workshop-1" }));
+    }
+
 }
