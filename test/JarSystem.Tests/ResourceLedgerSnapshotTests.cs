@@ -739,8 +739,8 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.True(ledger.RecordBatchOnce("operation.tagged.endpoints", 2, new[]
         {
             new ResourceLedgerMutation(
-                ResourceCauses.Stock, ResourceKinds.Liquid, "酒", 3,
-                ResourceIdentity: "酒",
+                ResourceCauses.Stock, ResourceKinds.Liquid, "wine", 3,
+                ResourceIdentity: "liquid.wine", DisplayName: "酒",
                 FromEndpoint: ResourceEndpoint.ExternalSource("world.initialization"),
                 ToEndpoint: ResourceEndpoint.ForAccount(ship.AccountId)),
             new ResourceLedgerMutation(
