@@ -103,7 +103,7 @@ public class WorkshopReshapeTests
     }
 
     [Fact]
-    public void FullJarSelfConsumeUsesJarOwnedLiquidWithoutStagingBan
+    public void FullJarSelfConsumeUsesJarOwnedLiquidWithoutStagingBan()
     {
         var w = Xuanwu();
         var jar = new Jar("圆罐", "蜜", null, Vocab());
