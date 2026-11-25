@@ -697,3 +697,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - ResourceLedger 集成首轮 Run `45623969688` 在 Build 阶段失败，原因不是领域代码编译错误，而是两条新增测试违反 xUnit Analyzer `xUnit2013`：使用 `Assert.Equal(1, collection.Count)` 检查集合长度。已按规范改为 `Assert.Single(collection)`，分别提交 `8367385281826e1408a179ec50815a771d09d18d`、`0e41f0bb0057198af96b92fe8fd885daae0b57db`。最新验证待完成。
 
 - 对持久账本检测到的重复 OperationId，Prepared 参与者进入终态 Duplicate；后续 Commit 与 Cancel 均拒绝，防止把重复执行状态伪装成普通可取消准备态。补充两条路径的终态测试；相关提交：`70f80a19c616dcb35599857a44635b60d95458a2`、`567ed788dd903c41897644092936b0451ab16e45`、`50a2510bf50477d75d2abf40bf7926bbbd1b0853`、`8cb6479f01e9a598e44e981343cd98b2084c7eab`。
+
+- 持久去重依据已核实：`WorldV2Context.CaptureExecutionResourceCheckpoint` 捕获 `ResourceLedger.Capture()`；恢复路径先 `ResourceLedger.Restore(checkpoint.ResourceLedger)` 校验，再 `ResourceLedger.RestoreFrom` 装载；`ResourceLedgerSnapshot` 包含 OperationIds。因此传入 World 持有的同一 ResourceLedger 时，操作去重标记确实进入执行检查点，而非仅存在于临时对象内。
