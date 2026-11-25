@@ -256,3 +256,11 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 - 绿色 head 之后继续检查公开的 `WorldV2Context.Create`，新增同一 World 内所有工作台必须共享相同液体身份集合与极性映射的装配约束，避免一个 Jar 在同一 World 的不同岗位被解释为不同极性。Context 的液体目录也必须与工作台词表一致。
 - 新增反向映射冲突测试。最新 Core head 为 `fd0b3761babe3af7f7d770483004ef1a454021f8`，对应 runs `45587631031` / `45587642292` 在本节更新时仍执行中；只有这两个精确 head workflow 完成后，才能将其作为 Space pin。
 - Space 当前 head `a8daee73df55bf30125960a9a6231ea93e706d4f` 在旧 Core pin `b342259fe04363386085dc9a4ca995112954ed43` 下的 run `45577582987` 成功，但不代表新 Core 整合通过。下一步是更新 Space workflow 的 Core checkout SHA 与 `CORE_EXPECTED_SHA`，重新执行 Godot 4.7.1 全套跨仓库验证。
+
+
+## 2026-11-25 第十一轮：Core 绿色源版本与 Space 精确集成验证
+
+- Core source commit `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7` 的两个 exact-head verify runs `45588065611` / `45588076128` 均 SUCCESS；854 项 xUnit 与 build / Host / resource samples / contract / schema / configuration equivalence 全部通过。
+- 该源版本还明确拒绝不包含 World-owned polarity mapping 的旧 checkpoint schema v2，避免把历史 JSON 缺字段误当成默认世界语义。
+- Space PR #2 workflow 已将 checkout 与 `CORE_EXPECTED_SHA` 固定到 Core `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。Space 当前 head `a19a6afcf47d06bf500764407bad63e8f6bd5dde` 的联合 run `45588639250` 正在执行，待 Godot 4.7.1 的 build/import/probe 全部结束。
+- 目前 GitHub 仅有 Core PR #63 与 Space PR #2 两个 Open Draft PR；历史 superseded PR 已关闭，历史分支保留。
