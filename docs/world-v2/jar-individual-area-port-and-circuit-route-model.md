@@ -154,6 +154,25 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 
 这些纯值契约只定义协议和可审计事实，不代表事务协调器已经实现。跨账户提交仍必须由一个明确事务边界完成；不能把分别调用 Input.TryReceive 与 Output.TryWithdraw 当成原子转移。只有当具体账户 Adapter 能提供可复验的版本与提交/回滚能力后，才允许接入 Transfer Coordinator。
 
+
+### 3.5 第一批只读 Port Adapter
+
+第一批 Adapter 只做只读预检，不直接写账户、不提交资源转移，也不宣称实现了原子性：
+
+| Adapter | 权威账户身份 | 预检职责 |
+|---|---|---|
+| `WorkshopFreeLiquidPortAdapter` | `workshop.free-liquid-staging / OwnedInstanceId` | 使用 Workshop 的 `CanStoreLiquid` / `CanUseLiquid` |
+| `WorkshopOrderLiquidPortAdapter` | `workshop.order-liquid-staging / OwnedInstanceId:order:OrderId` | 使用指定订单子账的 `CanAcceptOperation` / `CanConsume`，并观察共享暂存容量 |
+| `ShipLiquidInventoryPortAdapter` | `ship.liquid-inventory / ShipIndividualId` | 输入检查自机液库共享剩余容量，输出检查指定液种库存 |
+
+所有 Adapter 均要求调用方提供精确 AreaId 和 Individual/Workshop 实例身份；不以显示名称、主从角色或数组位置替代身份。
+
+每个预检结果携带权威账户版本令牌。当前领域账户尚无统一整数版本号，因此令牌由确定性排序后的权威账户状态计算，不伪造递增计数。订单暂存令牌同时包含订单子账余额与共享容量/预留摘要。
+
+端口的资源身份白名单、单次数量上限和策略 ID/版本均参与预检。逻辑时间吞吐限制需要调度器提供时间窗口；在调度器接入前，遇到此类限制必须返回 Undetermined，不能猜测为 Allowed。
+
+这些 Adapter 当前没有 Apply/Commit API。下一步要先完成 Jar Storage Adapter 与预置账户 Adapter，再将各账户的现有事务能力抽象为可回滚参与者；只有全部参与者具备版本复验与补偿能力，才可实现统一 Transfer Coordinator。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
