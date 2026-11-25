@@ -160,6 +160,8 @@ public sealed class WorldV2HostServiceTests
     {
         using var host = new WorldV2HostService();
         var options = ValidOptions();
+        options.Producers[0].ProducerInstanceId = "producer-instance-1";
+        options.Workshops[0].OwnedInstanceId = "workshop-owned-1";
         var worldId = new WorldInstanceId("world-owner-map-1");
         var ownerMap = new WorldV2OwnerIdentityMap(
             worldId,
@@ -168,7 +170,7 @@ public sealed class WorldV2HostServiceTests
             "production-area-1",
             "warehouse-1",
             new[] { "producer-instance-1" },
-            new[] { "workshop-owned-1", "workshop-owned-2" });
+            new[] { "workshop-owned-1" });
 
         host.Replace(options, worldId, ownerMap);
         var application = new WorldV2ApplicationService(host);
