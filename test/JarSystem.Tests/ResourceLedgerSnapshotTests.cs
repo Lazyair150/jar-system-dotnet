@@ -760,6 +760,9 @@ public sealed class ResourceLedgerSnapshotTests
         var decodedWire = WorldV2CheckpointJsonCodec.Decode<ResourceLedgerWireDto>(encoded).Payload;
         var restored = ResourceLedger.Restore(decodedWire.ToSnapshot());
         Assert.Equal(ResourceEndpointKind.ExternalSource, restored.Entries[0].FromEndpoint.Kind);
+        Assert.Equal("liquid.wine", restored.Entries[0].ResourceIdentity);
+        Assert.Equal("酒", restored.Entries[0].DisplayName);
+        Assert.Equal("酒", restored.Entries[0].Name);
         Assert.Equal(ResourceEndpointKind.Account, restored.Entries[0].ToEndpoint.Kind);
         Assert.Equal(ship.AccountId, restored.Entries[0].ToEndpoint.AccountId);
         Assert.Equal(warehouse.AccountId, restored.Entries[1].ToEndpoint.AccountId);
