@@ -110,7 +110,7 @@ public sealed class WorldV2ApplicationService
             var storedJars = storedByShape
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .SelectMany(pair => Enumerable.Range(0, pair.Value)
-                    .Select(_ => new Jar(pair.Key, id: context.Roster.Master!.AllocateJarId(), vocabulary: vocabulary)))
+                    .Select(_ => new Jar(pair.Key, id: context.Resources.Inventory.AllocateJarId(), vocabulary: vocabulary)))
                 .ToArray();
             var discardedJars = discardedByShape
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
