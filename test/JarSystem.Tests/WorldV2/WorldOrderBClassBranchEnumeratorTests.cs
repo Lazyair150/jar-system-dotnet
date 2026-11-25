@@ -68,7 +68,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
-    public void BClassCanCompleteRequirementOnMasterWhenSlaveCannotOperateThatJar()
+    public void BClassCanCompleteRequirementAfterHandoffRegardlessOfSlaveStagingBan()
     {
         var master = new Workshop("阴极主台",
             new List<string> { "圆罐" }, ban: new List<string> { "蜜" },
@@ -84,17 +84,18 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         });
         Assert.Contains(input.Master.Requirements.Single().Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Empty(input.Slave.Requirements.Single().Candidates);
+        Assert.Contains(input.Slave.Requirements.Single().Candidates,
+            candidate => candidate.Operation == "MATCH");
 
         var result = WorldOrderBClassBranchEnumerator.Enumerate(
             913, input.Master, input.Slave, input.World);
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
         var plan = result.Assembly!.CandidatePlan!;
-        Assert.Contains(plan.MasterSteps, step =>
+        var allSteps = plan.MasterSteps.Concat(plan.SlaveSteps).ToList();
+        Assert.Contains(allSteps, step =>
             step.Operation?.Type == "MATCH" &&
             step.Before![step.Operation.JarIndex!.Value].Id == 9131);
-        Assert.Empty(plan.SlaveSteps);
         Assert.Equal(new[] { 9131 }, plan.TransferJarIds);
         var masterMatch = Assert.Single(plan.MasterSteps);
         Assert.True(masterMatch.After![masterMatch.Operation!.JarIndex!.Value].IsMarked);
@@ -553,8 +554,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         });
         Assert.Contains(input.Master.Requirements[0].Candidates,
             candidate => candidate.Operation == "MATCH");
-        Assert.Empty(input.Slave.Requirements[0].Candidates);
-        Assert.Empty(input.Master.Requirements[1].Candidates);
+        Assert.Contains(input.Slave.Requirements[0].Candidates,
+            candidate => candidate.Operation == "MATCH");
+        Assert.Contains(input.Master.Requirements[1].Candidates,
+            candidate => candidate.Operation == "MATCH");
         Assert.Contains(input.Slave.Requirements[1].Candidates,
             candidate => candidate.Operation == "MATCH");
 
@@ -563,10 +566,10 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
         Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, result.Status);
         var plan = result.Assembly!.CandidatePlan!;
-        Assert.Equal(new[] { 9141 }, plan.MasterSteps.Select(step =>
-            step.Before![step.Operation!.JarIndex!.Value].Id!.Value));
-        Assert.Equal(new[] { 9142 }, plan.SlaveSteps.Select(step =>
-            step.Before![step.Operation!.JarIndex!.Value].Id!.Value));
+        var assignedJarIds = plan.MasterSteps.Concat(plan.SlaveSteps)
+            .Select(step => step.Before![step.Operation!.JarIndex!.Value].Id!.Value)
+            .OrderBy(id => id);
+        Assert.Equal(new[] { 9141, 9142 }, assignedJarIds);
         Assert.Equal(new[] { 9141, 9142 }, plan.TransferJarIds.OrderBy(id => id));
     }
 
