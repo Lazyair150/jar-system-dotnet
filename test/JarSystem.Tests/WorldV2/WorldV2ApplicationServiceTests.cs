@@ -59,6 +59,44 @@ public sealed class WorldV2ApplicationServiceTests
     };
 
     [Fact]
+    public void ApplicationServiceCapturesHostAssignedOwnerIdsForDurableWorldRebuild()
+    {
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        var callerOptions = Options();
+
+        app.CreateOrReplaceWorld(callerOptions);
+
+        // The application snapshots caller input before the Host assigns opaque runtime IDs.
+        Assert.Null(callerOptions.Producers[0].ProducerInstanceId);
+        Assert.All(callerOptions.Workshops, workshop => Assert.Null(workshop.OwnedInstanceId));
+
+        var persistedOptions = app.CaptureWorldOptions();
+        Assert.False(string.IsNullOrWhiteSpace(persistedOptions.Producers[0].ProducerInstanceId));
+        Assert.All(persistedOptions.Workshops,
+            workshop => Assert.False(string.IsNullOrWhiteSpace(workshop.OwnedInstanceId)));
+
+        var ownerMap = Assert.IsType<WorldV2OwnerIdentityMap>(app.GetOwnerIdentityMap());
+        Assert.True(ownerMap.Producers.Keys.ToHashSet(StringComparer.Ordinal)
+            .SetEquals(persistedOptions.Producers.Select(item => item.ProducerInstanceId!)));
+        Assert.True(ownerMap.Workshops.Keys.ToHashSet(StringComparer.Ordinal)
+            .SetEquals(persistedOptions.Workshops.Select(item => item.OwnedInstanceId!)));
+
+        var json = System.Text.Json.JsonSerializer.Serialize(persistedOptions);
+        var roundTrip = System.Text.Json.JsonSerializer.Deserialize<WorldV2Options>(json)!;
+        Assert.Equal(persistedOptions.Producers[0].ProducerInstanceId,
+            roundTrip.Producers[0].ProducerInstanceId);
+        Assert.Equal(persistedOptions.Workshops.Select(item => item.OwnedInstanceId),
+            roundTrip.Workshops.Select(item => item.OwnedInstanceId));
+
+        var checkpoint = app.CaptureExecutionResourceCheckpoint();
+        using var restoredHost = new WorldV2HostService();
+        var restoredApp = new WorldV2ApplicationService(restoredHost);
+        restoredApp.RestoreExecutionResourceCheckpoint(roundTrip, checkpoint);
+        Assert.True(ownerMap.IsEquivalentTo(restoredApp.GetOwnerIdentityMap()));
+    }
+
+    [Fact]
     public void AddJarDemandFromTemplateUsesTheImmutableWorldTemplate()
     {
         var options = Options();
