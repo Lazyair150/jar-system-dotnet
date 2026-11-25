@@ -103,6 +103,88 @@ public readonly record struct AccountIdentity
         !string.IsNullOrWhiteSpace(AccountKind) &&
         string.Equals(AccountKind, AccountKind.Trim(), StringComparison.Ordinal);
 
+    public static AccountIdentity ParseV2(string value)
+    {
+        const string prefix = "account:v2:";
+        if (string.IsNullOrEmpty(value) || !value.StartsWith(prefix, StringComparison.Ordinal))
+            throw new FormatException("Account identity must use the account:v2 prefix.");
+
+        byte[] bytes;
+        try
+        {
+            bytes = new UTF8Encoding(false, true).GetBytes(value[prefix.Length..]);
+        }
+        catch (EncoderFallbackException exception)
+        {
+            throw new FormatException("Account identity contains invalid UTF-8 text.", exception);
+        }
+
+        var offset = 0;
+        var worldId = ReadUtf8Field(bytes, ref offset);
+        var ownerKindToken = ReadUtf8Field(bytes, ref offset);
+        var localOwnerId = ReadUtf8Field(bytes, ref offset);
+        var accountKind = ReadUtf8Field(bytes, ref offset);
+        if (offset != bytes.Length)
+            throw new FormatException("Account identity contains trailing bytes.");
+
+        var ownerKind = ownerKindToken switch
+        {
+            "ship" => ResourceOwnerKind.Ship,
+            "circuit-board" => ResourceOwnerKind.CircuitBoard,
+            "production-area" => ResourceOwnerKind.ProductionArea,
+            "warehouse" => ResourceOwnerKind.Warehouse,
+            "producer" => ResourceOwnerKind.Producer,
+            "workshop" => ResourceOwnerKind.Workshop,
+            _ => throw new FormatException("Account identity contains an unknown OwnerKind.")
+        };
+
+        try
+        {
+            var parsed = new AccountIdentity(
+                new OwnerIdentity(new WorldInstanceId(worldId), ownerKind, localOwnerId),
+                accountKind);
+            if (!string.Equals(parsed.ToCanonicalString(), value, StringComparison.Ordinal))
+                throw new FormatException("Account identity is not in canonical form.");
+            return parsed;
+        }
+        catch (ArgumentException exception)
+        {
+            throw new FormatException("Account identity contains an invalid field.", exception);
+        }
+    }
+
+    private static string ReadUtf8Field(byte[] bytes, ref int offset)
+    {
+        var lengthStart = offset;
+        while (offset < bytes.Length && bytes[offset] != (byte)':')
+        {
+            if (bytes[offset] < (byte)'0' || bytes[offset] > (byte)'9')
+                throw new FormatException("Account identity field length is malformed.");
+            offset++;
+        }
+        if (offset == lengthStart || offset >= bytes.Length)
+            throw new FormatException("Account identity field length is missing.");
+        var lengthText = Encoding.ASCII.GetString(bytes, lengthStart, offset - lengthStart);
+        if (!int.TryParse(lengthText, NumberStyles.None, CultureInfo.InvariantCulture, out var byteLength) ||
+            byteLength <= 0 ||
+            (lengthText.Length > 1 && lengthText[0] == '0'))
+            throw new FormatException("Account identity field length is not canonical.");
+
+        offset++;
+        if (byteLength > bytes.Length - offset)
+            throw new FormatException("Account identity field is truncated.");
+        try
+        {
+            var field = StrictUtf8.GetString(bytes, offset, byteLength);
+            offset += byteLength;
+            return field;
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new FormatException("Account identity field contains invalid UTF-8.", exception);
+        }
+    }
+
     public string ToCanonicalString()
     {
         if (!IsValid)
