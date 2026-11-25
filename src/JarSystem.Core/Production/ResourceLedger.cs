@@ -254,8 +254,6 @@ public sealed class ResourceLedger
         if (_operationIds.Contains(operationId)) return false;
 
         var batch = mutations.Where(item => item.Amount > 0).ToArray();
-        if (batch.Length == 0)
-            throw new DomainValidationException("账本批次至少必须包含一条正数量资源事实。");
         foreach (var item in batch)
         {
             if (string.IsNullOrWhiteSpace(item.Cause) ||
