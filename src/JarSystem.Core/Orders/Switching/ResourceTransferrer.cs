@@ -51,28 +51,26 @@ internal sealed class ResourceTransferrer
     {
         // 罐子按「新主台价值」排序转移：容量不足时优先保留高价值罐子（丢弃低价值）。
         var jars = oldMaster.Jars.OrderBy(_valuePolicy.ValueOf).ToList();
+        if (jars.Any(jar => jar.Id is not > 0))
+            throw new DomainValidationException("主台迁徙前置检查发现缺少 canonical JarId。");
         foreach (var jar in jars)
         {
+            var jarIdentity = jar.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
             oldMaster.TransferOut(jar);
             jar.Unmark();
             if (newMaster.HasJarCapacity())
             {
                 newMaster.AddJar(jar);
-                if (jar.Id is not > 0)
-                    throw new DomainValidationException("主台迁徙账本事实缺少 canonical JarId。");
                 Record(ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
-                    oldMaster.Name, newMaster.Name,
-                    resourceIdentity: jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    oldMaster.Name, newMaster.Name, resourceIdentity: jarIdentity);
                 log.Add("transfer_jar", $"转移 {jar.GetDescription()} → 新主台");
             }
             else
             {
                 _discardedJarCount++;
-                if (jar.Id is not > 0)
-                    throw new DomainValidationException("主台迁徙丢弃事实缺少 canonical JarId。");
                 Record(ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
                     oldMaster.Name, to: null, reason: "新主台容量已满",
-                    resourceIdentity: jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    resourceIdentity: jarIdentity);
                 log.Add("discard_jar", $"丢弃 {jar.GetDescription()} (新主台容量已满)");
                 // 只暂存回收请求。迁徙提交前不能 Return，否则取消回滚时快照中的原对象已失效。
                 _jarsToReturn.Add(jar);
