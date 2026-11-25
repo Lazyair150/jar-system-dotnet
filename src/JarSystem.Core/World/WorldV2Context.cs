@@ -137,6 +137,44 @@ public sealed class WorldV2Context : IDisposable
 
         // 先完成所有可能失败的基础对象校验与组装，再向调用方返回 Context。
         var roster = new WorkshopRoster(workshops, master, slave);
+        if (ownerIdentities != null)
+        {
+            ownerIdentities.ValidateForWorld(worldInstanceId!.Value);
+            if (shipLiquidInventory?.OwnerIdentity != ownerIdentities.Ship ||
+                resources.OwnerIdentity != ownerIdentities.ProductionArea ||
+                resources.Inventory.OwnerIdentity != ownerIdentities.Warehouse)
+                throw new ArgumentException(
+                    "Ship/ProductionArea/Warehouse runtime objects do not match the supplied OwnerIdentity map.",
+                    nameof(ownerIdentities));
+
+            var workshopIds = roster.Workshops.Select(item => item.OwnedInstanceId).ToArray();
+            if (workshopIds.Any(string.IsNullOrWhiteSpace) ||
+                !ownerIdentities.Workshops.Keys.ToHashSet(StringComparer.Ordinal)
+                    .SetEquals(workshopIds!))
+                throw new ArgumentException(
+                    "OwnerIdentity map must identify every exact Workshop OwnedInstanceId and no others.",
+                    nameof(ownerIdentities));
+            foreach (var workshop in roster.Workshops)
+                if (workshop.OwnerIdentity != ownerIdentities.GetWorkshop(workshop.OwnedInstanceId!))
+                    throw new ArgumentException(
+                        "Workshop runtime OwnerIdentity does not match its exact OwnedInstanceId.",
+                        nameof(ownerIdentities));
+
+            var producerInstances = resources.Producers.Producers.Values.ToArray();
+            var producerIds = producerInstances.Select(item => item.ProducerInstanceId).ToArray();
+            if (producerIds.Any(string.IsNullOrWhiteSpace) ||
+                !ownerIdentities.Producers.Keys.ToHashSet(StringComparer.Ordinal)
+                    .SetEquals(producerIds!))
+                throw new ArgumentException(
+                    "OwnerIdentity map must identify every exact ProducerInstanceId and no others.",
+                    nameof(ownerIdentities));
+            foreach (var producer in producerInstances)
+                if (producer.OwnerIdentity != ownerIdentities.GetProducer(producer.ProducerInstanceId!))
+                    throw new ArgumentException(
+                        "Producer runtime OwnerIdentity does not match its exact ProducerInstanceId.",
+                        nameof(ownerIdentities));
+        }
+
         var worldShapeIds = new HashSet<string>(master.KnownShapes, StringComparer.Ordinal);
         var worldLiquidIds = new HashSet<string>(master.Capability.Liquids, StringComparer.Ordinal);
         var worldLiquidPolarities = master.Capability.LiquidPolarities;
