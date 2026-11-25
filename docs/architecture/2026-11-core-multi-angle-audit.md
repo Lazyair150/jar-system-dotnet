@@ -202,3 +202,24 @@ Core 禁止依赖 Space/Godot；Space 只使用 Core 的稳定 DTO、Application
 - 新增 WorldV2FactoryTests 覆盖自定义 fuel/coolant 配置装配、JSON 往返、指纹变化和缺少映射拒绝。
 
 对应提交：`9b3f5d3a314932c466a6ab0be899abd882179f51`、`df51c40968402c593569de3512b14c40f4f466b4`。以上待当前整合 head CI 通过后再视为验证完成。
+
+
+## 2026-11-25 第七轮实施更新：Ban 不得进入 Jar 操作判定
+
+进一步审查将抽象问题缩小到具体执行边界：
+
+- `WorkshopCapability.PolarityMode` 已固定为 `Unrestricted`，`CanOperateJar(JarPolarity)` 也不再依据 Ban 拒绝 Jar；但这还不足以保证全链路正确。
+- `SolverPrecheck.CanServe` 曾在 POUR_OUT 分支额外检查 `!IsBanned(jar.Liquid)`，导致被 Ban 的 Jar 内液体无法倒空以满足空罐需求；该判断现已移除。
+- `MatchingSolver` 曾在候选应用、产液来源与路径执行处调用 `CanOperateJar`。现已删除 Jar 操作门禁；保留对 POUR_OUT 产液进入 staging 的 Ban 检查，因此被拒收产液不会被计入可用资源。
+- `Workshop.PourOut(Jar)` 旧实现先 `AddLiquid`，若 Ban/容量拒收则直接返回、Jar 不发生变化。现已改为先确定操作许可，尝试接收 staging，再提交 Jar 变空；接收失败只丢弃产液，不回滚 Jar 状态。订单范围接口同时保留完整的 Requested/Accepted/Discarded receipt。
+- `Workshop.CanReshapeTo` 文档和测试已按 Jar 自耗独立于 staging Ban 修订。
+
+新增回归覆盖：普通与订单 POUR_OUT 的 Ban 丢弃、满 Jar 自耗、三个通用 Solver 的一致结果、World A/B 候选边界、主从交接与替换。当前精确 head 的 CI 仍在运行，只有最新提交全部 workflow 通过后才能关闭本阶段。
+
+## PR 与分支清理状态
+
+- 旧 PR #1–#20（#21 已在补齐/审计其 Host 生命周期后关闭）、#22–#49、#52–#62 已关闭为 superseded；#50/#51 的历史 Ban 语义被明确标记为非权威并关闭。
+- PR #63 是唯一保持 Open 的 Core 整合 Draft PR。旧分支和提交历史未删除，避免破坏审计证据。
+- 当前整合分支与 `main` 比较：main 是整合分支祖先，整合分支 ahead 2216 / behind 0；main 没有未纳入的独有提交。
+- `.gitignore` 已忽略本机 Godot 缓存、IDE/构建/测试输出、临时诊断与 `docs/work-records/_local/`，但保留契约基线、正式工作记录和架构文档。
+- 工作记录专区入口：`docs/work-records/README.md`。
