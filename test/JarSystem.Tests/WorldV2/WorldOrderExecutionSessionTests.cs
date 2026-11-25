@@ -516,10 +516,16 @@ public sealed class WorldOrderExecutionSessionTests
     [Fact]
     public void BOrderCompletesSlavePathDeliversJarAndReturnsTheEmptySlaveRole()
     {
+        var worldId = new WorldInstanceId("world-slave-rollback-endpoints");
+        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "rollback-master");
+        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "rollback-slave");
+        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "rollback-ship");
         var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "rollback-master", ownerIdentity: masterOwner);
         var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "rollback-slave", ownerIdentity: slaveOwner);
         var deliveredJar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(deliveredJar);
         master.AddLiquid("酒", 1);
@@ -730,7 +736,7 @@ public sealed class WorldOrderExecutionSessionTests
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
         var book = new WorldOrderSolveBook(board);
-        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 }, shipOwner);
         ReevaluateWithShip(book, roster, ship, demand.Id);
         Assert.True(book.Find(demand.Id)!.Result!.IsFeasible);
         Assert.Empty(book.Find(demand.Id)!.Result!.Plan!.MasterSteps);
@@ -766,10 +772,17 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Empty(slave.Jars);
         Assert.Equal(1, ship.GetAmount("酒"));
         Assert.Equal(0, reservations.Count);
-        Assert.Contains(ledger.For(ResourceCauses.Return), item =>
+        var jarReturn = Assert.Single(ledger.For(ResourceCauses.Return), item =>
             item.Kind == ResourceKinds.Jar && item.From == slave.Name && item.To == master.Name);
-        Assert.Contains(ledger.For(ResourceCauses.Return), item =>
+        Assert.Equal(ResourceEndpointKind.Account, jarReturn.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, jarReturn.ToEndpoint.Kind);
+        Assert.Equal("rollback-slave", AccountIdentity.ParseV2(jarReturn.FromEndpoint.AccountId!).Owner.LocalOwnerId);
+        Assert.Equal("rollback-master", AccountIdentity.ParseV2(jarReturn.ToEndpoint.AccountId!).Owner.LocalOwnerId);
+        var liquidReturn = Assert.Single(ledger.For(ResourceCauses.Return), item =>
             item.Kind == ResourceKinds.Liquid && item.To == "自机液库");
+        Assert.Equal(ResourceEndpointKind.Account, liquidReturn.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, liquidReturn.ToEndpoint.Kind);
+        Assert.Equal("rollback-ship", AccountIdentity.ParseV2(liquidReturn.ToEndpoint.AccountId!).Owner.LocalOwnerId);
     }
 
 
