@@ -128,6 +128,41 @@ public sealed class ResourceWorldRuntimeTests
 
 }
 
+    [Fact]
+    public void JarProductionAndWarehouseFlowFactsCarryTheSameCanonicalJarId()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var producers = new ProducerModule(vocabulary);
+        producers.RegisterProducer("测试生产器", new Dictionary<string, double> { ["圆罐"] = 1 });
+        var liquids = new LiquidProduction(
+            vocabulary,
+            defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var area = new ResourceArea(producers, liquids, jarFlowRate: 1, liquidFlowRate: 0);
+        var master = new Workshop(
+            "主台", baseMarks: new List<string> { "圆罐" }, vocabulary: vocabulary,
+            ownedInstanceId: "owned.resource-flow.master");
+        var ledger = new ResourceLedger();
+        var runtime = new ResourceWorldRuntime(area, resourceLedger: ledger);
+
+        runtime.AdvanceWorldTime(1_000, master);
+
+        var jar = Assert.Single(master.Jars);
+        var produced = Assert.Single(ledger.For(ResourceCauses.Production),
+            item => item.Kind == ResourceKinds.Jar);
+        var flowed = Assert.Single(ledger.For(ResourceCauses.Flow),
+            item => item.Kind == ResourceKinds.Jar);
+        var jarId = jar.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        Assert.Equal(jarId, produced.ResourceIdentity);
+        Assert.Equal(jarId, flowed.ResourceIdentity);
+        Assert.Equal(1, produced.Amount);
+        Assert.Equal(1, flowed.Amount);
+        Assert.Equal("圆罐", produced.Name);
+        Assert.Equal("圆罐", flowed.Name);
+        Assert.Equal(new RuleResourceAccount("workshop.jar-storage", "owned.resource-flow.master").AccountId,
+            flowed.ToAccountId);
+    }
+
 public sealed class ResourceAreaTests
 {
     [Fact]
