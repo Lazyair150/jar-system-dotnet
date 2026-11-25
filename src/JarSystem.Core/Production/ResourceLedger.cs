@@ -155,6 +155,7 @@ public sealed class ResourceLedger
                 item.Tick < 0 || item.Amount <= 0 ||
                 (item.OperationId != null && !snapshot.OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
                 (item.OperationId != null && string.IsNullOrWhiteSpace(item.ResourceIdentity)) ||
+                (item.OperationId != null && item.Kind == ResourceKinds.Jar && !IsCanonicalJarId(item.ResourceIdentity)) ||
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
                 string.IsNullOrWhiteSpace(item.Name))
@@ -334,7 +335,9 @@ public sealed class ResourceLedger
                 string.IsNullOrWhiteSpace(item.Kind) ||
                 string.IsNullOrWhiteSpace(item.Name) ||
                 string.IsNullOrWhiteSpace(item.ResourceIdentity) ||
-                (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid))
+                (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
+                (item.Kind == ResourceKinds.Jar &&
+                    (item.Amount != 1 || !IsCanonicalJarId(item.ResourceIdentity))))
                 throw new DomainValidationException("账本批次包含无效资源事实。");
         }
 
