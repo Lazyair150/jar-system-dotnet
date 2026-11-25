@@ -289,3 +289,39 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 3. 将 A/B 与 Master/Slave 迁移为显式订单/交接策略，先保持旧实现对拍，不一次性替换。
 4. 将统一规则 evaluator 的结果贯穿候选生成、资源模拟、Admission 与 Executor。
 5. 完成后再做多算法对拍与大规模固定 Seed 资源守恒样本。
+
+
+## 2026-11-25 第十三轮：World Vocabulary 贯穿快照、规则上下文与候选求解
+
+### 起始与结果
+- 本轮最终代码 head：b11d9a51f7e8a18df3bb0ff3545d1af949dffa12
+- 两条精确 head 验证：45592984647 SUCCESS、45592974637 SUCCESS。
+- xUnit：861 total / 0 errors / 0 failed / 0 skipped。
+- 资源样本：2,000 random + 3,000 capacity + 32 deterministic，0 bugs。
+- Release build、contract/schema、配置等价验证均通过。
+
+### 实施内容
+1. Workshop 增加只读 KnownShapes，直接暴露所属不可变 Vocabulary 的形状目录。
+2. WorkshopSolveSnapshot 捕获 Shapes；WorldSnapshot 的 WorkshopProfile fingerprint 纳入 shape directory。
+3. WorldSnapshotFactory.Capture 检查同一求解 World 内所有 Workshop 的 shape directory、liquid identity set 与 polarity mapping 一致。
+4. WorldOrderRuleCandidateCatalog 不再从 Constants.SHAPES 初始化候选空间，改用 workshop snapshot 的 Shapes。
+5. WorkshopCapability 暴露其不可变 Vocabulary；RuleContext.From 增加 Vocabulary 注入入口。
+6. WorkshopSolveSnapshot.CreateRuleContext / CreateWorkshopInfo 将所属 World Vocabulary 传入 RuleContext，确保 rules.Liquids 与 ResolvePolarity 不会退回 Vocabulary.Default。
+7. WorldV2Context.Create 默认从主工作台 World Vocabulary 获取 shapes/liquids，不再从 Producer Generator / LiquidProduction rate key 推断目录；并验证所有工作台共享形状目录、液体身份与映射。
+8. 新增测试：自定义 shape snapshot capture、不同 shape vocabulary 装配拒绝、World V2 默认词表来源、World V2 shape vocabulary 不一致拒绝、候选生成使用自定义 shape/liquid/polarity。
+
+### CI 失败与修复留痕
+- run 45591775950 / head a2a61d5：860 项中 1 项失败，原因是新增 shape vocabulary 约束后原有液体映射测试的诊断文本断言不再匹配。保留原液体诊断子串并扩展形状说明，修复于 92a72c49df209294dfeae33727f35000af78b788；对应 runs 45592220260 / 45592233519 SUCCESS，860/860。
+- run 45592611139 / head d0dc53a：测试代码缺少 Abstractions / World.Solving 命名空间导入，构建失败；不是生产代码错误。依次补齐 using，最终 b11d9a5 精确 head 两条 CI 均通过。
+- 以上失败均保留，不以绿色提交覆盖失败历史。
+
+### 本轮完成边界
+- 已消除求解候选对默认 shape list 的直接依赖，并修复自定义 World Vocabulary 在 RuleContext 重建时丢失的问题。
+- 尚未完成：所有 Core 生产路径对默认 shape/liquid 常量的全量扫描；RuleContribution Effect schema 的严格验证；统一 Rule Registry/Interpreter；候选算子注册化；A/B 与 Master/Slave 策略解耦；通用 SolveProblem。
+- 本轮不是“所有硬编码已消除”的声明。
+
+### 下一步
+1. 全量盘点 RuleContribution Effect/参数 fallback，未知 Effect 与非法参数必须 fail-closed；ModifyCapacity 等当前不支持的规则必须保持 Undetermined。
+2. 将规则候选的固定操作列表从 WorldOrderRuleCandidateCatalog 拆成有稳定身份/版本的内建 Rule Operator Provider Registry。
+3. 将 A/B 与 Master/Slave 交接差异抽为 OrderPolicy / WorldTransferPolicy，保留原行为并对拍。
+4. 将 StructuralSolution 与 ResourceBinding/Readiness/Admission 的 fingerprint 依赖完整分离。

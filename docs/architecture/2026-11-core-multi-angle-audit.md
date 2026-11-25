@@ -279,3 +279,13 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 新增规范文件 core-conceptual-model-and-formal-rules.md 与 ADR 0007。正式目标为 World-owned identity/configuration、declarative Rule Definition/Contribution、single Rule Interpreter、SolveProblem/OrderPolicy、StructuralSolution 与 ResourceBinding/Readiness 分离、Admission/Lease/Execution/Settlement 版本化。现有 A/B、Ban、Mark、资源守恒、失败代价语义必须保留。
 
 本轮只正式化规范和裁决，不宣称代码层已完成泛化。下一阶段先消除默认形状目录进入求解候选空间，再集中规则解释入口；完成每个迁移点后运行差分与精确 head CI。
+
+
+## 2026-11-25 第十三轮：World Vocabulary 贯穿求解链路（已验证）
+
+- Core head b11d9a51f7e8a18df3bb0ff3545d1af949dffa12 两条精确 verify runs 45592984647 / 45592974637 均 SUCCESS。
+- 861 项 xUnit：0 errors / 0 failures / 0 skipped；资源样本 2,000 random + 3,000 capacity + 32 deterministic，0 bugs。
+- 候选生成不再依赖 Constants.SHAPES；WorkshopSolveSnapshot 捕获 World-owned Shapes 并纳入 WorkshopProfile fingerprint。
+- RuleContext 从 EffectiveRuleProfile 重建时现可接收原 World Vocabulary；修复了 custom liquid identities 在规则上下文中退回 Vocabulary.Default 的隐藏语义丢失。
+- WorldV2Context 默认词表改从 Workshop World Vocabulary 读取，不再用生产者/液体产线的键集合猜测身份目录；同一 World 所有 Workshop 必须共享形状目录、液体身份集合与极性映射。
+- 本轮仅完成 Vocabulary 来源与候选空间去硬编码；RuleContribution schema、Rule Operator Registry、OrderPolicy 解耦仍待实施。

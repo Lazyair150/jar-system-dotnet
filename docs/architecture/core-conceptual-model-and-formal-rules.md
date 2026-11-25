@@ -258,3 +258,23 @@ Core 只暴露稳定领域契约；Space 只提供身份映射、Board Assignmen
 只有满足以下条件，才可宣称 Core 达到目标架构：领域语义有正式规则定义和来源；可变布置由 World/Board 数据表达；资源状态由权威账户持有；规则判定走统一 evaluator；Solver 算法不持有玩法语义；执行器不重复实现规则；未知规则 fail-closed；结构解与资源就绪分离；版本、指纹、回放和检查点覆盖完整；强制验证矩阵通过；Space 与其他宿主只消费 Core 契约。
 
 本规范不授权一次性删除现有实现。迁移必须逐层进行、保持行为等价，并以测试证明每一步。
+
+
+## 16. 实施状态快照（2026-11-25）
+
+### Phase 0 — 规范与现状映射
+<badge>完成</badge>
+
+- 概念本体、规则契约、算法边界、失败语义、指纹与验证矩阵已正式化。
+- ADR 0007 已记录规则系统正式化与 Solver 解耦决策。
+
+### Phase 1 — 世界身份与输入目录去硬编码
+<badge>部分完成</badge>
+
+- World-owned shape directory 已进入 WorkshopSolveSnapshot，并参与 WorkshopProfile fingerprint。
+- Candidate catalog 使用快照的 Shapes，不再从 Constants.SHAPES 读取默认形状。
+- RuleContext 重建会携带原 World Vocabulary，避免自定义 liquid identity / polarity 丢失。
+- WorldV2Context 的默认 shape/liquid 目录来自 Workshop Vocabulary，而不是生产速率字典。
+- 精确 Core head b11d9a51f7e8a18df3bb0ff3545d1af949dffa12 两条 CI 通过：861/861 tests，资源样本 0 bugs。
+
+尚未完成所有生产代码、配置、迁移、序列化、展示和测试中的默认身份引用全量扫描；Phase 1 不得标记为完成。
