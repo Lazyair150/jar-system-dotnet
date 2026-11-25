@@ -71,6 +71,14 @@ public sealed class WorkshopCapability
     /// <summary>Liquid identities known to this World; Ban is a staging-account policy only.</summary>
     public IReadOnlyList<string> Liquids => _vocabulary.Liquids;
 
+    public JarPolarity ResolvePolarity(string? liquid)
+    {
+        if (liquid is null) return JarPolarity.Neutral;
+        return _vocabulary.ResolveLiquidPolarity(liquid) == LiquidPolarity.Cathode
+            ? JarPolarity.Cathode
+            : JarPolarity.Anode;
+    }
+
     /// <summary>
     /// Kept as a compatibility projection. A liquid Ban does not define a Jar-operation
     /// polarity restriction, so workshop polarity remains unrestricted.
