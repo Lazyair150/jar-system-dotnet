@@ -259,6 +259,7 @@ public sealed class ResourceLedger
         foreach (var item in batch)
         {
             if (string.IsNullOrWhiteSpace(item.Cause) ||
+                !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 string.IsNullOrWhiteSpace(item.Kind) ||
                 string.IsNullOrWhiteSpace(item.Name) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid))
@@ -328,12 +329,20 @@ public sealed class ResourceLedger
             }
 
             var batch = mutations.ToArray();
+            var expectedKind = receipt.ResourceKind == RuleResourceKind.Jar
+                ? ResourceKinds.Jar
+                : ResourceKinds.Liquid;
             if (batch.Length == 0 || batch.Any(item =>
                     item.Amount <= 0 ||
                     !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
-                    (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
-                    string.IsNullOrWhiteSpace(item.Name)))
-                throw new DomainValidationException("Transfer ledger batch contains an invalid resource fact.");
+                    item.Kind != expectedKind ||
+                    string.IsNullOrWhiteSpace(item.Name) ||
+                    item.From != receipt.SourceAccount.OwnerId ||
+                    item.To != receipt.TargetAccount.OwnerId ||
+                    (receipt.ResourceKind == RuleResourceKind.Liquid &&
+                        item.Name != receipt.ResourceIdentity) ||
+                    (receipt.ResourceKind == RuleResourceKind.Jar && item.Amount != 1)))
+                throw new DomainValidationException("Transfer ledger batch does not describe the receipt's exact resource and account endpoints.");
             if (batch.Sum(item => (long)item.Amount) != receipt.TransferredAmount)
                 throw new DomainValidationException("Transfer ledger amount does not match the final receipt.");
 
