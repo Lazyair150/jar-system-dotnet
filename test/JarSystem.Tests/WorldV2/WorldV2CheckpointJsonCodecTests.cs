@@ -77,6 +77,30 @@ public sealed class WorldV2CheckpointJsonCodecTests
         Assert.Equal(new Payload("legacy", 1), decoded.Payload);
     }
 
+
+    [Fact]
+    public void SchemaEightLedgerEventUsesLegacyNameAsDisplayName()
+    {
+        var wire = new ResourceEventWireDto
+        {
+            Seq = 1,
+            Tick = 2,
+            Cause = ResourceCauses.Production,
+            Kind = ResourceKinds.Liquid,
+            Name = "酒",
+            ResourceIdentity = "liquid.wine",
+            Amount = 1
+        };
+
+        var restored = wire.ToEvent();
+
+        Assert.Equal("酒", restored.Name);
+        Assert.Equal("酒", restored.DisplayName);
+        Assert.Equal("liquid.wine", restored.ResourceIdentity);
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, restored.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, restored.ToEndpoint.Kind);
+    }
+
     [Fact]
     public void DecodeRejectsUnsupportedSchemaVersion()
     {
