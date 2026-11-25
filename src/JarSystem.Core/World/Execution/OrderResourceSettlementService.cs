@@ -136,8 +136,12 @@ public sealed class OrderResourceSettlementService
                     From: "订单暂存", To: "自机液库"))
                 .Concat(receipt.Discarded.Select(item => new ResourceLedgerMutation(
                     ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
-                    From: "订单暂存", To: null, Reason: "自机液库总容量不足")));
-            ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations);
+                    From: "订单暂存", To: null, Reason: "自机液库总容量不足")))
+                .ToArray();
+            // Zero accepted and zero discarded means no resource changed; do not publish an
+            // empty ledger operation, but still advance the settlement lease stage below.
+            if (mutations.Length > 0)
+                ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations);
             _faults.AfterLedgerBatchRecorded();
             lease.MarkSettlementLedgerRecorded();
             _faults.AfterLedgerStageMarked();
