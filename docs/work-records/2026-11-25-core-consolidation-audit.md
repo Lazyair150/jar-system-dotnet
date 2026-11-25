@@ -560,3 +560,23 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 顶层区域/子区域层级已进入 Core 结构契约和 Space 冻结 Board/Assignment/Runtime Profile 路由。
 - Area/Port/Connection 是 Core 的结构元数据契约；尚未建立资源账户运行时 Adapter，也尚未建立跨账户原子 Transfer Coordinator。
 - 通过的自动化验证不等于真实 GUI 试玩验收；Space PR #2 仍为 Draft/Open，Core PR #63 仍为 Draft/Open，均未合并。
+
+
+## 2026-11-25 第十九轮：端口预检与资源转移审计契约
+
+### 新增 Core 纯值契约
+- 新增 `ResourcePortTransferContracts.cs`：
+  - `ResourcePortPreflight`：单端口 Allowed / Rejected / Undetermined 预检结果，携带稳定 ReasonCode、权威账户、资源身份、数量与观察版本。
+  - `ResourceTransferRequest`：明确 OperationId、ConnectionId、源/目标端口、资源类别/身份/数量、源/目标权威账户及预期版本。
+  - `ResourceTransferReceipt`：明确 Transferred / PartiallyTransferred / Rejected / Undetermined，并记录 Transferred、RetainedAtSource、Discarded 三种数量。
+- 强制数量守恒：Requested = Transferred + RetainedAtSource + Discarded。
+- Rejected / Undetermined 必须完整保留源资源且两端版本不变。
+- 新增 `ResourcePortTransferContractTests.cs`，覆盖跨端口/账户、拒绝保留、部分接收守恒和 Undetermined fail-closed。
+
+### 边界
+- 以上为纯值协议契约，不执行资源扣款/收款。
+- Transfer Coordinator 尚未实现；不允许通过分别调用两端独立写接口冒充原子转移。
+- 下一步必须先实现并验证现有账户的只读 Port Adapter，再设计适配现有事务能力的提交/回滚参与者。
+
+### 文档
+- 更新 `jar-individual-area-port-and-circuit-route-model.md`，正式记录 Preflight / Request / Receipt 的三段协议及守恒式。
