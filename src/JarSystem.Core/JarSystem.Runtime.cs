@@ -109,7 +109,7 @@ public partial class JarSystem
 
     internal void ResetProducerModuleCore()
     {
-        ProducerModule = new Production.ProducerModule(Vocabulary, Modifiers, JarPool);
+        ProducerModule = new Production.ProducerModule(Vocabulary, Modifiers, JarPool, JarIds);
         ProducerModule.ProducerSlots = _world.ProducerSlots;
     }
 
