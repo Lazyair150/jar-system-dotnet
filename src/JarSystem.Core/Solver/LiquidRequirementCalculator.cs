@@ -14,16 +14,25 @@ namespace JarSystem.Core.Solver;
 public static class LiquidRequirementCalculator
 {
     public static Dictionary<string, int> ComputeRequired(IReadOnlyList<SolverStep> path) =>
-        ComputeRequired(path, null);
+        ComputeRequired(path, null, Constants.LIQUIDS);
+
+    /// <summary>Legacy default-world overload. World-aware callers must pass their own liquid vocabulary.</summary>
+    public static Dictionary<string, int> ComputeRequired(
+        IReadOnlyList<SolverStep> path, IReadOnlyDictionary<string, int>? requiredAtEnd) =>
+        ComputeRequired(path, requiredAtEnd, Constants.LIQUIDS);
 
     /// <summary>计算路径执行完后还必须保留指定液体量时，所需的最小初始供给。</summary>
     public static Dictionary<string, int> ComputeRequired(
-        IReadOnlyList<SolverStep> path, IReadOnlyDictionary<string, int>? requiredAtEnd)
+        IReadOnlyList<SolverStep> path,
+        IReadOnlyDictionary<string, int>? requiredAtEnd,
+        IEnumerable<string> liquidVocabulary)
     {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(liquidVocabulary);
         var required = new Dictionary<string, int>(StringComparer.Ordinal);
         var net = new Dictionary<string, int>(StringComparer.Ordinal);
         // 保留词表中的零值键：旧求解契约与确定性摘要都依赖完整液体键集合。
-        foreach (var liquid in Constants.LIQUIDS)
+        foreach (var liquid in liquidVocabulary)
         {
             required[liquid] = 0;
             net[liquid] = 0;
@@ -69,9 +78,11 @@ public static class LiquidRequirementCalculator
     /// 该值不包含主台没有被从台路径需要的剩余液体。
     /// </summary>
     public static int ComputePeakCapacity(
-        IReadOnlyList<SolverStep> path, IReadOnlyDictionary<string, int>? requiredAtEnd = null)
+        IReadOnlyList<SolverStep> path,
+        IReadOnlyDictionary<string, int>? requiredAtEnd = null,
+        IEnumerable<string>? liquidVocabulary = null)
     {
-        var balances = ComputeRequired(path, requiredAtEnd);
+        var balances = ComputeRequired(path, requiredAtEnd, liquidVocabulary ?? Constants.LIQUIDS);
         var peak = ShipLiquidInventory.TotalAmount(balances);
         foreach (var step in path)
         {
