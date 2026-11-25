@@ -150,7 +150,8 @@ public sealed class PreparedWorkshopJarPortTransfer
                         {
                             new ResourceLedgerMutation(
                                 ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
-                                From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
+                                From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId,
+                                ResourceIdentity: _request.ResourceIdentity)
                         });
                 }))
             {
