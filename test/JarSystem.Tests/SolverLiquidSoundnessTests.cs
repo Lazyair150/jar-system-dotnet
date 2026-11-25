@@ -69,12 +69,12 @@ public class SolverLiquidSoundnessTests
     [Fact]
     public void SolverJarAndRequirementExposeTheSameThreeStateClassification()
     {
-        Assert.Equal(JarPolarity.Neutral, new JarState { Shape = "圆罐" }.Polarity);
-        Assert.Equal(JarPolarity.Cathode, new JarState { Shape = "圆罐", Liquid = "酒" }.Polarity);
-        Assert.Equal(JarPolarity.Anode, new JarState { Shape = "圆罐", Liquid = "蜜" }.Polarity);
-        Assert.Equal(JarPolarity.Neutral, new Requirement { Shape = "圆罐" }.Polarity);
-        Assert.Equal(JarPolarity.Cathode, new Requirement { Shape = "圆罐", Liquid = "酒" }.Polarity);
-        Assert.Equal(JarPolarity.Anode, new Requirement { Shape = "圆罐", Liquid = "蜜" }.Polarity);
+        Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
+        Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒", Vocabulary.Default));
+        Assert.Equal(JarPolarity.Anode, JarPolarityResolver.Resolve("蜜", Vocabulary.Default));
+        Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
+        Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒", Vocabulary.Default));
+        Assert.Equal(JarPolarity.Anode, JarPolarityResolver.Resolve("蜜", Vocabulary.Default));
     }
 
     [Fact]
