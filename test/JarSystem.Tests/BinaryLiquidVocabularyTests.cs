@@ -86,6 +86,29 @@ public sealed class BinaryLiquidVocabularyTests
         Assert.True(capability.CanOperateJar(JarPolarity.Neutral));
     }
 
+
+    [Fact]
+    public void WorldOptionsSerializesAndValidatesExplicitPolarityMapping()
+    {
+        var options = new WorldOptions
+        {
+            Shapes = new List<string> { "圆罐" },
+            Liquids = new List<string> { "燃料", "冷却液" },
+            LiquidPolarities = new Dictionary<string, LiquidPolarity>(StringComparer.Ordinal)
+            {
+                ["燃料"] = LiquidPolarity.Anode,
+                ["冷却液"] = LiquidPolarity.Cathode
+            }
+        };
+
+        Assert.Empty(options.Validate().Errors);
+        var restored = WorldOptionsJson.FromJson(WorldOptionsJson.ToJson(options));
+        Assert.Empty(restored.Validate().Errors);
+        Assert.Equal(LiquidPolarity.Anode, restored.LiquidPolarities["燃料"]);
+        Assert.Equal(LiquidPolarity.Cathode, restored.LiquidPolarities["冷却液"]);
+        Assert.Equal(JarPolarity.Anode, new Jar("圆罐", "燃料", vocabulary: restored.BuildVocabulary()).Polarity);
+    }
+
     [Fact]
     public void DefaultLegacyVocabularyRetainsExplicitCompatibilityMapping()
     {
