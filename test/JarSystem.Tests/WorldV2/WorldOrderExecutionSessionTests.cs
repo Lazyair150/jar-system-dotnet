@@ -587,8 +587,8 @@ public sealed class WorldOrderExecutionSessionTests
         });
         var solved = book.Evaluate(demand.Id, snapshot, registry);
         Assert.True(solved.Result!.IsFeasible, solved.Result.Reason);
-        Assert.Single(solved.Result.Plan!.MasterSteps);
-        Assert.Empty(solved.Result.Plan.SlaveSteps);
+        Assert.Empty(solved.Result.Plan!.MasterSteps);
+        Assert.Single(solved.Result.Plan.SlaveSteps);
         Assert.Equal(new[] { 9881 }, solved.Result.Plan.TransferJarIds);
 
         var reservations = new WorldResourceReservationBook();
@@ -597,16 +597,16 @@ public sealed class WorldOrderExecutionSessionTests
         var started = runtime.TryStartExecutionSession(demand.Id, book, admission, 1_000);
         Assert.True(started.Success, started.Reason);
 
-        // MATCH 是零逻辑时间步骤：会话启动后主台步骤已完成，但 Jar 尚未跨台。
-        // 这段边界证明不能由最终成功状态替代，否则可能掩盖先转移后操作的顺序错误。
+        // 当前 B 类候选策略优先由从台完成 MATCH；该操作必须发生在 Jar 所有权交接之后。
+        // 启动时仍应保持 Jar 在主台，不能提前执行从台步骤。
         Assert.Equal(WorldOrderExecutionStage.Transfer, started.Session!.Stage);
-        Assert.Equal(1, started.Session.CompletedMasterSteps);
+        Assert.Equal(0, started.Session.CompletedMasterSteps);
         Assert.Equal(0, started.Session.CompletedSlaveSteps);
         Assert.Null(started.Session.TransferTransition);
         Assert.Contains(master.Jars, item => item.Id == 9881);
         Assert.Empty(slave.Jars);
 
-        // 从台没有任何操作步骤：这一 tick 只提交 Jar 所有权交接并完成交付。
+        // 这一 tick 先提交 Jar 所有权交接，再由从台执行 MATCH 并完成交付。
         runtime.AdvanceWorldTime(1_000);
 
         Assert.True(started.Session.Succeeded, started.Session.Reason);
@@ -679,7 +679,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(started.Success, started.Reason);
         var session = started.Session!;
         Assert.Equal(WorldOrderExecutionStage.Transfer, session.Stage);
-        Assert.Equal(2, session.CompletedMasterSteps);
+        Assert.Equal(0, session.CompletedMasterSteps);
         var error = Assert.Throws<InvalidOperationException>(() => session.AdvanceLogicalTime(1_000));
         Assert.Contains("second Jar move", error.Message);
 
