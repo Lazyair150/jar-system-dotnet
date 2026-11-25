@@ -203,7 +203,8 @@ public sealed class WorkshopFreeLiquidPortTransferTests
             path.SourceAdapter, path.TargetAdapter, path.Source, path.Target,
             restoredLedger, () => 122);
 
-        Assert.Throws<System.InvalidOperationException>(() => replay.Commit());
+        Assert.Equal(receipt, replay.Commit());
+        Assert.True(replay.IsCommitted);
         Assert.Equal(3, path.Source.LiquidStorage[Liquid]);
         Assert.Equal(2, path.Target.LiquidStorage[Liquid]);
     }
