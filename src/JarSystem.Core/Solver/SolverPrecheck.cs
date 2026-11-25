@@ -67,7 +67,7 @@ public static class SolverPrecheck
             return usable.Any(j => string.Equals(j.Liquid, liquid, StringComparison.Ordinal));
         }
 
-        bool anyCostLiquid = Constants.LIQUIDS.Any(CanObtainLiquid);
+        bool anyCostLiquid = cap.Liquids.Any(CanObtainLiquid);
 
         // ---- 条件 4：逐液种的反向需求下界（不要求世界里只有一种液体）----
         //
@@ -175,7 +175,7 @@ public static class SolverPrecheck
         // 因此若 N−ν 超过可得的液体总量，则必然无解。这条是**下界**，只用来证伪，不会错杀。
         //
         // 只在恰好一种可用液体时用：两种液体时有"任意液体"这一维，单一的 N−ν 不再对得上账。
-        var usableLiquids = Constants.LIQUIDS.Where(l => !cap.IsBanned(l)).ToList();
+        var usableLiquids = cap.Liquids.Where(l => !cap.IsBanned(l)).ToList();
         if (usableLiquids.Count == 1)
         {
             var only = usableLiquids[0];
@@ -325,7 +325,7 @@ public static class SolverPrecheck
                         break;
                     }
                     // POUR_IN
-                    if (j.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!)
+                    if (cap.ResolvePolarity(j.Liquid) == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!)
                         && pool.TryGetValue(req.Liquid!, out var have) && have > 0)
                     {
                         pool[req.Liquid!] = have - 1;
@@ -357,7 +357,7 @@ public static class SolverPrecheck
                 // 空罐改形（付一份成本液体）
                 if (j.Polarity == JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
                 {
-                    foreach (var cl in Constants.LIQUIDS)
+                    foreach (var cl in cap.Liquids)
                     {
                         if (cap.IsBanned(cl)) continue;
                         if (!pool.TryGetValue(cl, out var have) || have <= 0) continue;
