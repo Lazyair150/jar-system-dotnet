@@ -171,6 +171,9 @@ public sealed class PreparedOrderLiquidPortTransfer
             throw new InvalidOperationException("A completed transfer participant cannot be cancelled.");
         if (_faulted)
             throw new InvalidOperationException("A faulted transfer participant cannot be cancelled.");
+        if (_duplicateOperation)
+            throw new InvalidOperationException("A duplicate OperationId cannot be cancelled or replayed.");
+        if (_cancelled) return;
         _cancelled = true;
     }
 
