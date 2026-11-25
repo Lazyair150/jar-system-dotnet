@@ -52,12 +52,32 @@ public sealed class WorldV2CheckpointJsonCodecTests
             () => WorldV2CheckpointJsonCodec.Decode<Payload>(json));
     }
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void DecodeAcceptsLegacyCheckpointEnvelopes(int version)
+    {
+        var json = $"""
+            {
+              "schemaVersion": {{version}},
+              "kind": "world-v2-execution-checkpoint",
+              "configurationFingerprint": null,
+              "payload": {}
+            }
+            """;
+
+        var decoded = WorldV2CheckpointJsonCodec.Decode<Payload>(json);
+
+        Assert.Equal(version, decoded.SchemaVersion);
+        Assert.Equal(new Payload("", 0), decoded.Payload);
+    }
+
     [Fact]
     public void DecodeRejectsUnsupportedSchemaVersion()
     {
         const string json = """
             {
-              "schemaVersion": 5,
+              "schemaVersion": 6,
               "kind": "world-v2-execution-checkpoint",
               "configurationFingerprint": null,
               "payload": {}
