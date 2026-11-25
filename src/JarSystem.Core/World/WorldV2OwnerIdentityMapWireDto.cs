@@ -42,7 +42,7 @@ public sealed class WorldV2OwnerIdentityMapWireDto
             throw new InvalidOperationException("检查点 OwnerIdentity 映射字段缺失、重复或无效。");
     }
 
-    public WorldV2OwnerIdentityMap ToMap(JarSystem.Core.Domain.WorldInstanceId worldInstanceId)
+    public WorldV2OwnerIdentityMap ToMap(global::JarSystem.Core.Domain.WorldInstanceId worldInstanceId)
     {
         Validate();
         return new WorldV2OwnerIdentityMap(
