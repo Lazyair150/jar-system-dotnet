@@ -220,7 +220,7 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.True(ledger.HasRecordedOperation(receipt.OperationId));
         Assert.True(ledger.TryGetTransferReceipt(receipt.OperationId, out var stored));
         Assert.Equal(receipt, stored);
-        Assert.Equal(1, ledger.Retained);
+        Assert.Single(ledger.Entries);
         Assert.Equal(1, ledger.LastSeq);
 
         Assert.Throws<System.InvalidOperationException>(() =>
