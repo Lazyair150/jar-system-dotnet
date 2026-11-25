@@ -14,7 +14,7 @@ public enum JarPolarity
     Anode
 }
 
-/// <summary>Operating mode derived from a Workshop's banned liquid categories.</summary>
+/// <summary>Legacy transition-contract projection. Ban no longer derives Jar-operation polarity; this value remains Unrestricted for compatibility.</summary>
 public enum WorkshopPolarityMode
 {
     Unrestricted,
