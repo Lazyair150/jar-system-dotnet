@@ -1,4 +1,5 @@
 using JarSystem.Core.Domain;
+using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Domain;
 
@@ -126,6 +127,13 @@ public sealed class RuleContext
     public WorkshopPolarityMode PolarityMode => _capability.PolarityMode;
 
     public bool CanOperateJar(JarPolarity polarity) => _capability.CanOperateJar(polarity);
+
+    public JarPolarity ResolvePolarity(string? liquid) => _capability.ResolvePolarity(liquid);
+
+    public IReadOnlyList<string> Liquids => _capability.Liquids;
+
+    public RuleContext WithVocabulary(Vocabulary vocabulary) => new(
+        _capability.WithVocabulary(vocabulary), Stack, _effectiveProfile, _ruleScope, _ruleSlotId, _profileModifiers);
 
     /// <summary>可改形目标：基础能力给出的 + 被授予的形状（后者视作附加标记）。</summary>
     public List<string> GetPossibleTransforms(string shape)
