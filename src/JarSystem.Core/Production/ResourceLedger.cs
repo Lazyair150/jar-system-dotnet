@@ -175,6 +175,7 @@ public sealed class ResourceLedger
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
                 string.IsNullOrWhiteSpace(item.Name))
                 throw new DomainValidationException("资源账本快照包含无效或乱序事件。");
+            ValidateAccountEndpointWorldScope(item.FromEndpoint, item.ToEndpoint);
             previousSeq = item.Seq;
         }
         if (snapshot.Entries.Count > 0 && snapshot.Entries[^1].Seq != snapshot.LastSeq)
