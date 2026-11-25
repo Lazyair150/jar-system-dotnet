@@ -292,12 +292,12 @@ public sealed class ResourceWorldRuntime
                     mutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
                         From: "主台预置", To: "自机液库",
-                        Reason: "主工作台替换后返还未消费预置液体"));
+                        Reason: "主工作台替换后返还未消费预置液体", ResourceIdentity: item.Key));
                 foreach (var item in receipt.Discarded)
                     mutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
                         From: "主台预置", To: null,
-                        Reason: "主工作台替换后返还自机液库时容量不足"));
+                        Reason: "主工作台替换后返还自机液库时容量不足", ResourceIdentity: item.Key));
 
                 // 没有返还或丢弃的资源时，不制造空账本操作；有资源变化时整批原子发布。
                 if (mutations.Count > 0)
