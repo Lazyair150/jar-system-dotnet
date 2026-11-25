@@ -65,6 +65,10 @@ public sealed class ResourceEvent
     public int Amount { get; init; }
     public string? From { get; init; }
     public string? To { get; init; }
+    /// <summary>Canonical source account identity; null denotes legacy/unknown provenance.</summary>
+    public string? FromAccountId { get; init; }
+    /// <summary>Canonical target account identity; null denotes legacy/unknown provenance.</summary>
+    public string? ToAccountId { get; init; }
     public string? Reason { get; init; }
 
     public override string ToString() =>
@@ -276,6 +280,8 @@ public sealed class ResourceLedger
         Amount = item.Amount,
         From = item.From,
         To = item.To,
+        FromAccountId = item.FromAccountId,
+        ToAccountId = item.ToAccountId,
         Reason = item.Reason,
         ResourceIdentity = item.ResourceIdentity,
         OperationId = item.OperationId
@@ -288,7 +294,7 @@ public sealed class ResourceLedger
     /// </summary>
     public ResourceEvent? Record(int tick, string cause, string kind, string name, int amount,
         string? from = null, string? to = null, string? reason = null,
-        string? resourceIdentity = null)
+        string? resourceIdentity = null, string? fromAccountId = null, string? toAccountId = null)
     {
         if (amount <= 0) return null;
         lock (_gate)
@@ -298,7 +304,8 @@ public sealed class ResourceLedger
             var e = new ResourceEvent
             {
                 Seq = nextSeq, Tick = tick, Cause = cause, Kind = kind, Name = name,
-                ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = to, Reason = reason
+                ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = to,
+                FromAccountId = fromAccountId, ToAccountId = toAccountId, Reason = reason
             };
             _entries.Add(e);
             _seq = nextSeq;
@@ -341,6 +348,8 @@ public sealed class ResourceLedger
                 string.IsNullOrWhiteSpace(item.Kind) ||
                 string.IsNullOrWhiteSpace(item.Name) ||
                 string.IsNullOrWhiteSpace(item.ResourceIdentity) ||
+                (item.FromAccountId != null && string.IsNullOrWhiteSpace(item.FromAccountId)) ||
+                (item.ToAccountId != null && string.IsNullOrWhiteSpace(item.ToAccountId)) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
                 (item.Kind == ResourceKinds.Jar &&
                     (item.Amount != 1 || !IsCanonicalJarId(item.ResourceIdentity))))
@@ -365,6 +374,8 @@ public sealed class ResourceLedger
                 Amount = item.Amount,
                 From = item.From,
                 To = item.To,
+                FromAccountId = item.FromAccountId,
+                ToAccountId = item.ToAccountId,
                 Reason = item.Reason
             });
         }
@@ -407,7 +418,14 @@ public sealed class ResourceLedger
 
         lock (_gate)
         {
-            var batch = mutations.Select(NormalizeMutationIdentity).ToArray();
+            var sourceAccountId = receipt.SourceAccount.AccountId;
+            var targetAccountId = receipt.TargetAccount.AccountId;
+            var batch = mutations.Select(NormalizeMutationIdentity)
+                .Select(item => item with
+                {
+                    FromAccountId = item.FromAccountId ?? sourceAccountId,
+                    ToAccountId = item.ToAccountId ?? targetAccountId
+                }).ToArray();
             var expectedKind = receipt.ResourceKind == RuleResourceKind.Jar
                 ? ResourceKinds.Jar
                 : ResourceKinds.Liquid;
@@ -421,6 +439,8 @@ public sealed class ResourceLedger
                     item.ResourceIdentity != receipt.ResourceIdentity ||
                     item.From != receipt.SourceAccount.OwnerId ||
                     item.To != receipt.TargetAccount.OwnerId ||
+                    item.FromAccountId != sourceAccountId ||
+                    item.ToAccountId != targetAccountId ||
                     (receipt.ResourceKind == RuleResourceKind.Jar &&
                         (item.Amount != 1 || !IsCanonicalJarId(item.ResourceIdentity)))))
                 throw new DomainValidationException("Transfer ledger batch does not describe the receipt's exact resource and account endpoints.");
@@ -448,7 +468,8 @@ public sealed class ResourceLedger
                 {
                     Seq = nextSeq, Tick = tick, Cause = item.Cause, Kind = item.Kind,
                     Name = item.Name, ResourceIdentity = item.ResourceIdentity, OperationId = operationId,
-                    Amount = item.Amount, From = item.From, To = item.To, Reason = item.Reason
+                    Amount = item.Amount, From = item.From, To = item.To,
+                    FromAccountId = item.FromAccountId, ToAccountId = item.ToAccountId, Reason = item.Reason
                 });
             }
 
@@ -534,6 +555,8 @@ public sealed class ResourceLedgerSnapshot
             Amount = item.Amount,
             From = item.From,
             To = item.To,
+            FromAccountId = item.FromAccountId,
+            ToAccountId = item.ToAccountId,
             Reason = item.Reason,
             ResourceIdentity = item.ResourceIdentity,
             OperationId = item.OperationId
@@ -563,4 +586,5 @@ public sealed class ResourceLedgerSnapshot
 public sealed record ResourceLedgerMutation(
     string Cause, string Kind, string Name, int Amount,
     string? From = null, string? To = null, string? Reason = null,
-    string? ResourceIdentity = null);
+    string? ResourceIdentity = null,
+    string? FromAccountId = null, string? ToAccountId = null);
