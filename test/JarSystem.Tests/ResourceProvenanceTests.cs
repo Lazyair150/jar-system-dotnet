@@ -128,15 +128,15 @@ public class ResourceProvenanceTests
         Assert.Equal(owners.Warehouse, stockAccount.Owner);
         Assert.Equal("production.warehouse.liquid-storage", stockAccount.AccountKind);
 
-        var producedJar = Assert.Single(system.ResourceLedger.For(ResourceCauses.Production)
-            .Where(entry => entry.Kind == ResourceKinds.Jar));
+        var producedJar = Assert.Single(system.ResourceLedger.For(ResourceCauses.Production),
+            entry => entry.Kind == ResourceKinds.Jar);
         Assert.Equal(ResourceEndpointKind.ExternalSource, producedJar.FromEndpoint.Kind);
         var producedAccount = AccountIdentity.ParseV2(producedJar.ToEndpoint.AccountId!);
         Assert.Equal(owners.Warehouse, producedAccount.Owner);
         Assert.Equal("production.warehouse.jar-storage", producedAccount.AccountKind);
 
-        var flowedLiquid = Assert.Single(system.ResourceLedger.For(ResourceCauses.Flow)
-            .Where(entry => entry.Kind == ResourceKinds.Liquid));
+        var flowedLiquid = Assert.Single(system.ResourceLedger.For(ResourceCauses.Flow),
+            entry => entry.Kind == ResourceKinds.Liquid);
         var sourceAccount = AccountIdentity.ParseV2(flowedLiquid.FromEndpoint.AccountId!);
         var targetAccount = AccountIdentity.ParseV2(flowedLiquid.ToEndpoint.AccountId!);
         Assert.Equal(owners.Warehouse, sourceAccount.Owner);
