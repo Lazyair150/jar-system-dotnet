@@ -23,6 +23,7 @@ public sealed class ResourceArea
     private readonly ProducerModule _producers;
     private readonly LiquidProduction _liquidProduction;
     private readonly ShipLiquidInventory? _shipLiquidInventory;
+    public OwnerIdentity? OwnerIdentity { get; }
     private long _jarFlowRateMilli;
     private long _liquidFlowRateMilli;
     private long _jarFlowAccumulator;
@@ -54,8 +55,13 @@ public sealed class ResourceArea
         LiquidProduction liquidProduction,
         double jarFlowRate,
         double liquidFlowRate,
-        ShipLiquidInventory? shipLiquidInventory = null)
+        ShipLiquidInventory? shipLiquidInventory = null,
+        OwnerIdentity? ownerIdentity = null)
     {
+        if (ownerIdentity.HasValue &&
+            (!ownerIdentity.Value.IsValid || ownerIdentity.Value.OwnerKind != ResourceOwnerKind.ProductionArea))
+            throw new ArgumentException("ResourceArea requires a ProductionArea OwnerIdentity.", nameof(ownerIdentity));
+        OwnerIdentity = ownerIdentity;
         _producers = producers ?? throw new ArgumentNullException(nameof(producers));
         _liquidProduction = liquidProduction ?? throw new ArgumentNullException(nameof(liquidProduction));
         _shipLiquidInventory = shipLiquidInventory;
