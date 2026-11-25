@@ -142,6 +142,13 @@ public sealed class ResourceLedger
         }
         if (snapshot.Entries.Count > 0 && snapshot.Entries[^1].Seq != snapshot.LastSeq)
             throw new DomainValidationException("资源账本快照的最后事件序号与 LastSeq 不一致。");
+        if (snapshot.TransferReceipts.Any(item =>
+                item is null ||
+                !snapshot.OperationIds.Contains(item.OperationId, StringComparer.Ordinal) ||
+                item.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred)) ||
+            snapshot.TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != snapshot.TransferReceipts.Count)
+            throw new DomainValidationException("资源账本快照的转移回执与 OperationId 索引不一致。");
+        foreach (var receipt in snapshot.TransferReceipts) receipt.Validate();
 
         var ledger = new ResourceLedger(snapshot.Capacity)
         {
@@ -171,6 +178,9 @@ public sealed class ResourceLedger
         _operationIds.Clear();
         foreach (var operationId in restored._operationIds)
             _operationIds.Add(operationId);
+        _transferReceipts.Clear();
+        foreach (var item in restored._transferReceipts)
+            _transferReceipts.Add(item.Key, item.Value with { });
     }
 
     private static ResourceEvent Clone(ResourceEvent item) => new()
@@ -272,8 +282,90 @@ public sealed class ResourceLedger
         return true;
     }
 
-    public bool HasRecordedOperation(string operationId) =>
-        _operationIds.Contains(operationId);
+    /// <summary>
+    /// Atomically publishes a transfer's event batch, OperationId and final validated receipt.
+    /// A repeated OperationId is a no-op only when it is already bound to the same receipt.
+    /// </summary>
+    public bool RecordTransferOnce(
+        string operationId,
+        int tick,
+        IEnumerable<ResourceLedgerMutation> mutations,
+        ResourceTransferReceipt receipt)
+    {
+        if (string.IsNullOrWhiteSpace(operationId))
+            throw new ArgumentException("账本操作 ID 不能为空。", nameof(operationId));
+        if (tick < 0) throw new ArgumentOutOfRangeException(nameof(tick));
+        ArgumentNullException.ThrowIfNull(mutations);
+        ArgumentNullException.ThrowIfNull(receipt);
+        receipt.Validate();
+        if (!string.Equals(operationId, receipt.OperationId, StringComparison.Ordinal))
+            throw new DomainValidationException("Transfer receipt OperationId does not match its ledger key.");
+        if (receipt.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
+            throw new DomainValidationException("Only a committed transfer can enter the receipt journal.");
+
+        lock (_gate)
+        {
+            if (_operationIds.Contains(operationId))
+            {
+                if (_transferReceipts.TryGetValue(operationId, out var prior) && prior != receipt)
+                    throw new InvalidOperationException("OperationId is already bound to a different transfer receipt.");
+                return false;
+            }
+
+            var batch = mutations.ToArray();
+            if (batch.Length == 0 || batch.Any(item =>
+                    item.Amount <= 0 ||
+                    !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
+                    (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
+                    string.IsNullOrWhiteSpace(item.Name)))
+                throw new DomainValidationException("Transfer ledger batch contains an invalid resource fact.");
+            if (batch.Sum(item => (long)item.Amount) != receipt.TransferredAmount)
+                throw new DomainValidationException("Transfer ledger amount does not match the final receipt.");
+
+            var nextSeq = _seq;
+            var events = new List<ResourceEvent>(batch.Length);
+            foreach (var item in batch)
+            {
+                nextSeq = checked(nextSeq + 1);
+                events.Add(new ResourceEvent
+                {
+                    Seq = nextSeq, Tick = tick, Cause = item.Cause, Kind = item.Kind,
+                    Name = item.Name, Amount = item.Amount, From = item.From, To = item.To, Reason = item.Reason
+                });
+            }
+
+            // All potentially allocating work happens before the first visible mutation.
+            _entries.EnsureCapacity(checked(_entries.Count + events.Count));
+            _operationIds.EnsureCapacity(checked(_operationIds.Count + 1));
+            _transferReceipts.EnsureCapacity(checked(_transferReceipts.Count + 1));
+
+            if (!_operationIds.Add(operationId)) return false;
+            _entries.AddRange(events);
+            _transferReceipts.Add(operationId, receipt with { });
+            _seq = nextSeq;
+            Trim();
+            return true;
+        }
+    }
+
+    public bool TryGetTransferReceipt(string operationId, out ResourceTransferReceipt? receipt)
+    {
+        lock (_gate)
+        {
+            if (_transferReceipts.TryGetValue(operationId, out var stored))
+            {
+                receipt = stored with { };
+                return true;
+            }
+            receipt = null;
+            return false;
+        }
+    }
+
+    public bool HasRecordedOperation(string operationId)
+    {
+        lock (_gate) return _operationIds.Contains(operationId);
+    }
 
     /// <summary>清空保留的事件（序号不回绕，于是"清过"也能从序号跳变看出）。</summary>
     public void Clear() => _entries.Clear();
