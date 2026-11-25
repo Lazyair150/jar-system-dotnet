@@ -1289,19 +1289,31 @@ public static class OrderLiquidTransfer
 public sealed class OrderLiquidScope
 {
     public OrderLiquidScope(
-        int orderId, WorkshopLiquidStaging staging, string? workshopInstanceId = null)
+        int orderId,
+        WorkshopLiquidStaging staging,
+        string? workshopInstanceId = null,
+        OwnerIdentity? workshopOwnerIdentity = null)
     {
         if (orderId <= 0)
             throw new DomainValidationException("订单 ID 必须是正整数。");
         if (workshopInstanceId != null && string.IsNullOrWhiteSpace(workshopInstanceId))
             throw new ArgumentException("Workshop instance identity cannot be blank.", nameof(workshopInstanceId));
+        if (workshopOwnerIdentity.HasValue &&
+            (!workshopOwnerIdentity.Value.IsValid ||
+             workshopOwnerIdentity.Value.OwnerKind != ResourceOwnerKind.Workshop ||
+             !string.Equals(workshopOwnerIdentity.Value.LocalOwnerId, workshopInstanceId, StringComparison.Ordinal)))
+            throw new ArgumentException("OrderLiquidScope owner must match its exact Workshop instance.", nameof(workshopOwnerIdentity));
+        if (workshopOwnerIdentity.HasValue && workshopInstanceId == null)
+            throw new ArgumentException("OrderLiquidScope owner requires an exact Workshop instance ID.", nameof(workshopOwnerIdentity));
         Staging = staging ?? throw new ArgumentNullException(nameof(staging));
         OrderId = orderId;
         WorkshopInstanceId = workshopInstanceId;
+        WorkshopOwnerIdentity = workshopOwnerIdentity;
     }
 
     public int OrderId { get; }
     public string? WorkshopInstanceId { get; }
+    public OwnerIdentity? WorkshopOwnerIdentity { get; }
     public WorkshopLiquidStaging Staging { get; }
     public IReadOnlyDictionary<string, int> Balance => Staging.GetBalance(OrderId);
     public int GetAmount(string liquid) => Staging.GetAmount(OrderId, liquid);
