@@ -1141,9 +1141,11 @@ public sealed class WorldOrderExecutionSessionTests
     public void BOrderInterruptionRecordsTransferReturnAndDiscardInWorldResourceLedger()
     {
         var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "owned.rollback.master");
         var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "owned.rollback.slave");
         var jar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(jar);
         master.AddLiquid("酒", 1);
@@ -1174,18 +1176,36 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(0, master.LiquidStorage["酒"]);
         Assert.Equal(0, setup.Reservations.Count);
 
-        Assert.Contains(ledger.For(ResourceCauses.Transfer),
-            entry => entry.Kind == ResourceKinds.Jar && entry.Name == "圆罐" &&
-                entry.From == master.Name && entry.To == slave.Name);
-        Assert.Contains(ledger.For(ResourceCauses.Transfer),
-            entry => entry.Kind == ResourceKinds.Liquid && entry.Name == "酒" &&
-                entry.From == master.Name && entry.To == slave.Name);
-        Assert.Contains(ledger.For(ResourceCauses.Return),
-            entry => entry.Kind == ResourceKinds.Jar && entry.Name == "圆罐" &&
-                entry.From == slave.Name && entry.To == master.Name);
-        Assert.Contains(ledger.For(ResourceCauses.Discard),
-            entry => entry.Kind == ResourceKinds.Liquid && entry.Name == "酒" &&
-                entry.From == slave.Name && entry.To == null);
+        var jarTransfer = Assert.Single(ledger.For(ResourceCauses.Transfer),
+            entry => entry.Kind == ResourceKinds.Jar && entry.Name == "圆罐");
+        Assert.Equal(jar.Id!.Value.ToString(CultureInfo.InvariantCulture), jarTransfer.ResourceIdentity);
+        Assert.Equal(new RuleResourceAccount("workshop.jar-storage", "owned.rollback.master").AccountId,
+            jarTransfer.FromAccountId);
+        Assert.Equal(new RuleResourceAccount("workshop.jar-storage", "owned.rollback.slave").AccountId,
+            jarTransfer.ToAccountId);
+
+        var liquidTransfer = Assert.Single(ledger.For(ResourceCauses.Transfer),
+            entry => entry.Kind == ResourceKinds.Liquid && entry.Name == "酒");
+        Assert.Equal("酒", liquidTransfer.ResourceIdentity);
+        Assert.Equal(new RuleResourceAccount("workshop.free-liquid-staging", "owned.rollback.master").AccountId,
+            liquidTransfer.FromAccountId);
+        Assert.Equal(new RuleResourceAccount("workshop.free-liquid-staging", "owned.rollback.slave").AccountId,
+            liquidTransfer.ToAccountId);
+
+        var jarReturn = Assert.Single(ledger.For(ResourceCauses.Return),
+            entry => entry.Kind == ResourceKinds.Jar && entry.Name == "圆罐");
+        Assert.Equal(jar.Id!.Value.ToString(CultureInfo.InvariantCulture), jarReturn.ResourceIdentity);
+        Assert.Equal(new RuleResourceAccount("workshop.jar-storage", "owned.rollback.slave").AccountId,
+            jarReturn.FromAccountId);
+        Assert.Equal(new RuleResourceAccount("workshop.jar-storage", "owned.rollback.master").AccountId,
+            jarReturn.ToAccountId);
+
+        var liquidDiscard = Assert.Single(ledger.For(ResourceCauses.Discard),
+            entry => entry.Kind == ResourceKinds.Liquid && entry.Name == "酒");
+        Assert.Equal("酒", liquidDiscard.ResourceIdentity);
+        Assert.Equal(new RuleResourceAccount("workshop.free-liquid-staging", "owned.rollback.slave").AccountId,
+            liquidDiscard.FromAccountId);
+        Assert.Null(liquidDiscard.ToAccountId);
         Assert.All(ledger.Entries, entry => Assert.Equal(17, entry.Tick));
         Assert.Contains(session.ResourceSettlementLog,
             entry => entry.Command == "discard_liquid");
