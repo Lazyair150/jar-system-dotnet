@@ -169,7 +169,7 @@ void DumpRulebook(string path)
 
                 foreach (var liquid in liquids)
                 {
-                    var facts = new JarFacts(shape, liquid, false);
+                    var facts = new JarFacts(shape, liquid, false, rules.ResolvePolarity(liquid));
                     var allow = new List<string>();
 
                     foreach (var l in Constants.LIQUIDS)
