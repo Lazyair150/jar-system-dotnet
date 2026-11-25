@@ -14,7 +14,7 @@ namespace JarSystem.Core.Domain;
 /// 语义：
 /// <list type="bullet">
 /// <item>禁令在构造时规范化为**裸液体名**（去掉「禁」前缀），避免 "酒" 与 "禁酒" 两种写法并存；</item>
-/// <item>Ban 约束暂存液体身份；工作台允许操作的 Jar 极性由本世界的身份映射与 Ban 共同推导；</item>
+/// <item>Ban 只约束工作台游离液体暂存区，不推导或限制 Jar 内部液体极性；</item>
 /// <item>同极 Jar 可操作，异极 Jar 不可；Neutral Jar 对两种专注工作台均可操作；</item>
 /// <item>形状转换**公式**属于核心（在 <see cref="ShapeRules"/>），本类只提供**参数**；
 /// 因此加/减形状不需要改规则引擎，只需换一份 <see cref="WorkshopCapability"/>。</item>
