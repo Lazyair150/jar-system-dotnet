@@ -435,7 +435,7 @@ public partial class JarSystem : Rules.IWorldFacts
         // 它排进下一个 tick 的批再清 —— 信号分发时世界还处在"改到一半"的状态，不能此刻读。
         Modifiers = new ModifierStack();
         _liquidProduction.AttachIntensity(Modifiers);
-        ProducerModule = new ProducerModule(Vocabulary, Modifiers, JarPool);
+        ProducerModule = new ProducerModule(Vocabulary, Modifiers, JarPool, JarIds);
         ProducerModule.ProducerSlots = _world.ProducerSlots;   /* 0 = 不限：出厂沙盒；关卡文件显式给上限 */
         // P3b 设计裁决：求解器实现**一行不改**，把"修饰器带来的新规则"统一收在这一层装饰器里。
         // 无活跃修饰器时它是直通（逐字节等于原实现）；无法表达的限制如实回"未判定"，绝不误报"不可行"。
