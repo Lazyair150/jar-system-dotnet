@@ -65,6 +65,23 @@ internal static class ResourcePortTransferGuards
         source.Validate();
         target.Validate();
 
+        if (ledger?.TryGetTransferReceipt(request.OperationId, out var priorReceipt) == true)
+        {
+            if (priorReceipt is null ||
+                priorReceipt.ConnectionId != request.ConnectionId ||
+                priorReceipt.SourcePortId != request.SourcePortId ||
+                priorReceipt.TargetPortId != request.TargetPortId ||
+                priorReceipt.ResourceKind != request.ResourceKind ||
+                priorReceipt.ResourceIdentity != request.ResourceIdentity ||
+                priorReceipt.RequestedAmount != request.Amount ||
+                priorReceipt.SourceAccount != request.SourceAccount ||
+                priorReceipt.TargetAccount != request.TargetAccount ||
+                priorReceipt.SourceVersionBefore != request.ExpectedSourceVersionToken ||
+                priorReceipt.TargetVersionBefore != request.ExpectedTargetVersionToken)
+                throw new InvalidOperationException("OperationId is already bound to a different transfer request.");
+            return priorReceipt;
+        }
+
         if (ledger?.HasRecordedOperation(request.OperationId) == true)
         {
             markDuplicate();
