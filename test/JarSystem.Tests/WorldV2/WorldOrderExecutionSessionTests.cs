@@ -808,6 +808,7 @@ public sealed class WorldOrderExecutionSessionTests
     public void MultiSourceSettlementPreservesEachWorkshopOrderAccountAllocation()
     {
         var setup = PrepareSettlementScenario();
+        var lease = setup.Reservations.FindLease(setup.Demand.Id)!;
         var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
         Assert.True(scopes.Master.Staging.TryReceiveExact(
             setup.Demand.Id, "酒", 1, out var masterGrant), masterGrant.Reason);
@@ -834,6 +835,15 @@ public sealed class WorldOrderExecutionSessionTests
             Assert.Equal(ResourceEndpointKind.Account, allocation.SourceEndpoint.Kind);
             Assert.Equal(ResourceEndpointKind.Account, allocation.TargetEndpoint.Kind);
         });
+
+        var leaseWire = OrderResourceLeaseWireDto.FromLease(lease);
+        leaseWire.Validate();
+        var restoredReceipt = leaseWire.ToReceipt();
+        Assert.NotNull(restoredReceipt);
+        Assert.Equal(2, restoredReceipt!.SourceAllocations.Count);
+        Assert.Equal(
+            receipt.SourceAllocations.Select(item => item.SourceEndpoint).OrderBy(item => item.AccountId),
+            restoredReceipt.SourceAllocations.Select(item => item.SourceEndpoint).OrderBy(item => item.AccountId));
     }
 
     [Theory]
