@@ -70,8 +70,8 @@ public class ConfigAndCapabilityTests
         Assert.Equal("workshop-owned-save-1", restored.Workshops[0].OwnedInstanceId);
 
         var legacyJson = WorldOptionsJson.ToJson(CloneDefault());
-        Assert.DoesNotContain("producerInstanceId", legacyJson, StringComparison.Ordinal);
-        Assert.DoesNotContain("ownedInstanceId", legacyJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("producerInstanceId", legacyJson);
+        Assert.DoesNotContain("ownedInstanceId", legacyJson);
     }
 
     [Fact]
