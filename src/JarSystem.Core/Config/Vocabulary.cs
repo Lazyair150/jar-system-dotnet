@@ -30,9 +30,17 @@ public sealed class Vocabulary
         _shapesView = _shapes.AsReadOnly();
         _liquidsView = _liquids.AsReadOnly();
 
-        var mapping = liquidPolarities == null
-            ? CreateLegacyDefaultMappingIfApplicable(_liquids)
-            : new Dictionary<string, LiquidPolarity>(liquidPolarities, StringComparer.Ordinal);
+        Dictionary<string, LiquidPolarity> mapping;
+        if (liquidPolarities == null)
+        {
+            mapping = CreateLegacyDefaultMappingIfApplicable(_liquids);
+        }
+        else
+        {
+            mapping = new Dictionary<string, LiquidPolarity>(StringComparer.Ordinal);
+            foreach (var item in liquidPolarities)
+                mapping.Add(item.Key, item.Value);
+        }
 
         ValidateLiquidPolarities(_liquids, mapping);
         _liquidPolarities = new ReadOnlyDictionary<string, LiquidPolarity>(mapping);
