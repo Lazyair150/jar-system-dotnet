@@ -301,6 +301,12 @@ public sealed class WorldV2Context : IDisposable
         }
         stagedSolveBook.Dispose();
 
+        // Advance every Workshop ID source before the restored world accepts new Jar entities.
+        // The high-water mark includes Warehouse and Workshop accounts from the authoritative checkpoint.
+        var jarIdHighWaterMark = allCheckpointJarIds.DefaultIfEmpty(0).Max();
+        foreach (var workshop in Roster.Workshops)
+            workshop.RestoreJarIdGeneratorAtLeast(jarIdHighWaterMark);
+
         // 上述验证全部通过后才提交。恢复操作只装载快照，不重新执行资源流转。
         Resources.RestoreRuntimeState(checkpoint.ResourceArea);
         DemandBoard.RestoreRuntimeStateFrom(checkpoint.DemandBoard, vocabulary, DemandIdGenerator);
