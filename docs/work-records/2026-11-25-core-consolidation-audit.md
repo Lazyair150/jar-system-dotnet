@@ -667,3 +667,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 - 第二次审查发现一个需要提前封堵的绑定风险：Prepare 同时接收 Adapter 与 staging 参数，若调用方误把 Adapter A 与 staging B 配对，预检会读 A、物理提交却写 B。已为订单 Adapter 暴露只读 OrderId 和内部精确实例绑定检查，并在 Prepare 强制验证两者；新增错配实例测试。提交：`e8d441f5a632f2638d321f8908abc8930a203263`、`5f07fb57b77a15bdc7492393a8f685bf6e617a8f`、`76bfa86740063f9c7220f6b36854ee3b982dbccf`。这项修正是提交前一致性要求，避免“预检账户”和“实际变更账户”分离。
 - 先前测试修正后的 Run `45621317001` 尚在运行；其代码快照不包含上述绑定风险修正，最终验证必须以之后的最新 HEAD 为准。
+
+- 事务参与者二次审查：回执的 `ReasonCode` 必须是稳定机器码，不能拼接底层 `OrderLiquidTransfer` 的动态诊断文本。已移除诊断文本拼入 ReasonCode 的做法，底层拒绝统一映射为 `transfer.precondition.rejected`，版本竞态映射为 `account.version.changed`。提交 `e37e2a88c14288a97e0967f95b276588cad3cae3`。
