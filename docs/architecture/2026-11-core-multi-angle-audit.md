@@ -188,3 +188,17 @@ Core 禁止依赖 Space/Godot；Space 只使用 Core 的稳定 DTO、Application
 - [ ] 本地 Godot GUI 验收。
 
 本文件是持续审查报告；每个阶段的实际改动和精确 SHA 记录在 `docs/work-records/`，不能将计划项写成已完成项。
+
+
+## 2026-11-25 追加审查发现：World V2 配置边界同样必须承载极性映射
+
+二次检查发现，首轮只改造旧版 WorldOptions 还不够：Space 实际运行使用的是 WorldV2Options，原来的 WorldV2Factory 仍调用 `new Vocabulary(options.Shapes, options.Liquids)`，而 WorldV2Options 没有 `liquidPolarities` 字段。这意味着 Space 的 loadout 即使声明映射，也可能在 Core World V2 装配边界丢失映射或退回默认语义。
+
+已在整合分支补齐：
+- WorldV2Options 增加 JSON 字段 `liquidPolarities`，默认值只服务旧默认 World（酒→Cathode、蜜→Anode）。
+- World V2 配置验证要求两种身份与两条映射完整对应，并且 Cathode/Anode 各一次。
+- WorldV2Factory 将该映射传入 Vocabulary，不再仅传液体列表。
+- WorldV2ConfigurationFingerprint 通过 canonical JSON 序列化包含该字段；映射变化会改变指纹。
+- 新增 WorldV2FactoryTests 覆盖自定义 fuel/coolant 配置装配、JSON 往返、指纹变化和缺少映射拒绝。
+
+对应提交：`9b3f5d3a314932c466a6ab0be899abd882179f51`、`df51c40968402c593569de3512b14c40f4f466b4`。以上待当前整合 head CI 通过后再视为验证完成。
