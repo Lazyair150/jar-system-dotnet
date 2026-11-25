@@ -250,7 +250,7 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 
 ### 3.12 当前参与者的共同边界与未完成项
 
-- 六条已落地路径复用 `ResourcePortTransferGuards` 的版本令牌复核、策略判定和 OperationId 去重；账户物理提交仍由各自领域事务负责，未把 Workshop、Warehouse、Ship、订单子账和 Prefill 合并为一个通用余额容器。
+- 六条已落地路径复用 `ResourcePortTransferGuards` 的版本令牌复核、策略判定和 OperationId 去重；账户物理提交仍由各自领域事务负责，未把 Workshop、Warehouse、Ship、订单子账和 Prefill 合并为一个通用余额容器。最终 `ResourceTransferReceipt` 在账本发布之前构造并执行 `Validate()`，因此回执校验失败仍处于物理事务的补偿窗口。
 - `ResourceLedger` 是内存权威账本，其 `ResourceLedgerSnapshot` 将 OperationIds 纳入 World 执行检查点；它不是外部数据库事务。只有在 World 串行命令边界中执行，并在检查点边界持久化/恢复，才能获得当前实现承诺的跨检查点去重。
 - 账本不保存完整 `ResourceTransferReceipt`。同一 OperationId 重放会被拒绝，调用方必须根据账本事实和权威账户状态对账；目前不会自动返回历史成功回执。
 - OperationId 集合不随有界事件列表裁剪而清除，避免旧操作在事件滚动后被重放；代价是去重集合随世界生命周期增长。要做安全压缩，必须先定义可验证的 OperationId epoch/序列水位或独立持久化去重索引，不能简单按事件保留窗口删除。
