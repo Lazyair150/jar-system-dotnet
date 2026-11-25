@@ -288,22 +288,22 @@ namespace JarSystem.Core.Solver
             for (var j = 0; j < jars.Count; j++)
             {
                 var jar = jars[j];
-                if (!cap.CanOperateJar(jar.Polarity)) continue;
-                if (req.Polarity != JarPolarity.Neutral)
+                if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) continue;
+                if ((req.Liquid == null ? JarPolarity.Neutral : cap.ResolvePolarity(req.Liquid)) != JarPolarity.Neutral)
                 {
                     // 满罐需求：形状必须已经是它自己 —— 改形 + 灌液是两次操作。
                     if (jar.Shape != req.Shape) continue;
 
                     // MATCH 仍要求 Jar 极性与当前工作台专注方向兼容。
                     if (jar.Liquid == req.Liquid) slots.Add(new Slot(j, Role.MatchFull, null));
-                    else if (jar.Polarity == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!))
+                    else if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!))
                         slots.Add(new Slot(j, Role.PourIn, req.Liquid));
                 }
                 else
                 {
-                    if (jar.Shape == req.Shape && jar.Polarity == JarPolarity.Neutral)
+                    if (jar.Shape == req.Shape && cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral)
                         slots.Add(new Slot(j, Role.MatchEmpty, null));
-                    else if (jar.Shape == req.Shape && jar.Polarity != JarPolarity.Neutral)
+                    else if (jar.Shape == req.Shape && cap.ResolvePolarity(jar.Liquid) != JarPolarity.Neutral)
                     {
                         if (!cap.IsBanned(jar.Liquid!))
                             slots.Add(new Slot(j, Role.PourOut, jar.Liquid));
@@ -311,7 +311,7 @@ namespace JarSystem.Core.Solver
                     else
                     {
                         if (!cap.CanTransform(jar.Shape, req.Shape)) continue;
-                        if (jar.Polarity == JarPolarity.Neutral)
+                        if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral)
                         {
                             if (anyCost) slots.Add(new Slot(j, Role.ReshapeEmpty, null));
                         }
@@ -426,8 +426,8 @@ namespace JarSystem.Core.Solver
             List<JarState> state, int jarIndex)
         {
             var jar = state[jarIndex];
-            if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) return false;
-            if (!cap.CanOperateJar(jar.Polarity) || cap.IsBanned(jar.Liquid!)) return false;
+            if (jar.IsMarked || cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral) return false;
+            if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid)) || cap.IsBanned(jar.Liquid!)) return false;
             // POUR_OUT 的前提：该液体尚未灌满存储上限。
             return pool[jar.Liquid!] < Constants.DEFAULT_MAX_LIQUIDS;
         }
@@ -436,7 +436,7 @@ namespace JarSystem.Core.Solver
             List<JarState> state, Assignment a, HashSet<int> usedSources, string? liquid)
         {
             if (liquid != null) return pool[liquid] > 0;
-            foreach (var l in info.Capability.Liquids)
+            foreach (var l in cap.Liquids)
                 if (!cap.IsBanned(l) && pool[l] > 0) return true;
             return false;
         }
@@ -450,8 +450,8 @@ namespace JarSystem.Core.Solver
             {
                 if (usedSources.Contains(j)) continue;
                 var jar = state[j];
-                if (jar.IsMarked || jar.Polarity == JarPolarity.Neutral) continue;
-                if (!cap.CanOperateJar(jar.Polarity) || cap.IsBanned(jar.Liquid!)) continue;
+                if (jar.IsMarked || cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral) continue;
+                if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid)) || cap.IsBanned(jar.Liquid!)) continue;
                 if (want != null && jar.Liquid != want) continue;
                 if (!CanRaise(pool, cap, state, j)) continue;
 
@@ -511,7 +511,7 @@ namespace JarSystem.Core.Solver
             if (jarIndex < 0 || jarIndex >= state.Count) return false;
             var jar = state[jarIndex];
             var cap = info.Capability;
-            if (jar.IsMarked || !cap.CanOperateJar(jar.Polarity)) return false;
+            if (jar.IsMarked || !cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) return false;
             string type;
             string? cost = null;
             var fullReshape = false;
@@ -526,7 +526,7 @@ namespace JarSystem.Core.Solver
                     break;
 
                 case Role.PourIn:
-                    if (jar.Polarity != JarPolarity.Neutral || jar.Shape != req.Shape) return false;
+                    if (cap.ResolvePolarity(jar.Liquid) != JarPolarity.Neutral || jar.Shape != req.Shape) return false;
                     if (!cap.IsBaseMarked(req.Shape)) return false;
                     if (req.Liquid == null || liquid == null || !pool.ContainsKey(liquid)) return false;
                     if (cap.IsBanned(liquid) || pool[liquid] <= 0) return false;
@@ -537,14 +537,14 @@ namespace JarSystem.Core.Solver
                 case Role.ReshapeEmpty:
                     if (cap.ResolvePolarity(jar.Liquid) != JarPolarity.Neutral) return false;
                     if (!cap.CanTransform(jar.Shape, req.Shape)) return false;
-                    cost = info.Capability.Liquids.FirstOrDefault(l => !cap.IsBanned(l) && pool[l] > 0);
+                    cost = cap.Liquids.FirstOrDefault(l => !cap.IsBanned(l) && pool[l] > 0);
                     if (cost == null) return false;
                     type = "RESHAPE";
                     targetShape = req.Shape;
                     break;
 
                 case Role.ReshapeFull:
-                    if (jar.Polarity == JarPolarity.Neutral) return false;
+                    if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral) return false;
                     if (!cap.CanTransform(jar.Shape, req.Shape)) return false;
                     type = "RESHAPE";
                     targetShape = req.Shape;
