@@ -127,3 +127,35 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 整合分支与 main 对齐，behind 0。
 - 当前仍是 PR #63 Draft，不合并 main。
 - PR #60/#61/#62 保持开放；#61 内容已作为 merge parent 纳入整合分支，但待整合 PR 验证完成后再关闭旧 PR，避免过早丢失审计入口。
+
+
+## 2026-11-25 第四轮：World V2 真正装配边界与历史 PR 收敛
+
+### World V2 映射链补齐
+
+- 二次检查发现旧版 WorldOptions 已有 LiquidPolarities，但 Space 实际调用的 WorldV2Options / WorldV2Factory 仍只把 Shapes、Liquids 传给 Vocabulary；因此 Space 的自定义映射在真实 World V2 装配边界还没有贯通。
+- WorldV2Options 现已增加 liquidPolarities、完整性/互斥校验；WorldV2Factory 已把映射传给 Vocabulary；WorldV2ConfigurationFingerprint 的 canonical JSON 包含该属性。
+- 新增 WorldV2FactoryTests：自定义 fuel/coolant 能装配、JSON 往返保留映射、映射交换改变配置指纹、缺少映射时 fail-closed。
+- 提交：9b3f5d3a314932c466a6ab0be899abd882179f51、df51c40968402c593569de3512b14c40f4f466b4。
+
+### JSON 枚举序列化纠正
+
+- 发现 JsonStringEnumConverter 被错误标注在 Dictionary<string, LiquidPolarity> 属性上，而不是枚举类型上。已把转换器标注移到 LiquidPolarity enum，移除 WorldOptions 与 WorldV2Options 字典属性上的错误标注，确保字典值以稳定字符串枚举序列化。
+- 提交：5fb98b11cf0284969ccfd7e81c2c10190983f7dc、b8a38bba88b6f2557b8ab2438ed192151eeb4c90、17b50dec9764a9437c30f863a77a27befd2bfa29。
+
+### Ban 与自耗回归
+
+- 新增自定义液体身份的回归：工作台 Ban 燃料时，Jar 内燃料仍可执行 POUR_OUT；输出因 staging Ban 被拒绝并明确记为 discarded，不进入 staging。
+- 提交：7d5e898b2ed8caaec022b1f1cf903545a1676b9e。
+
+### GitHub 堆叠 PR 历史
+
+- PR #60 的唯一文件差异已按语义吸收：.gitignore 补充 IDE、测试、日志、临时与构建产物规则；旧 2026-11-24 work-status ledger 保留原始历史，并追加 supersession note 指向当前工作记录与 ADR。
+- 创建双父 merge commit 87296a754954f931a10394280b128b87098ac4d5，第二父提交为 PR #60 head 4358d19ebb8c583c12e07b9e1d86a716b10c4d45。
+- 对照确认整合分支包含 PR #60、#61、#62 的各自 head，且相对 main ahead 2160 / behind 0。PR #60/#61/#62 暂不关闭，等整合 head CI 绿色后统一关闭，避免在验证前清理入口。
+
+### 验证状态
+
+- 当前整合 head 为 87296a754954f931a10394280b128b87098ac4d5。
+- 对应 Core verify run 45578694767 与另一个工作流 run 45578686050 均在执行；之前多条 run 仍在执行或失败，不能以其中任何一个旧 SHA 代表当前 head。
+- Space 当前分支 head a8daee73df55bf30125960a9a6231ea93e706d4f 的 CI run 45577582987 成功；但其跨仓库 Core pin 仍需在 Core 整合 head 通过后更新并重跑。
