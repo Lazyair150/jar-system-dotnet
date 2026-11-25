@@ -328,6 +328,10 @@ public sealed class ResourceLedger
                 throw new InvalidOperationException("OperationId is already bound to a different ledger batch payload.");
             return false; // Legacy tombstones have no fingerprint and remain non-replayable no-ops.
         }
+        // A zero-resource settlement advances its domain lease, not the resource ledger.
+        // Do not create a phantom OperationId/fingerprint when there are no facts to publish.
+        if (batch.Length == 0) return false;
+
         foreach (var item in batch)
         {
             if (string.IsNullOrWhiteSpace(item.Cause) ||
