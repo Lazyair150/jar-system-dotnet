@@ -144,6 +144,22 @@ public sealed class OrderLiquidPortTransferTests
     }
 
     [Fact]
+    public void PrepareRejectsAdaptersThatAreNotBoundToTheSuppliedStagingInstances()
+    {
+        var path = CreatePath();
+        path.Source.Receive(OrderId, "酒", 2);
+        var request = Request(path.SourceAdapter, path.TargetAdapter,
+            path.SourcePort, path.TargetPort, "酒", 1);
+        var differentSource = new WorkshopLiquidStaging(10);
+
+        Assert.Throws<System.ArgumentException>(() => OrderLiquidPortTransfer.Prepare(
+            request, OrderId, path.Connection, path.SourcePort, path.TargetPort,
+            path.SourceAdapter, path.TargetAdapter, differentSource, path.Target));
+        Assert.Equal(2, path.Source.GetAmount(OrderId, "酒"));
+        Assert.Equal(0, differentSource.GetAmount(OrderId, "酒"));
+    }
+
+    [Fact]
     public void PrepareRejectsRequestThatDoesNotMatchConnectionOrAccounts()
     {
         var path = CreatePath();
