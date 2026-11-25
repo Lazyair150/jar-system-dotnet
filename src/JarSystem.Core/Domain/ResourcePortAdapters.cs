@@ -365,6 +365,10 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
             return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
                 RuleResourceKind.Jar, resourceIdentity, amount, token,
                 "port.transfer-limit.exceeded", "Requested Jar count exceeds the port transfer limit.");
+        if (port.MaxAmountPerLogicalTimeMilli is not null)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.throughput.scheduler-required", "Logical-time throughput requires a scheduler window.");
         if (amount != 1)
             return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
                 RuleResourceKind.Jar, resourceIdentity, amount, token,
