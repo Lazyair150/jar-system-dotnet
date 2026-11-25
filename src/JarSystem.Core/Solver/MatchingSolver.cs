@@ -288,7 +288,6 @@ namespace JarSystem.Core.Solver
             for (var j = 0; j < jars.Count; j++)
             {
                 var jar = jars[j];
-                if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) continue;
                 if ((req.Liquid == null ? JarPolarity.Neutral : cap.ResolvePolarity(req.Liquid)) != JarPolarity.Neutral)
                 {
                     // 满罐需求：形状必须已经是它自己 —— 改形 + 灌液是两次操作。
@@ -316,7 +315,7 @@ namespace JarSystem.Core.Solver
                         }
                         else
                         {
-                            // Full reshape consumes Jar-owned liquid but still requires Workshop/Jar polarity compatibility.
+                            // Full reshape consumes Jar-owned liquid; staging Ban is irrelevant.
                             slots.Add(new Slot(j, Role.ReshapeFull, jar.Liquid));
                         }
                     }
