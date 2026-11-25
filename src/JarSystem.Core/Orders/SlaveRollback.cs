@@ -46,6 +46,9 @@ internal sealed class SlaveRollback
         foreach (var jar in slaveJars)
         {
             if (jar == null) continue;
+            if (jar.Id is not > 0)
+                throw new DomainValidationException("从台回落账本事实缺少 canonical JarId。");
+            var jarIdentity = jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
             slave.TransferOut(jar);
             // 禁液令不影响满罐转移：装满被主台禁用液体的罐子原样归还，
             // 不在此清空罐内液体（禁令只作用于倒入、游离存储与改形成本）。
@@ -53,7 +56,8 @@ internal sealed class SlaveRollback
             {
                 countDiscardedJars?.Invoke(1);
                 ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Jar,
-                    jar.Shape, 1, from: slave.Name, to: null, reason: "主台罐子容量满");
+                    jar.Shape, 1, from: slave.Name, to: null, reason: "主台罐子容量满",
+                    resourceIdentity: jarIdentity);
                 appendLog(new ExecutionLogEntry
                 {
                     Phase = "rollback",
@@ -65,7 +69,8 @@ internal sealed class SlaveRollback
             else
             {
                 ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Jar,
-                    jar.Shape, 1, from: slave.Name, to: master.Name);
+                    jar.Shape, 1, from: slave.Name, to: master.Name,
+                    resourceIdentity: jarIdentity);
             }
         }
 
@@ -83,13 +88,14 @@ internal sealed class SlaveRollback
                     : master.TryReceiveLiquid(liquid, amount);
                 int remainder = amount - accepted;
                 ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Liquid,
-                    liquid, accepted, from: slave.Name, to: master.Name);
+                    liquid, accepted, from: slave.Name, to: master.Name, resourceIdentity: liquid);
                 if (remainder > 0)
                 {
                     countDiscardedLiquids?.Invoke(liquid, remainder);
                     ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Liquid,
                         liquid, remainder, from: slave.Name, to: null,
-                        reason: master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满");
+                        reason: master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满",
+                        resourceIdentity: liquid);
                     appendLog(new ExecutionLogEntry
                     {
                         Phase = "rollback",
