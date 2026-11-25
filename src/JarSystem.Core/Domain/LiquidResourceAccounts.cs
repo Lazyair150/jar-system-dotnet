@@ -98,10 +98,15 @@ public sealed class ShipLiquidInventory
         return true;
     }
 
-    internal void CommitTransferReservation(int amount)
+    internal void ValidateTransferReservationCommit(int amount)
     {
         if (amount < 0 || amount > _reservedReturnCapacity)
             throw new InvalidOperationException("自机液库回滚容量预留内部状态无效。");
+    }
+
+    internal void CommitTransferReservation(int amount)
+    {
+        ValidateTransferReservationCommit(amount);
         _reservedReturnCapacity -= amount;
     }
 
@@ -275,9 +280,19 @@ public sealed class WorkshopPrefillTransaction
     public bool IsCompleted => _completed;
     public bool IsCommitted => _committed;
 
-    public void Commit()
+    public void Commit() => Commit(null);
+
+    /// <summary>
+    /// Execute the durable side-effect while both physical accounts are still reserved and
+    /// rollback remains possible. The reservation invariants are validated before the callback;
+    /// after it succeeds, finalization consists only of non-allocating in-memory state changes.
+    /// </summary>
+    internal void Commit(Action? beforeFinalize)
     {
         if (_completed) return;
+        _shipReservation?.ValidateCanCommit();
+        if (_shipReservation != null) _staging.ValidatePrefillTransactionCanCommit();
+        beforeFinalize?.Invoke();
         _shipReservation?.Commit();
         if (_shipReservation != null) _staging.CompletePrefillTransaction();
         _completed = true;
@@ -314,6 +329,12 @@ internal sealed class ShipLiquidTransferReservation
         _inventory = inventory;
         _amounts = amounts;
         _total = total;
+    }
+
+    public void ValidateCanCommit()
+    {
+        if (_completed) throw new InvalidOperationException("自机液库预置转移预留已经结束。");
+        _inventory.ValidateTransferReservationCommit(_total);
     }
 
     public void Commit()
@@ -715,10 +736,15 @@ public sealed class WorkshopLiquidStaging
             Capacity, _banned, _accounts, _reservedCapacityByOrder, _prefillBalances);
     }
 
-    internal void CompletePrefillTransaction()
+    internal void ValidatePrefillTransactionCanCommit()
     {
         if (!_prefillTransactionPending)
             throw new InvalidOperationException("主台预置事务状态不匹配。");
+    }
+
+    internal void CompletePrefillTransaction()
+    {
+        ValidatePrefillTransactionCanCommit();
         _prefillTransactionPending = false;
     }
 
@@ -1059,7 +1085,26 @@ public static class OrderLiquidTransfer
         WorkshopLiquidStaging slave,
         IReadOnlyDictionary<string, int> amounts,
         out string? rejectionReason,
-        IOrderLiquidTransferMutationPort mutationPort)
+        IOrderLiquidTransferMutationPort mutationPort) =>
+        TryExecute(orderId, master, slave, amounts, out rejectionReason, mutationPort, null);
+
+    internal static bool TryExecute(
+        int orderId,
+        WorkshopLiquidStaging master,
+        WorkshopLiquidStaging slave,
+        IReadOnlyDictionary<string, int> amounts,
+        out string? rejectionReason,
+        Action? beforeFinalize) =>
+        TryExecute(orderId, master, slave, amounts, out rejectionReason, DefaultPort, beforeFinalize);
+
+    internal static bool TryExecute(
+        int orderId,
+        WorkshopLiquidStaging master,
+        WorkshopLiquidStaging slave,
+        IReadOnlyDictionary<string, int> amounts,
+        out string? rejectionReason,
+        IOrderLiquidTransferMutationPort mutationPort,
+        Action? beforeFinalize)
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(slave);
@@ -1108,6 +1153,10 @@ public static class OrderLiquidTransfer
             }
             foreach (var pair in amounts)
                 mutationPort.Receive(slave, orderId, pair.Key, pair.Value);
+
+            // Durable publication is inside the physical transaction boundary: if it fails,
+            // both exact account snapshots are restored by the catch below.
+            beforeFinalize?.Invoke();
         }
         catch (Exception transferError)
         {
