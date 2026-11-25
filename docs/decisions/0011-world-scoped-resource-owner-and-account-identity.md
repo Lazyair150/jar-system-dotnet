@@ -1,6 +1,6 @@
 # ADR 0011：World-scoped Resource Owner 与 Account Identity
 
-- 状态：Accepted（身份语义与迁移契约）；代码迁移待完成
+- 状态：Accepted（身份语义与迁移契约）；WorldInstanceId 生命周期与 OwnerIdentity/AccountId v2 类型契约已落地，具体 World Owner 注入与持久化映射仍待完成
 - 日期：2026-11-26
 - 范围：Jar Core、World V2、Resource Ledger、Production Area、Ship Inventory、Warehouse、Producer、Checkpoint/Wire
 
@@ -20,6 +20,14 @@
 - 订单结算将多个订单子账户的资源合并返还时，尚未保留完整的逐来源分配事实。
 
 以上是源码审查结论，不代表本 ADR 所描述的目标已经实现。
+
+
+### 当前实现进度（2026-11-26）
+
+- `WorldInstanceId` 已进入 Host 创建、Context、执行检查点、JSON schema 6、Restore 和 Godot Bridge；旧 schema 3/4/5 必须显式提供迁移身份。
+- `OwnerIdentity` / `AccountIdentity` 类型已实现；AccountId v2 使用 UTF-8 字节长度前缀，保留两参数 `RuleResourceAccount` 的 v1 兼容路径。
+- 资源 Port Adapter 已提供 typed-owner overload；v2 transfer request/receipt 拒绝跨 World 与 v1/v2 混合端点。
+- 具体 Ship/ProductionArea/Warehouse/Producer/Workshop Owner 来源的 Host 注入、检查点 owner mapping、账户事件全量迁移尚未完成。不得据此宣称所有生产写入都已使用 v2。
 
 ## 决策
 
