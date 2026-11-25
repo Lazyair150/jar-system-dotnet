@@ -178,6 +178,10 @@ public sealed class OrderLiquidPortTransferTests
         Assert.Equal(ResourceTransferOutcome.Transferred, receipt.Outcome);
         Assert.True(ledger.HasRecordedOperation(request.OperationId));
         var entry = Assert.Single(ledger.Entries);
+        Assert.Equal(ResourceEndpointKind.Account, entry.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, entry.ToEndpoint.Kind);
+        Assert.Equal(entry.FromAccountId, entry.FromEndpoint.AccountId);
+        Assert.Equal(entry.ToAccountId, entry.ToEndpoint.AccountId);
         Assert.Equal(77, entry.Tick);
         Assert.Equal(ResourceCauses.Transfer, entry.Cause);
         Assert.Equal(ResourceKinds.Liquid, entry.Kind);
