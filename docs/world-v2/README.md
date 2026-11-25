@@ -14,6 +14,7 @@
 | [订单漏斗与工作台替换契约](order-funnel-and-workshop-replacement-contract.md) | A/B 订单约束、资源路径、工作台替换边界 |
 | [Circuit Board 规则审计与修正指南](circuit-board-rule-world-audit-and-correction-guide.md) | Board Assignment、规则贡献、Core ingress 的身份与作用域约束 |
 | [Parser Board Slot Runtime Boundary](parser-board-slot-runtime-boundary.md) | Parser 输入、处理、outbox 与 Core Warehouse 的资源边界 |
+| [ADR-0006：World-owned binary liquid polarity](../decisions/0006-world-owned-binary-liquid-polarity.md) | 两种液体身份、Cathode/Anode 映射、Ban staging-only 语义与兼容迁移 |
 | [当前工作状态与未解决问题](2026-11-24-work-status-and-open-issues.txt) | 本轮实施状态、领域不变量、未解决问题清单、样本测试策略与后续执行顺序 |
 
 ## 2. 历史实现记录：保留，不作为最新规范
