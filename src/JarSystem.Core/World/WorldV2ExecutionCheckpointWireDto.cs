@@ -596,7 +596,8 @@ public sealed class ResourceLedgerWireDto
             TransferReceipts.Any(item => item == null || !OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
             TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != TransferReceipts.Count ||
             OperationFingerprints.Any(item => string.IsNullOrWhiteSpace(item.Key) ||
-                !OperationIds.Contains(item.Key, StringComparer.Ordinal) || item.Value == null || item.Value.Length != 64))
+                !OperationIds.Contains(item.Key, StringComparer.Ordinal) || item.Value == null || item.Value.Length != 64 ||
+                item.Value.Any(character => !Uri.IsHexDigit(character))))
             throw new InvalidOperationException("资源账本 Wire DTO 无效。");
         long previous = 0;
         foreach (var item in Events)
@@ -654,9 +655,15 @@ public sealed class ResourceEventWireDto
             (Kind != ResourceKinds.Jar && Kind != ResourceKinds.Liquid) ||
             string.IsNullOrWhiteSpace(Name) ||
             (ResourceIdentity != null && string.IsNullOrWhiteSpace(ResourceIdentity)) ||
-            (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))))
+            (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))) ||
+            (OperationId != null && Kind == ResourceKinds.Jar && !IsCanonicalJarId(ResourceIdentity)))
             throw new InvalidOperationException("资源账本事件 Wire DTO 无效。");
     }
+
+    private static bool IsCanonicalJarId(string? identity) =>
+        int.TryParse(identity, System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out var jarId) && jarId > 0 &&
+        jarId.ToString(System.Globalization.CultureInfo.InvariantCulture) == identity;
 
     public ResourceEvent ToEvent()
     {
