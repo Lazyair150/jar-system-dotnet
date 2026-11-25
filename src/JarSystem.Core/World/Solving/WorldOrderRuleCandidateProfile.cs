@@ -183,7 +183,7 @@ public static class WorldOrderRuleCandidateCatalog
         var operations = new List<WorldOrderRuleCandidate>();
         foreach (var sourceShape in sourceShapes)
         {
-            foreach (var sourceLiquid in Constants.LIQUIDS)
+            foreach (var sourceLiquid in rules.Liquids)
             {
                 AddTransition(rules, operations, -1,
                     sourceShape, sourceLiquid, sourceShape, null,
@@ -231,7 +231,7 @@ public static class WorldOrderRuleCandidateCatalog
                 // Empty target can be made by pouring out any usable liquid from a same-shape Jar.
                 if (targetLiquid == null)
                 {
-                    foreach (var sourceLiquid in Constants.LIQUIDS)
+                    foreach (var sourceLiquid in rules.Liquids)
                         AddTransition(rules, candidates, requirementIndex,
                             sourceShape, sourceLiquid, targetShape, null,
                             WorkshopOperation.PourOut(), "POUR_OUT",
@@ -242,7 +242,7 @@ public static class WorldOrderRuleCandidateCatalog
             if (targetLiquid != null) continue;
 
             // Empty-jar reshape consumes one unit from a free-liquid account.
-            foreach (var costLiquid in Constants.LIQUIDS)
+            foreach (var costLiquid in rules.Liquids)
             {
                 var syntheticSupply = new Dictionary<string, int>(StringComparer.Ordinal)
                 {
@@ -255,7 +255,7 @@ public static class WorldOrderRuleCandidateCatalog
             }
 
             // Full-jar reshape self-consumes its internal liquid; it never creates free liquid.
-            foreach (var sourceLiquid in Constants.LIQUIDS)
+            foreach (var sourceLiquid in rules.Liquids)
                 AddTransition(rules, candidates, requirementIndex,
                     sourceShape, sourceLiquid, targetShape, null,
                     WorkshopOperation.ReshapeFull(targetShape),
