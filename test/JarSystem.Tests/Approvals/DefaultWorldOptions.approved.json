@@ -13,6 +13,10 @@
     "\u9152",
     "\u871C"
   ],
+  "liquidPolarities": {
+    "\u9152": "Cathode",
+    "\u871C": "Anode"
+  },
   "defaultMaxJars": 20,
   "defaultMaxLiquids": 30,
   "flow": {
