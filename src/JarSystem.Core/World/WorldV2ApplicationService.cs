@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using JarSystem.Core.Production;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
@@ -24,6 +25,7 @@ namespace JarSystem.Core.World;
 public sealed class WorldV2ApplicationService
 {
     private readonly WorldV2HostService _host;
+    private WorldV2Options? _lastOptions;
 
     public WorldV2ApplicationService(WorldV2HostService host)
     {
@@ -31,18 +33,34 @@ public sealed class WorldV2ApplicationService
     }
 
     /// <summary>创建或替换世界。普通新世界的实例身份由 Host 边界生成。</summary>
-    public void CreateOrReplaceWorld(WorldV2Options options) => _host.Replace(options);
+    public void CreateOrReplaceWorld(WorldV2Options options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var snapshot = CloneOptions(options);
+        _host.Replace(options);
+        _lastOptions = snapshot;
+    }
 
     /// <summary>使用宿主已持久化的身份创建世界，供确定性重建与重放使用。</summary>
-    public void CreateOrReplaceWorld(WorldV2Options options, WorldInstanceId worldInstanceId) =>
+    public void CreateOrReplaceWorld(WorldV2Options options, WorldInstanceId worldInstanceId)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var snapshot = CloneOptions(options);
         _host.Replace(options, worldInstanceId);
+        _lastOptions = snapshot;
+    }
 
     /// <summary>使用完整 World/Owner 身份映射创建世界，供宿主保存和确定性重建。</summary>
     public void CreateOrReplaceWorld(
         WorldV2Options options,
         WorldInstanceId worldInstanceId,
-        WorldV2OwnerIdentityMap ownerIdentities) =>
+        WorldV2OwnerIdentityMap ownerIdentities)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var snapshot = CloneOptions(options);
         _host.Replace(options, worldInstanceId, ownerIdentities);
+        _lastOptions = snapshot;
+    }
 
     /// <summary>读取当前世界已注入的稳定 Owner 身份映射。</summary>
     public WorldV2OwnerIdentityMap? GetOwnerIdentityMap()
@@ -338,7 +356,9 @@ public sealed class WorldV2ApplicationService
     public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
     {
         if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
-        _host.ExecuteExclusive(context => context.RestoreExecutionResourceCheckpoint(checkpoint));
+        var options = _lastOptions
+            ?? throw new InvalidOperationException("恢复检查点前必须先通过 ApplicationService 装配过一个 World 配置。");
+        RestoreExecutionResourceCheckpoint(options, checkpoint);
     }
 
     /// <summary>
@@ -352,8 +372,10 @@ public sealed class WorldV2ApplicationService
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
+        var snapshot = CloneOptions(options);
         _host.RestoreExecutionResourceCheckpoint(
             options, checkpoint, legacyMigrationWorldInstanceId);
+        _lastOptions = snapshot;
     }
 
     /// <summary>
@@ -368,8 +390,17 @@ public sealed class WorldV2ApplicationService
         if (options == null) throw new ArgumentNullException(nameof(options));
         var checkpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(
             json, legacyMigrationWorldInstanceId);
+        var snapshot = CloneOptions(options);
         _host.RestoreExecutionResourceCheckpoint(
             options, checkpoint, legacyMigrationWorldInstanceId);
+        _lastOptions = snapshot;
+    }
+
+    private static WorldV2Options CloneOptions(WorldV2Options options)
+    {
+        var json = JsonSerializer.Serialize(options);
+        return JsonSerializer.Deserialize<WorldV2Options>(json)
+            ?? throw new InvalidOperationException("WorldV2Options snapshot serialization returned null.");
     }
 
     /// <summary>添加罐子订单。输入仅包含玩法数据，不接受外部构造的领域对象。</summary>
