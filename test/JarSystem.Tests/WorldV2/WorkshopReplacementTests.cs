@@ -843,28 +843,34 @@ public sealed class WorkshopReplacementTests
         Assert.Equal(3, checkpoint.Admission.MasterStaging!.PrefillBalances["酒"]);
         Assert.Equal(1, checkpoint.Admission.MasterStaging.PrefillBalances["蜜"]);
 
-        var restoredShip = new ShipLiquidInventory(8, checkpoint.ShipLiquidInventory.Balances);
+        var restoredShip = new ShipLiquidInventory(8, checkpoint.ShipLiquidInventory.Balances, shipOwner);
         var restoredResources = new ResourceArea(
-            new ProducerModule(vocabulary),
+            new ProducerModule(vocabulary, warehouseOwnerIdentity: warehouseOwner),
             new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
             {
                 ["酒"] = 0.001,
                 ["蜜"] = 0.0005
             }),
-            0, 0, restoredShip);
+            0, 0, restoredShip, productionOwner);
         var restoredMaster = new Workshop("目标主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4,
+            ownedInstanceId: "target-master-prefill", ownerIdentity: targetOwner);
         restoredMaster.AddJar(new Jar("圆罐",
             id: checkpoint.MasterWorkshop.Jars[0].Id, vocabulary: vocabulary));
         var restoredSpare = new Workshop("旧主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4,
+            ownedInstanceId: "old-master-prefill", ownerIdentity: oldMasterOwner);
         using var restoredWorld = WorldV2Context.Create(
             restoredResources, new[] { restoredMaster, restoredSpare },
             restoredMaster, null, solverRegistry,
             logicalTimePerUnit: 1_000,
             passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
-            shipLiquidInventory: restoredShip);
+            shipLiquidInventory: restoredShip,
+            worldInstanceId: worldId,
+            ownerIdentities: new WorldV2OwnerIdentityMap(
+                worldId, "ship-prefill", "board-prefill", "production-prefill", "warehouse-prefill",
+                Array.Empty<string>(), new[] { "old-master-prefill", "target-master-prefill" }));
         restoredWorld.RestoreExecutionResourceCheckpoint(checkpoint);
         Assert.Equal(3, restoredWorld.Admission.GetPrefillBalances(restoredMaster)["酒"]);
         Assert.Equal(1, restoredWorld.Admission.GetPrefillBalances(restoredMaster)["蜜"]);
