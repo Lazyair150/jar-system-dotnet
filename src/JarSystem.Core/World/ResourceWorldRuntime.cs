@@ -299,8 +299,9 @@ public sealed class ResourceWorldRuntime
                         From: "主台预置", To: null,
                         Reason: "主工作台替换后返还自机液库时容量不足"));
 
-                // 同一次岗位替换的多液种返还作为一个账本操作原子发布，防止部分记账。
-                _resourceLedger.RecordBatchOnce(returnOperationId, tick, mutations);
+                // 没有返还或丢弃的资源时，不制造空账本操作；有资源变化时整批原子发布。
+                if (mutations.Count > 0)
+                    _resourceLedger.RecordBatchOnce(returnOperationId, tick, mutations);
             };
         }
 
