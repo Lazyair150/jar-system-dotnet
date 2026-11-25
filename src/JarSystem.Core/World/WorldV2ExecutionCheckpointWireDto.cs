@@ -18,6 +18,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
 {
     /// <summary>Optional for legacy checkpoints; new host-created worlds should always populate it.</summary>
     public string? WorldInstanceId { get; set; }
+    public WorldV2OwnerIdentityMapWireDto? OwnerIdentities { get; set; }
     public List<string> Shapes { get; set; } = new();
     public List<string> Liquids { get; set; } = new();
     public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } = new(StringComparer.Ordinal);
@@ -40,6 +41,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         var wire = new WorldV2ExecutionCheckpointWireDto
         {
             WorldInstanceId = checkpoint.WorldInstanceId?.Value,
+            OwnerIdentities = checkpoint.OwnerIdentities == null ? null : WorldV2OwnerIdentityMapWireDto.FromMap(checkpoint.OwnerIdentities),
             Shapes = checkpoint.Shapes.ToList(),
             Liquids = checkpoint.Liquids.ToList(),
             LiquidPolarities = checkpoint.LiquidPolarities.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
@@ -74,6 +76,11 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             persistedWorldInstanceId.Value != legacyMigrationWorldInstanceId.Value)
             throw new InvalidOperationException("迁移身份不能覆盖检查点中已持久化的 WorldInstanceId。");
         var effectiveWorldInstanceId = persistedWorldInstanceId ?? legacyMigrationWorldInstanceId;
+        if (OwnerIdentities != null && !effectiveWorldInstanceId.HasValue)
+            throw new InvalidOperationException("OwnerIdentity 映射不能脱离 WorldInstanceId 恢复。");
+        var effectiveOwnerIdentities = OwnerIdentities == null
+            ? null
+            : OwnerIdentities.ToMap(effectiveWorldInstanceId!.Value);
         var vocabulary = new Vocabulary(Shapes, Liquids, LiquidPolarities);
         var resourceArea = ResourceArea.ToSnapshot(vocabulary);
         var demandBoard = DemandBoard.ToSnapshot();
@@ -91,7 +98,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             resourceArea, demandBoard, configurationFingerprint, ship,
             master, slave, admission, reservations, leases, ledger, clock,
             RuntimeLedgerTick, Shapes, Liquids, LiquidPolarities, sessions,
-            effectiveWorldInstanceId);
+            effectiveWorldInstanceId, effectiveOwnerIdentities);
     }
 
     public void Validate()
@@ -99,6 +106,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         if (WorldInstanceId != null && (string.IsNullOrWhiteSpace(WorldInstanceId) ||
             !string.Equals(WorldInstanceId, WorldInstanceId.Trim(), StringComparison.Ordinal)))
             throw new InvalidOperationException("根级检查点 WorldInstanceId 无效。");
+        OwnerIdentities?.Validate();
         if (Shapes == null || Liquids == null ||
             Shapes.Count == 0 || Liquids.Count != 2 ||
             Shapes.Any(string.IsNullOrWhiteSpace) || Liquids.Any(string.IsNullOrWhiteSpace) ||
