@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
+using JarSystem.Core.World;
 using Xunit;
 
 namespace JarSystem.Tests;
@@ -209,6 +210,25 @@ public sealed class ResourceAccountIdentityTests
             new WorldV2OwnerIdentityMap(
                 worldId, "ship-1", "board-1", "production-1", "warehouse-1",
                 new[] { "producer-1", "producer-1" }, new[] { "workshop-1" }));
+    }
+
+
+    [Fact]
+    public void RuntimeWorkshopAndProducerCollectionsRejectDuplicateInstanceIds()
+    {
+        var firstWorkshop = new Workshop(
+            "Workshop A", new List<string> { "圆罐" }, ownedInstanceId: "workshop-duplicate");
+        var secondWorkshop = new Workshop(
+            "Workshop B", new List<string> { "圆罐" }, ownedInstanceId: "workshop-duplicate");
+        Assert.Throws<System.ArgumentException>(() =>
+            new WorkshopRoster(new[] { firstWorkshop, secondWorkshop }));
+
+        var producers = new ProducerModule();
+        producers.RegisterProducer(
+            "Producer A", new Dictionary<string, double> { ["圆罐"] = 1 }, "producer-duplicate");
+        Assert.Throws<DomainValidationException>(() =>
+            producers.RegisterProducer(
+                "Producer B", new Dictionary<string, double> { ["圆罐"] = 1 }, "producer-duplicate"));
     }
 
 }
