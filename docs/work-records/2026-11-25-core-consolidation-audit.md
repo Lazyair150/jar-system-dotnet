@@ -159,3 +159,12 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 当前整合 head 为 87296a754954f931a10394280b128b87098ac4d5。
 - 对应 Core verify run 45578694767 与另一个工作流 run 45578686050 均在执行；之前多条 run 仍在执行或失败，不能以其中任何一个旧 SHA 代表当前 head。
 - Space 当前分支 head a8daee73df55bf30125960a9a6231ea93e706d4f 的 CI run 45577582987 成功；但其跨仓库 Core pin 仍需在 Core 整合 head 通过后更新并重跑。
+
+
+## 2026-11-25 第五轮：旧 B 类分支的缺失不变量回收与文档纠偏
+
+- PR #53 的 head 曾有 4 个提交不在整合分支祖先链中。逐项检查后确认其关键缺口是“从台不能携带订单开始前的 Jar/游离液体库存”；生产枚举器当前已有该拒绝条件，但测试和阶段文档未完整保留。
+- 补回回归测试 BClassCannotUsePreExistingSlaveInventory，并补充 B 类空从台初始库存约束文档；创建双父 merge commit `9ba16082e1992a76064e3129a8bd0404f455fc64`，第二父为 PR #53 head `8ae1d89f14404682bcb497ac2458e6a979929e4a`。比较确认 PR #53 head 已是整合分支祖先。
+- 清理旧文档中的错误语义：Ban 不再被描述为 Jar 操作极性门禁。更新 phase-4.10b-9l-ban-storage-invariant、order-funnel、solver-integration-audit 与 World V2 README；历史阶段结论明确标为被 ADR-0006 修正。
+- World V2 README 已加入 ADR-0006 索引。
+- 当前 Core 最新相关 verify run `45579355853` 对提交 `37873ee08d2e74e425bf1d490c30468e6f257a6d` 尚在执行；该 SHA 之后仍有文档提交，因此最终必须以最终 head 的精确 CI 结果验收。
