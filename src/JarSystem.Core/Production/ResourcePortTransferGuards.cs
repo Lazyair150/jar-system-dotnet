@@ -77,8 +77,13 @@ internal static class ResourcePortTransferGuards
                 priorReceipt.SourceAccount != request.SourceAccount ||
                 priorReceipt.TargetAccount != request.TargetAccount ||
                 priorReceipt.SourceVersionBefore != request.ExpectedSourceVersionToken ||
-                priorReceipt.TargetVersionBefore != request.ExpectedTargetVersionToken)
+                priorReceipt.TargetVersionBefore != request.ExpectedTargetVersionToken ||
+                priorReceipt.Outcome != ResourceTransferOutcome.Transferred ||
+                priorReceipt.TransferredAmount != request.Amount)
+            {
+                markDuplicate();
                 throw new InvalidOperationException("OperationId is already bound to a different transfer request.");
+            }
             return priorReceipt;
         }
 
