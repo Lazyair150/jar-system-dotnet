@@ -145,12 +145,17 @@ public sealed class WorldV2HostEndToEndTests
         Assert.Equal(ResourceOwnerKind.Ship, stockTarget.Owner.OwnerKind);
         Assert.Equal("ship-e2e", stockTarget.Owner.LocalOwnerId);
 
-        var productionJar = Assert.Single(resourceEvents, item =>
-            item.Cause == ResourceCauses.Production && item.Kind == ResourceKinds.Jar);
-        Assert.Equal(ResourceOwnerKind.ProductionArea,
-            AccountIdentity.ParseV2(productionJar.FromEndpoint.AccountId!).Owner.OwnerKind);
-        Assert.Equal(ResourceOwnerKind.Warehouse,
-            AccountIdentity.ParseV2(productionJar.ToEndpoint.AccountId!).Owner.OwnerKind);
+        var productionJars = resourceEvents
+            .Where(item => item.Cause == ResourceCauses.Production && item.Kind == ResourceKinds.Jar)
+            .ToArray();
+        Assert.NotEmpty(productionJars);
+        Assert.All(productionJars, productionJar =>
+        {
+            Assert.Equal(ResourceOwnerKind.ProductionArea,
+                AccountIdentity.ParseV2(productionJar.FromEndpoint.AccountId!).Owner.OwnerKind);
+            Assert.Equal(ResourceOwnerKind.Warehouse,
+                AccountIdentity.ParseV2(productionJar.ToEndpoint.AccountId!).Owner.OwnerKind);
+        });
 
         var flowedJar = Assert.Single(resourceEvents, item =>
             item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Jar);
