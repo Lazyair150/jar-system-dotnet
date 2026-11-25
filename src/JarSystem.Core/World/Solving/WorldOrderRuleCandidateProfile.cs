@@ -314,7 +314,7 @@ public static class WorldOrderRuleCandidateCatalog
         // Candidate generation is limited to an unmarked initial Jar. The symbolic
         // program records the resulting mark and prevents any second operation.
         var evaluation = WorkshopRulebook.EvaluateTransition(
-            rules, scope, new JarFacts(sourceShape, sourceLiquid, false), operation);
+            rules, scope, new JarFacts(sourceShape, sourceLiquid, false, rules.ResolvePolarity(sourceLiquid)), operation);
         if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
         var transition = evaluation.Transition.Value;
         // A preparatory PourOut is selected specifically to supply later free-liquid
