@@ -303,7 +303,7 @@ public sealed class PartitionSearch
             var sourceLimit = request.SlaveInfo.MaxLiquidCapacity == int.MaxValue
                 ? request.SlaveInfo.MaxLiquids // 旧直接调用保持单液种兼容
                 : request.SlaveInfo.MaxLiquidCapacity;
-            foreach (var l in Constants.LIQUIDS)
+            foreach (var l in request.SlaveInfo.Capability.Liquids)
                 tLiquids[l] = Math.Min(masterFinalLiq.GetValueOrDefault(l, 0), sourceLimit);
 
             slaveSolveCount++;
