@@ -745,22 +745,30 @@ public sealed class WorkshopReplacementTests
                 ["蜜"] = LiquidPolarity.Anode,
                 ["酒"] = LiquidPolarity.Cathode
             });
+        var worldId = new WorldInstanceId("world-prefill-endpoints");
+        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "ship-prefill");
+        var productionOwner = new OwnerIdentity(worldId, ResourceOwnerKind.ProductionArea, "production-prefill");
+        var warehouseOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Warehouse, "warehouse-prefill");
+        var oldMasterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "old-master-prefill");
+        var targetOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "target-master-prefill");
         var ship = new ShipLiquidInventory(8, new Dictionary<string, int>
         {
             ["酒"] = 3,
             ["蜜"] = 2
-        });
-        var producers = new ProducerModule(vocabulary);
+        }, shipOwner);
+        var producers = new ProducerModule(vocabulary, warehouseOwnerIdentity: warehouseOwner);
         var production = new LiquidProduction(vocabulary, defaults: new Dictionary<string, double>
         {
             ["酒"] = 0.001,
             ["蜜"] = 0.0005
         });
-        var resources = new ResourceArea(producers, production, 0, 0, ship);
+        var resources = new ResourceArea(producers, production, 0, 0, ship, productionOwner);
         var oldMaster = new Workshop("旧主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4,
+            ownedInstanceId: "old-master-prefill", ownerIdentity: oldMasterOwner);
         var target = new Workshop("目标主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4);
+            maxJars: 4, maxLiquids: 4, vocabulary: vocabulary, liquidStagingCapacity: 4,
+            ownedInstanceId: "target-master-prefill", ownerIdentity: targetOwner);
         var jar = new Jar("圆罐", vocabulary: vocabulary);
         oldMaster.AddJar(jar);
         var solverRegistry = new WorldOrderSolverRegistry(new IWorldOrderSpecificationSolver[]
@@ -772,7 +780,11 @@ public sealed class WorkshopReplacementTests
             logicalTimePerUnit: 1_000,
             passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
-            shipLiquidInventory: ship);
+            shipLiquidInventory: ship,
+            worldInstanceId: worldId,
+            ownerIdentities: new WorldV2OwnerIdentityMap(
+                worldId, "ship-prefill", "board-prefill", "production-prefill", "warehouse-prefill",
+                Array.Empty<string>(), new[] { "old-master-prefill", "target-master-prefill" }));
 
         var begin = world.Runtime.BeginReplacement(
             WorkshopRole.Master, target, new NoOrderInterruption(), phaseDurationMilli: 1_000);
@@ -790,6 +802,10 @@ public sealed class WorkshopReplacementTests
         {
             Assert.Equal("自机液库", item.From);
             Assert.Equal("主台预置", item.To);
+            Assert.Equal(ResourceEndpointKind.Account, item.FromEndpoint.Kind);
+            Assert.Equal(ResourceEndpointKind.Account, item.ToEndpoint.Kind);
+            Assert.Equal("ship-prefill", AccountIdentity.ParseV2(item.FromEndpoint.AccountId!).Owner.LocalOwnerId);
+            Assert.Equal("target-master-prefill", AccountIdentity.ParseV2(item.ToEndpoint.AccountId!).Owner.LocalOwnerId);
         });
 
         world.Runtime.AdvanceWorldTime(2_000);
