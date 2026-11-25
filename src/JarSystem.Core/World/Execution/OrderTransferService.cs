@@ -233,7 +233,8 @@ internal sealed class OrderTransferService
             if (ledger != null)
                 ledgerMutations.Add(new ResourceLedgerMutation(
                     ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
-                    From: master.Name, To: slave.Name));
+                    From: master.Name, To: slave.Name,
+                    ResourceIdentity: id.ToString(CultureInfo.InvariantCulture)));
         }
 
         if (masterScope == null)
@@ -244,7 +245,7 @@ internal sealed class OrderTransferService
                 foreach (var item in manifest.TransferLiquids.Where(item => item.Value > 0))
                     ledgerMutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
-                        From: master.Name, To: slave.Name));
+                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key));
             }
         }
         else
@@ -258,7 +259,7 @@ internal sealed class OrderTransferService
                 if (ledger != null)
                     ledgerMutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
-                        From: master.Name, To: slave.Name));
+                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key));
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
 
