@@ -104,7 +104,7 @@ public sealed class WorkshopReplacementTests
     }
 
     [Fact]
-    public void MasterReplacementTransfersOppositeJarButTargetCannotOperateIt()
+    public void MasterReplacementTransfersBannedJarAndTargetCanOperateIt()
     {
         var oldMaster = new Workshop("允许酒的旧主台",
             new List<string> { "圆罐", "方罐" });
@@ -128,9 +128,7 @@ public sealed class WorkshopReplacementTests
         Assert.Equal("酒", jar.Liquid);
         Assert.Equal(0, newMaster.LiquidStorage["酒"]); // 禁液游离液体不进入目标台
         Assert.True(newMaster.IsBanned("酒"));
-        var incompatible = newMaster.CanReshapeTo(jar, "方罐");
-        Assert.False(incompatible.Granted);
-        Assert.Equal("polarity-incompatible", incompatible.Code);
+        Assert.True(newMaster.CanReshapeTo(jar, "方罐").Granted);
     }
 
     [Fact]
