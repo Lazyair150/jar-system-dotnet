@@ -232,10 +232,9 @@ public static class SolverPrecheck
         if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
 
-        // Full-Jar reshape spends Jar-owned liquid, but it still requires polarity compatibility.
+        // Full-Jar reshape spends Jar-owned liquid; staging Ban is irrelevant.
         if (cap.CanTransform(jar.Shape, req.Shape)) return true;
-        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
-            && !cap.IsBanned(jar.Liquid!);
+        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -277,9 +276,9 @@ public static class SolverPrecheck
             return cap.CanTransform(jar.Shape, req.Shape) && anyCostLiquid;
         }
 
-        // ③ 满罐改形：资源从 Jar 内部扣除，但工作台仍须有权操作该 Jar 极性。
+        // ③ 满罐改形：资源只从 Jar 内部扣除，不经过 staging Ban。
         if (cap.CanTransform(jar.Shape, req.Shape)) return true;
-        // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH；此路径进入 staging，仍受 Ban。
+        // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH；Jar 状态变化允许，产液在 staging 被拒绝时丢弃。
         return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
             && !cap.IsBanned(jar.Liquid!);
     }
