@@ -485,4 +485,93 @@ public sealed class ResourceLedgerSnapshotTests
 
         Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(invalid));
     }
+
+    [Fact]
+    public void BatchEventsCarryOperationIdAndCanonicalResourceIdentity()
+    {
+        var ledger = new ResourceLedger();
+        var operationId = "operation.batch.identity";
+        var batch = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "酒", 2, From: "source", To: "target"),
+            new ResourceLedgerMutation(ResourceCauses.Discard, ResourceKinds.Liquid,
+                "蜜", 1, From: "source", To: null)
+        };
+
+        Assert.True(ledger.RecordBatchOnce(operationId, 9, batch));
+
+        Assert.Equal(new[] { operationId, operationId }, ledger.Entries.Select(item => item.OperationId));
+        Assert.Equal(new[] { "酒", "蜜" }, ledger.Entries.Select(item => item.ResourceIdentity));
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.Equal(new[] { operationId, operationId }, restored.Entries.Select(item => item.OperationId));
+    }
+
+    [Fact]
+    public void JarTransferEventUsesJarIdRatherThanShapeAsResourceIdentity()
+    {
+        var ledger = new ResourceLedger();
+        var source = new RuleResourceAccount("workshop-jar-storage", "workshop.jar.source");
+        var target = new RuleResourceAccount("workshop-jar-storage", "workshop.jar.target");
+        var receipt = new ResourceTransferReceipt(
+            "operation.jar.identity", "connection.jar.identity",
+            "source.jar.out", "target.jar.in", RuleResourceKind.Jar, "401",
+            source, target, 1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+
+        Assert.True(ledger.RecordTransferOnce(receipt.OperationId, 4,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Jar,
+                    "圆罐", 1, From: source.OwnerId, To: target.OwnerId, ResourceIdentity: "401")
+            }, receipt));
+
+        var fact = Assert.Single(ledger.Entries);
+        Assert.Equal("圆罐", fact.Name);
+        Assert.Equal("401", fact.ResourceIdentity);
+        Assert.Equal(receipt.OperationId, fact.OperationId);
+
+        var mismatchedReceipt = receipt with { OperationId = "operation.jar.identity.mismatch", ResourceIdentity = "402" };
+        Assert.Throws<DomainValidationException>(() => ledger.RecordTransferOnce(
+            mismatchedReceipt.OperationId, 5,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Jar,
+                    "圆罐", 1, From: source.OwnerId, To: target.OwnerId, ResourceIdentity: "401")
+            }, mismatchedReceipt));
+    }
+
+    [Fact]
+    public void SchemaThreeLedgerWireKeepsLegacyResourceIdentityUnknown()
+    {
+        const string json = """
+        {
+          "schemaVersion": 3,
+          "kind": "world-v2-execution-checkpoint",
+          "configurationFingerprint": null,
+          "payload": {
+            "Capacity": 4,
+            "LastSeq": 1,
+            "Dropped": 0,
+            "Events": [
+              { "Seq": 1, "Tick": 1, "Cause": "stock", "Kind": "liquid", "Name": "酒", "Amount": 1 }
+            ],
+            "OperationIds": [],
+            "TransferReceipts": []
+          }
+        }
+        """;
+
+        var decoded = WorldV2CheckpointJsonCodec.Decode<ResourceLedgerWireDto>(json);
+        var wireEvent = Assert.Single(decoded.Payload.Events);
+        Assert.Null(wireEvent.ResourceIdentity);
+        Assert.Null(wireEvent.OperationId);
+
+        var restored = ResourceLedger.Restore(decoded.Payload.ToSnapshot());
+        var fact = Assert.Single(restored.Entries);
+        Assert.Null(fact.ResourceIdentity);
+        Assert.Null(fact.OperationId);
+        Assert.Equal("酒", fact.Name);
+    }
+
 }
