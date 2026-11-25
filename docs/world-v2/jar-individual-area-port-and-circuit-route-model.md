@@ -142,7 +142,7 @@ Connection 是两个端口之间的显式连接，必须满足：
 
 Core 的最小纯值契约分为三个阶段，不能把它们合成一个带副作用的 `Transfer()`：
 
-1. **Port Preflight**：针对单个端口执行只读检查，结果只能是 Allowed / Rejected / Undetermined，并记录端口、权威账户、资源身份、数量、观察到的 Area Version 和稳定 ReasonCode。
+1. **Port Preflight**：针对单个端口执行只读检查，结果只能是 Allowed / Rejected / Undetermined，并记录端口、权威账户、资源身份、数量、观察到的不透明账户版本令牌（可由权威账户快照指纹表示） 和稳定 ReasonCode。
 2. **Transfer Request**：描述一条已存在 Connection 上的跨账户意图，必须包含 OperationId、ConnectionId、源/目标端口、资源身份、数量、两端权威账户及预期版本。
 3. **Transfer Receipt**：记录一次尝试的最终结果，并满足数量守恒：
 
