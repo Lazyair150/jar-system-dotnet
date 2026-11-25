@@ -223,9 +223,9 @@ public sealed class WorldV2HostServiceTests
     {
         using var host = new WorldV2HostService();
         var options = ValidOptions();
-        host.Replace(options, new WorldInstanceId("source-world"));
+        using var legacySource = WorldV2Factory.Create(options);
         var application = new WorldV2ApplicationService(host);
-        var currentCheckpoint = application.CaptureExecutionResourceCheckpoint();
+        var currentCheckpoint = legacySource.CaptureExecutionResourceCheckpoint();
 
         var legacyWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(currentCheckpoint);
         legacyWire.WorldInstanceId = null;
