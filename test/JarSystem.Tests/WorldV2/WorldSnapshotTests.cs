@@ -362,7 +362,12 @@ public sealed class WorldSnapshotTests
     {
         var vocabulary = new Vocabulary(
             new[] { "round-custom" },
-            new[] { "fuel", "coolant" });
+            new[] { "fuel", "coolant" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["fuel"] = LiquidPolarity.Anode,
+                ["coolant"] = LiquidPolarity.Cathode
+            });
         var specification = new JarOrderSpecification(
             new[] { new Requirement { Shape = "round-custom" } },
             vocabulary: vocabulary);
