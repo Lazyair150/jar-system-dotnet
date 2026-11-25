@@ -305,6 +305,7 @@ public sealed class WorldV2Context : IDisposable
         // Advance every Workshop ID source before the restored world accepts new Jar entities.
         // The high-water mark includes Warehouse and Workshop accounts from the authoritative checkpoint.
         var jarIdHighWaterMark = allCheckpointJarIds.DefaultIfEmpty(0).Max();
+        Resources.Inventory.RestoreJarIdGeneratorAtLeast(jarIdHighWaterMark);
         foreach (var workshop in Roster.Workshops)
             workshop.RestoreJarIdGeneratorAtLeast(jarIdHighWaterMark);
 
