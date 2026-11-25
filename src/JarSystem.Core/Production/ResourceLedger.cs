@@ -173,7 +173,8 @@ public sealed class ResourceLedger
                 (item.OperationId != null && item.Kind == ResourceKinds.Jar && !IsCanonicalJarId(item.ResourceIdentity)) ||
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
-                string.IsNullOrWhiteSpace(item.Name))
+                string.IsNullOrWhiteSpace(item.Name) ||
+                (item.DisplayName != null && string.IsNullOrWhiteSpace(item.DisplayName)))
                 throw new DomainValidationException("资源账本快照包含无效或乱序事件。");
             ValidateAccountEndpointWorldScope(item.FromEndpoint, item.ToEndpoint);
             previousSeq = item.Seq;
@@ -549,6 +550,7 @@ public sealed class ResourceLedger
                     (item.Cause != ResourceCauses.Transfer && item.Cause != ResourceCauses.Flow) ||
                     item.Kind != expectedKind ||
                     string.IsNullOrWhiteSpace(item.Name) ||
+                    (item.DisplayName != null && string.IsNullOrWhiteSpace(item.DisplayName)) ||
                     item.ResourceIdentity != receipt.ResourceIdentity ||
                     item.From != receipt.SourceAccount.OwnerId ||
                     item.To != receipt.TargetAccount.OwnerId ||
