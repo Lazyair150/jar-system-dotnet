@@ -684,3 +684,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 第二条路径验证 Run `45622714477` 正在执行；结果待记录。
 
 - 为第二条路径补充了直接领域事务回滚测试：验证 Begin 后 Ship 已扣款且预留回库容量、Workshop Prefill 已临时入账并锁定暂存区；Rollback 后两端精确恢复，预留归零、暂存区占用归零。测试提交 `7392edbead413d00561b11f8b3f59b0f054a3724`。
+
+- 第二条 Ship→Prefill 参与者首轮 Run `45622714477`（提交 `0726f124855962529e4ee1e0c16a99438a1b9470`）通过：Build 成功；xUnit 901 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该快照不含随后新增的直接 Rollback 测试；含新增测试的 Run `45623056208` 正在执行。
