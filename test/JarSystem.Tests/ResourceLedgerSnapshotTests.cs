@@ -137,6 +137,24 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void RestoreRejectsTransferReceiptsWithoutTheirPayloadFingerprint()
+    {
+        const string operationId = "operation.receipt-missing-fingerprint";
+        var source = new RuleResourceAccount("workshop-liquid-staging", "workshop.source");
+        var target = new RuleResourceAccount("workshop-liquid-staging", "workshop.target");
+        var receipt = new ResourceTransferReceipt(
+            operationId, "connection.missing-fingerprint", "source.out", "target.in",
+            RuleResourceKind.Liquid, "酒", source, target,
+            1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+        var snapshot = new ResourceLedgerSnapshot(
+            4, 0, 0, Array.Empty<ResourceEvent>(),
+            new[] { operationId }, new[] { receipt });
+
+        Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(snapshot));
+    }
+
+    [Fact]
     public void EntriesExposeReadOnlyViewInsteadOfMutableBackingList()
     {
         var ledger = new ResourceLedger();
