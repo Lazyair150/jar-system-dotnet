@@ -531,7 +531,7 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
         string? liquid,
         JarPolarity expected)
     {
-        Assert.Equal(expected, JarPolarityResolver.Resolve(liquid));
+        Assert.Equal(expected, JarPolarityResolver.Resolve(liquid, Vocabulary.Default));
     }
 
     [Fact]
