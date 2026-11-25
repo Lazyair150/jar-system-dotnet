@@ -9,9 +9,9 @@ public sealed class RuleTransitionContractTests
     [Fact]
     public void JarPolarityIsDerivedFromTheAuthoritativeLiquidIdentity()
     {
-        Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null));
-        Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒"));
-        Assert.Equal(JarPolarity.Anode, JarPolarityResolver.Resolve("蜜"));
+        Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
+        Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒", Vocabulary.Default));
+        Assert.Equal(JarPolarity.Anode, JarPolarityResolver.Resolve("蜜", Vocabulary.Default));
 
         Assert.Equal(JarPolarity.Neutral, new Jar("圆罐").Polarity);
         Assert.Equal(JarPolarity.Cathode, new Jar("圆罐", "酒").Polarity);
@@ -19,7 +19,7 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(JarPolarity.Neutral, new JarFacts("圆罐", null, false).Polarity);
         Assert.Equal(JarPolarity.Cathode, new JarFacts("圆罐", "酒", false).Polarity);
         Assert.Equal(JarPolarity.Anode, new JarFacts("圆罐", "蜜", false).Polarity);
-        Assert.Throws<System.ArgumentException>(() => JarPolarityResolver.Resolve("未知液体"));
+        Assert.Throws<System.ArgumentException>(() => JarPolarityResolver.Resolve("未知液体", Vocabulary.Default));
         Assert.Throws<System.ArgumentException>(() => new RuleStateSnapshot(new[]
         {
             new KeyValuePair<string, string>("jarInstanceId", "jar.invalid"),
