@@ -446,8 +446,11 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
             !st.ConsumeLiquid(consumed, 1)) return false;
         if (transition.Value.ConsumedJarLiquid is { } jarLiquid &&
             !string.Equals(st.Jars[i].Liquid, jarLiquid, StringComparison.Ordinal)) return false;
-        if (transition.Value.ProducedFreeLiquid is { } produced)
+        if (transition.Value.ProducedFreeLiquid is { } produced &&
+            !st.WorkshopInfo.Capability.IsBanned(produced))
             st.AddLiquid(produced, 1);
+        // A staging Ban rejects only the output account admission. The POUR_OUT
+        // Jar transition still commits; rejected output is discarded.
 
         st.SetShape(i, transition.Value.After.Shape);
         st.SetLiquid(i, transition.Value.After.Liquid);
