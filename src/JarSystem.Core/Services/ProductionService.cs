@@ -47,7 +47,9 @@ internal sealed class ProductionService
         {
             _system.ProducerModule.Warehouse.ProduceLiquid(liquid, amount);
             // 记的是"产了多少"，产能溢出另有一条 discard 事实 —— 两条合起来才是净变化。
-            RecordLiquid(ResourceCauses.Production, liquid, amount, from: "液体产能", to: "仓库");
+            RecordLiquid(ResourceCauses.Production, liquid, amount, from: "液体产能", to: "仓库",
+                fromEndpoint: ResourceEndpoint.ExternalSource("world.production.liquid-output"),
+                toEndpoint: WarehouseEndpoint("production.warehouse.liquid-storage"));
         }
 
         RecordDiscards(discardedLiquidsBefore);
@@ -76,9 +78,13 @@ internal sealed class ProductionService
 
         // 流入是**位置变化**，不是"世界产出了东西"：账本上它与 production 分开记，
         // 读者因此能区分"仓库多了三只罐"和"主台多了三只罐"。
-        RecordJars(ResourceCauses.Flow, moved.Jars, from: "仓库", to: master.Name);
+        RecordJars(ResourceCauses.Flow, moved.Jars, from: "仓库", to: master.Name,
+            fromEndpoint: WarehouseEndpoint("production.warehouse.jar-storage"),
+            toEndpoint: WorkshopEndpoint(master, "workshop.jar-storage"));
         foreach (var (name, amount) in moved.Liquids)
-            RecordLiquid(ResourceCauses.Flow, name, amount, from: "仓库", to: master.Name);
+            RecordLiquid(ResourceCauses.Flow, name, amount, from: "仓库", to: master.Name,
+                fromEndpoint: WarehouseEndpoint("production.warehouse.liquid-storage"),
+                toEndpoint: WorkshopEndpoint(master, "workshop.free-liquid-staging"));
     }
 
     /// <summary>
@@ -96,12 +102,29 @@ internal sealed class ProductionService
         _system.SetLiquidProductionRateCore(liquid, rate);
     }
 
+    private ResourceEndpoint WarehouseEndpoint(string accountKind)
+    {
+        var owner = _system.ProducerModule.Warehouse.OwnerIdentity;
+        return owner.HasValue
+            ? ResourceEndpoint.ForAccount(new RuleResourceAccount(owner.Value, accountKind).AccountId)
+            : ResourceEndpoint.LegacyUnknown;
+    }
+
+    private static ResourceEndpoint WorkshopEndpoint(Workshop workshop, string accountKind)
+    {
+        var owner = workshop.OwnerIdentity;
+        return owner.HasValue
+            ? ResourceEndpoint.ForAccount(new RuleResourceAccount(owner.Value, accountKind).AccountId)
+            : ResourceEndpoint.LegacyUnknown;
+    }
+
     // ============================================================
     // 账本记录（纯投影：不改世界）
     // ============================================================
 
     /// <summary>逐只记录 Jar 实体；Shape 仅作展示，ResourceIdentity 必须是 JarId。</summary>
-    private void RecordJars(string cause, IReadOnlyList<Jar> jars, string from, string to)
+    private void RecordJars(string cause, IReadOnlyList<Jar> jars, string from, string to,
+        ResourceEndpoint fromEndpoint, ResourceEndpoint toEndpoint)
     {
         if (jars.Count == 0) return;
         var tick = _system.Processes.Clock.Tick;
@@ -112,8 +135,8 @@ internal sealed class ProductionService
             _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, jar.Shape, 1, from, to,
                 resourceIdentity: jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 displayName: jar.Shape,
-                fromEndpoint: ResourceEndpoint.LegacyUnknown,
-                toEndpoint: ResourceEndpoint.LegacyUnknown);
+                fromEndpoint: fromEndpoint,
+                toEndpoint: toEndpoint);
         }
     }
 
@@ -124,18 +147,19 @@ internal sealed class ProductionService
             _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, jar.Shape, 1, from, to,
                 resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 displayName: jar.Shape,
-                fromEndpoint: ResourceEndpoint.LegacyUnknown,
-                toEndpoint: ResourceEndpoint.LegacyUnknown);
+                fromEndpoint: ResourceEndpoint.ExternalSource("world.production.jar-output"),
+                toEndpoint: WarehouseEndpoint("production.warehouse.jar-storage"));
     }
 
-    private void RecordLiquid(string cause, string liquid, int amount, string from, string to)
+    private void RecordLiquid(string cause, string liquid, int amount, string from, string to,
+        ResourceEndpoint fromEndpoint, ResourceEndpoint toEndpoint)
     {
         if (amount <= 0) return;
         _system.ResourceLedger.Record(
             _system.Processes.Clock.Tick, cause, ResourceKinds.Liquid, liquid, amount, from, to,
             resourceIdentity: liquid, displayName: liquid,
-            fromEndpoint: ResourceEndpoint.LegacyUnknown,
-            toEndpoint: ResourceEndpoint.LegacyUnknown);
+            fromEndpoint: fromEndpoint,
+            toEndpoint: toEndpoint);
     }
 
     /// <summary>
@@ -152,8 +176,8 @@ internal sealed class ProductionService
                 from: "仓库", reason: "仓库罐位已满",
                 resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 displayName: jar.Shape,
-                fromEndpoint: ResourceEndpoint.LegacyUnknown,
-                toEndpoint: ResourceEndpoint.ExternalSink("legacy-warehouse.jar-capacity-overflow"));
+                fromEndpoint: WarehouseEndpoint("production.warehouse.jar-storage"),
+                toEndpoint: ResourceEndpoint.ExternalSink("warehouse.jar-capacity-overflow"));
 
         foreach (var (liquid, total) in warehouse.DiscardedLiquids)
         {
@@ -162,8 +186,8 @@ internal sealed class ProductionService
             if (delta <= 0) continue;
             _system.ResourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid, liquid, delta,
                 from: "仓库", reason: "仓库该液体已满", resourceIdentity: liquid, displayName: liquid,
-                fromEndpoint: ResourceEndpoint.LegacyUnknown,
-                toEndpoint: ResourceEndpoint.ExternalSink("legacy-warehouse.liquid-capacity-overflow"));
+                fromEndpoint: WarehouseEndpoint("production.warehouse.liquid-storage"),
+                toEndpoint: ResourceEndpoint.ExternalSink("warehouse.liquid-capacity-overflow"));
         }
     }
 }
