@@ -281,7 +281,7 @@ public class Workshop
     public LiquidGrant CanStoreLiquid(string liquid, int amount) =>
         Liquid.CanStore(liquid, amount, _liquidStorage.GetValueOrDefault(liquid));
 
-    /// <summary>是否有可用（未被禁且有库存）的游离液体。</summary>
+    /// <summary>是否有可用（未被禁且有库存）的工作台游离液体。</summary>
     public bool HasUsableLiquid(string l) => CanUseLiquid(l, 1).Granted;
 
     /// <summary>支付 1 单位改形成本。</summary>
@@ -559,7 +559,7 @@ public class Workshop
     ///
     /// 空罐：形状方向合法 + 池里至少有一份可取用的改形成本液体（具体付哪一种由执行者定，
     /// 所以"成本被抑制"要到执行时才判，这里只回答"有没有得付"）。
-    /// 满罐：形状方向合法 + 罐内液体**可取用**（禁令挡自耗 —— 读法 B：自耗也算使用）。
+    /// 满罐：形状方向合法 + 罐内液体存在；自耗只扣 Jar 内部账户，不经过暂存区 Ban。
     /// </summary>
     public ReshapeGrant CanReshapeTo(Jar jar, string to)
     {
