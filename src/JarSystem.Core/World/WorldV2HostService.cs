@@ -42,11 +42,19 @@ public sealed class WorldV2HostService : IDisposable
     /// 使用宿主显式提供的身份创建或替换世界。宿主可在存档/重放边界复用已持久化身份；
     /// 普通新世界由上层 Replace(options) 在 Host 边界生成一次。
     /// </summary>
-    public void Replace(WorldV2Options options, WorldInstanceId worldInstanceId)
+    public void Replace(WorldV2Options options, WorldInstanceId worldInstanceId) =>
+        Replace(options, worldInstanceId, null);
+
+    /// <summary>使用已持久化的 World 与 Owner 身份映射装配世界。</summary>
+    public void Replace(
+        WorldV2Options options,
+        WorldInstanceId worldInstanceId,
+        WorldV2OwnerIdentityMap? ownerIdentities)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (!worldInstanceId.IsValid)
             throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
+        ownerIdentities?.ValidateForWorld(worldInstanceId);
         ThrowIfOperationReentrant();
 
         lock (_operationSync)
@@ -54,7 +62,7 @@ public sealed class WorldV2HostService : IDisposable
             lock (_sync) ThrowIfDisposed();
 
             // Factory 失败时尚未改动当前世界。
-            var next = WorldV2Factory.Create(options, worldInstanceId: worldInstanceId);
+            var next = WorldV2Factory.Create(options, worldInstanceId: worldInstanceId, ownerIdentities: ownerIdentities);
             WorldV2Context? previous;
             lock (_sync)
             {
