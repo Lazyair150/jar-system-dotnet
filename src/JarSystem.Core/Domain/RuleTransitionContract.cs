@@ -53,6 +53,23 @@ public sealed record RuleResourceAccount(
     string AccountKind,
     string OwnerId)
 {
+    /// <summary>
+    /// Canonical account identity. Length-prefixing both components prevents collisions
+    /// between different account kinds and owner IDs without relying on display names.
+    /// </summary>
+    public string AccountId
+    {
+        get
+        {
+            Validate();
+            return "account:v1:" +
+                AccountKind.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                AccountKind +
+                OwnerId.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                OwnerId;
+        }
+    }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(AccountKind) || string.IsNullOrWhiteSpace(OwnerId))
