@@ -116,10 +116,15 @@ public sealed class WorldOrderExecutionSessionTests
 
     private static SettlementScenario PrepareSettlementScenario()
     {
+        var worldId = new WorldInstanceId("settlement-world");
+        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "master-owned");
+        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "slave-owned");
         var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "master-owned", ownerIdentity: masterOwner);
         var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "slave-owned", ownerIdentity: slaveOwner);
         Assert.True(master.AddJar(new Jar("圆罐", vocabulary: Words)));
         using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
         {
@@ -134,7 +139,9 @@ public sealed class WorldOrderExecutionSessionTests
         board.AddDemand(demand, DemandAreaKind.Active);
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
         var book = new WorldOrderSolveBook(board);
-        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "ship-owned");
+        var ship = new ShipLiquidInventory(
+            4, new Dictionary<string, int> { ["酒"] = 1 }, shipOwner);
         ReevaluateWithShip(book, roster, ship, demand.Id);
         var reservations = new WorldResourceReservationBook();
         var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
@@ -794,6 +801,39 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Empty(scopes.Slave.Balance);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Single(setup.Ledger.For(ResourceCauses.Return));
+    }
+
+
+    [Fact]
+    public void MultiSourceSettlementPreservesEachWorkshopOrderAccountAllocation()
+    {
+        var setup = PrepareSettlementScenario();
+        var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
+        Assert.True(scopes.Master.Staging.TryReceiveExact(
+            setup.Demand.Id, "酒", 1, out var masterGrant), masterGrant.Reason);
+
+        var receipt = new OrderResourceSettlementService().SettleAndRelease(
+            setup.Demand.Id, setup.Admission, setup.Ledger, 19);
+
+        Assert.NotNull(receipt);
+        Assert.Equal(2, receipt!.Requested["酒"]);
+        Assert.Equal(2, receipt.SourceAllocations.Count);
+        Assert.Equal(2, setup.Ledger.For(ResourceCauses.Return).Count);
+        var events = setup.Ledger.For(ResourceCauses.Return);
+        Assert.Equal(2, events.Select(item => item.FromAccountId).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(events, item =>
+        {
+            Assert.StartsWith("account:v2:", item.FromAccountId);
+            Assert.StartsWith("account:v2:", item.ToAccountId);
+            Assert.Equal(ResourceEndpointKind.Account, item.FromEndpoint.Kind);
+            Assert.Equal(ResourceEndpointKind.Account, item.ToEndpoint.Kind);
+            Assert.Equal(item.ToAccountId, item.ToEndpoint.AccountId);
+        });
+        Assert.All(receipt.SourceAllocations, allocation =>
+        {
+            Assert.Equal(ResourceEndpointKind.Account, allocation.SourceEndpoint.Kind);
+            Assert.Equal(ResourceEndpointKind.Account, allocation.TargetEndpoint.Kind);
+        });
     }
 
     [Theory]
