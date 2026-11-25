@@ -124,8 +124,11 @@ public class ResourceProvenanceTests
 
         Assert.Equal(1, producedHoney);       // 产了 1 份
         Assert.Equal(1, discardedHoney);      // 但仓库满了，1 份进丢弃账目
-        Assert.Contains(sys.ResourceLedger.For(ResourceCauses.Discard),
+        var discard = Assert.Single(sys.ResourceLedger.For(ResourceCauses.Discard),
             e => e.Name == "蜜" && e.Reason == "仓库该液体已满");
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, discard.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.ExternalSink, discard.ToEndpoint.Kind);
+        Assert.Equal("legacy-warehouse.liquid-capacity-overflow", discard.ToEndpoint.ExternalEndpointId);
     }
 
     [Fact]
