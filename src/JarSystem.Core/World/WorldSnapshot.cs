@@ -58,11 +58,14 @@ public sealed class WorldSnapshot
 /// <summary>单个岗位的纯值求解输入，不持有 Workshop 或 Jar 实体引用。</summary>
 public sealed class WorkshopSolveSnapshot
 {
+    private readonly IReadOnlyList<string> _shapes;
     private readonly IReadOnlyList<WorldJarState> _jars;
     private readonly IReadOnlyDictionary<string, int> _liquids;
     private readonly IReadOnlyList<WorldRuleModifierSnapshot> _modifiers;
 
     public string Name { get; }
+    /// <summary>Immutable shape identity directory captured from the owning World vocabulary.</summary>
+    public IReadOnlyList<string> Shapes => _shapes;
     public int MaxJars { get; }
     public int MaxLiquids { get; }
     /// <summary>新订单液体暂存模型的合计容量，与旧版单液种 MaxLiquids 分开捕获。</summary>
@@ -86,6 +89,7 @@ public sealed class WorkshopSolveSnapshot
     internal WorkshopSolveSnapshot(Workshop workshop)
     {
         Name = workshop.Name;
+        _shapes = Array.AsReadOnly(workshop.KnownShapes.ToArray());
         MaxJars = workshop.MaxJars;
         MaxLiquids = workshop.MaxLiquids;
         LiquidStagingCapacity = workshop.LiquidStagingCapacity;
@@ -233,6 +237,23 @@ public static class WorldSnapshotFactory
 
         var masterWorkshop = roster.Master;
         var slaveWorkshop = roster.Slave;
+        var vocabularyOwner = masterWorkshop ?? slaveWorkshop ?? roster.Workshops.FirstOrDefault();
+        if (vocabularyOwner != null)
+        {
+            foreach (var workshop in roster.Workshops)
+            {
+                if (!workshop.KnownShapes.SequenceEqual(vocabularyOwner.KnownShapes, StringComparer.Ordinal) ||
+                    !new HashSet<string>(workshop.KnownLiquids, StringComparer.Ordinal)
+                        .SetEquals(vocabularyOwner.KnownLiquids) ||
+                    workshop.Capability.LiquidPolarities.Count != vocabularyOwner.Capability.LiquidPolarities.Count ||
+                    vocabularyOwner.Capability.LiquidPolarities.Any(item =>
+                        !workshop.Capability.LiquidPolarities.TryGetValue(item.Key, out var polarity) ||
+                        polarity != item.Value))
+                    throw new ArgumentException(
+                        "同一求解 World 的所有工作台必须共享完全一致的形状词表、液体身份与极性映射。",
+                        nameof(roster));
+            }
+        }
         var master = masterWorkshop == null ? null : new WorkshopSolveSnapshot(masterWorkshop);
         var slave = slaveWorkshop == null ? null : new WorkshopSolveSnapshot(slaveWorkshop);
         var ship = shipLiquidInventory?.Capture();
@@ -321,6 +342,7 @@ public static class WorldSnapshotFactory
         if (workshop == null) return;
 
         writer.Write(workshop.Name);
+        WriteStrings(writer, workshop.Shapes);
         writer.Write(workshop.MaxJars);
         writer.Write(workshop.MaxLiquids);
         writer.Write(workshop.LiquidStagingCapacity);
