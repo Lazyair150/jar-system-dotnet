@@ -124,6 +124,7 @@ public sealed class Warehouse
     internal void RestoreJarIdGeneratorAtLeast(int value)
     {
         if (value < 0) throw new ArgumentOutOfRangeException(nameof(value));
+        if (value == 0) return;
         if (_ids is not IRestorableIdGenerator restorable)
             throw new InvalidOperationException("Checkpoint restore requires a restorable Warehouse Jar ID generator.");
         restorable.RestoreAtLeast(value);
