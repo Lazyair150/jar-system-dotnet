@@ -155,7 +155,7 @@ public sealed class WorkshopSolveSnapshot
         if (HasOpaqueSolverRules)
             throw new InvalidOperationException("工作台快照包含不可静态重建的规则");
 
-        return RuleContext.From(EffectiveRuleProfile, "workshop", RuleSlotId);
+        return RuleContext.From(EffectiveRuleProfile, "workshop", RuleSlotId, vocabulary: Capability.Vocabulary);
 
     }
 
@@ -163,7 +163,7 @@ public sealed class WorkshopSolveSnapshot
     public WorkshopInfo CreateWorkshopInfo() => new()
     {
         Capability = Capability,
-        Rules = RuleContext.From(EffectiveRuleProfile, "workshop", RuleSlotId),
+        Rules = RuleContext.From(EffectiveRuleProfile, "workshop", RuleSlotId, vocabulary: Capability.Vocabulary),
         MaxJars = MaxJars,
         MaxLiquids = MaxLiquids,
         MaxLiquidCapacity = LiquidStagingCapacity

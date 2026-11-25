@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using JarSystem.Core.Config;
 using System.Linq;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.World;
 using Xunit;
 
@@ -299,6 +300,47 @@ public sealed class WorldSnapshotTests
         var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
 
         Assert.Throws<System.ArgumentException>(() => WorldSnapshotFactory.Capture(roster));
+    }
+
+
+
+    [Fact]
+    public void CandidateCatalogUsesSnapshotWorldVocabularyForShapesLiquidsAndPolarity()
+    {
+        var vocabulary = new Vocabulary(
+            new[] { "round-custom", "square-custom" },
+            new[] { "fuel", "coolant" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["fuel"] = LiquidPolarity.Anode,
+                ["coolant"] = LiquidPolarity.Cathode
+            });
+        var workshop = new Workshop(
+            "custom-master",
+            new List<string> { "round-custom" },
+            vocabulary: vocabulary);
+        var snapshot = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { workshop }, workshop));
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "round-custom", Liquid = "fuel" } },
+            vocabulary: vocabulary);
+
+        var profile = WorldOrderRuleCandidateCatalog.Build(
+            snapshot, snapshot.Master!, "Master", specification);
+        var candidates = profile.Requirements.Single().Candidates;
+
+        Assert.Contains(candidates, candidate =>
+            candidate.SourceShape == "round-custom" &&
+            candidate.SourceLiquid == "fuel" &&
+            candidate.Operation == "MATCH");
+        Assert.DoesNotContain(candidates, candidate =>
+            candidate.SourceLiquid is "酒" or "蜜");
+        Assert.All(profile.PreparatoryOperations, candidate =>
+        {
+            Assert.Contains(candidate.SourceShape, vocabulary.Shapes);
+            if (candidate.SourceLiquid != null)
+                Assert.Contains(candidate.SourceLiquid, vocabulary.Liquids);
+        });
     }
 
 

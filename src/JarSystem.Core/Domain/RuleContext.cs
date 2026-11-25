@@ -30,7 +30,8 @@ public sealed class RuleContext
         EffectiveRuleProfile profile,
         string scope = "workshop",
         string? sourceSlotId = null,
-        bool mutableStack = false)
+        bool mutableStack = false,
+        Vocabulary? vocabulary = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         if (string.IsNullOrWhiteSpace(scope)) throw new ArgumentException("Rule scope is required.", nameof(scope));
@@ -44,7 +45,7 @@ public sealed class RuleContext
             .Where(x => x.Source.SourceKind != "temporary-modifier")
             .Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
         var bans = scoped.Where(x => x.Effect == RuleContributionEffect.BanLiquid).Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
-        var capability = new WorkshopCapability(baseMarks, additionalMarks, bans);
+        var capability = new WorkshopCapability(baseMarks, additionalMarks, bans, vocabulary);
         var modifiers = new List<IRuleModifier>();
         foreach (var contribution in scoped)
         {

@@ -71,6 +71,9 @@ public sealed class WorkshopCapability
     /// <summary>Liquid identities known to this World; Ban is a staging-account policy only.</summary>
     public IReadOnlyList<string> Liquids => _vocabulary.Liquids;
 
+    /// <summary>Exact immutable vocabulary owned by this capability's World.</summary>
+    public Vocabulary Vocabulary => _vocabulary;
+
     /// <summary>World-owned immutable liquid identity-to-polarity contract.</summary>
     public IReadOnlyDictionary<string, LiquidPolarity> LiquidPolarities => _vocabulary.LiquidPolarities;
 
