@@ -477,6 +477,7 @@ public sealed class WorkshopLiquidStaging
         if (!inventory.TryWithdrawForTransfer(transfer, out var reservation))
             throw new InvalidOperationException("自机液库在预置转移准备期间发生变化。");
 
+        var prefillBefore = _prefillBalances.GetValueOrDefault(liquid);
         try
         {
             RestorePrefill(transfer);
@@ -488,8 +489,11 @@ public sealed class WorkshopLiquidStaging
         {
             try
             {
-                if (_prefillBalances.GetValueOrDefault(liquid) >= amount)
-                    AddPrefillUnchecked(liquid, -amount);
+                var applied = _prefillBalances.GetValueOrDefault(liquid) - prefillBefore;
+                if (applied < 0 || applied > amount)
+                    throw new InvalidOperationException("预置账户在补偿期间发生了非预期变化：" + liquid);
+                if (applied > 0) AddPrefillUnchecked(liquid, -applied);
+                if (_prefillTransactionPending) CompletePrefillTransaction();
                 reservation!.Rollback();
             }
             catch (Exception rollbackError)
