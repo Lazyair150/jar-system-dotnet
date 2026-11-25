@@ -709,3 +709,10 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 两条参与者的版本令牌复核、Ban/容量判定和重复 OperationId 检查收敛至 `ResourcePortTransferGuards.EvaluateCommitPreflight`；Prepare 的账本与 Tick Provider 配对校验也收敛至同一 helper。账户各自保留领域提交方法，不把不同账户语义抹平。
 - 关键提交：`e32a4c271c83f952c6e7358651ace4842718f26a`（领域事务回调及预留验证）、`5a6f27610b53d4fed2290c35f78703285413085e`、`49f6c9876f8073ce54a2ae463873a2e419516d70`（两条参与者接入原子回调）、`7b9e8907ce24ba20920a9d3c5c7d9b07c388aeda`、`e18164d747dc2420f7911edaaac38b36063ec8e3`（失败注入测试）、`45c73ad5640a2d1f6adf463cc3376bfc9fcad072`、`eebf435e6d213e60b3e5008df30c0673b888a145`、`a43a975f7e743cee833914fcd4149548f3e9d740`、`f7d7cbf9fe27cf5f6cb8d8dacce8f828cfe56a67`（共享预检与幂等守卫）、`9fa18da74480faf46cf17db4062f90143898557a`（架构文档）。
 - 本轮新代码尚未获得当前 HEAD 的完整 CI 结果；必须在最新 Run 结束后记录 Build、xUnit、Solver Differential、安全扫描和质量门禁结果。PR #63 仍保持 Draft，不合并。
+
+- 原子账本回调与共享版本守卫的基线 Run `45626669362`（提交 `f0e91afff6a265174867c84a3ae9a751e4216e28`）通过：Build 成功；xUnit 906 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该快照包含两条既有参与者的账本原子边界修复、共享预检守卫和账本批次预分配，但不包含后续 Warehouse→Workshop 第三条参与者。
+- 第三条账户路径开始：新增 `WarehouseWorkshopLiquidPortTransfer`，只连接 Production Warehouse Liquid Output 与 Workshop Free-Liquid Input；通过 `Warehouse.TryWithdrawLiquidExact` 和 Workshop `AddLiquid` 精确全量转移。Warehouse 新增精确扣款与单余额恢复接口；两个 Adapter 新增精确实例绑定校验。
+- 第三条路径明确保持既有语义：Workshop Ban/容量拒绝时液体留在 Warehouse；不调用旧 `FlowToMaster` 的多液种部分接收、不移动 Jar、不写入 Prefill 或订单子账。账本使用 `flow/liquid`，并在双账户补偿边界内发布；失败恢复 Warehouse 原余额和 Workshop 游离液体快照。
+- 新增 `WarehouseWorkshopLiquidPortTransferTests`，覆盖精确转移、Ban、容量不足、Prepare 后版本变化、账本 OperationId 检查点恢复去重、账本发布失败补偿、Adapter 绑定错配。
+- 第三条路径相关提交：`26fa5244b0ee7e62a2bb121dc6035c13deba95ad`、`f0e91afff6a265174867c84a3ae9a751e4216e28`、`dbe07f161c0edd1a134bc174e82d1fd604434f63`、`7ad92e3a2e336b864a95968074c390730f35854c`、`066872d5886e1d48021c103ebc614d07e97999e7`、`4f1e305feadd34856ff87177541fe8746cba7592`、`a5f16fe4ae2628a0a3f91b6da77044af68a5abbc`。
+- 当前 HEAD 的 Run `45627124181` / `45627111486` 正在执行；本次新测试尚未得到最终 CI 结果。PR #63 仍 Open、Draft、GitHub API mergeable=true；没有合并。
