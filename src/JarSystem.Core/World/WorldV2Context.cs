@@ -306,6 +306,18 @@ public sealed class WorldV2Context : IDisposable
         if ((OwnerIdentities == null) != (checkpoint.OwnerIdentities == null) ||
             (OwnerIdentities != null && !OwnerIdentities.IsEquivalentTo(checkpoint.OwnerIdentities)))
             throw new InvalidOperationException("检查点 OwnerIdentity 映射与当前世界不一致，拒绝恢复。");
+        foreach (var entry in checkpoint.ResourceLedger.Entries)
+        {
+            if (entry.FromAccountId != null)
+                AccountIdentity.ValidateWorldScope(entry.FromAccountId, WorldInstanceId);
+            if (entry.ToAccountId != null)
+                AccountIdentity.ValidateWorldScope(entry.ToAccountId, WorldInstanceId);
+        }
+        foreach (var receipt in checkpoint.ResourceLedger.TransferReceipts)
+        {
+            AccountIdentity.ValidateWorldScope(receipt.SourceAccount.AccountId, WorldInstanceId);
+            AccountIdentity.ValidateWorldScope(receipt.TargetAccount.AccountId, WorldInstanceId);
+        }
         if (!string.Equals(ConfigurationFingerprint, checkpoint.ConfigurationFingerprint, StringComparison.Ordinal))
             throw new InvalidOperationException("检查点配置指纹与当前世界不一致，拒绝恢复。");
         if (!Shapes.SequenceEqual(checkpoint.Shapes, StringComparer.Ordinal) ||
