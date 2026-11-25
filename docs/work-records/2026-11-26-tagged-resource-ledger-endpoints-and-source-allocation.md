@@ -96,3 +96,16 @@ ResourceLedger 的新操作指纹包含 tagged endpoint。为避免旧 checkpoin
 ## 验证边界
 
 本轮代码、测试和工作记录写入 GitHub feature branch。尚未运行本地 `dotnet test`，不宣称编译或测试通过。后续应先检查当前分支 CI/编译结果，再修正发现的问题；若 connector 未返回对应 workflow/status，标记为 unconfirmed，而不是绿色。
+
+
+## CI 复核补记（2026-11-26 02:30 +08）
+
+本轮从 Actions job log 直接定位到先前报告中未展开的真实阻断原因：
+
+- `dotnet build JarSystem.slnx -c Release` 失败于 `WorldOrderExecutionSessionTests.cs` 的 xUnit analyzer 规则 xUnit2013：不允许用 `Assert.Equal(expectedCount, collection.Count)` 检查集合长度，要求改用结构性集合断言。
+- 这是测试代码质量规则触发的 build error，不是生产代码编译错误；因此当时的 xUnit 测试阶段没有实际执行，后续“focused summary missing”属于 build 失败后的流水线连锁标记，不是第二个独立测试失败。
+- 修复提交：`60831839dbde0acfa352a6e4490b86ee82ab383a`，把 per-source allocations 数量断言改为逐来源身份断言。
+- 随后提交：`a0126ab1fd348b3f8ebf5b2ea63938b7079ec1da`，移除 wire round-trip 测试中冗余的集合计数断言；已有的完整 endpoint sequence equality 已覆盖数量和顺序。
+- 此后 Actions 已为提交 `60831839...` 启动 push 与 PR 两个验证运行；截至本补记时它们仍在运行。提交 `a0126ab...` 的专属运行尚未在 Actions 列表中确认。故当前最新 HEAD 的完整验证仍为 **unconfirmed**，不得标记通过。
+
+后续复核必须查看覆盖 `a0126ab...` 的最新 run，确认 Release build、JarSystem.Tests、Godot host build、契约/schema 与固定 Seed 验证全部结束；如有新失败，按首个真实失败步骤定位，不把下游缺少摘要误判成额外根因。
