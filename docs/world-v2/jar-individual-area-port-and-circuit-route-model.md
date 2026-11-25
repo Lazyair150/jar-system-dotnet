@@ -166,6 +166,8 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 | `WorkshopPrefillLiquidPortAdapter` | `workshop.prefill-liquid-staging / OwnedInstanceId` | 独立检查预置账户余额、Ban 与暂存区共享容量，不读取订单子账余额 |
 | `WorkshopJarStoragePortAdapter` | `workshop.jar-storage / OwnedInstanceId` | 按离散 Jar ID 检查归属和罐位容量；不读取 Jar 内液体作为暂存区资源 |
 | `ShipLiquidInventoryPortAdapter` | `ship.liquid-inventory / ShipIndividualId` | 输入检查自机液库共享剩余容量，输出检查指定液种库存 |
+| `WarehouseJarStoragePortAdapter` | `production.warehouse.jar-storage / ProductionIndividualId` | 中央仓库 Jar 离散身份、容量和所有权 |
+| `WarehouseLiquidStoragePortAdapter` | `production.warehouse.liquid-storage / ProductionIndividualId` | 旧版中央仓库液体账户的词表身份与逐液种容量；不套用 Workshop Ban |
 
 所有 Adapter 均要求调用方提供精确 AreaId 和 Individual/Workshop 实例身份；不以显示名称、主从角色或数组位置替代身份。
 
