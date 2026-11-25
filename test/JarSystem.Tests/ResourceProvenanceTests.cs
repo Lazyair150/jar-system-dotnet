@@ -131,7 +131,7 @@ public class ResourceProvenanceTests
             e => e.Name == "蜜" && e.Reason == "仓库该液体已满");
         Assert.Equal(ResourceEndpointKind.LegacyUnknown, discard.FromEndpoint.Kind);
         Assert.Equal(ResourceEndpointKind.ExternalSink, discard.ToEndpoint.Kind);
-        Assert.Equal("legacy-warehouse.liquid-capacity-overflow", discard.ToEndpoint.ExternalIdentity);
+        Assert.Equal("warehouse.liquid-capacity-overflow", discard.ToEndpoint.ExternalIdentity);
     }
 
     [Fact]
