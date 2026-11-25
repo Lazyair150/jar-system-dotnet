@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using JarSystem.Core.Config;
+using JarSystem.Core.Production;
 
 namespace JarSystem.Core.Domain;
 
@@ -393,5 +395,142 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
                 ? exists ? "jar.identity.already-owned" : "jar.storage.capacity"
                 : "jar.identity.not-owned",
             allowed ? null : "Jar storage preflight rejected the requested ownership change.");
+    }
+}
+
+
+/// <summary>Preflight adapter for the Production Area's central discrete Jar warehouse.</summary>
+public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
+{
+    public const string SupportedPolicyId = "production.warehouse.jar-storage";
+    public const int SupportedPolicyVersion = 1;
+
+    private readonly Warehouse _warehouse;
+    private readonly string _areaId;
+    public RuleResourceAccount Account { get; }
+
+    public WarehouseJarStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
+    {
+        _warehouse = warehouse ?? throw new ArgumentNullException(nameof(warehouse));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        Account = new RuleResourceAccount(
+            "production.warehouse.jar-storage",
+            CircuitAreaDefinition.RequireIdentity(productionIndividualId, nameof(productionIndividualId)));
+        Account.Validate();
+    }
+
+    public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
+    {
+        ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
+        var token = ResourcePortVersionToken.Create(new[]
+        {
+            new KeyValuePair<string, string>("owner", Account.OwnerId),
+            new KeyValuePair<string, string>("capacity", Constants.WAREHOUSE_MAX_JARS.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("jar-count", _warehouse.JarCount.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("jar-ids", string.Join(",", _warehouse.Jars
+                .Select(jar => jar.Id.GetValueOrDefault()).OrderBy(id => id)
+                .Select(id => id.ToString(CultureInfo.InvariantCulture))))
+        });
+
+        if (port.AreaId != _areaId)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.area.mismatch", "Port does not belong to this Production Area.");
+        if (port.PolicyId != SupportedPolicyId || port.PolicyVersion != SupportedPolicyVersion)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.policy.unsupported", "Warehouse Jar storage policy identity/version is unsupported.");
+        if (port.ResourceKind != RuleResourceKind.Jar)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.resource-kind.unsupported", "Warehouse Jar storage only supports Jar resources.");
+        if (port.MaxAmountPerTransfer is { } limit && amount > limit)
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.transfer-limit.exceeded", "Requested Jar count exceeds the port transfer limit.");
+        if (port.MaxAmountPerLogicalTimeMilli is not null)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.throughput.scheduler-required", "Logical-time throughput requires a scheduler window.");
+        if (amount != 1)
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "jar.identity.amount.invalid", "A Jar resource identity represents exactly one discrete Jar.");
+        if (!int.TryParse(resourceIdentity, NumberStyles.None, CultureInfo.InvariantCulture, out var jarId) ||
+            jarId <= 0 || jarId.ToString(CultureInfo.InvariantCulture) != resourceIdentity)
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "jar.identity.invalid", "Jar resource identity must be a canonical positive integer.");
+        if (port.ResourceIdentities.Count > 0 && !port.ResourceIdentities.Contains(resourceIdentity, StringComparer.Ordinal))
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.resource-identity.mismatch", "Jar identity is outside the port allow-list.");
+
+        var exists = _warehouse.Jars.Any(jar => jar.Id == jarId);
+        var allowed = port.Direction == ResourcePortDirection.Input
+            ? _warehouse.JarCount < Constants.WAREHOUSE_MAX_JARS && !exists
+            : exists;
+        return new ResourcePortPreflight(
+            allowed ? RuleDecisionKind.Allowed : RuleDecisionKind.Rejected,
+            port.PortId, Account, RuleResourceKind.Jar, resourceIdentity, amount, token,
+            allowed ? "allowed" : port.Direction == ResourcePortDirection.Input
+                ? exists ? "jar.identity.already-owned" : "warehouse.jar-capacity"
+                : "jar.identity.not-owned",
+            allowed ? null : "Warehouse Jar storage preflight rejected the requested ownership change.");
+    }
+}
+
+/// <summary>Preflight adapter for the legacy Production Area warehouse liquid account; it has no Workshop Ban.</summary>
+public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter
+{
+    public const string SupportedPolicyId = "production.warehouse.liquid-storage";
+    public const int SupportedPolicyVersion = 1;
+
+    private readonly Warehouse _warehouse;
+    private readonly string _areaId;
+    public RuleResourceAccount Account { get; }
+
+    public WarehouseLiquidStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
+    {
+        _warehouse = warehouse ?? throw new ArgumentNullException(nameof(warehouse));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        Account = new RuleResourceAccount(
+            "production.warehouse.liquid-storage",
+            CircuitAreaDefinition.RequireIdentity(productionIndividualId, nameof(productionIndividualId)));
+        Account.Validate();
+    }
+
+    public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
+    {
+        ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
+        var token = ResourcePortVersionToken.Create(new[]
+        {
+            new KeyValuePair<string, string>("owner", Account.OwnerId),
+            new KeyValuePair<string, string>("capacity", Constants.WAREHOUSE_MAX_LIQUIDS.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("balances", ResourcePortVersionToken.Amounts("liquid", _warehouse.LiquidWarehouse))
+        });
+
+        if (port.AreaId != _areaId)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Liquid, resourceIdentity, amount, token,
+                "port.area.mismatch", "Port does not belong to this Production Area.");
+        if (port.PolicyId != SupportedPolicyId || port.PolicyVersion != SupportedPolicyVersion)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Liquid, resourceIdentity, amount, token,
+                "port.policy.unsupported", "Warehouse liquid storage policy identity/version is unsupported.");
+        if (! _warehouse.LiquidWarehouse.ContainsKey(resourceIdentity))
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Liquid, resourceIdentity, amount, token,
+                "resource.identity.unknown", "Liquid identity is not part of the Warehouse vocabulary.");
+
+        return ResourcePortPreflightFactory.Evaluate(this, port, resourceIdentity, amount, token, () =>
+        {
+            if (port.Direction == ResourcePortDirection.Output)
+                return _warehouse.LiquidCount(resourceIdentity) >= amount
+                    ? LiquidGrant.Yes()
+                    : LiquidGrant.Insufficient(resourceIdentity);
+            var remaining = Constants.WAREHOUSE_MAX_LIQUIDS - _warehouse.LiquidCount(resourceIdentity);
+            return remaining >= amount ? LiquidGrant.Yes() : LiquidGrant.OverCapacity(resourceIdentity);
+        });
     }
 }
