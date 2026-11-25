@@ -132,6 +132,22 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.Equal(0, ledger.LastSeq);
         Assert.False(ledger.HasRecordedOperation("operation.cross-world"));
         Assert.False(ledger.HasRecordedOperation("operation.mixed-version"));
+
+        var forgedSnapshot = new ResourceLedgerSnapshot(
+            8, 1, 0,
+            new[]
+            {
+                new ResourceEvent
+                {
+                    Seq = 1, Tick = 1, Cause = ResourceCauses.Transfer,
+                    Kind = ResourceKinds.Liquid, Name = "酒", DisplayName = "酒",
+                    ResourceIdentity = "酒", Amount = 1,
+                    FromAccountId = source.AccountId, ToAccountId = foreignTarget.AccountId,
+                    FromEndpoint = source, ToEndpoint = foreignTarget
+                }
+            },
+            Array.Empty<string>());
+        Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(forgedSnapshot));
     }
 
     [Fact]
