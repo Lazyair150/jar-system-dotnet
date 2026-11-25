@@ -17,6 +17,9 @@
 
 - [2026-11-25 Core 多角度审查与 Space 收敛启动记录](2026-11-25-core-consolidation-audit.md)
 - [Core 多角度架构审查与收敛方案](../architecture/2026-11-core-multi-angle-audit.md)
+- [Core 概念模型与形式化规则规范](../architecture/core-conceptual-model-and-formal-rules.md)
+- [ADR 0007：规则系统正式化与求解算法解耦](../decisions/0007-core-rule-system-and-solver-decoupling.md)
+- [2026-11-25 Core 概念体系与规则正式化工作记录](2026-11-25-core-consolidation-audit.md)
 
 ## 当前整合分支
 
