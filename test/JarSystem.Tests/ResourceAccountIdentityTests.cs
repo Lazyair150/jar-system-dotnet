@@ -59,7 +59,7 @@ public sealed class ResourceAccountIdentityTests
 
         Assert.StartsWith("account:v2:", canonical);
         Assert.Contains("5:炉:1", canonical);
-        Assert.Contains("11:生产:输出", canonical);
+        Assert.Contains("13:生产:输出", canonical);
     }
 
     [Fact]
