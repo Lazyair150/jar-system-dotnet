@@ -17,7 +17,7 @@ public sealed class WarehouseWorkshopLiquidPortTransferTests
         var warehouse = new Warehouse();
         warehouse.ProduceLiquid("酒", 5);
         var workshop = new Workshop(
-            "master", ban: targetBan?.ToList(),
+            "master", ban: targetBan is null ? null : new List<string>(targetBan),
             maxLiquids: workshopLiquidCapacity,
             ownedInstanceId: "workshop.master.01");
         var sourceAdapter = new WarehouseLiquidStoragePortAdapter(
