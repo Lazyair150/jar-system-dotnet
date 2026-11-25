@@ -158,7 +158,8 @@ public sealed class WarehouseWorkshopLiquidPortTransferTests
             path.SourceAdapter, path.TargetAdapter, path.Warehouse, path.Workshop,
             restoredLedger, () => 104);
 
-        Assert.Throws<System.InvalidOperationException>(() => replay.Commit());
+        Assert.Equal(receipt, replay.Commit());
+        Assert.True(replay.IsCommitted);
         Assert.Equal(3, path.Warehouse.LiquidCount("酒"));
         Assert.Equal(2, path.Workshop.LiquidStorage["酒"]);
     }
