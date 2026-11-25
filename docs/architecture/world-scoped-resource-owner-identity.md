@@ -146,3 +146,11 @@ World V2 stock, production, warehouse flow, prefill, rollback and retired-prefil
 - ResourceLedger rejects account-to-account facts that mix account:v1 with account:v2 or cross WorldInstanceId.
 
 The old `ProductionService` path remains an intentional LegacyUnknown migration boundary because it does not yet receive a stable World/Owner identity map. Display strings and producer names must not be used to fabricate ownership. This legacy path should be migrated only when its host assembly supplies stable identities.
+
+## Host composition requirement — 2026-11-26
+
+Normal `WorldV2HostService.Replace(options)` and `Replace(options, worldInstanceId)` calls must create a complete `WorldV2OwnerIdentityMap`, not only a WorldInstanceId. The Host assigns opaque local IDs for Producers and Workshops that do not already have persisted IDs, while preserving exact IDs supplied by the definition or BoardAssignmentSnapshot. The generated IDs are written into the normalized options snapshot; callers must persist that normalized configuration together with execution checkpoints.
+
+`WorldV2ApplicationService.CaptureWorldOptions()` and the Godot bridge equivalent expose that normalized snapshot. The ApplicationService retains a bounded recent mapping from WorldInstanceId to its normalized options so a checkpoint can restore the exact earlier world after a replacement. Across process restarts, callers must persist and supply the matching normalized options explicitly; identities must never be reconstructed from names, collection positions, or roles.
+
+The legacy `JarSystem` composition root now accepts the same explicit World/Owner identity map. If any legacy ProducerInstanceId, OwnedInstanceId, or WorldInstanceId is supplied without the complete map, construction fails closed. Existing definition-only legacy configurations remain readable and continue through the documented LegacyUnknown compatibility boundary.
