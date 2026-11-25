@@ -143,7 +143,7 @@ public sealed class WorldOrderBClassDifferentialTests
         var concrete = WorldOrderBClassBranchEnumerator.Enumerate(
             demand.Id, masterProfile, slaveProfile, world);
 
-        Assert.Equal(WorldOrderSolveStatus.Infeasible, legacy.Status);
-        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, concrete.Status);
+        Assert.Equal(WorldOrderSolveStatus.Feasible, legacy.Status);
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Feasible, concrete.Status);
     }
 }
