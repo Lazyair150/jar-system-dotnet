@@ -80,7 +80,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             resourceArea, demandBoard, configurationFingerprint, ship,
             master, slave, admission, reservations, leases, ledger, clock,
             RuntimeLedgerTick, Shapes, Liquids, LiquidPolarities, sessions,
-            WorldInstanceId == null ? null : new WorldInstanceId(WorldInstanceId));
+            WorldInstanceId == null ? null : new JarSystem.Core.Domain.WorldInstanceId(WorldInstanceId));
     }
 
     public void Validate()
