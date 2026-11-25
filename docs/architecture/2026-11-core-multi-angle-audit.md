@@ -308,3 +308,12 @@ RuleContributionSchemaRegistry.CurrentVersion 已进入 EffectiveRuleProfile fin
 ## 2026-11-25 第十六轮：候选操作生成从 Catalog 抽为 Provider Registry（已验证）
 
 Core code head 18a0b26407ee51c6df722f093165c3b3770c31a7 两条精确 runs 45597874582 / 45597884119 均 SUCCESS：868/868 xUnit、0 errors / 0 failures，资源样本 5,032 组 0 bugs。Candidate Catalog 现遍历版本化 IWorldOrderRuleCandidateProvider registry；内建六类 Jar 候选操作各自独立，统一 Factory 仍委托 WorkshopRulebook 与 staging/admission 进行权威验证。Provider identity/version/order 纳入候选规格指纹及缓存键。A/B Branch Enumerator 与 Master/Slave RolePlan 仍待解耦。
+
+
+## 2026-11-25 第十七轮：Jar 个体区域与自机电路通路正式化
+
+新增规范 docs/world-v2/jar-individual-area-port-and-circuit-route-model.md。明确 Workshop 个体拥有 Jar Storage 与 Liquid Staging 两个独立资源区域；Ship/Circuit Board 拥有 Production、Workshop、Order 区域及独立 Ship Liquid Inventory；Area/Port/Connection/Route 各自职责；订单通路源边界是自机液体输出与进入主工作台的 Jar 输入，尾部为订单需求/交付端。
+
+本轮裁决：固定的是冻结 Board Assignment 与实例/规则版本形成的 Circuit Image 拓扑，不是单一线性算法路径；路径可分支、汇合和多资源耦合。生产区不能因同属一块板而隐式共享账户，必须经显式端口连接和准入。
+
+代码现状核对：Workshop 已有独立 Jar 集合、游离液体账户及领域方法；WorldSnapshot 已保存 Ship Liquid Inventory。统一 Area/Port 类型、通用 Board Area/Connection 编译和 Circuit Image 尚未落地。本轮先冻结概念与迁移路线，不进行破坏性代码重写。

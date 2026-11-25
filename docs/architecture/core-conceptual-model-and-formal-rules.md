@@ -304,3 +304,18 @@ RuleContributionSchemaRegistry.CurrentVersion 是 Effect 参数校验与投影�
 - Registry fingerprint 进入候选规格 fingerprint 与缓存键。
 - Provider 是可信 Core 代码扩展，不是持久化组件代码；持久化组件只能提交受 Schema 校验的声明式 RuleContribution。
 - 规则本体最终应从手写 Provider 迁移到 RuleDefinition / RuleProgram 声明的前驱投影；无法给出有限、确定的 predecessor projection 时，Solver 返回 Undetermined。
+
+
+## 20. Individual / Area / Port / Circuit Route：Jar 世界基础模型（2026-11-25）
+
+以 docs/world-v2/jar-individual-area-port-and-circuit-route-model.md 为规范性细化。
+
+- Workshop 是独立个体，拥有 Liquid Staging Area 与 Jar Storage Area；两者各自拥有资源账户、容量、策略以及 Input/Output Port。
+- Ship 是独立个体；Circuit Board 定义 Production Area、Workshop Area、Order Area 的结构关系。Ship Liquid Inventory 是 Ship 自己的资源账户，不属于 Workshop。
+- Board Definition、Board Assignment、Owned Instance 分离；安装关系不转移实例内部资源账户的所有权。
+- Area 是资源/功能边界；Port 是有方向和资源类型的外部接口；Connection 是显式的 Output -> Input 连接；Route 是在连接与规则转换上形成的有界资源路径。
+- 当前订单通路的源边界：Ship Liquid Inventory Output + Master Workshop Jar Storage Input；目标边界：Order Area 的需求/交付端。中间拓扑由冻结 Board Assignment、区域端口、连接与 Rule Set 决定。
+- 固定的是冻结配置下的 Circuit Image/结构图，不是单一硬编码线性算法路径。实际订单路径可分支、汇合、多资源耦合，并随目标/资源绑定不同。
+- 生产区不得因同板安装而隐式共享资源；必须通过生产元件输出端、明确连接、目标输入端和准入后才形成资源流。
+- 所有跨 Area 资源转移通过端口意图与统一 ResourceEffect/Transfer Receipt；不得由 Solver/UI/Host 直接改写账户。
+- 当前 Workshop 已有 Jar/液体独立容器与领域操作方法，WorldSnapshot 已区分 Ship Liquid Inventory；统一 Area/Port/Circuit Image 尚未实现。目标模型和当前代码事实必须分开记录。

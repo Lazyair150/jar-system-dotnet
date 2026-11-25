@@ -406,3 +406,50 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - Provider 是可信 Core 算法扩展，不是可持久化的任意组件代码；组件 RuleContribution 仍只能声明式配置已知 Effect。
 - WorkshopRulebook 仍持有基础操作解释逻辑；下一步需把规则本体表达为 versioned RuleDefinition / RuleProgram，Candidate Provider 应逐步从手写操作循环改为消费规则声明的 predecessor projection。
 - A/B Branch Enumerator 仍分别绑定 Master/Slave 流程；下一步是 OrderPolicy / RolePlan 解耦。
+
+
+## 2026-11-25 第十七轮：Jar 个体、区域接口与自机电路通路
+
+### 目标
+将用户最新确认的世界模型正式化：工作台作为独立个体拥有液体暂存区和 Jar 存储区；自机电路板包含生产区、工作台区、订单区和独立自机液体存储区；各资源区域通过输入/输出接口连接；固定配置形成从资源源端到订单目标端的通路。
+
+### 起始代码源
+- Repository：Lazyair150/jar-system-dotnet
+- Branch：architecture/core-liquid-identity-consolidation
+- 起始 HEAD：dcb94676ec9c9564440161cb2222753f75046faa
+- PR #63：Open / Draft；当前分支不是已合并主线。
+- 起始 HEAD 精确 CI：45598397712、45598387846 均 SUCCESS。
+
+### 概念裁决
+- Workshop Owned Instance 独立拥有 Jar Storage 与 Liquid Staging 两个区域；主台/从台是 Board Slot Role，不是 Workshop 固有身份。
+- Ship/Circuit Board 拥有 Production / Workshop / Order 三类结构区域；Ship Liquid Inventory 是 Ship 自己的资源账户，不属于工作台。
+- Area、Port、Connection、Route 分离：Area 定义资源/职责边界；Port 定义有类型输入/输出；Connection 显式连接 Output -> Input；Route 是连接与规则转换构成的有界图路径。
+- 订单源边界为 Ship Liquid Inventory Output 和进入 Master Workshop Jar Storage 的 Jar Input；订单需求/交付端为 Route Tail。
+- 固定的是冻结结构、实例成长快照、端口连接和规则版本产生的 Circuit Image；订单目标与资源余额用于求具体路径/Readiness，不能将“固定”误解成单条硬编码线性步骤。
+- Production Area 只有在生产元件显式声明输入/输出、并存在连接与接收准入后才进入资源通路；不能与工作台账户隐式共享。
+- 资源转移必须经过源 Output、目标 Input、规则判定和 ResourceEffect/Receipt；任何账户不允许跨边界直接写入。
+
+### 源码核对
+- Workshop.cs：已有独立 _jars、_liquidStorage、只读视图和 AddJar/RemoveJar/TransferOut/TransferIn、AddLiquid/RemoveLiquid/TryReceiveLiquid/DrainLiquid 等领域方法。
+- WorldSnapshot.cs：已区分 ShipLiquidInventory、Master/Slave Workshop SolveSnapshot 和 ResourceVersion。
+- WorkshopRulebook.cs：现有操作规则仍是明确的 Jar 转换语义，不应为了抽象而删除。
+- 当前未完成：统一 Area/Port 类型、端口注册与连接、Board Production/Workshop/Order 通用区域拓扑、Circuit Image Compiler、所有跨区转移统一端口化。
+
+### 改动文件
+- 新增 docs/world-v2/jar-individual-area-port-and-circuit-route-model.md。
+- 更新 docs/world-v2/circuit-system-model-and-bounded-resource-routing.md，补充基础个体/端口模型入口。
+- 更新 docs/world-v2/README.md，加入规范索引。
+- 更新 docs/architecture/core-conceptual-model-and-formal-rules.md，新增第 20 节。
+- 更新 docs/architecture/2026-11-core-multi-angle-audit.md，追加第十七轮审查。
+- 更新本工作记录，保留精确源码起点与验证证据。
+
+### 验证
+- 文档/源码映射核对：Workshop 区域与 API、WorldSnapshot Ship Liquid Inventory、Board/Owned Instance 概念已逐项对照。
+- 本次仅新增/更新文档，无生产代码改动；文档提交会触发仓库 CI，需以新提交精确 head 的 run 结果作为本轮验证，不以起始 head 绿色代替。
+- 尚未执行统一 Area/Port API 生产实现；不宣称接口抽象已落地。
+
+### 下一步
+1. 定义 Area/Port/Connection/Transfer Receipt 的 Core 最小类型，不先重写 Workshop。
+2. 为 Workshop Jar Storage、Liquid Staging、Ship Liquid Inventory 建三个 Port Adapter，并以旧领域方法做差分测试。
+3. 将 Board Production/Workshop/Order 区域及 Slot Assignment 映射到不可变 Circuit Image。
+4. 再把订单结构解从现有 A/B 策略中抽出，形成通用多资源端口路径求解。

@@ -9,6 +9,7 @@
 
 | 文档 | 职责 |
 |---|---|
+| [Jar 个体、区域接口与自机电路通路模型](jar-individual-area-port-and-circuit-route-model.md) | 个体所有权、工作台双资源区域、自机生产/工作台/订单区、端口输入输出、路径头尾与资源守恒基础定义 |
 | [电路系统模型与有界资源通路](circuit-system-model-and-bounded-resource-routing.md) | 总体模型：Board、Component、Rule Algebra、Compiler、Solver、Runtime；Jar/液体资源流；订单反向求解与换台正向迁移 |
 | [规则转换契约实施记录](rule-transition-contract-implementation-log.md) | 当前已实现的共享契约、Adapter、测试、未完成事项和验收清单 |
 | [订单漏斗与工作台替换契约](order-funnel-and-workshop-replacement-contract.md) | A/B 订单约束、资源路径、工作台替换边界 |
