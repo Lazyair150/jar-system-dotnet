@@ -425,7 +425,7 @@ namespace JarSystem.Core.Solver
         {
             var jar = state[jarIndex];
             if (jar.IsMarked || cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral) return false;
-            if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid)) || cap.IsBanned(jar.Liquid!)) return false;
+            if (cap.IsBanned(jar.Liquid!)) return false;
             // POUR_OUT 的前提：该液体尚未灌满存储上限。
             return pool[jar.Liquid!] < Constants.DEFAULT_MAX_LIQUIDS;
         }
@@ -449,7 +449,7 @@ namespace JarSystem.Core.Solver
                 if (usedSources.Contains(j)) continue;
                 var jar = state[j];
                 if (jar.IsMarked || cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral) continue;
-                if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid)) || cap.IsBanned(jar.Liquid!)) continue;
+                if (cap.IsBanned(jar.Liquid!)) continue;
                 if (want != null && jar.Liquid != want) continue;
                 if (!CanRaise(pool, cap, state, j)) continue;
 
@@ -509,7 +509,7 @@ namespace JarSystem.Core.Solver
             if (jarIndex < 0 || jarIndex >= state.Count) return false;
             var jar = state[jarIndex];
             var cap = info.Capability;
-            if (jar.IsMarked || !cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) return false;
+            if (jar.IsMarked) return false;
             string type;
             string? cost = null;
             var fullReshape = false;
