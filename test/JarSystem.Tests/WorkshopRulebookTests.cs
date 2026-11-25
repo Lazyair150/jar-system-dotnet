@@ -22,6 +22,9 @@ namespace JarSystem.Tests;
 /// </summary>
 public class WorkshopRulebookTests
 {
+    private static JarFacts DefaultFacts(string shape, string? liquid, bool isMarked) =>
+        new(shape, liquid, isMarked, JarPolarityResolver.Resolve(liquid, JarSystem.Core.Config.Vocabulary.Default));
+
 
     [Fact]
     public void RuleVersionsTrackTheWorkshopRuleContract()
@@ -46,7 +49,7 @@ public class WorkshopRulebookTests
         var capability = new WorkshopCapability(
             new[] { "圆罐", "方罐" }, new string[0], new[] { "酒" });
         var rules = RuleContext.From(capability);
-        var facts = new JarFacts("圆罐", "酒", false);
+        var facts = DefaultFacts("圆罐", "酒", false);
 
         var decision = WorkshopRulebook.EvaluateMatch(rules, facts);
 
@@ -80,12 +83,12 @@ public class WorkshopRulebookTests
             new[] { "圆罐" }, new[] { "方罐" }, new[] { "酒" }));
 
         var cathodeJar = WorkshopRulebook.Evaluate(
-            rules, 3, new JarFacts("圆罐", "酒", false),
+            rules, 3, DefaultFacts("圆罐", "酒", false),
             WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
         Assert.True(cathodeJar.IsAllowed);
 
         var anodeJar = WorkshopRulebook.Evaluate(
-            rules, 3, new JarFacts("圆罐", "蜜", false),
+            rules, 3, DefaultFacts("圆罐", "蜜", false),
             WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
         Assert.True(anodeJar.IsAllowed);
     }
@@ -96,7 +99,7 @@ public class WorkshopRulebookTests
         var bannedCapability = new WorkshopCapability(
             new[] { "圆罐" }, System.Array.Empty<string>(), new[] { "酒" });
         var rules = RuleContext.From(bannedCapability);
-        var fullJar = new JarFacts("圆罐", "酒", false);
+        var fullJar = DefaultFacts("圆罐", "酒", false);
         var operation = WorkshopOperation.PourOut();
 
         var ordinary = WorkshopRulebook.Evaluate(
@@ -202,7 +205,7 @@ public class WorkshopRulebookTests
                     {
                         foreach (var storage in Storages)
                         {
-                            var facts = new JarFacts(shape, liquid, marked);
+                            var facts = DefaultFacts(shape, liquid, marked);
                             // 规则表只读取状态、不改它，因此这一份可以复用；
                             // 真执行会打标记改形状，所以每个候选操作单独建一份。
                             var probe = Build(cfg, shape, liquid, marked, storage);
@@ -237,8 +240,8 @@ public class WorkshopRulebookTests
             new[] { "圆罐" }, new[] { "尖罐" }, System.Array.Empty<string>());
         var rules = RuleContext.From(capability);
 
-        var empty = new JarFacts("圆罐", null, false);
-        var fullWine = new JarFacts("圆罐", "酒", false);
+        var empty = DefaultFacts("圆罐", null, false);
+        var fullWine = DefaultFacts("圆罐", "酒", false);
         var liquids = new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 };
 
         var pourIn = WorkshopRulebook.CreateTransition(
@@ -246,7 +249,7 @@ public class WorkshopRulebookTests
         Assert.NotNull(pourIn);
         Assert.Equal("jar.workshop.pour-in", pourIn!.Value.RuleId);
         Assert.Equal(1, pourIn.Value.RuleVersion);
-        Assert.Equal(new JarFacts("圆罐", "酒", true), pourIn.Value.After);
+        Assert.Equal(DefaultFacts("圆罐", "酒", true), pourIn.Value.After);
         Assert.Equal("酒", pourIn.Value.ConsumedFreeLiquid);
         Assert.Null(pourIn.Value.ProducedFreeLiquid);
         Assert.Null(pourIn.Value.ConsumedJarLiquid);
@@ -254,19 +257,19 @@ public class WorkshopRulebookTests
         var pourOut = WorkshopRulebook.CreateTransition(
             rules, 3, fullWine, WorkshopOperation.PourOut(), liquids);
         Assert.NotNull(pourOut);
-        Assert.Equal(new JarFacts("圆罐", null, true), pourOut!.Value.After);
+        Assert.Equal(DefaultFacts("圆罐", null, true), pourOut!.Value.After);
         Assert.Equal("酒", pourOut.Value.ProducedFreeLiquid);
 
         var reshapeEmpty = WorkshopRulebook.CreateTransition(
             rules, 3, empty, WorkshopOperation.ReshapeEmpty("尖罐", "蜜"), liquids);
         Assert.NotNull(reshapeEmpty);
-        Assert.Equal(new JarFacts("尖罐", null, true), reshapeEmpty!.Value.After);
+        Assert.Equal(DefaultFacts("尖罐", null, true), reshapeEmpty!.Value.After);
         Assert.Equal("蜜", reshapeEmpty.Value.ConsumedFreeLiquid);
 
         var reshapeFull = WorkshopRulebook.CreateTransition(
             rules, 3, fullWine, WorkshopOperation.ReshapeFull("尖罐"), liquids);
         Assert.NotNull(reshapeFull);
-        Assert.Equal(new JarFacts("尖罐", null, true), reshapeFull!.Value.After);
+        Assert.Equal(DefaultFacts("尖罐", null, true), reshapeFull!.Value.After);
         Assert.Equal("酒", reshapeFull.Value.ConsumedJarLiquid);
 
         // 转换描述是纯值结果；调用前的输入库存不会被规则评估修改。
@@ -319,7 +322,7 @@ public class WorkshopRulebookTests
     {
         var capability = new WorkshopCapability(
             new[] { "圆罐" }, new[] { "尖罐" }, System.Array.Empty<string>());
-        var facts = new JarFacts("圆罐", null, false);
+        var facts = DefaultFacts("圆罐", null, false);
         var op = WorkshopOperation.PourIn("酒");
         var liquids = new Dictionary<string, int> { ["酒"] = 1 };
 
@@ -382,7 +385,7 @@ public class WorkshopRulebookTests
                     {
                         foreach (var storage in Storages)
                         {
-                            var facts = new JarFacts(shape, liquid, marked);
+                            var facts = DefaultFacts(shape, liquid, marked);
                             var w = Build(cfg, shape, liquid, marked, storage);
 
                             var enumerated = WorkshopRulebook
@@ -414,7 +417,7 @@ public class WorkshopRulebookTests
     public void PourOutDiscardsOutputWhenThatLiquidStorageIsFull()
     {
         var cfg = new Cfg { Name = "自由台", Base = new[] { "圆罐" }, MaxLiquids = 3 };
-        var facts = new JarFacts("圆罐", "酒", false);
+        var facts = DefaultFacts("圆罐", "酒", false);
         var op = WorkshopOperation.PourOut();
 
         var justBelow = Build(cfg, "圆罐", "酒", false, new[] { ("酒", 2) });
@@ -437,7 +440,7 @@ public class WorkshopRulebookTests
     {
         // 这一台的基础标记是 圆罐，附加标记是 尖罐 ⇒ 圆罐可以改形成尖罐（基础→附加是合法的一跳）
         var cfg = new Cfg { Name = "自由台", Base = new[] { "圆罐" }, Add = new[] { "尖罐" }, MaxLiquids = 3 };
-        var facts = new JarFacts("圆罐", null, false);
+        var facts = DefaultFacts("圆罐", null, false);
         var op = WorkshopOperation.PourIn("酒");
 
         var plain = Build(cfg, "圆罐", null, false, new[] { ("酒", 2) });
