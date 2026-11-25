@@ -219,6 +219,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
 
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
+        ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
         var token = ResourcePortVersionToken.Create(new[]
         {
             new KeyValuePair<string, string>("owner", Account.OwnerId),
