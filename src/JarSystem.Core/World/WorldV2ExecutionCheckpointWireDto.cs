@@ -662,6 +662,7 @@ public sealed class ResourceEventWireDto
     public string Cause { get; set; } = "";
     public string Kind { get; set; } = "";
     public string Name { get; set; } = "";
+    public string? DisplayName { get; set; }
     public string? ResourceIdentity { get; set; }
     public string? OperationId { get; set; }
     public int Amount { get; set; }
@@ -690,6 +691,7 @@ public sealed class ResourceEventWireDto
             !ResourceCauses.All.Contains(Cause, StringComparer.Ordinal) ||
             (Kind != ResourceKinds.Jar && Kind != ResourceKinds.Liquid) ||
             string.IsNullOrWhiteSpace(Name) ||
+            (DisplayName != null && string.IsNullOrWhiteSpace(DisplayName)) ||
             (ResourceIdentity != null && string.IsNullOrWhiteSpace(ResourceIdentity)) ||
             (FromAccountId != null && string.IsNullOrWhiteSpace(FromAccountId)) ||
             (ToAccountId != null && string.IsNullOrWhiteSpace(ToAccountId)) ||
