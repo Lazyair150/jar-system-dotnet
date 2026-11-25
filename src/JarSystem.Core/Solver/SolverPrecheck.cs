@@ -223,13 +223,13 @@ public static class SolverPrecheck
     private static bool CanServeFree(Requirement req, JarState jar, WorkshopInfo info)
     {
         var cap = info.Capability;
-        if (!cap.CanOperateJar(jar.Polarity)) return false;
+        if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) return false;
 
-        if (req.Polarity != JarPolarity.Neutral)
+        if (req.Liquid != null)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
                 && string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal);
 
-        if (jar.Polarity == JarPolarity.Neutral)
+        if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
 
         // Full-Jar reshape spends Jar-owned liquid, but it still requires polarity compatibility.
@@ -251,9 +251,9 @@ public static class SolverPrecheck
         Func<string, bool> canObtainLiquid, bool anyCostLiquid)
     {
         var cap = info.Capability;
-        if (!cap.CanOperateJar(jar.Polarity)) return false;
+        if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) return false;
 
-        if (req.Polarity != JarPolarity.Neutral)
+        if (req.Liquid != null)
         {
             // 满罐需求：形状必须已经是 req.Shape，且工作台必须能操作该 Jar 极性
             if (!string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return false;
@@ -263,13 +263,13 @@ public static class SolverPrecheck
 
             // ② 是空 S 罐 ⇒ POUR_IN（要求 S 在基础标记内、液体未被禁、且还弄得一份）
             if (cap.IsBanned(req.Liquid!)) return false;
-            return jar.Polarity == JarPolarity.Neutral
+            return cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral
                 && cap.IsBaseMarked(req.Shape)
                 && canObtainLiquid(req.Liquid!);
         }
 
         // 空罐需求：形状 S（或能变成 S）
-        if (jar.Polarity == JarPolarity.Neutral)
+        if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral)
         {
             // ① 已经是空 S 罐 ⇒ MATCH
             if (string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return true;
@@ -312,9 +312,9 @@ public static class SolverPrecheck
             for (int i = 0; i < st.Count && !applied; i++)
             {
                 var j = st[i];
-                if (j.IsMarked || !cap.CanOperateJar(j.Polarity)) continue;
+                if (j.IsMarked || !cap.CanOperateJar(cap.ResolvePolarity(j.Liquid))) continue;
 
-                if (req.Polarity != JarPolarity.Neutral)
+                if (req.Liquid != null)
                 {
                     if (!string.Equals(j.Shape, req.Shape, StringComparison.Ordinal)) continue;
                     // MATCH
@@ -338,14 +338,14 @@ public static class SolverPrecheck
                 }
 
                 // 空罐需求：MATCH
-                if (j.Polarity == JarPolarity.Neutral && string.Equals(j.Shape, req.Shape, StringComparison.Ordinal))
+                if (cap.ResolvePolarity(j.Liquid) == JarPolarity.Neutral && string.Equals(j.Shape, req.Shape, StringComparison.Ordinal))
                 {
                     j.IsMarked = true;
                     applied = true;
                     break;
                 }
                 // 满罐改形（自耗）
-                if (j.Polarity != JarPolarity.Neutral && cap.CanOperateJar(j.Polarity) && cap.CanTransform(j.Shape, req.Shape))
+                if (cap.ResolvePolarity(j.Liquid) != JarPolarity.Neutral && cap.CanOperateJar(cap.ResolvePolarity(j.Liquid)) && cap.CanTransform(j.Shape, req.Shape))
                 {
                     // Liquid is consumed from the Jar, while Workshop polarity authority still applies.
                     j.Liquid = null;
@@ -355,7 +355,7 @@ public static class SolverPrecheck
                     break;
                 }
                 // 空罐改形（付一份成本液体）
-                if (j.Polarity == JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
+                if (cap.ResolvePolarity(j.Liquid) == JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
                 {
                     foreach (var cl in cap.Liquids)
                     {
