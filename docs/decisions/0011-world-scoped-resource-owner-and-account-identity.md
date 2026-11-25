@@ -143,6 +143,8 @@ ResourceFact = (OperationId, ResourceKind, ResourceIdentity, DisplayName, Attrib
 
 ### 当前实现进度补充（2026-11-26）
 
+- CI evidence for tagged endpoints and per-source settlement: push run #5132 passed at code/test head `7329b7fa77488b616a222e6c00f14a34583de639`; xUnit 994/994, solver differential 4004/4004, modifier differential 400/1600, replay 33 commands, configuration match, and 6 projects / 0 vulnerable packages. PR-triggered run #5133 was still in progress at documentation time.
+
 - Tagged ResourceEndpoint 已进入 ResourceEvent / ResourceLedgerMutation / Snapshot / Wire：Account、ExternalSource、ExternalSink、LegacyUnknown。
 - Checkpoint schema 已升至 8；schema 3–7 保留兼容读取，旧 endpoint 缺失时只使用明确的旧 AccountId 或 LegacyUnknown。
 - WorldV2Context Restore 对 tagged Account v2 endpoint 校验 WorldInstanceId。
