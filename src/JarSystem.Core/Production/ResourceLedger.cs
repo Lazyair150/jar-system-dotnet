@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.Production;
@@ -89,6 +92,7 @@ public sealed class ResourceLedger
     private readonly List<ResourceEvent> _entries = new();
     private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ResourceTransferReceipt> _transferReceipts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _operationFingerprints = new(StringComparer.Ordinal);
     private long _seq;
     private int _dropped;
 
@@ -125,7 +129,7 @@ public sealed class ResourceLedger
     public ResourceLedgerSnapshot Capture()
     {
         lock (_gate)
-            return new ResourceLedgerSnapshot(Capacity, _seq, Dropped, _entries, _operationIds, _transferReceipts.Values);
+            return new ResourceLedgerSnapshot(Capacity, _seq, Dropped, _entries, _operationIds, _transferReceipts.Values, _operationFingerprints);
     }
 
     /// <summary>
@@ -138,7 +142,10 @@ public sealed class ResourceLedger
         if (snapshot.Capacity < 1 || snapshot.LastSeq < 0 || snapshot.Dropped < 0 ||
             snapshot.Entries.Count > snapshot.Capacity ||
             snapshot.OperationIds.Any(string.IsNullOrWhiteSpace) ||
-            snapshot.OperationIds.Distinct(StringComparer.Ordinal).Count() != snapshot.OperationIds.Count)
+            snapshot.OperationIds.Distinct(StringComparer.Ordinal).Count() != snapshot.OperationIds.Count ||
+            snapshot.OperationFingerprints.Any(item => string.IsNullOrWhiteSpace(item.Key) ||
+                !snapshot.OperationIds.Contains(item.Key, StringComparer.Ordinal) ||
+                item.Value.Length != 64 || item.Value.Any(character => !Uri.IsHexDigit(character))))
             throw new DomainValidationException("资源账本快照的容量或游标无效。");
 
         long previousSeq = 0;
@@ -176,6 +183,8 @@ public sealed class ResourceLedger
         ledger._entries.AddRange(snapshot.Entries.Select(Clone));
         foreach (var operationId in snapshot.OperationIds)
             ledger._operationIds.Add(operationId);
+        foreach (var item in snapshot.OperationFingerprints)
+            ledger._operationFingerprints.Add(item.Key, item.Value);
         foreach (var receipt in snapshot.TransferReceipts)
             ledger._transferReceipts.Add(receipt.OperationId, receipt with { });
         return ledger;
@@ -194,6 +203,7 @@ public sealed class ResourceLedger
             _entries.EnsureCapacity(restored._entries.Count);
             _operationIds.EnsureCapacity(restored._operationIds.Count);
             _transferReceipts.EnsureCapacity(restored._transferReceipts.Count);
+            _operationFingerprints.EnsureCapacity(restored._operationFingerprints.Count);
 
             _entries.Clear();
             _entries.AddRange(restored._entries);
@@ -207,7 +217,23 @@ public sealed class ResourceLedger
             _transferReceipts.Clear();
             foreach (var item in restored._transferReceipts)
                 _transferReceipts.Add(item.Key, item.Value);
+
+            _operationFingerprints.Clear();
+            foreach (var item in restored._operationFingerprints)
+                _operationFingerprints.Add(item.Key, item.Value);
         }
+    }
+
+    private static string ComputeOperationFingerprint(
+        IReadOnlyList<ResourceLedgerMutation> mutations,
+        ResourceTransferReceipt? receipt)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            Mutations = mutations,
+            Receipt = receipt
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 
     private static ResourceLedgerMutation NormalizeMutationIdentity(ResourceLedgerMutation item)
@@ -291,10 +317,16 @@ public sealed class ResourceLedger
         ArgumentNullException.ThrowIfNull(mutations);
         lock (_gate)
         {
-        if (_operationIds.Contains(operationId)) return false;
-
         var batch = mutations.Where(item => item.Amount > 0)
             .Select(NormalizeMutationIdentity).ToArray();
+        var fingerprint = ComputeOperationFingerprint(batch, receipt: null);
+        if (_operationIds.Contains(operationId))
+        {
+            if (_operationFingerprints.TryGetValue(operationId, out var priorFingerprint) &&
+                !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal))
+                throw new InvalidOperationException("OperationId is already bound to a different ledger batch payload.");
+            return false; // Legacy tombstones have no fingerprint and remain non-replayable no-ops.
+        }
         foreach (var item in batch)
         {
             if (string.IsNullOrWhiteSpace(item.Cause) ||
@@ -332,7 +364,9 @@ public sealed class ResourceLedger
         // this avoids a capacity-growth exception splitting the event batch from its ID.
         _entries.EnsureCapacity(checked(_entries.Count + events.Count));
         _operationIds.EnsureCapacity(checked(_operationIds.Count + 1));
+        _operationFingerprints.EnsureCapacity(checked(_operationFingerprints.Count + 1));
         if (!_operationIds.Add(operationId)) return false;
+        _operationFingerprints.Add(operationId, fingerprint);
         _entries.AddRange(events);
         _seq = nextSeq;
         Trim();
@@ -364,13 +398,6 @@ public sealed class ResourceLedger
 
         lock (_gate)
         {
-            if (_operationIds.Contains(operationId))
-            {
-                if (_transferReceipts.TryGetValue(operationId, out var prior) && prior != receipt)
-                    throw new InvalidOperationException("OperationId is already bound to a different transfer receipt.");
-                return false;
-            }
-
             var batch = mutations.Select(NormalizeMutationIdentity).ToArray();
             var expectedKind = receipt.ResourceKind == RuleResourceKind.Jar
                 ? ResourceKinds.Jar
@@ -390,6 +417,16 @@ public sealed class ResourceLedger
                 throw new DomainValidationException("Transfer ledger batch does not describe the receipt's exact resource and account endpoints.");
             if (batch.Sum(item => (long)item.Amount) != receipt.TransferredAmount)
                 throw new DomainValidationException("Transfer ledger amount does not match the final receipt.");
+            var fingerprint = ComputeOperationFingerprint(batch, receipt);
+            if (_operationIds.Contains(operationId))
+            {
+                if (_transferReceipts.TryGetValue(operationId, out var prior) && prior != receipt)
+                    throw new InvalidOperationException("OperationId is already bound to a different transfer receipt.");
+                if (_operationFingerprints.TryGetValue(operationId, out var priorFingerprint) &&
+                    !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal))
+                    throw new InvalidOperationException("OperationId is already bound to a different transfer payload.");
+                return false;
+            }
 
             // Clone before any visible mutation so the final journal publication does not allocate.
             var receiptCopy = receipt with { };
@@ -410,10 +447,12 @@ public sealed class ResourceLedger
             _entries.EnsureCapacity(checked(_entries.Count + events.Count));
             _operationIds.EnsureCapacity(checked(_operationIds.Count + 1));
             _transferReceipts.EnsureCapacity(checked(_transferReceipts.Count + 1));
+            _operationFingerprints.EnsureCapacity(checked(_operationFingerprints.Count + 1));
 
             if (!_operationIds.Add(operationId)) return false;
             _entries.AddRange(events);
             _transferReceipts.Add(operationId, receiptCopy);
+            _operationFingerprints.Add(operationId, fingerprint);
             _seq = nextSeq;
             Trim();
             return true;
@@ -470,7 +509,8 @@ public sealed class ResourceLedgerSnapshot
     public ResourceLedgerSnapshot(
         int capacity, long lastSeq, int dropped, IEnumerable<ResourceEvent> entries,
         IEnumerable<string>? operationIds = null,
-        IEnumerable<ResourceTransferReceipt>? transferReceipts = null)
+        IEnumerable<ResourceTransferReceipt>? transferReceipts = null,
+        IReadOnlyDictionary<string, string>? operationFingerprints = null)
     {
         Capacity = capacity;
         LastSeq = lastSeq;
@@ -494,6 +534,8 @@ public sealed class ResourceLedgerSnapshot
         TransferReceipts = Array.AsReadOnly((transferReceipts ?? Array.Empty<ResourceTransferReceipt>())
             .OrderBy(item => item.OperationId, StringComparer.Ordinal)
             .Select(item => item with { }).ToArray());
+        OperationFingerprints = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
+            new Dictionary<string, string>(operationFingerprints ?? new Dictionary<string, string>(), StringComparer.Ordinal));
     }
 
     public int Capacity { get; }
@@ -502,6 +544,7 @@ public sealed class ResourceLedgerSnapshot
     public IReadOnlyList<ResourceEvent> Entries { get; }
     public IReadOnlyList<string> OperationIds { get; }
     public IReadOnlyList<ResourceTransferReceipt> TransferReceipts { get; }
+    public IReadOnlyDictionary<string, string> OperationFingerprints { get; }
     public int Retained => Entries.Count;
 }
 
