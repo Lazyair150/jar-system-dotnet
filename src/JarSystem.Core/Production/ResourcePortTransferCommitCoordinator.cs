@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.Production;
 
