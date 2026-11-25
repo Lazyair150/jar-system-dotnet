@@ -29,6 +29,7 @@ public sealed class WorldV2Context : IDisposable
     /// <summary>Context 是否已释放；释放后不得再作为当前世界使用。</summary>
     public bool IsDisposed => _disposed;
 
+    public WorldInstanceId? WorldInstanceId { get; }
     public ResourceArea Resources { get; }
     public ShipLiquidInventory? ShipLiquidInventory { get; }
     public ResourceLedger ResourceLedger { get; }
@@ -51,6 +52,7 @@ public sealed class WorldV2Context : IDisposable
     public WorldOrderScheduler Scheduler { get; }
 
     private WorldV2Context(
+        WorldInstanceId? worldInstanceId,
         ResourceArea resources,
         ShipLiquidInventory? shipLiquidInventory,
         ResourceLedger resourceLedger,
@@ -68,6 +70,7 @@ public sealed class WorldV2Context : IDisposable
         IReadOnlyDictionary<string, LiquidPolarity> liquidPolarities,
         OrderTemplateLibrary orderTemplates)
     {
+        WorldInstanceId = worldInstanceId;
         Resources = resources;
         ShipLiquidInventory = shipLiquidInventory;
         ResourceLedger = resourceLedger;
@@ -106,7 +109,8 @@ public sealed class WorldV2Context : IDisposable
         string? configurationFingerprint = null,
         IEnumerable<string>? shapeVocabulary = null,
         IEnumerable<string>? liquidVocabulary = null,
-        OrderTemplateLibrary? orderTemplates = null)
+        OrderTemplateLibrary? orderTemplates = null,
+        WorldInstanceId? worldInstanceId = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -180,7 +184,7 @@ public sealed class WorldV2Context : IDisposable
             throw new ArgumentException("World v2 Context 必须使用工作台所属 World 的完整形状与液体词表");
 
         return new WorldV2Context(
-            resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
+            worldInstanceId, resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
             solveBook, reservations, admission, runtime, scheduler, configurationFingerprint,
             shapes, liquids, master.Capability.LiquidPolarities,
             orderTemplates ?? OrderTemplateLibrary.Empty);
@@ -217,7 +221,8 @@ public sealed class WorldV2Context : IDisposable
             Shapes,
             Liquids,
             LiquidPolarities,
-            Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()));
+            Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()),
+            WorldInstanceId);
     }
 
     /// <summary>
@@ -237,6 +242,8 @@ public sealed class WorldV2Context : IDisposable
             throw new InvalidOperationException("只能向没有活动会话、预留或工作台替换的 Context 恢复检查点。");
 
         Resources.ValidateRuntimeStateSnapshot(checkpoint.ResourceArea);
+        if (WorldInstanceId != checkpoint.WorldInstanceId)
+            throw new InvalidOperationException("检查点 WorldInstanceId 与当前世界不一致，拒绝恢复。");
         if (!string.Equals(ConfigurationFingerprint, checkpoint.ConfigurationFingerprint, StringComparison.Ordinal))
             throw new InvalidOperationException("检查点配置指纹与当前世界不一致，拒绝恢复。");
         if (!Shapes.SequenceEqual(checkpoint.Shapes, StringComparer.Ordinal) ||
@@ -357,8 +364,10 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         IEnumerable<string> shapes,
         IEnumerable<string> liquids,
         IReadOnlyDictionary<string, LiquidPolarity> liquidPolarities,
-        IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
+        IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions,
+        WorldInstanceId? worldInstanceId = null)
     {
+        WorldInstanceId = worldInstanceId;
         ResourceArea = resourceArea;
         DemandBoard = demandBoard;
         ConfigurationFingerprint = configurationFingerprint;
@@ -392,6 +401,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
     }
 
+    public WorldInstanceId? WorldInstanceId { get; }
     public ResourceAreaRuntimeStateSnapshot ResourceArea { get; }
     public OrderDemandBoardSnapshot DemandBoard { get; }
     public string? ConfigurationFingerprint { get; }
