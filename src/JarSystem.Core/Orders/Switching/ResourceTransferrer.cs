@@ -74,7 +74,7 @@ internal sealed class ResourceTransferrer
         }
 
         // Transfer liquids
-        foreach (var l in Constants.LIQUIDS)
+        foreach (var l in oldMaster.LiquidStorage.Keys)
         {
             var amt = oldMaster.LiquidStorage.GetValueOrDefault(l, 0);
             if (amt > 0)
