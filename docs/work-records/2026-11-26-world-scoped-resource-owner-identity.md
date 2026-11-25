@@ -292,3 +292,17 @@ The identity implementation has advanced from adapter overloads to the actual Wo
 - Tagged Account/ExternalSource/ExternalSink/LegacyUnknown endpoints, DisplayName migration, per-source settlement and compound B-class atomicity remain later stages.
 
 Latest code slice was written through commit `62696c1172a2b15790d521ca365565f37c061805`; documentation updates follow in this work-record commit. No local build/test is claimed. The workflow connector returned no current-head PR run/status; CI remains unconfirmed.
+
+
+### Runtime binding and checkpoint schema follow-up
+
+Further implementation after the initial owner-map write:
+- The map is now attached to actual `ShipLiquidInventory`, `ResourceArea`, `Warehouse`, `Producer` and `Workshop` objects. Core verifies these attached identities against the map at Context assembly.
+- Producer options now carry optional `ProducerInstanceId`; Workshop options carry optional `OwnedInstanceId`. With an owner map, both are mandatory for every live instance and must exactly match the map. Board assignment OwnedInstanceId and Workshop option OwnedInstanceId may coexist only when identical.
+- Runtime ProducerModule and WorkshopRoster reject duplicate instance IDs, not just duplicate display names.
+- Warehouse port adapter v2 overloads use the exact Warehouse owner identity. Workshop staging adapters remain scoped to the exact Workshop owner plus order ID.
+- OwnerIdentityMap is part of checkpoint wire schema 7. Schema 6 remains readable without the map; schema 3–5 remain readable without WorldInstanceId and map. Restore rebuilds the same runtime owner map from the checkpoint and validates object bindings.
+- World definition fingerprint excludes runtime ProducerInstanceId and OwnedInstanceId. The owner map is stored separately, preventing owner identity changes from masquerading as definition changes.
+- Checkpoint restore validates v2 ledger account endpoints against the active WorldInstanceId. The typed account transfer contracts separately reject cross-World and mixed-version transfer endpoints.
+
+Latest implementation commit before this work-record append: `e0ce362a4dd238caaa6410f0c41d4b0bd9d51877`. Branch comparison against baseline `e78abd388aeee0785933feef894e53292b955e60` is 106 commits ahead, 0 behind. Latest queried workflow/status endpoints returned empty; current-head CI remains unconfirmed. No local build/test is claimed.
