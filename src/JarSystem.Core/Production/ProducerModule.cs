@@ -242,6 +242,10 @@ public class ProducerModule
     {
         if (_producers.ContainsKey(name))
             throw new DomainValidationException("生产者已存在: " + name + "（改速率请用 UpdateRate）");
+        if (producerInstanceId != null &&
+            _producers.Values.Any(producer =>
+                string.Equals(producer.ProducerInstanceId, producerInstanceId, StringComparison.Ordinal)))
+            throw new DomainValidationException("ProducerInstanceId 已存在: " + producerInstanceId);
 
         // **注册时也校验速率**（2026-09-16 补）：原先只跳过"没有对应生产线"的形状，
         // 却把垃圾键留在 Producer.Rates 里 —— 而 Rates 会经 producerStatus.producers[].rates
