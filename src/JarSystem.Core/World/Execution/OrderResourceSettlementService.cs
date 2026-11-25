@@ -238,10 +238,11 @@ public sealed class OrderResourceSettlementService
         {
             return receipt.Accepted.Select(item => new ResourceLedgerMutation(
                     ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
-                    From: "订单暂存", To: "自机液库"))
+                    From: "订单暂存", To: "自机液库", DisplayName: item.Key))
                 .Concat(receipt.Discarded.Select(item => new ResourceLedgerMutation(
                     ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
-                    From: "订单暂存", To: null, Reason: "自机液库总容量不足")));
+                    From: "订单暂存", To: null, Reason: "自机液库总容量不足",
+                    DisplayName: item.Key)));
         }
 
         var mutations = new List<ResourceLedgerMutation>();
@@ -256,12 +257,13 @@ public sealed class OrderResourceSettlementService
                     ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
                     From: "订单暂存", To: "自机液库", ResourceIdentity: item.Key,
                     FromAccountId: sourceAccountId, ToAccountId: targetAccountId,
+                    DisplayName: item.Key,
                     FromEndpoint: source.SourceEndpoint, ToEndpoint: source.TargetEndpoint));
             foreach (var item in source.Discarded.Where(item => item.Value > 0))
                 mutations.Add(new ResourceLedgerMutation(
                     ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
                     From: "订单暂存", To: null, Reason: "自机液库总容量不足", ResourceIdentity: item.Key,
-                    FromAccountId: sourceAccountId,
+                    DisplayName: item.Key, FromAccountId: sourceAccountId,
                     FromEndpoint: source.SourceEndpoint,
                     ToEndpoint: source.DiscardEndpoint));
         }
