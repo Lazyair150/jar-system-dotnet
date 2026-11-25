@@ -53,6 +53,7 @@ public readonly record struct OwnerIdentity
             !string.Equals(value, value.Trim(), StringComparison.Ordinal) ||
             value.Any(char.IsControl))
             throw new ArgumentException("Identity fields must be non-empty, trimmed and contain no control characters.", parameterName);
+        _ = StrictUtf8.GetByteCount(value);
     }
 
     internal static string OwnerKindToken(ResourceOwnerKind ownerKind) => ownerKind switch
