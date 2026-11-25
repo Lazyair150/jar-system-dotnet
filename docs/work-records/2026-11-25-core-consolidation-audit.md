@@ -730,3 +730,9 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 第五条路径开始：新增 `WorkshopFreeLiquidPortTransfer`，连接两个不同 Workshop 的游离液体账户。复用 `LegacyWorkshopLiquidTransfer` 的双工作台快照补偿，并把账本回调放入同一补偿边界；仅支持单液种精确全量转移，Ban/库存/容量仍由两个 Workshop Adapter 决定。
 - 第五条测试覆盖成功转移、目标 Ban、源库存不足、目标容量不足、Prepare 后版本变化、账本 OperationId 恢复去重、账本发布失败双侧恢复、Adapter 实例错配。文档已补充 3.10。
 - 第五条路径相关提交：`8f4da38c0356762f785e6778bcdb67c95aa7b14d`、`382ab676701fd6e572716ba16bf2084e40cf539d`、`6a9b230f21e480e8b8707f1afa9105df83df4c2c`、`6d33eb42b26a6968ec82560120b5fb88e43d1e4e`。其最新 CI Run `45628744479` 正在排队，测试结果待记录。
+
+- 第六条路径开始：新增 `WorkshopJarPortTransfer`，连接两个不同 Workshop 的 Jar Storage 账户。按 JarId/数量 1 处理；移动同一 Jar 对象引用，不克隆、不修改 Jar 内部液体或标记。
+- 失败补偿捕获两端 `WorkshopSnapshot`，并按目标先恢复、来源后恢复，利用快照中的原始 Jar 引用恢复实体身份；账本写入 `transfer/jar`，仍通过共享版本守卫和 ResourceLedger OperationId 去重。
+- 新增测试覆盖同一实体引用转移、Jar 内蜜不受游离 Ban 约束、目标 Jar 容量拒绝、Prepare 后版本变化、账本持久去重、账本发布失败双快照恢复、Adapter 实例错配；并将新写入主体登记进 `WorkshopWritersTests.AllowedWriters`。
+- 第六条相关提交：`829e44a1f442151fe671870fb31f3bf7c600ffb9`、`262c0460ea4849f504a7da04c93fc319fd7d25e9`、`ce84c070e1f8bba96c2c79e623551853d44d5642`、`c55cc6211e253f13436dc194c7349d2414c5a960`。
+- 第五条 Workshop→Workshop 游离液体路径 Run `45628744479` / `45628759676` 仍在执行；第六条新增代码当前 CI 尚未完成。后续以最新 HEAD 的验证结果为准。
