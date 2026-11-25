@@ -137,7 +137,7 @@ public sealed class WorldV2HostEndToEndTests
             item.Amount == 1);
         Assert.DoesNotContain(resourceEvents, item => item.Cause == ResourceCauses.Transfer);
 
-        var stockEvent = Assert.Single(resourceEvents.Where(item => item.Cause == ResourceCauses.Stock));
+        var stockEvent = Assert.Single(resourceEvents, item => item.Cause == ResourceCauses.Stock);
         Assert.Equal(ResourceEndpointKind.ExternalSource, stockEvent.FromEndpoint.Kind);
         Assert.Equal("level.initial-stock", stockEvent.FromEndpoint.ExternalIdentity);
         Assert.Equal(ResourceEndpointKind.Account, stockEvent.ToEndpoint.Kind);
@@ -145,15 +145,15 @@ public sealed class WorldV2HostEndToEndTests
         Assert.Equal(ResourceOwnerKind.Ship, stockTarget.Owner.OwnerKind);
         Assert.Equal("ship-e2e", stockTarget.Owner.LocalOwnerId);
 
-        var productionJar = Assert.Single(resourceEvents.Where(item =>
-            item.Cause == ResourceCauses.Production && item.Kind == ResourceKinds.Jar));
+        var productionJar = Assert.Single(resourceEvents, item =>
+            item.Cause == ResourceCauses.Production && item.Kind == ResourceKinds.Jar);
         Assert.Equal(ResourceOwnerKind.ProductionArea,
             AccountIdentity.ParseV2(productionJar.FromEndpoint.AccountId!).Owner.OwnerKind);
         Assert.Equal(ResourceOwnerKind.Warehouse,
             AccountIdentity.ParseV2(productionJar.ToEndpoint.AccountId!).Owner.OwnerKind);
 
-        var flowedJar = Assert.Single(resourceEvents.Where(item =>
-            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Jar));
+        var flowedJar = Assert.Single(resourceEvents, item =>
+            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Jar);
         Assert.Equal("warehouse-e2e", AccountIdentity.ParseV2(flowedJar.FromEndpoint.AccountId!).Owner.LocalOwnerId);
         Assert.Equal("workshop-e2e", AccountIdentity.ParseV2(flowedJar.ToEndpoint.AccountId!).Owner.LocalOwnerId);
 
