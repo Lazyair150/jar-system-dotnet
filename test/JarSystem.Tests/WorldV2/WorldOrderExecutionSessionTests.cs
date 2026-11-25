@@ -829,7 +829,9 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(2, receipt!.Requested["酒"]);
         Assert.Equal(1, receipt.Accepted["酒"]);
         Assert.Equal(1, receipt.Discarded["酒"]);
-        Assert.Equal(2, receipt.SourceAllocations.Count);
+        Assert.Collection(receipt.SourceAllocations,
+            allocation => Assert.Equal("master-owned", AccountIdentity.ParseV2(allocation.SourceEndpoint.AccountId!).Owner.InstanceId),
+            allocation => Assert.Equal("slave-owned", AccountIdentity.ParseV2(allocation.SourceEndpoint.AccountId!).Owner.InstanceId));
         var returned = Assert.Single(setup.Ledger.For(ResourceCauses.Return));
         var discarded = Assert.Single(setup.Ledger.For(ResourceCauses.Discard));
         Assert.StartsWith("account:v2:", returned.FromAccountId);
