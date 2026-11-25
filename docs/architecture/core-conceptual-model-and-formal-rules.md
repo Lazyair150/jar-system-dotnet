@@ -39,6 +39,10 @@ World 是唯一语义与状态隔离边界，至少拥有：
 
 主台、从台、备用台、订单区、生产区、分解区等是槽位/岗位角色，不是元件 Definition 的固有类型。相同 Definition 的两个 Owned Instance 仍是两个独立个体。卸载、替换或移动不得重置实例成长与身份。
 
+### 3.2.1 Circuit Board 区域层级
+
+Circuit Board 的顶层区域固定为 Production、Workshop、Order 三类。Decomposition 是 Production 的子区域，保留独立身份与职责，但不得提升为第四个顶层区域。Board Slot 必须分别冻结顶层 `areaId` 与 `subAreaId`；组件类别不能替代区域层级。
+
 ### 3.3 Resource / Jar / Liquid
 Jar 是独立资源个体，最小状态为 JarId、ShapeId、LiquidId?、IsMarked；所属账户/工作台归属由权威资源账户维护，不在多个对象中复制真相。
 
