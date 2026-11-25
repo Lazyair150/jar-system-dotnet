@@ -253,6 +253,25 @@ public sealed class ResourceLedger
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 
+    // Schema 3-7 operation fingerprints predate tagged endpoints. Preserve their exact
+    // payload shape for replay compatibility; new writes bind the tagged endpoint fields.
+    private static string ComputeLegacyOperationFingerprint(
+        IReadOnlyList<ResourceLedgerMutation> mutations,
+        ResourceTransferReceipt? receipt)
+    {
+        var legacyMutations = mutations.Select(item => new
+        {
+            item.Cause, item.Kind, item.Name, item.Amount, item.From, item.To,
+            item.Reason, item.ResourceIdentity, item.FromAccountId, item.ToAccountId
+        }).ToArray();
+        var payload = JsonSerializer.Serialize(new
+        {
+            Mutations = legacyMutations,
+            Receipt = receipt
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
     private static ResourceLedgerMutation NormalizeMutationIdentity(ResourceLedgerMutation item)
     {
         // In the current World Vocabulary, a liquid's canonical identity is its vocabulary key.
@@ -362,7 +381,8 @@ public sealed class ResourceLedger
         if (_operationIds.Contains(operationId))
         {
             if (_operationFingerprints.TryGetValue(operationId, out var priorFingerprint) &&
-                !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal))
+                !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal) &&
+                !string.Equals(priorFingerprint, ComputeLegacyOperationFingerprint(batch, receipt: null), StringComparison.Ordinal))
                 throw new InvalidOperationException("OperationId is already bound to a different ledger batch payload.");
             return false; // Legacy tombstones have no fingerprint and remain non-replayable no-ops.
         }
@@ -483,7 +503,8 @@ public sealed class ResourceLedger
                 if (_transferReceipts.TryGetValue(operationId, out var prior) && prior != receipt)
                     throw new InvalidOperationException("OperationId is already bound to a different transfer receipt.");
                 if (_operationFingerprints.TryGetValue(operationId, out var priorFingerprint) &&
-                    !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal))
+                    !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal) &&
+                    !string.Equals(priorFingerprint, ComputeLegacyOperationFingerprint(batch, receipt), StringComparison.Ordinal))
                     throw new InvalidOperationException("OperationId is already bound to a different transfer payload.");
                 return false;
             }
