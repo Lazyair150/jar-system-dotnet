@@ -669,3 +669,6 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 先前测试修正后的 Run `45621317001` 尚在运行；其代码快照不包含上述绑定风险修正，最终验证必须以之后的最新 HEAD 为准。
 
 - 事务参与者二次审查：回执的 `ReasonCode` 必须是稳定机器码，不能拼接底层 `OrderLiquidTransfer` 的动态诊断文本。已移除诊断文本拼入 ReasonCode 的做法，底层拒绝统一映射为 `transfer.precondition.rejected`，版本竞态映射为 `account.version.changed`。提交 `e37e2a88c14288a97e0967f95b276588cad3cae3`。
+
+- 测试修正后的 Run `45621317001`（提交 `5b452f9deeda290c7ee5c7258fd526f9bf1f49f2`）完成：Build 成功；xUnit 894 / 0 errors / 0 failed / 0 skipped；Solver Differential compared=4004、agree=4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+- 精确 Adapter↔staging 实例绑定修正与稳定 ReasonCode 修正发生在该成功快照之后；对应最新 Run `45621807840` 仍在执行，不能将旧快照的通过结果等同于最新 HEAD 验证。
