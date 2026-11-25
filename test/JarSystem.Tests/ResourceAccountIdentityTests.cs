@@ -162,6 +162,10 @@ public sealed class ResourceAccountIdentityTests
         Assert.Throws<System.ArgumentException>(() =>
             new ShipLiquidInventoryPortAdapter(
                 new ShipLiquidInventory(20), workshopOwner, "area.ship"));
+        Assert.Throws<System.ArgumentException>(() =>
+            new WorkshopFreeLiquidPortAdapter(
+                workshop, "area.workshop",
+                new OwnerIdentity(worldA, ResourceOwnerKind.Workshop, "different-workshop")));
     }
 
 
