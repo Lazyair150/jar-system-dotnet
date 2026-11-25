@@ -204,4 +204,32 @@ public sealed class EffectiveRuleProfileTests
     }
 
 
+
+    [Fact]
+    public void SchemaRegistryCoversEveryDeclaredContributionEffect()
+    {
+        Assert.Equal(
+            Enum.GetValues<RuleContributionEffect>().Length,
+            RuleContributionSchemaRegistry.All.Count);
+        Assert.False(
+            RuleContributionSchemaRegistry.Get(RuleContributionEffect.ModifyCapacity)
+                .SupportsStaticSolverProjection);
+    }
+
+    [Fact]
+    public void NonProjectableContributionRemainsExplicitlyUnresolvable()
+    {
+        var contribution = Contribution("rule.capacity", "instance.capacity", "slot.capacity", 1) with
+        {
+            Effect = RuleContributionEffect.ModifyCapacity,
+            Parameters = []
+        };
+        var profile = EffectiveRuleProfile.Create("board.demo", 1, 1, [contribution]);
+
+        var context = RuleContext.From(profile, "workshop");
+
+        Assert.True(context.HasUnresolvableRequirements());
+    }
+
+
 }

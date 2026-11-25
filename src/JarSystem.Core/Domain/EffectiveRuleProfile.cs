@@ -190,7 +190,8 @@ public sealed class EffectiveRuleProfile
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
-            writer.Write("JarSystem.EffectiveRuleProfile.v1");
+            writer.Write("JarSystem.EffectiveRuleProfile.v" + CurrentSchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            writer.Write(RuleContributionSchemaRegistry.CurrentVersion);
             writer.Write(boardId);
             writer.Write(boardDefinitionVersion);
             writer.Write(assignmentRevision);

@@ -19,6 +19,9 @@ public sealed record RuleContributionEffectSchema(
 /// </summary>
 public static class RuleContributionSchemaRegistry
 {
+    /// <summary>Increment when effect parameter validation or projection semantics change.</summary>
+    public const int CurrentVersion = 1;
+
     private static readonly IReadOnlyDictionary<RuleContributionEffect, RuleContributionEffectSchema> Schemas =
         new Dictionary<RuleContributionEffect, RuleContributionEffectSchema>
         {
