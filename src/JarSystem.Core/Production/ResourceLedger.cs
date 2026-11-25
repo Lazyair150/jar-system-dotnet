@@ -54,6 +54,10 @@ public sealed class ResourceEvent
     public int Tick { get; init; }
     public string Cause { get; init; } = "";
     public string Kind { get; init; } = "";
+    /// <summary>稳定机器身份；旧版历史事件可为 null，绝不从展示名称推断。</summary>
+    public string? ResourceIdentity { get; init; }
+    /// <summary>产生该事实的幂等操作；普通历史记录与旧事件可为 null。</summary>
+    public string? OperationId { get; init; }
     public string Name { get; init; } = "";
     public int Amount { get; init; }
     public string? From { get; init; }
@@ -142,6 +146,8 @@ public sealed class ResourceLedger
         {
             if (item.Seq <= previousSeq || item.Seq > snapshot.LastSeq ||
                 item.Tick < 0 || item.Amount <= 0 ||
+                (item.OperationId != null && !snapshot.OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
+                (item.OperationId != null && string.IsNullOrWhiteSpace(item.ResourceIdentity)) ||
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
                 string.IsNullOrWhiteSpace(item.Name))
@@ -204,6 +210,11 @@ public sealed class ResourceLedger
         }
     }
 
+    private static bool IsCanonicalJarId(string? identity) =>
+        int.TryParse(identity, System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out var jarId) && jarId > 0 &&
+        jarId.ToString(System.Globalization.CultureInfo.InvariantCulture) == identity;
+
     private static void ValidateTransferReceiptResourceIdentity(ResourceTransferReceipt receipt)
     {
         if (receipt.ResourceKind == RuleResourceKind.Jar &&
@@ -227,7 +238,9 @@ public sealed class ResourceLedger
         Amount = item.Amount,
         From = item.From,
         To = item.To,
-        Reason = item.Reason
+        Reason = item.Reason,
+        ResourceIdentity = item.ResourceIdentity,
+        OperationId = item.OperationId
     };
 
     /// <summary>
@@ -236,7 +249,8 @@ public sealed class ResourceLedger
     /// 但测试会钉住"内核只产出已登记的原因"。
     /// </summary>
     public ResourceEvent? Record(int tick, string cause, string kind, string name, int amount,
-        string? from = null, string? to = null, string? reason = null)
+        string? from = null, string? to = null, string? reason = null,
+        string? resourceIdentity = null)
     {
         if (amount <= 0) return null;
         lock (_gate)
@@ -246,7 +260,7 @@ public sealed class ResourceLedger
             var e = new ResourceEvent
             {
                 Seq = nextSeq, Tick = tick, Cause = cause, Kind = kind, Name = name,
-                Amount = amount, From = from, To = to, Reason = reason
+                ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = to, Reason = reason
             };
             _entries.Add(e);
             _seq = nextSeq;
@@ -277,6 +291,7 @@ public sealed class ResourceLedger
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 string.IsNullOrWhiteSpace(item.Kind) ||
                 string.IsNullOrWhiteSpace(item.Name) ||
+                string.IsNullOrWhiteSpace(item.ResourceIdentity) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid))
                 throw new DomainValidationException("账本批次包含无效资源事实。");
         }
@@ -294,6 +309,8 @@ public sealed class ResourceLedger
                 Cause = item.Cause,
                 Kind = item.Kind,
                 Name = item.Name,
+                ResourceIdentity = item.ResourceIdentity,
+                OperationId = operationId,
                 Amount = item.Amount,
                 From = item.From,
                 To = item.To,
@@ -355,11 +372,11 @@ public sealed class ResourceLedger
                     (item.Cause != ResourceCauses.Transfer && item.Cause != ResourceCauses.Flow) ||
                     item.Kind != expectedKind ||
                     string.IsNullOrWhiteSpace(item.Name) ||
+                    item.ResourceIdentity != receipt.ResourceIdentity ||
                     item.From != receipt.SourceAccount.OwnerId ||
                     item.To != receipt.TargetAccount.OwnerId ||
-                    (receipt.ResourceKind == RuleResourceKind.Liquid &&
-                        item.Name != receipt.ResourceIdentity) ||
-                    (receipt.ResourceKind == RuleResourceKind.Jar && item.Amount != 1)))
+                    (receipt.ResourceKind == RuleResourceKind.Jar &&
+                        (item.Amount != 1 || !IsCanonicalJarId(item.ResourceIdentity)))))
                 throw new DomainValidationException("Transfer ledger batch does not describe the receipt's exact resource and account endpoints.");
             if (batch.Sum(item => (long)item.Amount) != receipt.TransferredAmount)
                 throw new DomainValidationException("Transfer ledger amount does not match the final receipt.");
@@ -374,7 +391,8 @@ public sealed class ResourceLedger
                 events.Add(new ResourceEvent
                 {
                     Seq = nextSeq, Tick = tick, Cause = item.Cause, Kind = item.Kind,
-                    Name = item.Name, Amount = item.Amount, From = item.From, To = item.To, Reason = item.Reason
+                    Name = item.Name, ResourceIdentity = item.ResourceIdentity, OperationId = operationId,
+                    Amount = item.Amount, From = item.From, To = item.To, Reason = item.Reason
                 });
             }
 
@@ -457,7 +475,9 @@ public sealed class ResourceLedgerSnapshot
             Amount = item.Amount,
             From = item.From,
             To = item.To,
-            Reason = item.Reason
+            Reason = item.Reason,
+            ResourceIdentity = item.ResourceIdentity,
+            OperationId = item.OperationId
         }).ToArray());
         OperationIds = Array.AsReadOnly((operationIds ?? Array.Empty<string>())
             .OrderBy(item => item, StringComparer.Ordinal).ToArray());
@@ -479,4 +499,5 @@ public sealed class ResourceLedgerSnapshot
 /// <summary>单条资源账本事实的不可变输入；由 RecordBatchOnce 作为一个操作整体提交。</summary>
 public sealed record ResourceLedgerMutation(
     string Cause, string Kind, string Name, int Amount,
-    string? From = null, string? To = null, string? Reason = null);
+    string? From = null, string? To = null, string? Reason = null,
+    string? ResourceIdentity = null);
