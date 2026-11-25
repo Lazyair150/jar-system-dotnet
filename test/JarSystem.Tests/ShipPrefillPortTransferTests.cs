@@ -79,6 +79,28 @@ public sealed class ShipPrefillPortTransferTests
     }
 
     [Fact]
+    public void LedgerPublicationFailureKeepsPrefillTransactionRollbackable()
+    {
+        var path = CreatePath();
+        var transaction = path.Staging.BeginPrefillTransferFromShip(path.Ship, "酒", 2);
+
+        Assert.Throws<System.InvalidOperationException>(() =>
+            transaction.Commit(() => throw new System.InvalidOperationException(
+                "injected ledger publication failure")));
+
+        Assert.False(transaction.IsCompleted);
+        Assert.Equal(3, path.Ship.GetAmount("酒"));
+        Assert.Equal(2, path.Ship.ReservedReturnCapacity);
+        Assert.Equal(2, path.Staging.PrefillBalances["酒"]);
+
+        transaction.Rollback();
+
+        Assert.Equal(5, path.Ship.GetAmount("酒"));
+        Assert.Equal(0, path.Ship.ReservedReturnCapacity);
+        Assert.Empty(path.Staging.PrefillBalances);
+    }
+
+    [Fact]
     public void ResourceLedgerPersistsOperationIdAndPreventsCrossInstanceReplay()
     {
         var path = CreatePath();
