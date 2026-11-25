@@ -90,6 +90,27 @@ public sealed record RuleResourceAccount(
              !string.Equals(identity.Owner.LocalOwnerId, OwnerId, StringComparison.Ordinal)))
             throw new ArgumentException("World-scoped account identity does not match its legacy projection fields.");
     }
+
+    /// <summary>
+    /// Transfer endpoints must either both be legacy v1 or both be v2 accounts from the same World.
+    /// A mixed/unknown endpoint cannot prove World isolation and therefore fails closed.
+    /// </summary>
+    public static void ValidateTransferScope(
+        RuleResourceAccount source,
+        RuleResourceAccount target)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(target);
+        source.Validate();
+        target.Validate();
+
+        if (source.WorldScopedIdentity.HasValue != target.WorldScopedIdentity.HasValue)
+            throw new ArgumentException("A transfer cannot mix legacy account:v1 and World-scoped account:v2 endpoints.");
+        if (source.WorldScopedIdentity is { } sourceIdentity &&
+            target.WorldScopedIdentity is { } targetIdentity &&
+            sourceIdentity.Owner.WorldInstanceId != targetIdentity.Owner.WorldInstanceId)
+            throw new ArgumentException("A resource transfer cannot cross WorldInstanceId boundaries.");
+    }
 }
 
 /// <summary>
