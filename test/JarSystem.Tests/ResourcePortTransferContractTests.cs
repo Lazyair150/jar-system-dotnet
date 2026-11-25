@@ -1,5 +1,6 @@
 using System;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 using Xunit;
 
 namespace JarSystem.Tests;
@@ -43,6 +44,39 @@ public sealed class ResourcePortTransferContractTests
 
         Assert.Throws<ArgumentException>(() => (receipt with { RetainedAtSourceAmount = 1 }).Validate());
         Assert.Throws<ArgumentException>(() => (receipt with { TargetVersionAfter = receipt.TargetVersionBefore }).Validate());
+    }
+
+    [Fact]
+    public void FinalizationRejectsPostMutationPreflightForDifferentEndpoint()
+    {
+        var request = new ResourceTransferRequest(
+            "op.final-endpoint", "connection.final-endpoint",
+            "source.out", "target.in", RuleResourceKind.Liquid, "酒", 2,
+            Source, Target, "source-before", "target-before");
+        var sourceBefore = new ResourcePortPreflight(
+            RuleDecisionKind.Allowed, "source.out", Source, RuleResourceKind.Liquid,
+            "酒", 2, "source-before", "allowed");
+        var targetBefore = new ResourcePortPreflight(
+            RuleDecisionKind.Allowed, "target.in", Target, RuleResourceKind.Liquid,
+            "酒", 2, "target-before", "allowed");
+        var sourceAfter = sourceBefore with
+        {
+            ObservedVersionToken = "source-after",
+            Decision = RuleDecisionKind.Insufficient,
+            ReasonCode = "insufficient"
+        };
+        var targetAfter = targetBefore with
+        {
+            ObservedVersionToken = "target-after",
+            Decision = RuleDecisionKind.Allowed
+        };
+
+        Assert.Throws<DomainValidationException>(() =>
+            ResourcePortTransferCommitCoordinator.Finalize(
+                request, sourceBefore, targetBefore,
+                () => sourceAfter,
+                () => targetAfter with { Account = new RuleResourceAccount("workshop-liquid-staging", "wrong-owner") },
+                null, 0, Array.Empty<ResourceLedgerMutation>()));
     }
 
     [Fact]
