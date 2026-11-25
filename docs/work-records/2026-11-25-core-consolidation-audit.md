@@ -676,3 +676,9 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 精确 Adapter↔staging 绑定修正后的 Run `45621575330`（提交 `76bfa86740063f9c7220f6b36854ee3b982dbccf`）通过：Build 成功；xUnit 895 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
 
 - 并发边界已明确写入架构文档：当前订单液体参与者提供同步补偿，不自行建立跨线程锁；Commit 必须运行在权威 World 串行命令执行边界内。若将来启用并行账户写入，必须补充跨账户隔离/锁定，不能把乐观版本令牌误当成锁。
+
+- 稳定 ReasonCode 修正后的 Run `45621807840`（提交 `e37e2a88c14288a97e0967f95b276588cad3cae3`）通过：Build 成功；xUnit 895 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+- 第二条事务路径开始：新增 `WorkshopLiquidStaging.BeginPrefillTransferFromShip`，只接受单一液种与精确数量，预先校验 Ban/库存/容量，调用 Ship 的回滚容量预留，再把液体写入独立 Prefill 账户；返回既有 `WorkshopPrefillTransaction`，由调用方 Commit/Rollback。准备阶段失败会补偿已应用的预置余额与 Ship 预留。
+- 新增 `ShipPrefillPortTransfer` / `PreparedShipPrefillPortTransfer`，只连接 Ship Liquid Output 到 Workshop Prefill Input；复用 Ship 预留与 WorkshopPrefillTransaction，不经过订单子账或游离液体账户。新增测试覆盖精确转移、目标 Ban、版本竞态、容量不足、取消和适配器实例错配。
+- 第二条路径代码提交：`23f4f974464273bc33ff677cdff0e649824013cc`、`edfeb46eb88d746c2040b1fe66eb3d1e51f31052`、`b3ab3d5856e66bdabc43b81fa7c9c1a04e41cc54`、`cd2b927ddc712b6ef30b2baff8fcf215d651b464`、`b438235f55fd6bc69af3b9d80354038d128b5489`、`0726f124855962529e4ee1e0c16a99438a1b9470`。
+- 第二条路径验证 Run `45622714477` 正在执行；结果待记录。
