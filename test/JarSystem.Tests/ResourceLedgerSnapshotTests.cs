@@ -781,13 +781,18 @@ public sealed class ResourceLedgerSnapshotTests
         const string operationId = "display-name-only-change";
         var original = new ResourceLedgerMutation(
             ResourceCauses.Stock, ResourceKinds.Liquid, "wine", 3,
+            From: "生产区", To: "仓库",
             ResourceIdentity: "liquid.wine",
             FromEndpoint: ResourceEndpoint.ExternalSource("production.seed"),
             ToEndpoint: ResourceEndpoint.LegacyUnknown,
             DisplayName: "酒");
 
         Assert.True(ledger.RecordBatchOnce(operationId, 1, new[] { original }));
-        var renamed = original with { Name = "Wine", DisplayName = "Wine" };
+        var renamed = original with
+        {
+            Name = "Wine", DisplayName = "Wine",
+            From = "Producer", To = "Warehouse"
+        };
 
         Assert.False(ledger.RecordBatchOnce(operationId, 2, new[] { renamed }));
         var recorded = Assert.Single(ledger.Entries);
