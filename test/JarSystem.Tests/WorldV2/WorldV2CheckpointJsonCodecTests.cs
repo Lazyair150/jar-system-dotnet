@@ -57,7 +57,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
     [InlineData(4)]
     public void DecodeAcceptsLegacyCheckpointEnvelopes(int version)
     {
-        var json = $"""
+        var json = $$"""
             {
               "schemaVersion": {{version}},
               "kind": "world-v2-execution-checkpoint",
