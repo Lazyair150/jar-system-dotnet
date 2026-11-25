@@ -593,7 +593,8 @@ public sealed class ResourceLedgerWireDto
         if (Capacity < 1 || LastSeq < 0 || Dropped < 0 || Events == null || OperationIds == null ||
             TransferReceipts == null || OperationFingerprints == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
             OperationIds.Distinct(StringComparer.Ordinal).Count() != OperationIds.Count ||
-            TransferReceipts.Any(item => item == null || !OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
+            TransferReceipts.Any(item => item == null || !OperationIds.Contains(item.OperationId, StringComparer.Ordinal) ||
+                !OperationFingerprints.ContainsKey(item.OperationId)) ||
             TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != TransferReceipts.Count ||
             OperationFingerprints.Any(item => string.IsNullOrWhiteSpace(item.Key) ||
                 !OperationIds.Contains(item.Key, StringComparer.Ordinal) || item.Value == null || item.Value.Length != 64 ||
@@ -604,7 +605,8 @@ public sealed class ResourceLedgerWireDto
         {
             if (item == null) throw new InvalidOperationException("资源账本 Wire DTO 包含空事件。");
             item.Validate();
-            if (item.OperationId != null && !OperationIds.Contains(item.OperationId, StringComparer.Ordinal))
+            if (item.OperationId != null && (!OperationIds.Contains(item.OperationId, StringComparer.Ordinal) ||
+                !OperationFingerprints.ContainsKey(item.OperationId)))
                 throw new InvalidOperationException("账本事件 OperationId 不存在于幂等索引。");
             if (item.Seq <= previous || item.Seq > LastSeq) throw new InvalidOperationException("账本事件序号无效。");
             previous = item.Seq;
