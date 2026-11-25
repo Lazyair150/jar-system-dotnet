@@ -39,3 +39,5 @@
 
 - [第二十八轮：账本事实身份、操作指纹与 Jar 出生身份贯通](2026-11-25-core-consolidation-audit.md)
 - [第二十九轮：Jar 出生身份覆盖、固定契约基线与回放门禁复核](2026-11-25-core-consolidation-audit.md)
+
+- [资源事件身份与幂等性审查（2026-11-26）](2026-11-26-resource-event-identity-and-idempotency.md)
