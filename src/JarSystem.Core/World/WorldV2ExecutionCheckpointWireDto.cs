@@ -677,7 +677,9 @@ public sealed class ResourceEventWireDto
     public static ResourceEventWireDto FromEvent(ResourceEvent value) => new()
     {
         Seq = value.Seq, Tick = value.Tick, Cause = value.Cause, Kind = value.Kind,
-        Name = value.Name, ResourceIdentity = value.ResourceIdentity, OperationId = value.OperationId,
+        Name = value.DisplayName ?? value.Name,
+        DisplayName = value.DisplayName ?? value.Name,
+        ResourceIdentity = value.ResourceIdentity, OperationId = value.OperationId,
         Amount = value.Amount, From = value.From, To = value.To,
         FromAccountId = value.FromAccountId, ToAccountId = value.ToAccountId,
         FromEndpoint = ResourceEndpointWireDto.FromEndpoint(value.FromEndpoint),
@@ -716,7 +718,8 @@ public sealed class ResourceEventWireDto
         Validate();
         return new ResourceEvent
         {
-            Seq = Seq, Tick = Tick, Cause = Cause, Kind = Kind, Name = Name,
+            Seq = Seq, Tick = Tick, Cause = Cause, Kind = Kind,
+            Name = DisplayName ?? Name, DisplayName = DisplayName ?? Name,
             ResourceIdentity = ResourceIdentity, OperationId = OperationId,
             Amount = Amount, From = From, To = To,
             FromAccountId = FromAccountId, ToAccountId = ToAccountId,
