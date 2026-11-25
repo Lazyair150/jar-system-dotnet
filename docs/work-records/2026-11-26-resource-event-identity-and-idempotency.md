@@ -120,3 +120,13 @@ The latest code HEAD at the time this record was written is `2bd8524057c84a2a7e4
 - Code HEAD: `b7c376c0c5f3c624b14b2132e2314f90b8cb5bad`.
 - Runs `45657100739` and `45657120041` are associated with this exact HEAD and were In Progress when recorded. No pass is claimed.
 - PR #63 remains Open / Draft and unmerged.
+
+
+## Follow-up verification and test hardening
+
+- Exact HEAD `ee861f3fbc1bd46bd8fe525b95662255a46a2c9c` passed CI run `45658267325` (and the paired run `45658248002`): xUnit 964 passed / 0 failed; `CONFIG-WORLD-MATCH`; solver differential 4004/4004; rule/modifier differential 400 scenarios / 1600 checks; `REPLAY-OK` for 33 commands; dependency scan `SEC-OK` with 0 vulnerable packages; final `VERDICT=OK`.
+- The successful exact HEAD includes the account-ID event projection, Jar production/discard/flow facts, and the liquid-only correction to the existing liquid receipt test. The latter now filters ledger facts by `ResourceKinds.Liquid`, rather than summing Jar and Liquid amounts together.
+- Two test-only hardening changes followed: `RecordBatchOnce` round-trip now asserts account endpoints survive the Wire DTO and snapshot, and a changed account endpoint under the same OperationId must conflict; legacy ledger Wire compatibility now tests both schema 3 and schema 4, asserting ResourceIdentity and both account endpoints remain null/unknown.
+- Code HEAD at this record update: `e78abd388aeee0785933feef894e53292b955e60`. Runs `45658706720` and `45658719513` are associated with this exact HEAD and remain In Progress; the added tests are not yet claimed as passing.
+- The immediately preceding failed runs are classified: `45657100739` failed because Jar ledger tests were placed outside their test class; `45657633099` failed on the same brace placement; `45657765218` failed because the liquid-only assertion lacked the Production namespace import. These were test-source defects, not runtime behavior failures; subsequent commits corrected them.
+- PR #63 remains Open / Draft and unmerged. Space remains untouched.
