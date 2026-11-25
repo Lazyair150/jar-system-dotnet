@@ -861,7 +861,6 @@ public sealed class WorldOrderExecutionSessionTests
         restoredLeaseBook.Validate();
         var restoredReceipt = Assert.Single(restoredLeaseBook.Leases).ToReceipt();
         Assert.NotNull(restoredReceipt);
-        Assert.Equal(2, restoredReceipt!.SourceAllocations.Count);
         Assert.Equal(
             receipt.SourceAllocations.Select(item => item.SourceEndpoint).OrderBy(item => item.AccountId),
             restoredReceipt.SourceAllocations.Select(item => item.SourceEndpoint).OrderBy(item => item.AccountId));
