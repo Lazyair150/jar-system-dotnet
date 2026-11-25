@@ -225,6 +225,9 @@ public sealed class ResourceLedgerSnapshotTests
         var roundTripped = ResourceLedger.Restore(decodedWire.ToSnapshot());
         Assert.True(roundTripped.TryGetTransferReceipt(receipt.OperationId, out var wireReceipt));
         Assert.Equal(receipt, wireReceipt);
+        var wireEvent = Assert.Single(roundTripped.Entries);
+        Assert.Equal(receipt.SourceAccount.AccountId, wireEvent.FromAccountId);
+        Assert.Equal(receipt.TargetAccount.AccountId, wireEvent.ToAccountId);
         Assert.False(roundTripped.RecordTransferOnce(
             receipt.OperationId, 22,
             new[]
@@ -287,7 +290,9 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.True(ledger.HasRecordedOperation(receipt.OperationId));
         Assert.True(ledger.TryGetTransferReceipt(receipt.OperationId, out var stored));
         Assert.Equal(receipt, stored);
-        Assert.Single(ledger.Entries);
+        var transferEvent = Assert.Single(ledger.Entries);
+        Assert.Equal(source.AccountId, transferEvent.FromAccountId);
+        Assert.Equal(target.AccountId, transferEvent.ToAccountId);
         Assert.Equal(1, ledger.LastSeq);
 
         Assert.Throws<System.InvalidOperationException>(() =>
@@ -297,6 +302,9 @@ public sealed class ResourceLedgerSnapshotTests
         var restored = ResourceLedger.Restore(ledger.Capture());
         Assert.True(restored.TryGetTransferReceipt(receipt.OperationId, out var restoredReceipt));
         Assert.Equal(receipt, restoredReceipt);
+        var restoredEvent = Assert.Single(restored.Entries);
+        Assert.Equal(source.AccountId, restoredEvent.FromAccountId);
+        Assert.Equal(target.AccountId, restoredEvent.ToAccountId);
         Assert.False(restored.RecordTransferOnce(receipt.OperationId, 42, batch, receipt));
     }
 
