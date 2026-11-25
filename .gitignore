@@ -57,3 +57,17 @@ test/JarSystem.Tests/Approvals/*.received.json
 
 # Local work-in-progress exports; canonical work records under docs/work-records are tracked
 docs/work-records/_local/
+
+# Additional IDE, test, artifact and generic local output caches
+.vs/
+TestResults/
+artifacts/
+coverage/
+*.cache
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
