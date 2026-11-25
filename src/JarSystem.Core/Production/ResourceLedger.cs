@@ -385,6 +385,8 @@ public sealed class ResourceLedger
         string? displayName = null)
     {
         if (amount <= 0) return null;
+        if (displayName != null && string.IsNullOrWhiteSpace(displayName))
+            throw new DomainValidationException("Resource DisplayName cannot be blank.");
         if (displayName != null && string.IsNullOrWhiteSpace(resourceIdentity))
             throw new DomainValidationException("Explicit DisplayName requires a canonical ResourceIdentity.");
         lock (_gate)
@@ -450,6 +452,7 @@ public sealed class ResourceLedger
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 string.IsNullOrWhiteSpace(item.Kind) ||
                 string.IsNullOrWhiteSpace(item.Name) ||
+                (item.DisplayName != null && string.IsNullOrWhiteSpace(item.DisplayName)) ||
                 string.IsNullOrWhiteSpace(item.ResourceIdentity) ||
                 (item.FromAccountId != null && string.IsNullOrWhiteSpace(item.FromAccountId)) ||
                 (item.ToAccountId != null && string.IsNullOrWhiteSpace(item.ToAccountId)) ||
