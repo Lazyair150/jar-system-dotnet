@@ -339,6 +339,42 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void TransferJournalRequiresJarReceiptsToRepresentOneCanonicalJarId()
+    {
+        var source = new RuleResourceAccount("workshop-jar-storage", "workshop.jar.source");
+        var target = new RuleResourceAccount("workshop-jar-storage", "workshop.jar.target");
+        var invalidReceipts = new[]
+        {
+            new ResourceTransferReceipt(
+                "operation.jar.noncanonical", "connection.jar.1", "source.jar.out", "target.jar.in",
+                RuleResourceKind.Jar, "jar-401", source, target,
+                1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+                "source-before", "source-after", "target-before", "target-after", "allowed"),
+            new ResourceTransferReceipt(
+                "operation.jar.multiple", "connection.jar.2", "source.jar.out", "target.jar.in",
+                RuleResourceKind.Jar, "401", source, target,
+                2, 2, 0, 0, ResourceTransferOutcome.Transferred,
+                "source-before", "source-after", "target-before", "target-after", "allowed")
+        };
+
+        foreach (var receipt in invalidReceipts)
+        {
+            var ledger = new ResourceLedger();
+            Assert.Throws<DomainValidationException>(() => ledger.RecordTransferOnce(
+                receipt.OperationId, 1,
+                new[]
+                {
+                    new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Jar,
+                        "圆罐", receipt.TransferredAmount,
+                        From: source.OwnerId, To: target.OwnerId)
+                },
+                receipt));
+            Assert.False(ledger.HasRecordedOperation(receipt.OperationId));
+            Assert.Empty(ledger.Entries);
+        }
+    }
+
+    [Fact]
     public void TransferJournalRejectsEventsThatDoNotMatchReceiptEndpoints()
     {
         var ledger = new ResourceLedger();
