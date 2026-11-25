@@ -144,8 +144,12 @@ public class Workshop
             throw new ArgumentException("Owned workshop instance identity cannot be blank.", nameof(ownedInstanceId));
         Name = name;
         OwnedInstanceId = ownedInstanceId;
-        _capability = initialRules?.Capability ?? new WorkshopCapability(baseMarks, additionalMarks, ban);
-        _rules = initialRules ?? new RuleContext(_capability, modifiers ?? new ModifierStack());
+        var worldVocabulary = vocabulary ?? Vocabulary.Default;
+        _rules = initialRules?.WithVocabulary(worldVocabulary) ??
+            new RuleContext(
+                new WorkshopCapability(baseMarks, additionalMarks, ban, worldVocabulary),
+                modifiers ?? new ModifierStack());
+        _capability = _rules.Capability;
         MaxJars = maxJars ?? Constants.DEFAULT_MAX_JARS;
         MaxLiquids = maxLiquids ?? Constants.DEFAULT_MAX_LIQUIDS;
         LiquidStagingCapacity = liquidStagingCapacity ?? MaxLiquids;
