@@ -139,3 +139,32 @@ The first verification attempts surfaced real integration issues; they were fixe
 - The matching PR-triggered run #5133 was still in progress when this record was updated; the successful push run above is the confirmed result.
 
 This is GitHub CI evidence, not a claim that `dotnet test` was run locally. PR #63 remains open and unmerged.
+
+
+## World V2 传统写入点迁移补记（2026-11-26）
+
+继续盘点旧流程后，将已具备稳定运行时 OwnerIdentity 的 World V2 写入点迁移为 tagged endpoints：
+
+- World V2 初始库存：`ExternalSource(level.initial-stock) -> Ship Account`。
+- Jar 生产事实：`ProductionArea Account -> Warehouse Account`。当前 ShapeProductionLine 将多个 Producer 的速率汇总到同一形状生产线，并共享一个产出余数；在不改变生产算法/数量语义的前提下，账本来源只能诚实地标记为 ProductionArea 聚合生产账户，不能伪称某一个 Producer 单独产出。ProducerInstanceId 仍用于运行时实例映射和配置身份，但不伪造逐 Producer 产量。
+- Jar 仓库溢出：`Warehouse Account -> ExternalSink(warehouse.jar-capacity-overflow)`。
+- 液体生产：`ProductionArea Account -> Ship / Warehouse Account`；溢出指向对应容量 ExternalSink。
+- 仓库向主台流入：`Warehouse Account -> Workshop Account`，工作台优先用 OwnerIdentity 生成 account:v2；没有 OwnerIdentity 时保留精确 OwnedInstanceId 对应的 account:v1 兼容路径；没有实例身份则使用 LegacyUnknown。
+- 主台预置补液、预置回滚、退役主台返还：分别使用 Ship 与 Workshop 的明确账户，容量丢弃指向 ExternalSink。
+- 六类资源端口物理转移（订单液体、Ship Prefill、仓库 Jar/液体、工作台游离液体/Jar）现在同时写入 From/To AccountId 投影和 tagged Account endpoints。
+- OrderTransferService 原有主从 Jar、游离液体、订单子账户迁移已经写入 tagged Account endpoints；继续保留其 OwnerIdentity 优先、account:v1 兼容回退。
+
+ResourceLedger.Record 与 RecordBatchOnce 现在统一拒绝：
+- 两个 account:v2 端点属于不同 World；
+- account:v1 与 account:v2 直接构成账户到账户转移。
+
+ExternalSource / ExternalSink 与 Account 之间的资源边仍允许，因为它们表达外部边界而非另一个 World 内的账户。LegacyUnknown 仍只作为迁移兼容值，不会被解释为外部来源或去向。
+
+新增测试覆盖：
+- Host 创建的 World V2 初始库存、生产区、仓库、主台流入账本事实的真实 World-scoped owner endpoint。
+- ResourceLedger 直接 Record 与 RecordBatchOnce 对跨 World / 混合版本账户边的拒绝及失败原子性。
+- 六类资源端口提交事实都保留 Account endpoint 与旧 AccountId 投影一致。
+
+### 迁移边界再次明确
+
+`ProductionService` 属于旧版生产系统入口，目前没有可靠的 WorldInstanceId / OwnerIdentity 注入契约；它的传统 Record 写入暂时保留 LegacyUnknown，不能拿名称或 Shape/Name 字段冒充 OwnerIdentity。待旧宿主也通过明确的身份装配边界创建 OwnerIdentity 后再迁移。此限制不影响上述 World V2 Runtime 路径。
