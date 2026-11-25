@@ -974,3 +974,60 @@ ADR 0010 已冻结 Transfer Leg / Compound Transfer / ResourceIdentity / Operati
 - Run `45640869568`：Success，HEAD 精确匹配。
 - 本轮只进行了源码检查与工作记录更新，没有声称 ResourceIdentity / OperationId 事件关联已经实现，也没有触发无信息量的重复 CI。
 - PR #63 保持 Open / Draft；Space PR #2 与其 Core SHA pin 未修改。
+
+
+### 第二十八轮：账本事实身份、操作指纹与 Jar 出生身份贯通（2026-11-25）
+
+**起始与验证基线**
+
+- 仓库：`Lazyair150/jar-system-dotnet`
+- 分支：`architecture/core-liquid-identity-consolidation`
+- 起始代码 HEAD：`69c3f72ae4bffc1874cff1c0848d831fd2aa2139`
+- PR #63：Open / Draft；没有合并。
+- 第二十七轮记录确认的 Run `45640869568`（HEAD `b1ccfcca`）为 Success；它只验证上一轮架构/记录提交，不替代本轮代码验证。
+
+**实现内容**
+
+1. `ResourceEvent` 增加 nullable `ResourceIdentity` 与 `OperationId`；普通 `Record` 事件没有操作 ID，旧历史事件允许两个字段为空。
+2. `ResourceLedgerMutation` 增加独立 `ResourceIdentity`。当前 World Vocabulary 的液体 identity 是 canonical vocabulary key；对旧调用方的液体 Mutation，在进入账本时按该词表键归一化。Jar 不做此类推断，必须显式提供 canonical positive JarId。
+3. `RecordBatchOnce` 与 `RecordTransferOnce` 为批次中的每条新事件写入 OperationId。Jar 事件要求 amount=1 且 ResourceIdentity 为 canonical positive JarId；单资源 Transfer 事实还必须与 receipt 的 ResourceIdentity 完全相同。
+4. 新增 OperationId -> SHA-256 payload fingerprint journal。指纹覆盖有序 Mutation 列表（包括 Cause、Kind、Display Name、ResourceIdentity、Amount、From、To、Reason）及 Transfer Receipt（若有）；tick 不参与指纹，因为相同逻辑操作在重放时不应因当前 tick 改变而成为新操作。
+5. 相同 OperationId、相同 fingerprint 是幂等 no-op；相同 OperationId、不同 fingerprint 拒绝。旧 checkpoint 中没有 fingerprint 的 tombstone 保留旧版 no-op 行为，不伪造历史 fingerprint。
+6. Fingerprint 与 OperationId、Receipt 分开于有界 Event Window 保存；事件裁剪不裁剪 fingerprint/tombstone/receipt。
+7. `ResourceLedgerSnapshot`、Clone、Capture、Restore、RestoreFrom、`ResourceLedgerWireDto`、`ResourceEventWireDto` 全部增加字段往返映射。Restore 校验 fingerprint key 必须属于 OperationIds，值必须是 64 位十六进制 SHA-256，事件 OperationId 必须存在于索引。
+8. World V2 checkpoint envelope 当前 schema 从 3 升为 4；Decode 同时接受 schema 3 与 4。Schema 3 缺失的身份/操作指纹字段保持 null/empty，代表 Legacy Unknown；禁止从 Jar Shape 或 Workshop.Name 推断机器身份。
+9. `WorkshopJarPortTransfer` 与 `WarehouseWorkshopJarPortTransfer` 的 Jar facts 现在显式传递 Request.ResourceIdentity，而 Shape 只用于 Name 展示字段。B 类 `OrderTransferService` 每只 Jar 事件使用 JarId；液体事件使用液体词表 identity。
+10. 外部生产 Jar 导入不再以 Shape 聚合为 amount=N 的 Jar 事实。每只被存入或因容量溢出被丢弃的 Jar 都先获得独立 JarId，并以 amount=1 写入账本；存储 Jar 与丢弃 Jar 的实体身份都可单独追溯。
+11. Warehouse 对新收货 Jar 分配稳定 ID；旧 checkpoint 中尚无 ID 的 Warehouse Jar 在恢复时获得新 ID。Warehouse 与 Workshop 的 ID generator 在 checkpoint 恢复前推进到所有已保存 JarId 的 high-water mark，避免恢复后复用已存在身份。
+12. World 初始液体库存与主台替换返还/丢弃液体事件均携带 vocabulary identity。
+
+**CI 失败证据与修复**
+
+- 精确 HEAD `83aa7a4d6d75bbba8ed578a1235689b2e65f3b9e` 的 Run `45645345624`：Build 成功（0 Warning / 0 Error），xUnit 954 项中 5 项失败。
+- 失败原因经归档 `_verify_output.txt` 精确确认：
+  - 2 项 checkpoint schema 测试仍硬编码 schemaVersion=3 / 原先把 4 当作不支持版本；已更新为当前版本 4，并将不支持版本改为 5。
+  - 3 项 `ExternalProducedJarImport...` 测试揭示外部生产 Jar 尚无 JarId，但账本事实已要求独立 Jar identity。修复不是放宽账本校验，而是在实体出生/入仓前分配 JarId，并按单只 Jar 记录事实。
+- 上述失败不作为通过证据；后续提交针对这些具体失败进行了修正。
+
+**新增针对性测试**
+
+- 多事件批次的每条事件均绑定同一 OperationId 和各自 ResourceIdentity。
+- Operation fingerprint 通过 checkpoint Wire 往返后仍能拒绝同 ID 不同 payload。
+- 同形 Jar 的账本显示名称与 JarId 分离；receipt 和 event identity 必须一致。
+- Schema 3 的旧账本 Wire 可读，历史 ResourceIdentity / OperationId 保持 null，不猜测。
+- 外部生产 Jar 导入的每只 Jar（包括容量溢出 Jar）均有唯一身份事实。
+
+**当前代码与验证状态**
+
+- 当前分支 HEAD：`b22aa17468b2373cebc022ba2f3136c2bfdfc803`。
+- 当前 HEAD 对应 Verify Runs `45647638317` 与 `45647625279` 查询时均为 In Progress；不得记录为通过。
+- 更早的同分支提交也触发了 push 与 pull_request 两条重复 workflow；不把较早 SHA 的结果代替当前 HEAD。
+- PR #63 保持 Open / Draft；Space PR #2 与其 Core SHA pin 未修改。
+
+**尚未完成 / 下一道门**
+
+1. 等待当前精确 HEAD 的 CI；失败时读取 artifact 日志逐项修复。
+2. 全量盘点所有 ResourceEvent 生产路径，确认不存在新建 Jar 事实仍以 Shape 代替 JarId、或新事件缺少可用 ResourceIdentity 的路径。
+3. 为旧 Warehouse Jar identity migration、跨账户 JarId allocator 共享约束和自定义 generator 恢复能力补充专门测试。
+4. 完成稳定 AccountId/OwnerId，不再让 B 类交接使用 Workshop.Name 作为机器端点。
+5. 建立完整 ResourceTransferBatchRequest/Receipt 与多账户联合 prepare/commit/compensate，再迁移 B 类交接。当前仍未声称 B 类复合事务已经实现。
