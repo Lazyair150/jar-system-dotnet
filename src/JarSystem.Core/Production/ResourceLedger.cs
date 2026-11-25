@@ -334,7 +334,7 @@ public sealed class ResourceLedger
                 : ResourceKinds.Liquid;
             if (batch.Length == 0 || batch.Any(item =>
                     item.Amount <= 0 ||
-                    !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
+                    (item.Cause != ResourceCauses.Transfer && item.Cause != ResourceCauses.Flow) ||
                     item.Kind != expectedKind ||
                     string.IsNullOrWhiteSpace(item.Name) ||
                     item.From != receipt.SourceAccount.OwnerId ||
