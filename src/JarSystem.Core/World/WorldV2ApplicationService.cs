@@ -25,6 +25,7 @@ namespace JarSystem.Core.World;
 public sealed class WorldV2ApplicationService
 {
     private readonly WorldV2HostService _host;
+    private readonly object _lifecycleSync = new();
     private WorldV2Options? _lastOptions;
 
     public WorldV2ApplicationService(WorldV2HostService host)
@@ -36,18 +37,24 @@ public sealed class WorldV2ApplicationService
     public void CreateOrReplaceWorld(WorldV2Options options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var snapshot = CloneOptions(options);
-        _host.Replace(options);
-        _lastOptions = snapshot;
+        lock (_lifecycleSync)
+        {
+            var snapshot = CloneOptions(options);
+            _host.Replace(options);
+            _lastOptions = snapshot;
+        }
     }
 
     /// <summary>使用宿主已持久化的身份创建世界，供确定性重建与重放使用。</summary>
     public void CreateOrReplaceWorld(WorldV2Options options, WorldInstanceId worldInstanceId)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var snapshot = CloneOptions(options);
-        _host.Replace(options, worldInstanceId);
-        _lastOptions = snapshot;
+        lock (_lifecycleSync)
+        {
+            var snapshot = CloneOptions(options);
+            _host.Replace(options, worldInstanceId);
+            _lastOptions = snapshot;
+        }
     }
 
     /// <summary>使用完整 World/Owner 身份映射创建世界，供宿主保存和确定性重建。</summary>
@@ -57,9 +64,12 @@ public sealed class WorldV2ApplicationService
         WorldV2OwnerIdentityMap ownerIdentities)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var snapshot = CloneOptions(options);
-        _host.Replace(options, worldInstanceId, ownerIdentities);
-        _lastOptions = snapshot;
+        lock (_lifecycleSync)
+        {
+            var snapshot = CloneOptions(options);
+            _host.Replace(options, worldInstanceId, ownerIdentities);
+            _lastOptions = snapshot;
+        }
     }
 
     /// <summary>读取当前世界已注入的稳定 Owner 身份映射。</summary>
@@ -356,9 +366,12 @@ public sealed class WorldV2ApplicationService
     public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
     {
         if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
-        var options = _lastOptions
-            ?? throw new InvalidOperationException("恢复检查点前必须先通过 ApplicationService 装配过一个 World 配置。");
-        RestoreExecutionResourceCheckpoint(options, checkpoint);
+        lock (_lifecycleSync)
+        {
+            var options = _lastOptions
+                ?? throw new InvalidOperationException("恢复检查点前必须先通过 ApplicationService 装配过一个 World 配置。");
+            RestoreExecutionResourceCheckpointCore(options, checkpoint, null);
+        }
     }
 
     /// <summary>
@@ -372,10 +385,8 @@ public sealed class WorldV2ApplicationService
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
-        var snapshot = CloneOptions(options);
-        _host.RestoreExecutionResourceCheckpoint(
-            options, checkpoint, legacyMigrationWorldInstanceId);
-        _lastOptions = snapshot;
+        lock (_lifecycleSync)
+            RestoreExecutionResourceCheckpointCore(options, checkpoint, legacyMigrationWorldInstanceId);
     }
 
     /// <summary>
@@ -390,6 +401,15 @@ public sealed class WorldV2ApplicationService
         if (options == null) throw new ArgumentNullException(nameof(options));
         var checkpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(
             json, legacyMigrationWorldInstanceId);
+        lock (_lifecycleSync)
+            RestoreExecutionResourceCheckpointCore(options, checkpoint, legacyMigrationWorldInstanceId);
+    }
+
+    private void RestoreExecutionResourceCheckpointCore(
+        WorldV2Options options,
+        WorldV2ExecutionResourceCheckpoint checkpoint,
+        WorldInstanceId? legacyMigrationWorldInstanceId)
+    {
         var snapshot = CloneOptions(options);
         _host.RestoreExecutionResourceCheckpoint(
             options, checkpoint, legacyMigrationWorldInstanceId);
