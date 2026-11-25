@@ -128,6 +128,8 @@ public sealed class ResourcePortAdapterTests
         Assert.Equal("port.area.mismatch", adapter.Preflight(wrongArea, "酒", 1).ReasonCode);
         Assert.Equal(RuleDecisionKind.Undetermined, adapter.Preflight(wrongPolicy, "酒", 1).Decision);
         Assert.Equal("port.policy.unsupported", adapter.Preflight(wrongPolicy, "酒", 1).ReasonCode);
+        Assert.Throws<ArgumentOutOfRangeException>(() => adapter.Preflight(wrongPolicy, "酒", 0));
+        Assert.Throws<ArgumentException>(() => adapter.Preflight(wrongPolicy, "", 1));
     }
 
     [Fact]
