@@ -86,13 +86,12 @@ public class ReshapeRulesTests
     }
 
     [Fact]
-    public void SelfConsumeRequiresMatchingWorkshopPolarityAndUsesJarInternalAccount()
+    public void SelfConsumeUsesOnlyJarInternalAccountAndIgnoresWorkshopBan()
     {
         var rules = Rules();
 
         Assert.True(rules.SelfConsume("蜜").Granted);
-        Assert.False(rules.SelfConsume("酒").Granted);
-        Assert.Equal("polarity-incompatible", rules.SelfConsume("酒").Code);
+        Assert.True(rules.SelfConsume("酒").Granted);
         Assert.Equal("not-full", rules.SelfConsume(null).Code);
 
         // 玄武台 Ban 只约束游离液体暂存区；Jar 内部酒可以被满罐自耗。
