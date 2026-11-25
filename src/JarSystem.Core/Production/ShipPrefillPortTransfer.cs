@@ -17,9 +17,12 @@ public sealed class PreparedShipPrefillPortTransfer
     private readonly WorkshopPrefillLiquidPortAdapter _targetAdapter;
     private readonly CircuitPortDefinition _sourcePort;
     private readonly CircuitPortDefinition _targetPort;
+    private readonly ResourceLedger? _ledger;
+    private readonly Func<int>? _ledgerTickProvider;
     private ResourceTransferReceipt? _receipt;
     private bool _cancelled;
     private bool _faulted;
+    private bool _duplicateOperation;
 
     internal PreparedShipPrefillPortTransfer(
         ResourceTransferRequest request,
@@ -28,7 +31,9 @@ public sealed class PreparedShipPrefillPortTransfer
         ShipLiquidInventoryPortAdapter sourceAdapter,
         WorkshopPrefillLiquidPortAdapter targetAdapter,
         CircuitPortDefinition sourcePort,
-        CircuitPortDefinition targetPort)
+        CircuitPortDefinition targetPort,
+        ResourceLedger? ledger,
+        Func<int>? ledgerTickProvider)
     {
         _request = request;
         _ship = ship;
@@ -37,10 +42,12 @@ public sealed class PreparedShipPrefillPortTransfer
         _targetAdapter = targetAdapter;
         _sourcePort = sourcePort;
         _targetPort = targetPort;
+        _ledger = ledger;
+        _ledgerTickProvider = ledgerTickProvider;
     }
 
     public string OperationId => _request.OperationId;
-    public bool IsCompleted => _receipt is not null || _cancelled || _faulted;
+    public bool IsCompleted => _receipt is not null || _cancelled || _faulted || _duplicateOperation;
     public bool IsCommitted => _receipt?.Outcome == ResourceTransferOutcome.Transferred;
 
     /// <summary>
@@ -52,6 +59,8 @@ public sealed class PreparedShipPrefillPortTransfer
         if (_receipt is not null) return _receipt;
         if (_faulted)
             throw new InvalidOperationException("This transfer participant faulted during commit and cannot be retried.");
+        if (_duplicateOperation)
+            throw new InvalidOperationException("This OperationId was already committed; reconcile from the authoritative ledger instead of replaying.");
         if (_cancelled)
             return _receipt = NoMutation(
                 ResourceTransferOutcome.Rejected, "transfer.cancelled",
@@ -62,6 +71,13 @@ public sealed class PreparedShipPrefillPortTransfer
         var target = _targetAdapter.Preflight(_targetPort, _request.ResourceIdentity, _request.Amount);
         source.Validate();
         target.Validate();
+
+        if (_ledger?.HasRecordedOperation(_request.OperationId) == true)
+        {
+            _duplicateOperation = true;
+            throw new InvalidOperationException(
+                "This OperationId was already committed; reconcile from the authoritative ledger instead of replaying.");
+        }
 
         if (source.ObservedVersionToken != _request.ExpectedSourceVersionToken ||
             target.ObservedVersionToken != _request.ExpectedTargetVersionToken)
@@ -80,6 +96,11 @@ public sealed class PreparedShipPrefillPortTransfer
                 : target.ReasonCode;
             return _receipt = NoMutation(outcome, reason, source, target);
         }
+
+        var ledgerTick = _ledger is null ? 0 : _ledgerTickProvider!();
+        if (ledgerTick < 0)
+            return _receipt = NoMutation(
+                ResourceTransferOutcome.Rejected, "ledger.tick.invalid", source, target);
 
         try
         {
@@ -111,6 +132,14 @@ public sealed class PreparedShipPrefillPortTransfer
                 _sourcePort, _request.ResourceIdentity, _request.Amount);
             var targetAfter = _targetAdapter.Preflight(
                 _targetPort, _request.ResourceIdentity, _request.Amount);
+            if (_ledger is not null &&
+                !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
+                {
+                    new ResourceLedgerMutation(
+                        ResourceCauses.Flow, ResourceKinds.Liquid, _request.ResourceIdentity,
+                        _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
+                }))
+                throw new InvalidOperationException("The transfer OperationId was recorded while its physical commit was in progress.");
             _receipt = new ResourceTransferReceipt(
                 _request.OperationId, _request.ConnectionId,
                 _request.SourcePortId, _request.TargetPortId,
@@ -172,7 +201,9 @@ public static class ShipPrefillPortTransfer
         ShipLiquidInventoryPortAdapter sourceAdapter,
         WorkshopPrefillLiquidPortAdapter targetAdapter,
         ShipLiquidInventory ship,
-        WorkshopLiquidStaging staging)
+        WorkshopLiquidStaging staging,
+        ResourceLedger? ledger = null,
+        Func<int>? ledgerTickProvider = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(connection);
@@ -183,6 +214,8 @@ public static class ShipPrefillPortTransfer
         ArgumentNullException.ThrowIfNull(ship);
         ArgumentNullException.ThrowIfNull(staging);
         request.Validate();
+        if ((ledger is null) != (ledgerTickProvider is null))
+            throw new ArgumentException("ResourceLedger and its logical tick provider must be supplied together.");
 
         if (connection.ConnectionId != request.ConnectionId ||
             connection.SourcePortId != request.SourcePortId ||
@@ -210,6 +243,7 @@ public static class ShipPrefillPortTransfer
             throw new ArgumentException("Port preflight returned an unexpected authoritative account.");
 
         return new PreparedShipPrefillPortTransfer(
-            request, ship, staging, sourceAdapter, targetAdapter, sourcePort, targetPort);
+            request, ship, staging, sourceAdapter, targetAdapter, sourcePort, targetPort,
+            ledger, ledgerTickProvider);
     }
 }
