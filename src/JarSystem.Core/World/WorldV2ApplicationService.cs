@@ -105,23 +105,28 @@ public sealed class WorldV2ApplicationService
             }
 
             var vocabulary = new Vocabulary(context.Shapes, context.Liquids);
-            var jars = storedByShape
+            // JarId is assigned at entity creation, not deferred until the first Workshop admission.
+            // Both stored and immediately discarded outputs are therefore individually auditable.
+            var storedJars = storedByShape
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .SelectMany(pair => Enumerable.Range(0, pair.Value)
-                    .Select(_ => new Jar(pair.Key, vocabulary: vocabulary)))
+                    .Select(_ => new Jar(pair.Key, id: context.Roster.Master!.AllocateJarId(), vocabulary: vocabulary)))
+                .ToArray();
+            var discardedJars = discardedByShape
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .SelectMany(pair => Enumerable.Range(0, pair.Value)
+                    .Select(_ => new Jar(pair.Key, id: context.Roster.Master!.AllocateJarId(), vocabulary: vocabulary)))
                 .ToArray();
 
-            var mutations = storedByShape
-                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => new ResourceLedgerMutation(
-                    ResourceCauses.Production, ResourceKinds.Jar, pair.Key, pair.Value,
-                    From: "Space 原石解析器", To: "Jar 中央仓库"))
-                .Concat(discardedByShape
-                    .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                    .Select(pair => new ResourceLedgerMutation(
-                        ResourceCauses.Discard, ResourceKinds.Jar, pair.Key, pair.Value,
-                        From: "Space 原石解析器", To: "容量溢出",
-                        Reason: "中央仓库容量已满")))
+            var mutations = storedJars.Select(jar => new ResourceLedgerMutation(
+                    ResourceCauses.Production, ResourceKinds.Jar, jar.Shape, 1,
+                    From: "Space 原石解析器", To: "Jar 中央仓库",
+                    ResourceIdentity: jar.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                .Concat(discardedJars.Select(jar => new ResourceLedgerMutation(
+                    ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
+                    From: "Space 原石解析器", To: "容量溢出",
+                    Reason: "中央仓库容量已满",
+                    ResourceIdentity: jar.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))))
                 .ToArray();
 
             if (!context.ResourceLedger.RecordBatchOnce(
@@ -132,7 +137,7 @@ public sealed class WorldV2ApplicationService
             }
 
             // 账本批次先提交，随后仅执行已预构造且不再需要校验的仓库写入。
-            context.Resources.Inventory.StoreJars(jars);
+            context.Resources.Inventory.StoreJars(storedJars);
             if (discardedByShape.Values.Sum() > 0)
                 context.Resources.Inventory.CountDiscardedJars(discardedByShape.Values.Sum());
 
