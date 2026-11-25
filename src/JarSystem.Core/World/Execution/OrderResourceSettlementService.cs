@@ -71,7 +71,7 @@ public sealed class OrderResourceSettlementService
              (settlementHasLedgerFacts &&
                 (ledger == null || !ledger.HasRecordedOperation(lease.SettlementOperationId)))))
             throw new InvalidOperationException(
-                "订单结算阶段报告账本已提交，但当前缺少结算收据或对应的 ResourceLedger operation receipt。");
+                "订单结算阶段报告账本已提交，但当前缺少结算收据或对应的 ResourceLedger Settlement operation receipt。");
 
         if (receipt == null && scopes.HasValue && admission.ShipLiquidInventory != null)
         {
