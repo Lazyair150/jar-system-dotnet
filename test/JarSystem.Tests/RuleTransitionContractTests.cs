@@ -8,7 +8,7 @@ namespace JarSystem.Tests;
 public sealed class RuleTransitionContractTests
 {
     [Fact]
-    public void JarPolarityIsDerivedFromTheAuthoritativeLiquidIdentity()
+    public void JarPolarityResolvesThroughWorldVocabularyAndSnapshotsEnforceThreeStates()
     {
         Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
         Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒", Vocabulary.Default));
@@ -23,16 +23,15 @@ public sealed class RuleTransitionContractTests
         Assert.Throws<System.ArgumentException>(() => JarPolarityResolver.Resolve("未知液体", Vocabulary.Default));
         Assert.Throws<System.ArgumentException>(() => new RuleStateSnapshot(new[]
         {
-            new KeyValuePair<string, string>("jarInstanceId", "jar.invalid"),
-            new KeyValuePair<string, string>("liquid", "酒"),
+            new KeyValuePair<string, string>("jarInstanceId", "jar.invalid-empty"),
+            new KeyValuePair<string, string>("liquid", string.Empty),
             new KeyValuePair<string, string>("polarity", nameof(JarPolarity.Anode))
         }));
         Assert.Throws<System.ArgumentException>(() => new RuleStateSnapshot(new[]
         {
-            new KeyValuePair<string, string>("jarInstanceId", "jar.opposite"),
+            new KeyValuePair<string, string>("jarInstanceId", "jar.invalid-neutral"),
             new KeyValuePair<string, string>("liquid", "酒"),
-            new KeyValuePair<string, string>("polarity", nameof(JarPolarity.Cathode)),
-            new KeyValuePair<string, string>("workshopPolarityMode", nameof(WorkshopPolarityMode.Anode))
+            new KeyValuePair<string, string>("polarity", nameof(JarPolarity.Neutral))
         }));
     }
 
