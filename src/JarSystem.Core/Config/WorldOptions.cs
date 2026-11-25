@@ -131,6 +131,7 @@ public sealed class WorldOptions
         Producers = Producers.Select(p => new ProducerOptions
         {
             Name = p.Name,
+            ProducerInstanceId = p.ProducerInstanceId,
             Rates = new Dictionary<string, double>(p.Rates)
         }).ToList(),
         ProducerSlots = ProducerSlots,
@@ -139,6 +140,7 @@ public sealed class WorldOptions
         Workshops = Workshops.Select(w => new WorkshopOptions
         {
             Name = w.Name,
+            OwnedInstanceId = w.OwnedInstanceId,
             BaseMarks = new List<string>(w.BaseMarks),
             AdditionalMarks = new List<string>(w.AdditionalMarks),
             Ban = new List<string>(w.Ban),
@@ -229,8 +231,18 @@ public sealed class WorldOptions
         // ---- 生产者 ----
         var producerNames = new List<string>();
         var producedShapes = new List<string>();
+        var producerInstanceIds = new List<string>();
         foreach (var p in Producers)
         {
+            if (p.ProducerInstanceId is { } producerInstanceId)
+            {
+                if (IsBadName(producerInstanceId) || !string.Equals(producerInstanceId, producerInstanceId.Trim(), StringComparison.Ordinal))
+                    r.Errors.Add("生产者 " + p.Name + " 的 ProducerInstanceId 无效");
+                else if (producerInstanceIds.Contains(producerInstanceId, StringComparer.Ordinal))
+                    r.Errors.Add("ProducerInstanceId 重复: " + producerInstanceId);
+                else
+                    producerInstanceIds.Add(producerInstanceId);
+            }
             if (string.IsNullOrWhiteSpace(p.Name)) r.Errors.Add("生产者缺少 name");
             else if (producerNames.Contains(p.Name)) r.Errors.Add("生产者名重复: " + p.Name);
             else producerNames.Add(p.Name);
@@ -255,8 +267,18 @@ public sealed class WorldOptions
 
         // ---- 工作台 ----
         var workshopNames = new List<string>();
+        var workshopInstanceIds = new List<string>();
         foreach (var w in Workshops)
         {
+            if (w.OwnedInstanceId is { } ownedInstanceId)
+            {
+                if (IsBadName(ownedInstanceId) || !string.Equals(ownedInstanceId, ownedInstanceId.Trim(), StringComparison.Ordinal))
+                    r.Errors.Add("工作台 " + w.Name + " 的 OwnedInstanceId 无效");
+                else if (workshopInstanceIds.Contains(ownedInstanceId, StringComparer.Ordinal))
+                    r.Errors.Add("OwnedInstanceId 重复: " + ownedInstanceId);
+                else
+                    workshopInstanceIds.Add(ownedInstanceId);
+            }
             if (string.IsNullOrWhiteSpace(w.Name)) r.Errors.Add("工作台缺少 name");
             else if (workshopNames.Contains(w.Name)) r.Errors.Add("工作台名重复: " + w.Name);
             else workshopNames.Add(w.Name);
@@ -417,6 +439,11 @@ public sealed class ProducerOptions
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
 
+    /// <summary>稳定生产者实例身份；不使用显示名称或配置列表位置推断。</summary>
+    [JsonPropertyName("producerInstanceId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProducerInstanceId { get; set; }
+
     /// <summary>键 = 形状名，值 = 每 tick 产出速率。</summary>
     [JsonPropertyName("rates")] public Dictionary<string, double> Rates { get; set; } = new();
 }
@@ -425,6 +452,10 @@ public sealed class ProducerOptions
 public sealed class WorkshopOptions
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
+    /// <summary>稳定工作台实例身份；与可变主从角色及显示名称无关。</summary>
+    [JsonPropertyName("ownedInstanceId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OwnedInstanceId { get; set; }
     [JsonPropertyName("baseMarks")] public List<string> BaseMarks { get; set; } = new();
     [JsonPropertyName("additionalMarks")] public List<string> AdditionalMarks { get; set; } = new();
     [JsonPropertyName("ban")] public List<string> Ban { get; set; } = new();
