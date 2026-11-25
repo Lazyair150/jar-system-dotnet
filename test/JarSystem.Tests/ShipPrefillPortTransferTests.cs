@@ -110,7 +110,7 @@ public sealed class ShipPrefillPortTransferTests
             restoredLedger, () => 92);
 
         Assert.Throws<System.InvalidOperationException>(() => replay.Commit());
-        Assert.Equal(1, restoredLedger.Entries.Count);
+        Assert.Single(restoredLedger.Entries);
         Assert.Equal(3, path.Ship.GetAmount("酒"));
         Assert.Equal(2, path.Staging.PrefillBalances["酒"]);
     }
