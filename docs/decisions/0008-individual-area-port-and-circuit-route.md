@@ -23,6 +23,13 @@ Jar Core 的领域语义已包含独立 Workshop、Jar 账户、游离液体账�
 - Board Assignment 绑定精确 Owned Instance；安装只建立结构关系，不转移实例内部账户所有权。
 - Master / Slave 是 Board Slot Role，不是 Workshop Definition 或 Owned Instance 的固有类型。
 
+### 1.1 顶层区域与功能子区域
+
+- Circuit Board 只有 Production、Workshop、Order 三个顶层区域。
+- Decomposition 是 Production 的功能子区域，保留独立 AreaId、端口、局部策略和实例类型；它不得作为第四个顶层 Board Area。
+- Space Board Slot 必须分别记录 `area_id` 与 `sub_area_id`。原石解析器使用 Production/Decomposition；生产设备使用 Production/None。
+- Board Assignment、冻结快照与指纹必须保留两个层级；迁移不得仅通过组件类别推断或丢弃子区域身份。
+
 ### 2. 账户分离
 
 下列账户/范围不可合并：
