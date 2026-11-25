@@ -148,3 +148,10 @@ Further hardening after that correction:
 - Corrected the JSON property escaping in that test.
 
 The current branch head has advanced beyond the failed run. The connector has not returned a new PR-associated run or combined status for the newer commits; current-head CI remains unconfirmed. The earlier failure is retained as evidence and is not represented as passed.
+
+
+Additional follow-up commits after the compiler correction:
+- `df10f32d1b052e1472de7919847275c49e87eabb`: expose the migration identity at the JSON decode API.
+- `0fc3609b157ee4f7326339412576b1608a8ea57b` and `e81e5f2d1de920639b8b0bae868543d930077d9d`: add and correct the schema-5 JSON migration regression.
+- `2aff4665e033f399a2e77281f69e60621a150f59`: reject the invalid default value of the struct at World creation.
+- These follow-up commits have not yet been covered by a returned CI run. The current head's combined status remains empty.
