@@ -741,3 +741,7 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 - 第五条 Workshop→Workshop 游离液体与第六条 Workshop→Workshop Jar 参与者，在当前 Jar 顺序补偿修正之前的快照 Run `45629276410`（提交 `c55cc6211e253f13436dc194c7349d2414c5a960`）通过：Build 成功；xUnit 933 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该结果覆盖第五、第六条路径与对应测试，但不含随后新增的 Warehouse Jar 原索引回滚测试。
 - 当前最新 HEAD `53083a06a5707a215119b71754e0a8a547bca310` 的 Run `45629635494` 正在执行；PR #63 Open、Draft、GitHub API mergeable=true / mergeable_state=unstable（检查仍运行），未合并。
+
+- 补充共同边界审计：ResourceLedger 的事件列表有界，但 OperationIds 为防止事件裁剪后重放而不裁剪，因此去重集合随世界生命周期增长；不能简单按事件窗口清理。未来需引入可验证的 OperationId epoch/序列水位或独立持久索引。
+- 当前 ResourceLedger 是内存账本，通过 World 执行检查点捕获/恢复 OperationIds；不是外部数据库事务。参与者的账本参数仍可选，但正式 World 执行入口必须注入 World 自己持有的账本与 Tick Provider。账本不存完整 TransferReceipt，重复 OperationId 被拒绝后由调用方对账。
+- 当前六条事务参与者不等于全仓库转移入口已统一；旧批量路径、统一调度器、跨线程隔离/锁、完整 Receipt Journal 和 OperationId 安全压缩仍是后续工作。已将边界写入架构文档 3.12。
