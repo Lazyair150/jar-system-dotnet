@@ -141,6 +141,16 @@ ResourceFact = (OperationId, ResourceKind, ResourceIdentity, DisplayName, Attrib
 7. 保留多来源 settlement 的逐账户分配。
 8. 最后再实现 ResourceTransferBatchRequest/Receipt 与 B 类复合事务，不把身份迁移和事务协调器混成一个无法定位的改动。
 
+### 当前实现进度补充（2026-11-26）
+
+- Tagged ResourceEndpoint 已进入 ResourceEvent / ResourceLedgerMutation / Snapshot / Wire：Account、ExternalSource、ExternalSink、LegacyUnknown。
+- Checkpoint schema 已升至 8；schema 3–7 保留兼容读取，旧 endpoint 缺失时只使用明确的旧 AccountId 或 LegacyUnknown。
+- WorldV2Context Restore 对 tagged Account v2 endpoint 校验 WorldInstanceId。
+- B 类 Workshop handoff 在 OwnerIdentity 可用时写入 account:v2 端点；订单暂存账户按 Workshop owner + exact order ID 派生。
+- 订单结算回执现在保留每个来源账户的 Requested/Accepted/Discarded 分配，逐来源写账本，不创建虚假聚合账户；分配顺序暂定主台优先、从台其次。
+- 旧 OperationId 指纹保留旧字段形状兼容计算，避免 schema 升级改变历史操作的重放结果。
+- 尚未完成：传统 ProductionService 写入点全量 owner endpoint 迁移、DisplayName 分离、LegacyUnknown 新写入禁令、durable B 类复合事务。
+
 ## 强制验证
 
 - 相同配置创建的两个 World：AccountId 不同且资源隔离。
