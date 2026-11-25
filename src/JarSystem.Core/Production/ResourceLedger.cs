@@ -86,6 +86,7 @@ public sealed class ResourceLedger
     private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ResourceTransferReceipt> _transferReceipts = new(StringComparer.Ordinal);
     private long _seq;
+    private int _dropped;
 
     public ResourceLedger(int capacity = DefaultCapacity)
     {
@@ -98,7 +99,7 @@ public sealed class ResourceLedger
     public int Capacity { get; }
 
     /// <summary>因容量不足已丢弃的条数（单调递增）。</summary>
-    public int Dropped { get; private set; }
+    public int Dropped { get { lock (_gate) return _dropped; } private set => _dropped = value; }
 
     /// <summary>当前保留的条数（≤ <see cref="Capacity"/>）。</summary>
     public int Retained { get { lock (_gate) return _entries.Count; } }
@@ -432,6 +433,7 @@ public sealed class ResourceLedgerSnapshot
         OperationIds = Array.AsReadOnly((operationIds ?? Array.Empty<string>())
             .OrderBy(item => item, StringComparer.Ordinal).ToArray());
         TransferReceipts = Array.AsReadOnly((transferReceipts ?? Array.Empty<ResourceTransferReceipt>())
+            .OrderBy(item => item.OperationId, StringComparer.Ordinal)
             .Select(item => item with { }).ToArray());
     }
 
