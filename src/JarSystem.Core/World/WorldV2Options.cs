@@ -140,12 +140,13 @@ public sealed class WorldV2Options
                     result.Errors.Add("生产者缺少 name");
                 else if (!producerNames.Add(producer.Name))
                     result.Errors.Add("生产者名重复: " + producer.Name);
-                if (producer.ProducerInstanceId != null &&
-                    (string.IsNullOrWhiteSpace(producer.ProducerInstanceId) ||
-                     !string.Equals(producer.ProducerInstanceId, producer.ProducerInstanceId.Trim(), StringComparison.Ordinal)))
-                    result.Errors.Add("生产者 ProducerInstanceId 无效: " + producer.Name);
-                else if (producer.ProducerInstanceId != null && !producerInstanceIds.Add(producer.ProducerInstanceId))
-                    result.Errors.Add("ProducerInstanceId 重复: " + producer.ProducerInstanceId);
+                if (producer.ProducerInstanceId != null)
+                {
+                    try { OwnerIdentity.ValidateIdentityPart(producer.ProducerInstanceId, nameof(producer.ProducerInstanceId)); }
+                    catch (ArgumentException) { result.Errors.Add("生产者 ProducerInstanceId 无效: " + producer.Name); }
+                    if (!producerInstanceIds.Add(producer.ProducerInstanceId))
+                        result.Errors.Add("ProducerInstanceId 重复: " + producer.ProducerInstanceId);
+                }
 
                 if (producer.Rates == null)
                 {
@@ -210,12 +211,13 @@ public sealed class WorldV2Options
                     result.Errors.Add("工作台缺少 name");
                 else if (!workshopNames.Add(workshop.Name))
                     result.Errors.Add("工作台名重复: " + workshop.Name);
-                if (workshop.OwnedInstanceId != null &&
-                    (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId) ||
-                     !string.Equals(workshop.OwnedInstanceId, workshop.OwnedInstanceId.Trim(), StringComparison.Ordinal)))
-                    result.Errors.Add("工作台 OwnedInstanceId 无效: " + workshop.Name);
-                else if (workshop.OwnedInstanceId != null && !workshopInstanceIds.Add(workshop.OwnedInstanceId))
-                    result.Errors.Add("工作台 OwnedInstanceId 重复: " + workshop.OwnedInstanceId);
+                if (workshop.OwnedInstanceId != null)
+                {
+                    try { OwnerIdentity.ValidateIdentityPart(workshop.OwnedInstanceId, nameof(workshop.OwnedInstanceId)); }
+                    catch (ArgumentException) { result.Errors.Add("工作台 OwnedInstanceId 无效: " + workshop.Name); }
+                    if (!workshopInstanceIds.Add(workshop.OwnedInstanceId))
+                        result.Errors.Add("工作台 OwnedInstanceId 重复: " + workshop.OwnedInstanceId);
+                }
 
                 ValidateShapeList(workshop.BaseMarks, shapeSet,
                     "工作台 " + workshop.Name + " 的 baseMarks", result, requireNonEmpty: true);
