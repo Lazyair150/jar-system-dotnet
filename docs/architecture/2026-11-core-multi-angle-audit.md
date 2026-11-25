@@ -262,5 +262,5 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 
 - Core source commit `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7` 的两个 exact-head verify runs `45588065611` / `45588076128` 均 SUCCESS；854 项 xUnit 与 build / Host / resource samples / contract / schema / configuration equivalence 全部通过。
 - 该源版本还明确拒绝不包含 World-owned polarity mapping 的旧 checkpoint schema v2，避免把历史 JSON 缺字段误当成默认世界语义。
-- Space PR #2 workflow 已将 checkout 与 `CORE_EXPECTED_SHA` 固定到 Core `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。Space 当前 head `a19a6afcf47d06bf500764407bad63e8f6bd5dde` 的联合 run `45588639250` 正在执行，待 Godot 4.7.1 的 build/import/probe 全部结束。
+- Space PR #2 workflow 已将 checkout 与 `CORE_EXPECTED_SHA` 固定到 Core `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。Space code head `a19a6afcf47d06bf500764407bad63e8f6bd5dde` 的联合 run `45588639250` 已 SUCCESS：Core Bridge 与 Space build、Godot 4.7.1 import/parse、HUD 21/21、Hangar/owned inventory/progression/domain、parser ingress、World V2 lifecycle/fault/commands/snapshot isolation、battle pause/navigation 全部通过。最终 marker 为 `CROSS-REPO-WORLD-V2-OK core=5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。负向 fault injection 日志属于预期测试，不是 CI 失败。
 - 目前 GitHub 仅有 Core PR #63 与 Space PR #2 两个 Open Draft PR；历史 superseded PR 已关闭，历史分支保留。

@@ -238,6 +238,8 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 - Core 生产代码与测试 head `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7` 的两个 verify runs `45588065611`、`45588076128` 均 SUCCESS。该 head 包含 854 项回归、World V2 单一词表/映射装配约束、checkpoint schema v3、自定义映射 checkpoint round-trip，以及旧 schema v2 缺少映射时的明确拒绝测试。
 - Space PR #2 的 cross-repo workflow 已固定到 Core SHA `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`；checkout ref 与 `CORE_EXPECTED_SHA` 一致。
-- Space 最新分支 head `a19a6afcf47d06bf500764407bad63e8f6bd5dde` 的跨仓库验证 run `45588639250` 正在执行；它是当前唯一有效的新 Core/Space 联合验收。
-- 前一轮 Space run `45588471573` 在 Core source `fd0b3761babe3af7f7d770483004ef1a454021f8` 下成功，证明新 Core Bridge 可构建；但最终验收以当前 `5023...` pin 的 run 为准。
+- Space PR #2 代码 head `a19a6afcf47d06bf500764407bad63e8f6bd5dde` + Core source `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7` 的联合 run `45588639250` 已完成 SUCCESS。
+- Core Bridge / Space .NET 两次 build succeeded；Godot 4.7.1 import/parse succeeded；HUD 21 checks / 0 failures；Hangar catalog/owned assembly/progression migration、domain contracts、parser ingress、World V2 runtime/lifecycle/fault/disposed/faulted commands/snapshot isolation、battle pause/navigation 全部 probe passed。
+- 最终 marker：`CROSS-REPO-WORLD-V2-OK core=5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。日志中 overflow fault 与缺失主菜单资源为故意注入的负向测试，相关 probe 均以 passed 结束，非 CI 失败。
+- 前一轮 Space run `45588471573` 在 Core source `fd0b3761babe3af7f7d770483004ef1a454021f8` 下也成功；最终验收以当前 `5023...` pin 的 run 为准。
 - GitHub 当前仅保留两个 Open Draft PR：Jar Core #63 与 Space #2；所有已确认 superseded 的旧 PR 已关闭，历史分支保留作审计证据。
