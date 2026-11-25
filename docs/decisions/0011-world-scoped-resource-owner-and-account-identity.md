@@ -1,6 +1,6 @@
 # ADR 0011：World-scoped Resource Owner 与 Account Identity
 
-- 状态：Accepted（身份语义与迁移契约）；WorldInstanceId 生命周期与 OwnerIdentity/AccountId v2 类型契约已落地，具体 World Owner 注入与持久化映射仍待完成
+- 状态：Accepted（身份语义与迁移契约）；WorldInstanceId 生命周期、OwnerIdentity/AccountId v2、OwnerIdentityMap 持久化及主要运行时 Owner 绑定已落地；External endpoint 类型代数和全量账本生产点迁移仍待完成
 - 日期：2026-11-26
 - 范围：Jar Core、World V2、Resource Ledger、Production Area、Ship Inventory、Warehouse、Producer、Checkpoint/Wire
 
@@ -23,6 +23,13 @@
 
 
 ### 当前实现进度（2026-11-26）
+
+- `WorldV2OwnerIdentityMap` 已由 Host 显式注入，包含 Ship、CircuitBoard、ProductionArea、Warehouse、Producer、Workshop 的精确实例身份；Producer/Workshop 身份与实际运行对象逐一核对，禁止按名称、岗位或集合位置推导。
+- OwnerIdentityMap 已进入执行检查点 wire，schema 升至 7；schema 6 及更早版本仍兼容读取。Restore 使用检查点内原映射并校验当前对象图一致。
+- ProducerInstanceId / Workshop OwnedInstanceId 不进入 World definition fingerprint；实例身份与配置定义分离。
+- ShipLiquidInventory、ResourceArea、Warehouse、Producer、Workshop 已可持有对应 OwnerIdentity；Warehouse/Workshop/Ship 资源端口有 v2 构造入口。
+- 恢复检查点时，所有 account:v2 账本端点必须属于当前 WorldInstanceId；account:v1 仍作为旧数据兼容身份，不推断所属 World。
+
 
 - `WorldInstanceId` 已进入 Host 创建、Context、执行检查点、JSON schema 6、Restore 和 Godot Bridge；旧 schema 3/4/5 必须显式提供迁移身份。
 - `OwnerIdentity` / `AccountIdentity` 类型已实现；AccountId v2 使用 UTF-8 字节长度前缀，保留两参数 `RuleResourceAccount` 的 v1 兼容路径。
