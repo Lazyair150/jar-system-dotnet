@@ -149,7 +149,7 @@ public static class WorldOrderRuleCandidateCatalog
                 workshop.Name, role, world.RuleSetVersion, world.WorkshopProfileVersion,
                 specificationVersion, Array.Empty<WorldOrderRequirementCandidates>(),
                 isUndetermined: true, reason: "有效规则 Profile 含有当前求解器无法解释的贡献");
-        var sourceShapes = new SortedSet<string>(Constants.SHAPES, StringComparer.Ordinal);
+        var sourceShapes = new SortedSet<string>(workshop.Shapes, StringComparer.Ordinal);
         sourceShapes.UnionWith(rules.Capability.BaseMarks);
         sourceShapes.UnionWith(rules.Capability.AdditionalMarks);
         sourceShapes.UnionWith(rules.Stack.GrantedShapes());
