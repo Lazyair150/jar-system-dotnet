@@ -637,4 +637,33 @@ public sealed class WorldV2ContextTests
             activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous));
     }
 
+
+    [Fact]
+    public void ExplicitWorldInstanceIdentityIsCapturedAndRejectsCrossWorldRestore()
+    {
+        var firstMaster = CreateMaster();
+        using var firstWorld = WorldV2Context.Create(
+            CreateResources(), new[] { firstMaster }, firstMaster, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            worldInstanceId: new WorldInstanceId("world-session-a"));
+
+        var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
+        Assert.Equal("world-session-a", checkpoint.WorldInstanceId!.Value.Value);
+
+        var secondMaster = CreateMaster();
+        using var secondWorld = WorldV2Context.Create(
+            CreateResources(), new[] { secondMaster }, secondMaster, null,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            worldInstanceId: new WorldInstanceId("world-session-b"));
+
+        Assert.NotEqual(firstWorld.WorldInstanceId, secondWorld.WorldInstanceId);
+        var error = Assert.Throws<InvalidOperationException>(
+            () => secondWorld.RestoreExecutionResourceCheckpoint(checkpoint));
+        Assert.Contains("WorldInstanceId", error.Message);
+    }
+
 }
