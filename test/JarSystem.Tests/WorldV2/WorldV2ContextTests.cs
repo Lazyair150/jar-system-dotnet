@@ -532,4 +532,57 @@ public sealed class WorldV2ContextTests
         Assert.Contains("共享完全一致的液体身份与极性映射", error.Message);
     }
 
+
+    [Fact]
+    public void CreateUsesWorldOwnedShapeVocabularyInsteadOfProducerDirectory()
+    {
+        var customWords = new Vocabulary(
+            new[] { "round-custom", "square-custom" },
+            new[] { "fuel", "coolant" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["fuel"] = LiquidPolarity.Anode,
+                ["coolant"] = LiquidPolarity.Cathode
+            });
+        var resources = new ResourceArea(
+            new ProducerModule(customWords),
+            new LiquidProduction(customWords,
+                defaults: new Dictionary<string, double> { ["fuel"] = 0, ["coolant"] = 0 }),
+            jarFlowRate: 0,
+            liquidFlowRate: 0);
+        var master = new Workshop("custom-master", vocabulary: customWords);
+        using var world = WorldV2Context.Create(
+            resources,
+            new[] { master },
+            master,
+            slave: null,
+            solverRegistry: CreateSolverRegistry(),
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous);
+
+        Assert.Equal(new[] { "round-custom", "square-custom" }, world.Shapes);
+        Assert.DoesNotContain("圆罐", world.Shapes);
+    }
+
+    [Fact]
+    public void CreateRejectsWorkshopsWithDifferentShapeVocabularies()
+    {
+        var customWords = new Vocabulary(
+            new[] { "round-custom", "triangle-custom" },
+            new[] { "酒", "蜜" });
+        var master = CreateMaster();
+        var slave = new Workshop("从台", vocabulary: customWords);
+
+        Assert.Throws<ArgumentException>(() => WorldV2Context.Create(
+            CreateResources(),
+            new[] { master, slave },
+            master,
+            slave,
+            CreateSolverRegistry(),
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous));
+    }
+
 }
