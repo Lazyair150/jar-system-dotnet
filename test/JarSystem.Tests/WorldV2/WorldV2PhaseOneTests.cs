@@ -163,6 +163,36 @@ public sealed class ResourceWorldRuntimeTests
             flowed.ToAccountId);
     }
 
+    [Fact]
+    public void OverflowJarLedgerFactsRetainIdentityAfterTheEntityIsDiscarded()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var producers = new ProducerModule(vocabulary);
+        producers.RegisterProducer("测试生产器", new Dictionary<string, double> { ["圆罐"] = 1 });
+        var liquids = new LiquidProduction(
+            vocabulary,
+            defaults: new Dictionary<string, double> { ["酒"] = 0, ["蜜"] = 0 });
+        var area = new ResourceArea(producers, liquids, jarFlowRate: 0, liquidFlowRate: 0);
+        var existing = new List<Jar>();
+        for (var i = 0; i < Constants.WAREHOUSE_MAX_JARS; i++)
+            existing.Add(new Jar("圆罐", vocabulary: vocabulary));
+        area.Inventory.StoreJars(existing);
+        var ledger = new ResourceLedger();
+        var runtime = new ResourceWorldRuntime(area, resourceLedger: ledger);
+
+        runtime.AdvanceWorldTime(1_000, master: null);
+
+        var produced = Assert.Single(ledger.For(ResourceCauses.Production),
+            item => item.Kind == ResourceKinds.Jar);
+        var discarded = Assert.Single(ledger.For(ResourceCauses.Discard),
+            item => item.Kind == ResourceKinds.Jar);
+        Assert.Equal(produced.ResourceIdentity, discarded.ResourceIdentity);
+        Assert.True(int.TryParse(discarded.ResourceIdentity, out var jarId) && jarId > 0);
+        Assert.Equal(1, produced.Amount);
+        Assert.Equal(1, discarded.Amount);
+        Assert.Equal(Constants.WAREHOUSE_MAX_JARS, area.Inventory.JarCount);
+    }
+
 public sealed class ResourceAreaTests
 {
     [Fact]
