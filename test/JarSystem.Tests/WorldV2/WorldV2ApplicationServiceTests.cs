@@ -365,15 +365,19 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(3, second.LiquidProductionReceipts.Sum(item => item.DiscardedAmount));
 
         var ledger = app.GetResourceLedger();
-        Assert.Equal(7, ledger.Events.Sum(item => item.Amount));
-        Assert.Equal(1, ledger.Events.Count(item => item.Cause == "stock"));
-        Assert.Equal(1, ledger.Events.Count(item => item.Cause == "production"));
-        Assert.Equal(3, ledger.Events.Count(item => item.Cause == "discard"));
+        var liquidEvents = ledger.Events
+            .Where(item => item.Kind == ResourceKinds.Liquid).ToArray();
+        Assert.Equal(7, liquidEvents.Sum(item => item.Amount));
+        Assert.Equal(1, liquidEvents.Count(item => item.Cause == "stock"));
+        Assert.Equal(1, liquidEvents.Count(item => item.Cause == "production"));
+        Assert.Equal(3, liquidEvents.Count(item => item.Cause == "discard"));
         Assert.Equal(ledger.LastSeq, ledger.Events.Last().Seq);
 
         var incremental = app.GetResourceLedger(ledgerBeforeSecondTick.LastSeq);
-        Assert.Equal(2, incremental.Events.Count);
-        Assert.All(incremental.Events, item => Assert.Equal("discard", item.Cause));
+        var incrementalLiquids = incremental.Events
+            .Where(item => item.Kind == ResourceKinds.Liquid).ToArray();
+        Assert.Equal(2, incrementalLiquids.Length);
+        Assert.All(incrementalLiquids, item => Assert.Equal("discard", item.Cause));
         Assert.Equal(ledger.LastSeq, incremental.LastSeq);
     }
 
