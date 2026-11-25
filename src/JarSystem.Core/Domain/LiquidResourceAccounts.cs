@@ -454,6 +454,55 @@ public sealed class WorkshopLiquidStaging
         return transaction.Receipt;
     }
 
+    /// <summary>
+    /// Begin an exact, all-or-nothing transfer from the Ship inventory into this Workshop's
+    /// independent prefill account. The Ship return capacity is reserved until Commit/Rollback.
+    /// </summary>
+    internal WorkshopPrefillTransaction BeginPrefillTransferFromShip(
+        ShipLiquidInventory inventory, string liquid, int amount)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: false);
+        EnsureNoPendingPrefillTransaction();
+
+        if (_banned.Contains(liquid))
+            throw new InvalidOperationException("工作台禁用液体不能进入预置账户：" + liquid);
+        if (inventory.GetAmount(liquid) < amount)
+            throw new InvalidOperationException("自机液库库存不足，不能准备预置转移：" + liquid);
+        if (AvailableCapacity < amount)
+            throw new InvalidOperationException("工作台预置账户可用容量不足，不能准备完整转移。");
+
+        var transfer = new Dictionary<string, int>(StringComparer.Ordinal) { [liquid] = amount };
+        if (!inventory.TryWithdrawForTransfer(transfer, out var reservation))
+            throw new InvalidOperationException("自机液库在预置转移准备期间发生变化。");
+
+        try
+        {
+            RestorePrefill(transfer);
+            _prefillTransactionPending = true;
+            return new WorkshopPrefillTransaction(this, reservation,
+                new LiquidBatchReceipt(transfer, transfer, new Dictionary<string, int>()));
+        }
+        catch (Exception prefillError)
+        {
+            try
+            {
+                if (_prefillBalances.GetValueOrDefault(liquid) >= amount)
+                    AddPrefillUnchecked(liquid, -amount);
+                reservation!.Rollback();
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "自机到工作台预置转移准备失败，且双侧账户补偿回滚失败。",
+                    prefillError, rollbackError);
+            }
+            throw;
+        }
+    }
+
+
     /// <summary>从空闲预置余额中为新订单取液；不足部分由订单准入再从自机液库扣除。</summary>
     internal IReadOnlyDictionary<string, int> WithdrawPrefillUpTo(IReadOnlyDictionary<string, int> requested)
     {
