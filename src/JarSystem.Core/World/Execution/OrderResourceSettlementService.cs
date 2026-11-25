@@ -207,8 +207,9 @@ public sealed class OrderResourceSettlementService
                     discardedRemaining[item.Key] -= discardedAmount;
                 }
             }
-            result.Add(new LiquidBatchSourceAllocation(
-                GetOrderSourceEndpoint(scope), targetEndpoint, requested, accepted, discarded));
+            if (requested.Count > 0)
+                result.Add(new LiquidBatchSourceAllocation(
+                    GetOrderSourceEndpoint(scope), targetEndpoint, requested, accepted, discarded));
         }
     }
 
