@@ -147,7 +147,8 @@ public sealed class WorldV2Context : IDisposable
         {
             foreach (var item in shipLiquidInventory.Balances.OrderBy(item => item.Key, StringComparer.Ordinal))
                 resourceLedger.Record(0, ResourceCauses.Stock, ResourceKinds.Liquid,
-                    item.Key, item.Value, from: "关卡初始库存", to: "自机液库");
+                    item.Key, item.Value, from: "关卡初始库存", to: "自机液库",
+                    resourceIdentity: item.Key);
         }
         var admission = shipLiquidInventory == null
             ? new WorldOrderExecutionAdmission(board, solveBook, roster, reservations)
