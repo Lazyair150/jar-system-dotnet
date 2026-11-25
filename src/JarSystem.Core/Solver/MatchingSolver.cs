@@ -216,7 +216,7 @@ namespace JarSystem.Core.Solver
                     switch (slot.Role)
                     {
                         case Role.PourIn: consPin[li]++; break;
-                        case Role.PourOut: prodOut[li]++; break;
+                        case Role.PourOut: if (!info.Capability.IsBanned(slot.Liquid!)) prodOut[li]++; break;
                         case Role.ReshapeEmpty: flex++; break;
                     }
 
@@ -226,7 +226,7 @@ namespace JarSystem.Core.Solver
                     switch (slot.Role)
                     {
                         case Role.PourIn: consPin[li]--; break;
-                        case Role.PourOut: prodOut[li]--; break;
+                        case Role.PourOut: if (!info.Capability.IsBanned(slot.Liquid!)) prodOut[li]--; break;
                         case Role.ReshapeEmpty: flex--; break;
                     }
                     if (isMaster) usedMaster--;
@@ -305,8 +305,7 @@ namespace JarSystem.Core.Solver
                         slots.Add(new Slot(j, Role.MatchEmpty, null));
                     else if (jar.Shape == req.Shape && cap.ResolvePolarity(jar.Liquid) != JarPolarity.Neutral)
                     {
-                        if (!cap.IsBanned(jar.Liquid!))
-                            slots.Add(new Slot(j, Role.PourOut, jar.Liquid));
+                        slots.Add(new Slot(j, Role.PourOut, jar.Liquid));
                     }
                     else
                     {
@@ -482,7 +481,7 @@ namespace JarSystem.Core.Solver
                 MasterOrigin = jar.MasterOrigin
             };
 
-            pool[liquid] += 1;
+            if (!info.Capability.IsBanned(liquid)) pool[liquid] += 1;
 
             steps.Add(new SolverStep
             {
