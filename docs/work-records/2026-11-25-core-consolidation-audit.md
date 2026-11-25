@@ -648,3 +648,16 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 已审阅 `Orders/Switching/ResourceTransferrer`：它会直接移动 Workshop 资源，且副作用（账本、统计、对象池 Return）被延迟到 CommitEffects；其注入回调明确要求非抛异常，副作用部分完成后不能安全自动回滚。因此不能直接包装成通用跨账户原子参与者。
 - 已审阅 `World/Execution/OrderTransferService`：它先完成完整预检，再触发 `commitStarted`，逐个移动 Jar、执行液体批次转移、验证精确归属并批量写入幂等账本；这是较完整的现有事务边界，但它包含 B 类订单租约/Manifest/RuleTransition 语义，不应被误用为通用账户转移实现。
 - 下一步继续定位底层 `OrderLiquidTransfer`、Workshop prefill 和 Ship Inventory 的实际提交/撤销 API；只有能证明准备、版本复核、提交、补偿/回滚和幂等收据的路径才可成为事务参与者。暂不实现顺序调用两端 mutator 的伪协调器。
+
+
+### 第二十三轮：订单液体 Port 事务参与者首个可执行路径
+- 新增 `src/JarSystem.Core/Production/OrderLiquidPortTransfer.cs`，以既有 `OrderLiquidTransfer.TryExecute` 为唯一物理提交实现，未另造一套液体账户 mutator。
+- `OrderLiquidPortTransfer.Prepare` 校验 Connection、Output → Input 方向、资源类型、精确账户身份、同一订单 ID 与两侧预检；Prepare 只读，不预留、不扣款。
+- `PreparedOrderLiquidPortTransfer.Commit` 在提交时重新读取两端账户版本；任一版本与请求期望不一致时返回 Undetermined，不修改账户。任一端 Ban/容量/库存拒绝时返回 Rejected。
+- 实际提交仍走既有 `OrderLiquidTransfer.TryExecute`，它在两端同步捕获订单子账，执行整批扣出/接收，并在异常时恢复两端精确余额；补偿失败会抛出 AggregateException，参与者标记 Faulted 并禁止重试。
+- 成功回执记录两端提交前后版本，数量守恒为 Requested = Transferred + Retained + Discarded；当前路径是全有或全无，不伪装成部分接收。
+- 参与者对象自身的 Commit 重复调用返回同一回执；Cancel 在提交前幂等。**跨实例/进程 OperationId 去重尚未接入持久化操作日志**，因此本类不宣称具备持久幂等性；后续总执行入口必须先接入 durable receipt journal，再允许同一 OperationId 的新实例重放。
+- 新增 `test/JarSystem.Tests/OrderLiquidPortTransferTests.cs`，覆盖成功转移与回执、Prepare 后版本变化、目标 Workshop Ban、提交前取消、Connection/账户身份不匹配。
+- 该路径只针对 Workshop 订单子账到另一 Workshop 同一订单子账；不触及 Workshop 游离液体、预置液体、Ship 库存、Warehouse 或 Jar 账户，也不合并这些账户。
+- 提交：实现 `e04ca3734379eda491d497e5dccff86769e94805`；测试 `c8f2e8d8b9b7c717740f250f315c562783e15e20`；取消幂等语义提交 `44d5c3461ca2d34df1f72120528efcb1111d92d4`；测试调整提交 `651b915685d4401bf759707250d67023fa0ae152`。
+- 验证 Run `45620718472` 正在执行，结果待记录。
