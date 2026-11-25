@@ -257,6 +257,22 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 - `ResourceLedger` 与 Tick Provider 在 Prepare 时仍是可选参数，以兼容不需要持久去重的隔离测试/调用场景；正式 World 执行入口必须传入 World 自己持有的账本与逻辑 Tick，不能在生产路径省略。
 - 尚未完成统一调度器、跨线程账户锁/隔离、完整 Receipt Journal、OperationId 集合压缩，以及所有旧批量路径向端口参与者的迁移。当前六条路径不等于所有资源转移入口已统一。
 
+### 3.13 统一提交协调器与最终回执账本
+
+所有六条已接入的资源端口事务（Warehouse→Workshop 液体、Warehouse→Workshop Jar、Workshop→Workshop 游离液体、Workshop→Workshop Jar、订单子账液体、Ship→Workshop Prefill 液体）统一使用 `ResourcePortTransferCommitCoordinator` 完成最终提交：
+
+1. Commit 阶段先复核两端账户版本、端口策略和 OperationId。
+2. 物理事务执行资源变更，但仍处在各自的快照/补偿边界内。
+3. 协调器读取变更后的两个账户版本，构造并 Validate 最终 `ResourceTransferReceipt`。
+4. 最后调用 `ResourceLedger.RecordTransferOnce`，将资源事件批次、OperationId 和最终成功回执作为一个账本提交单元发布。
+5. 账本发布失败或回执构造失败时，必须由物理事务补偿；成功发布之后，参与者只做无副作用的回执赋值与返回，不再执行新的业务步骤。
+
+`RecordTransferOnce` 与旧的 `RecordBatchOnce` 语义不同：前者只接受已验证的成功回执，并检查账本事件数量总和与回执 TransferredAmount 一致；重复 OperationId 若对应相同回执可幂等识别，若绑定到不同回执则拒绝。Prepare/Commit 的前置守卫会优先从账本读取历史回执：请求的连接、端口、资源类型/身份、数量、账户及提交前版本均匹配时，直接返回原始回执，不再执行物理转移；同 ID 不同请求则拒绝。
+
+`ResourceLedgerSnapshot` 和 World V2 checkpoint wire DTO 同时持久化 OperationIds 与 TransferReceipts。事件保留区仍有界并显式报告 Dropped；幂等索引与最终回执不随事件裁剪而丢失。账本写入、查询、捕获快照和恢复到现有账本实例均使用同一同步门；事件读取返回只读快照，不能通过强转拿到内部 List 修改权威状态。
+
+**存储取舍：** 当前选择在单个 World 检查点生命周期内保留完整 OperationId tombstone 与成功 TransferReceipt，以换取确定的重放回执和恢复后幂等性；这两组索引会随成功转移次数增长，不能假装是有界内存。后续若需要长时间在线世界，应将它们迁移到持久化唯一键索引/回执归档，或定义可证明安全的 OperationId epoch 与水位压缩协议。不能仅按账本事件窗口裁剪它们，否则旧请求可能重新执行。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
