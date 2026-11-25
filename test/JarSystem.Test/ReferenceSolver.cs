@@ -112,7 +112,7 @@ internal sealed class ReferenceSolver : ISolver
         else
         {
             // 空罐需求：现成空罐 / 空罐改形（消耗任一可用成本液体）/ 满罐自耗改形
-            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == null && !j.IsMarked && cap.CanOperateJar(j.Polarity));
+            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == null && !j.IsMarked && cap.CanOperateJar(JarPolarity.Neutral));
             if (match >= 0)
                 yield return new SolverOperation { Type = "MATCH", JarIndex = match, Consumed = new() };
 
@@ -154,7 +154,7 @@ internal sealed class ReferenceSolver : ISolver
     {
         int i = op.JarIndex!.Value;
         if (i < 0 || i >= s.Jars.Count) return false;
-        if (s.Jars[i].IsMarked || !info.Capability.CanOperateJar(JarPolarityResolver.Resolve(s.Jars[i].Liquid))) return false;
+        if (s.Jars[i].IsMarked || !info.Capability.CanOperateJar(info.Capability.ResolvePolarity(s.Jars[i].Liquid))) return false;
         // 选择性转移预算：主台来源罐子在预算用尽后不可用
         if (s.Jars[i].MasterOrigin && s.Used >= s.Budget) return false;
 
