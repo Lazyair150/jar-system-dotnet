@@ -48,7 +48,9 @@ public class WorkshopWritersTests
         ["Orders/Switching/ResourceTransferrer.cs"] = "换台迁徙：把旧台资源搬到新台",
         ["Orders/Switching/SwitchCases.cs"] = "换台迁徙的重组阶段（把游离液体灌进旧台基础形状的空罐）",
         ["Process/Execution/OrderExecutionSession.cs"] = "过程化的订单执行（异步轨），与同步执行器同一套端口",
-        ["Production/Warehouse.cs"] = "仓库 → 主台的流入（规则.txt「中央仓库单向流动」的唯一出口）"
+        ["Production/Warehouse.cs"] = "仓库 → 主台的流入（规则.txt「中央仓库单向流动」的唯一出口）",
+        ["Production/WarehouseWorkshopLiquidPortTransfer.cs"] = "生产仓库到工作台游离液体账户的精确事务参与者：Ban/容量预检、双账户补偿与账本提交",
+        ["Production/WarehouseWorkshopJarPortTransfer.cs"] = "生产仓库到工作台 Jar 存储区的精确所有权事务：保持 Jar 实体身份，不检查罐内液体 Ban"
     };
 
     private static string CoreRoot()
