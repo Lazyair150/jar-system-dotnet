@@ -923,3 +923,54 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 **本轮阶段边界**
 
 ADR 0010 已冻结 Transfer Leg / Compound Transfer / ResourceIdentity / OperationId event correlation 的目标契约；本轮没有实现这些新字段或迁移 B 类交接。下一轮先完成当前精确 Core HEAD CI，再按 ADR 0010 顺序实现账本事件身份与操作关联、Wire/checkpoint 兼容迁移、复合批次回执，最后迁移 OrderTransferService 并更新 Space 精确 Core pin。
+
+### 第二十七轮：最新 Core CI 收敛与账本事件身份实现前置检查（2026-11-25）
+
+**验证基线**
+
+- 仓库：`Lazyair150/jar-system-dotnet`
+- 分支：`architecture/core-liquid-identity-consolidation`
+- 检查起始 HEAD：`b1ccfcca019f51667c4179a9eac247f1b23b8c72`
+- PR #63：Open / Draft；本轮不合并。
+- 前一轮待确认的 Run `45640869568` 已完成，结论为 Success；其 head_sha 精确等于 `b1ccfcca019f51667c4179a9eac247f1b23b8c72`。这确认第二十六轮架构文档、ADR 与工作记录提交通过当前 verify workflow。
+
+**对实际代码与 Wire 路径的复核**
+
+本轮读取精确 HEAD 中以下源文件，而非根据旧工作记录推测：
+
+- `src/JarSystem.Core/Production/ResourceLedger.cs`
+- `src/JarSystem.Core/World/Execution/OrderTransferService.cs`
+- `src/JarSystem.Core/World/WorldV2ExecutionCheckpointWireDto.cs`
+- `src/JarSystem.Core/Production/OrderLiquidPortTransfer.cs`
+- `src/JarSystem.Core/Production/WorkshopJarPortTransfer.cs`
+- `src/JarSystem.Core/Production/WarehouseWorkshopJarPortTransfer.cs`
+- `test/JarSystem.Tests/ResourceLedgerSnapshotTests.cs`
+
+确认的实现细节：
+
+1. `ResourceEvent` 与 `ResourceLedgerMutation` 当前都只有 `Name`，没有独立 `ResourceIdentity`；`ResourceEvent` 也没有 `OperationId`。因此 ADR 0010 所要求的“每条事件可回溯所属操作”尚未落到代码。
+2. `RecordBatchOnce` 在锁内把 OperationId 加入 tombstone，再追加整批事件；但是每条事件没有记录该 OperationId。它对已有 OperationId 直接返回 false，也没有像 Receipt Journal 一样比较完整的批次请求载荷。
+3. `RecordTransferOnce` 对液体通过 `Name == receipt.ResourceIdentity` 校验；对 Jar 只校验 kind、amount=1 与 receipt 的 canonical JarId 格式，尚未校验事件事实中存在相同 JarId。当前 Jar mutation 仍可能以 Shape 作为 Name。
+4. `ResourceLedgerSnapshot` 的事件克隆路径逐字段复制现有字段；增加事件身份字段时，必须同时更新 Capture/Restore/Clone/Snapshot 构造器，否则内存快照与恢复会静默丢字段。
+5. `ResourceLedgerWireDto` / `ResourceEventWireDto` 是独立 JSON 映射：FromSnapshot、ToSnapshot、Validate、FromEvent、ToEvent 都逐字段映射。只修改领域类型会造成 checkpoint JSON 丢失新身份字段。
+6. 当前 `WorldV2ExecutionCheckpointWireDto` 根对象没有独立 Ledger Schema Version。旧 JSON 缺少新增字段时，兼容语义必须显式定义；尤其不能用 Shape 或 Workshop.Name 回填 JarId / OwnerId。
+7. B 类 `OrderTransferService` 仍将 Jar Shape 写入 Name、将 Workshop.Name 写入 From/To，并通过 `RecordBatchOnce` 写入复合事实；它尚未迁移到复合 Receipt Journal。六条单资源端口参与者不能替代该批次语义。
+
+**实施边界与风险控制**
+
+本轮没有只给领域事件增加两个属性就提前提交：那样会留下 Clone/Wire 丢字段、旧 checkpoint 语义不明、Jar 事件无法绑定 receipt identity，以及批次 OperationId payload 冲突未处理等半迁移状态。也没有改写 B 类物理交接或 Space Core pin。
+
+下一次代码变更应作为一个完整、可编译的最小垂直切片完成：
+
+1. 定义显式 Ledger Schema Version 与 Legacy event 语义；旧事件允许身份未知，但不得伪造身份。
+2. 增加 ResourceIdentity / OperationId 到 Mutation、Event、Snapshot、Wire DTO 的完整往返映射；RecordBatchOnce 和 RecordTransferOnce 生成的每条事件必须绑定 OperationId。
+3. 单资源 Jar receipt 对应的账本事实必须携带与 receipt 相同的 canonical JarId；Shape 只保留在 DisplayName/Name。
+4. 同步修改所有 Jar port participants 和 B 类账本事实生产点，使用稳定 AccountId/OwnerId，不再使用 Workshop.Name 作为机器端点。
+5. 为同形不同 JarId、Shape 变化、批次多事件 OperationId、事件裁剪后 tombstone、旧 Wire checkpoint 与同 ID 不同 payload 冲突建立有针对性的测试。
+6. 在该切片完整后再进入 ResourceTransferBatchRequest/Receipt 和 B 类联合提交/补偿实现。
+
+**验证状态**
+
+- Run `45640869568`：Success，HEAD 精确匹配。
+- 本轮只进行了源码检查与工作记录更新，没有声称 ResourceIdentity / OperationId 事件关联已经实现，也没有触发无信息量的重复 CI。
+- PR #63 保持 Open / Draft；Space PR #2 与其 Core SHA pin 未修改。
