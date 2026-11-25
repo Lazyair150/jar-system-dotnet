@@ -256,8 +256,9 @@ public sealed class LiquidBatchReceipt
     public void ValidateSourceAllocations()
     {
         if (SourceAllocations.Count == 0) return; // Legacy receipts have no per-source provenance.
-        if (SourceAllocations.Select(item => item.SourceEndpoint).Distinct().Count() != SourceAllocations.Count)
-            throw new ArgumentException("A settlement receipt cannot contain duplicate source account allocations.");
+        foreach (var duplicate in SourceAllocations.GroupBy(item => item.SourceEndpoint).Where(group => group.Count() > 1))
+            if (duplicate.Key.Kind != ResourceEndpointKind.LegacyUnknown)
+                throw new ArgumentException("A settlement receipt cannot contain duplicate known source account allocations.");
         var requested = new Dictionary<string, int>(StringComparer.Ordinal);
         var accepted = new Dictionary<string, int>(StringComparer.Ordinal);
         var discarded = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -293,12 +294,14 @@ public sealed class LiquidBatchSourceAllocation
     public LiquidBatchSourceAllocation(
         ResourceEndpoint sourceEndpoint,
         ResourceEndpoint targetEndpoint,
+        ResourceEndpoint discardEndpoint,
         IReadOnlyDictionary<string, int> requested,
         IReadOnlyDictionary<string, int> accepted,
         IReadOnlyDictionary<string, int> discarded)
     {
         SourceEndpoint = sourceEndpoint;
         TargetEndpoint = targetEndpoint;
+        DiscardEndpoint = discardEndpoint;
         Requested = Freeze(requested);
         Accepted = Freeze(accepted);
         Discarded = Freeze(discarded);
@@ -307,6 +310,7 @@ public sealed class LiquidBatchSourceAllocation
 
     public ResourceEndpoint SourceEndpoint { get; }
     public ResourceEndpoint TargetEndpoint { get; }
+    public ResourceEndpoint DiscardEndpoint { get; }
     public IReadOnlyDictionary<string, int> Requested { get; }
     public IReadOnlyDictionary<string, int> Accepted { get; }
     public IReadOnlyDictionary<string, int> Discarded { get; }
@@ -315,6 +319,9 @@ public sealed class LiquidBatchSourceAllocation
     {
         SourceEndpoint.Validate();
         TargetEndpoint.Validate();
+        DiscardEndpoint.Validate();
+        if (DiscardEndpoint.Kind != ResourceEndpointKind.ExternalSink)
+            throw new ArgumentException("Discarded settlement quantity must target an explicit ExternalSink.");
         if (SourceEndpoint.Kind == ResourceEndpointKind.Account &&
             TargetEndpoint.Kind == ResourceEndpointKind.Account)
         {
@@ -337,7 +344,7 @@ public sealed class LiquidBatchSourceAllocation
     }
 
     internal LiquidBatchSourceAllocation DeepCopy() =>
-        new(SourceEndpoint, TargetEndpoint, Requested, Accepted, Discarded);
+        new(SourceEndpoint, TargetEndpoint, DiscardEndpoint, Requested, Accepted, Discarded);
 
     private static IReadOnlyDictionary<string, int> Freeze(IReadOnlyDictionary<string, int> source) =>
         new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(source, StringComparer.Ordinal));
