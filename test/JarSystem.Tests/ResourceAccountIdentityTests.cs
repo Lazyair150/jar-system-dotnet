@@ -84,12 +84,14 @@ public sealed class ResourceAccountIdentityTests
     public void AccountIdentityV2DoesNotSilentlyReinterpretLegacyV1AccountIds()
     {
         var legacy = new RuleResourceAccount("ship.liquid-inventory", "ship-1");
-        var current = new AccountIdentity(
-            new OwnerIdentity(new WorldInstanceId("world-a"), ResourceOwnerKind.Ship, "ship-1"),
-            "ship.liquid-inventory");
+        var owner = new OwnerIdentity(
+            new WorldInstanceId("world-a"), ResourceOwnerKind.Ship, "ship-1");
+        var currentIdentity = new AccountIdentity(owner, "ship.liquid-inventory");
+        var currentAccount = new RuleResourceAccount(owner, "ship.liquid-inventory");
 
         Assert.StartsWith("account:v1:", legacy.AccountId);
-        Assert.StartsWith("account:v2:", current.ToCanonicalString());
-        Assert.NotEqual(legacy.AccountId, current.ToCanonicalString());
+        Assert.StartsWith("account:v2:", currentIdentity.ToCanonicalString());
+        Assert.Equal(currentIdentity.ToCanonicalString(), currentAccount.AccountId);
+        Assert.NotEqual(legacy.AccountId, currentAccount.AccountId);
     }
 }
