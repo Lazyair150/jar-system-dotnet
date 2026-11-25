@@ -23,6 +23,7 @@ public class Workshop
     private readonly List<Jar> _jars = new();
     private readonly Dictionary<string, int> _liquidStorage = new();
     private readonly IIdGenerator _ids;
+    private readonly Vocabulary _vocabulary;
     private readonly IReadOnlyList<string> _knownLiquids;
 
     // 只读包装（构造时建立一次，是**活视图**：底层容器后续变化照样反映）。
@@ -145,6 +146,7 @@ public class Workshop
         Name = name;
         OwnedInstanceId = ownedInstanceId;
         var worldVocabulary = vocabulary ?? Vocabulary.Default;
+        _vocabulary = worldVocabulary;
         _rules = initialRules?.WithVocabulary(worldVocabulary) ??
             new RuleContext(
                 new WorkshopCapability(baseMarks, additionalMarks, ban, worldVocabulary),
@@ -189,9 +191,9 @@ public class Workshop
             throw new DomainValidationException(
                 "不能对仍存有游离液体的工作台施加对应禁令：" + string.Join("、", newlyBannedStored));
 
-        _capability = capability;
-        // 换的是**能力参数**，修饰器栈照旧（栈属世界，不属这一次替换）
-        _rules = new RuleContext(capability, _rules.Stack, _rules.EffectiveProfile, _rules.RuleScope, _rules.RuleSlotId, _rules.ProfileModifiers);
+        _capability = capability.WithVocabulary(_vocabulary);
+        // 换的是**能力参数**，保留本工作台的 World vocabulary 与修饰器栈。
+        _rules = new RuleContext(_capability, _rules.Stack, _rules.EffectiveProfile, _rules.RuleScope, _rules.RuleSlotId, _rules.ProfileModifiers);
     }
 
     /// <summary>绑定到世界的修饰器栈（宿主把外部构造的工作台纳入世界时调用）。</summary>
