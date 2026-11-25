@@ -115,7 +115,19 @@ public sealed class PreparedOrderLiquidPortTransfer
                 [_request.ResourceIdentity] = _request.Amount
             };
             if (!OrderLiquidTransfer.TryExecute(
-                _orderId, _sourceStaging, _targetStaging, batch, out _))
+                _orderId, _sourceStaging, _targetStaging, batch, out _,
+                () =>
+                {
+                    if (_ledger is not null &&
+                        !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
+                        {
+                            new ResourceLedgerMutation(
+                                ResourceCauses.Transfer, ResourceKinds.Liquid, _request.ResourceIdentity,
+                                _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
+                        }))
+                        throw new InvalidOperationException(
+                            "The transfer OperationId was recorded while its physical commit was in progress.");
+                }))
             {
                 var sourceAfterFailure = _sourceAdapter.Preflight(
                     _sourcePort, _request.ResourceIdentity, _request.Amount);
@@ -133,14 +145,6 @@ public sealed class PreparedOrderLiquidPortTransfer
                 _sourcePort, _request.ResourceIdentity, _request.Amount);
             var targetAfter = _targetAdapter.Preflight(
                 _targetPort, _request.ResourceIdentity, _request.Amount);
-            if (_ledger is not null &&
-                !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
-                {
-                    new ResourceLedgerMutation(
-                        ResourceCauses.Transfer, ResourceKinds.Liquid, _request.ResourceIdentity,
-                        _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
-                }))
-                throw new InvalidOperationException("The transfer OperationId was recorded while its physical commit was in progress.");
             _receipt = new ResourceTransferReceipt(
                 _request.OperationId, _request.ConnectionId,
                 _request.SourcePortId, _request.TargetPortId,
