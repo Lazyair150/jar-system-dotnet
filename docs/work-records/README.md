@@ -36,3 +36,5 @@
 - [第二十六轮：B 类复合交接与资源事实身份审查](2026-11-25-core-consolidation-audit.md)
 
 - [第二十七轮：最新 Core CI 与账本事件身份实现前置检查](2026-11-25-core-consolidation-audit.md)
+
+- [第二十八轮：账本事实身份、操作指纹与 Jar 出生身份贯通](2026-11-25-core-consolidation-audit.md)
