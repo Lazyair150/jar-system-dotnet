@@ -246,4 +246,33 @@ public sealed class WorldV2CheckpointJsonCodecTests
         Assert.Throws<InvalidOperationException>(() => dto.Validate());
     }
 
+
+    [Fact]
+    public void SchemaSevenLedgerEventsWithoutEndpointTagsMigrateToLegacyUnknown()
+    {
+        var json = """
+        {
+          "schemaVersion": 7,
+          "kind": "world-v2-execution-checkpoint",
+          "configurationFingerprint": null,
+          "payload": {
+            "Capacity": 4,
+            "LastSeq": 1,
+            "Dropped": 0,
+            "Events": [
+              { "Seq": 1, "Tick": 1, "Cause": "stock", "Kind": "liquid", "Name": "酒", "Amount": 1 }
+            ],
+            "OperationIds": [],
+            "TransferReceipts": [],
+            "OperationFingerprints": {}
+          }
+        }
+        """;
+        var envelope = WorldV2CheckpointJsonCodec.Decode<ResourceLedgerWireDto>(json);
+        var fact = Assert.Single(ResourceLedger.Restore(envelope.Payload.ToSnapshot()).Entries);
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, fact.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, fact.ToEndpoint.Kind);
+    }
+
+
 }
