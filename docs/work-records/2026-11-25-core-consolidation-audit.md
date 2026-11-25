@@ -223,3 +223,12 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - head `ee37b8595474c228039727fe573d823aad1d3a41` 的 verify runs `45586817186` / `45586828250` 在记录时仍执行中；不得写为通过。
 - Space PR #2 当前仍使用 sibling ProjectReference，但 cross-repo workflow 固定 pin 仍是旧 Core SHA `b342259fe04363386085dc9a4ca995112954ed43`。待 Core 精确 head 绿色后，必须将 Space workflow 的 Core checkout 和 `CORE_EXPECTED_SHA` 同步到该精确 head，再跑完整 Godot 4.7.1 cross-repo 验证。
 - PR #63 继续 Draft/Open；Core main 不直接修改。旧 PR 仅保留关闭状态与历史分支，不删除历史证据。
+
+
+## 2026-11-25 第十轮：首个完整绿色 Core head 与 World 单一词表约束
+
+- Core head `0ff648ea7f3f05489f04c278f75039de8271985d` 的两个 verify runs `45587335108`、`45587347149` 均完成 SUCCESS；854 项 xUnit 全部通过，0 errors、0 failed、0 skipped。完整验证回路中的 build、World V2 Host、随机/容量/确定性资源样本、契约快照、schema 与配置世界等价检查均通过。
+- 成功 head 之后继续审查公开的 `WorldV2Context.Create` 装配入口，发现它此前允许主/从/备用工作台分别携带不同的液体极性词表；这会导致同一个 Jar 在同一 World 内出现语义分裂。
+- 现已在 Context 装配边界强制所有工作台的液体身份集合与极性映射完全一致，并要求 Context 的液体目录与工作台目录一致；新增反向映射冲突测试，验证装配 fail-closed。
+- 最新 Core head 为 `fd0b3761babe3af7f7d770483004ef1a454021f8`，对应 verify runs `45587631031` / `45587642292` 在记录时仍执行中。前述 854/854 绿色不能替代此新 head 的精确验收。
+- Space PR #2 的当前 head 为 `a8daee73df55bf30125960a9a6231ea93e706d4f`，旧 Core pin `b342259fe04363386085dc9a4ca995112954ed43` 的 cross-repo run `45577582987` 成功；该结果不验证本次新 Core。待 `fd0b...` 精确 Core head 绿色后，更新 Space workflow checkout 与 `CORE_EXPECTED_SHA` 并重跑。
