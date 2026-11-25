@@ -206,3 +206,8 @@ ExternalSource / ExternalSink 与 Account 之间的资源边仍允许，因为�
 - 已修复 B 类订单恢复失败回滚测试的身份 fixture：World/Workshop/Ship 身份声明现在位于正确测试方法内，且主从工作台与 Ship 属于同一 World。
 
 当前代码扫描仍需保留一条迁移原则：所有旧宿主写入只有在获得稳定 OwnerIdentity 注入时才升级为 account:v2；不具备身份的旧路径必须显式 LegacyUnknown，而不能从名称推断身份。
+
+
+### Legacy facade 初始库存端点补记
+
+旧版 `JarSystem` 门面初始化关卡库存的最后一个直接写入点也已迁移：关卡配置明确为 `ExternalSource(level.initial-stock)`，目标仓库因旧门面尚未注入 World/Owner 身份而明确为 `LegacyUnknown`。对应 ResourceProvenance 测试现在断言 source kind、source ID 和 legacy target kind。至此，本轮扫描发现的旧门面生产/初始库存写入不再把显示名称误当作账户身份。
