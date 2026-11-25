@@ -46,6 +46,9 @@ public class Workshop
     /// <summary>Liquid vocabulary used to materialize effective Ban rules into auditable snapshots.</summary>
     public IReadOnlyList<string> KnownLiquids => _knownLiquids;
 
+    /// <summary>Shape identity directory owned by this Workshop's immutable World vocabulary.</summary>
+    public IReadOnlyList<string> KnownShapes => _vocabulary.Shapes;
+
     /// <summary>能力参数（标记/禁令）。整体更换请用 <see cref="ReplaceCapability"/>。</summary>
     public WorkshopCapability Capability => _capability;
 
