@@ -109,7 +109,18 @@ public sealed class PreparedShipPrefillPortTransfer
                 _ship, _request.ResourceIdentity, _request.Amount);
             try
             {
-                transaction.Commit();
+                transaction.Commit(() =>
+                {
+                    if (_ledger is not null &&
+                        !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
+                        {
+                            new ResourceLedgerMutation(
+                                ResourceCauses.Flow, ResourceKinds.Liquid, _request.ResourceIdentity,
+                                _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
+                        }))
+                        throw new InvalidOperationException(
+                            "The transfer OperationId was recorded while its physical commit was in progress.");
+                });
             }
             catch (Exception commitError)
             {
@@ -133,14 +144,6 @@ public sealed class PreparedShipPrefillPortTransfer
                 _sourcePort, _request.ResourceIdentity, _request.Amount);
             var targetAfter = _targetAdapter.Preflight(
                 _targetPort, _request.ResourceIdentity, _request.Amount);
-            if (_ledger is not null &&
-                !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
-                {
-                    new ResourceLedgerMutation(
-                        ResourceCauses.Flow, ResourceKinds.Liquid, _request.ResourceIdentity,
-                        _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
-                }))
-                throw new InvalidOperationException("The transfer OperationId was recorded while its physical commit was in progress.");
             _receipt = new ResourceTransferReceipt(
                 _request.OperationId, _request.ConnectionId,
                 _request.SourcePortId, _request.TargetPortId,
