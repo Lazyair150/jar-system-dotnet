@@ -223,3 +223,28 @@ Core 禁止依赖 Space/Godot；Space 只使用 Core 的稳定 DTO、Application
 - 当前整合分支与 `main` 比较：main 是整合分支祖先，整合分支 ahead 2216 / behind 0；main 没有未纳入的独有提交。
 - `.gitignore` 已忽略本机 Godot 缓存、IDE/构建/测试输出、临时诊断与 `docs/work-records/_local/`，但保留契约基线、正式工作记录和架构文档。
 - 工作记录专区入口：`docs/work-records/README.md`。
+
+
+## 2026-11-25 第九轮：检查点、序列化与 B 类执行语义闭环
+
+### 检查点数据生命周期
+此前的审查已确认 WorldV2Options / WorldV2Factory 显式携带极性映射，但进一步沿活动执行检查点追踪时发现：WorldV2Context 和根级 Wire DTO 仍只保存 Shapes/Liquids，恢复阶段重新构造 Vocabulary 时会丢失映射。这是独立于初始装配的真实 P0 数据生命周期缺陷。
+
+现已补齐：
+- WorldV2Context 暴露所属 World 的只读 LiquidPolarities，并把映射写入活动执行检查点。
+- WorldV2ExecutionResourceCheckpoint 对映射做完整性、身份集合与 Cathode/Anode 一一互斥验证。
+- WorldV2ExecutionCheckpointWireDto 序列化映射，解码时使用该映射构造 Vocabulary。
+- Restore 在任何状态提交前核对 checkpoint 与目标 World 的身份目录和映射完全一致。
+- checkpoint JSON schema 升为 3；不把 schema 2 缺失字段静默解释成新格式。
+- 新增自定义 fuel/coolant 的 checkpoint JSON round-trip + restore 回归。
+
+### B 类测试证据修订
+生产枚举器明确使用 Slave-first 的候选策略。此前三项测试将一个可行路径硬编码为 MasterSteps，无法区分“求解器选择了另一个同样合法的角色路径”和“资源/交接不变量失败”。现将这些测试改为验证实际的 Slave-first 路径：先发生 Master→Slave Jar 所有权交接，再执行 Slave MATCH；从台 Ban 不限制 Jar 内部液体操作。多 Jar 注入失败测试仍验证第二次物理移动失败时整个交接回滚。
+
+ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 checkpoint 测试构造器已全部补充显式映射。
+
+### 验证状态与下一步
+- 初始 PR #63 head 的 853 项 xUnit 有 5 项失败；两项是旧单液体 fixture，两项是角色路径预期陈旧，一项是角色步骤断言陈旧。逐项读取 CI 日志和源码后修正。
+- 最新记录中的 Core head `ee37b8595474c228039727fe573d823aad1d3a41` 的 verify runs `45586817186` / `45586828250` 在本轮记录时尚未完成；后续修订 head 仍需以精确 SHA 的最终 Actions 结果验收。
+- Space PR #2 的项目引用已是 sibling WorldV2Bridge ProjectReference，但其 cross-repo workflow 仍固定 checkout 旧 Core SHA `b342259fe04363386085dc9a4ca995112954ed43`。Core 绿色后必须更新 Space workflow 与 `CORE_EXPECTED_SHA`，再跑 Godot 4.7.1 全套跨仓库验证。
+- PR #63 保持 Draft/Open；旧堆叠 PR 已关闭为 superseded，历史分支不删除。
