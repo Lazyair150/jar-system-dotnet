@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.World;
@@ -725,6 +727,51 @@ public sealed class ResourceLedgerSnapshotTests
             }));
         Assert.False(ledger.HasRecordedOperation("operation.endpoint.mismatch"));
         Assert.Empty(ledger.Entries);
+    }
+
+
+
+    [Fact]
+    public void LegacyOperationFingerprintRemainsIdempotentAfterTaggedEndpointUpgrade()
+    {
+        const string operationId = "legacy.operation.endpoint-upgrade";
+        var mutation = new ResourceLedgerMutation(
+            ResourceCauses.Return, ResourceKinds.Liquid, "酒", 2,
+            From: "订单暂存", To: "自机液库", ResourceIdentity: "酒");
+
+        var legacyMutation = new
+        {
+            mutation.Cause, mutation.Kind, mutation.Name, mutation.Amount,
+            mutation.From, mutation.To, mutation.Reason, mutation.ResourceIdentity,
+            mutation.FromAccountId, mutation.ToAccountId
+        };
+        var legacyPayload = JsonSerializer.Serialize(new
+        {
+            Mutations = new[] { legacyMutation },
+            Receipt = (ResourceTransferReceipt?)null
+        });
+        var legacyFingerprint = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(legacyPayload)));
+        var snapshot = new ResourceLedgerSnapshot(
+            8, 1, 0,
+            new[]
+            {
+                new ResourceEvent
+                {
+                    Seq = 1, Tick = 4, Cause = ResourceCauses.Return,
+                    Kind = ResourceKinds.Liquid, Name = "酒", ResourceIdentity = "酒",
+                    OperationId = operationId, Amount = 2
+                }
+            },
+            new[] { operationId },
+            operationFingerprints: new Dictionary<string, string>
+            {
+                [operationId] = legacyFingerprint
+            });
+
+        var restored = ResourceLedger.Restore(snapshot);
+        Assert.False(restored.RecordBatchOnce(operationId, 5, new[] { mutation }));
+        Assert.Equal(1, restored.LastSeq);
     }
 
 
