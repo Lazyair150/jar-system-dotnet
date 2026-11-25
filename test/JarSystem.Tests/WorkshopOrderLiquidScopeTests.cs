@@ -88,7 +88,7 @@ public sealed class WorkshopOrderLiquidScopeTests
     }
 
     [Fact]
-    public void PourOutCannotBypassWorkshopBan()
+    public void PourOutConsumesJarLiquidAndDiscardsOutputRejectedByWorkshopBan()
     {
         var workshop = CreateWorkshop(ban: new[] { "酒" });
         var jar = new Jar("圆罐", "酒");
@@ -96,11 +96,14 @@ public sealed class WorkshopOrderLiquidScopeTests
         var staging = new WorkshopLiquidStaging(4);
         var scope = new OrderLiquidScope(101, staging);
 
-        var result = workshop.PourOut(jar, scope);
+        var result = workshop.PourOutWithSettlement(jar, scope);
 
-        Assert.False(result.Success);
-        Assert.Equal("酒", jar.Liquid);
+        Assert.True(result.Success, result.Reason);
+        Assert.Null(jar.Liquid);
         Assert.Equal(0, staging.UsedCapacity);
+        Assert.Equal(1, result.Receipt!.RequestedAmount);
+        Assert.Equal(0, result.Receipt.AcceptedAmount);
+        Assert.Equal(1, result.Receipt.DiscardedAmount);
     }
 
     [Fact]
@@ -224,7 +227,7 @@ public sealed class WorkshopOrderLiquidScopeTests
         var bannedWorkshop = CreateWorkshop(ban: new[] { "酒" });
         var bannedJar = new Jar("圆罐", "酒");
         Assert.True(bannedWorkshop.AddJar(bannedJar));
-        Assert.False(WorkshopRulebook.IsAllowed(
+        Assert.True(WorkshopRulebook.IsAllowed(
             bannedWorkshop.Rules, scope, JarFacts.Of(bannedJar), WorkshopOperation.PourOut()));
     }
 
