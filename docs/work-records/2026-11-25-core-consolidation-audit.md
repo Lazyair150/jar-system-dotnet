@@ -56,3 +56,49 @@
 5. 将 main 的独有提交纳入整合分支。
 6. 将 Space 的 Core 引用改为统一 Jar Core 源。
 7. 建立一个完整整合 PR，待验证后再清理 superseded PR 与分支。
+
+## 2026-11-25 第二轮：二元液体模型与 Ban 语义解耦
+
+### 新确认的领域错误
+
+审查发现旧 Core 还把 `WorkshopCapability.Ban` 推导为 `WorkshopPolarityMode`，并据此拒绝某些 Jar 内部液体操作。该逻辑不符合“Ban 只管工作台游离液体暂存区”的既定规则。已将其从领域决策中拆除：
+- Ban 仍限制游离液体 staging 的支付/接收/迁移。
+- Ban 不再限制 MATCH、Jar 内液体自耗或 Jar 的物理迁移。
+- PourOut 可以完成 Jar→输出边界；输出是否进入暂存区仍由 staging Ban/容量决定，拒收按显式丢弃边界处理。
+- RuleContractVersion 升为 5；PourOut v3、ReshapeFull v4、MATCH v5。
+
+### 已实施代码范围
+
+- 新增 `LiquidPolarity` 配置值类型。
+- `WorldOptions` 增加 `liquidPolarities` 显式映射、完整性验证、Clone 和 JSON 字符串枚举序列化。
+- `Vocabulary` 保存只读映射；自定义两种身份必须显式指定 Cathode/Anode；只对旧默认词表保留兼容映射。
+- `Jar` 的液体验证和极性解析绑定其 World Vocabulary。
+- `WorkshopCapability` 的 Ban 不再派生 Jar 操作极性；`Workshop.ReplaceCapability` 保留所属 World Vocabulary。
+- `JarFacts`/transition snapshot 传递显式极性事实；detached snapshot 验证三态结构，不根据液体名字猜测。
+- 移除 SolverContracts 中无 World 上下文的 JarState/Requirement 极性属性；Solver 通过所属 Workshop capability 映射求值。
+- Solver、Precheck、StateSpace、PartitionSearch、SwitchCases、ResourceTransferrer、OrderExecutionSession、WorldOrderRuleCandidateProfile、GreedyPlanBuilder 改为使用 World liquid vocabulary/account keys。
+- `LiquidRequirementCalculator` 增加 World vocabulary 参数，B 类需求和容量路径传入所属角色的词表。
+- 新增 `BinaryLiquidVocabularyTests`；调整 Ban/Polarity/transition 相关既有测试。
+- Core 默认 `config/world.json` 增加显式默认映射。
+
+### 验证与失败记录
+
+- Core run `45574305499`：失败，最初只报告编译错误（SolverContracts context-free polarity 和 order-scoped transition 调用签名）；已修复。
+- Core run `45575129154`：失败，测试/参考求解器仍依赖旧的 context-free Resolver 与 JarState/Requirement.Polarity；已将测试和 ReferenceSolver 改为显式 World context，并更新 Ban 派生极性测试。
+- Core run `45575641509`：提交 `214f472b4083ecbe1b01a4d681199daab19188b8`，执行中后报告失败；已调整 transition snapshot 测试，不再把 liquid name 当作极性语义。
+- 当前最新 Core head 在此记录更新时为 `e173cb759fb9f0118388664307c252d1dfdff257`，对应 run `45576014434` 执行中，尚无最终结论。
+- 所有上述 CI 失败均已逐条读日志，不把“已修复”写成“CI 已通过”。
+
+### Space 实际世界配置修正
+
+截图中的 `燃料` 故障根因已在 Space 资源中定位：`data/hangar/demo_catalog_bundle.tres` 的两个战斗 World 使用 `冷却液`、`燃料`，却没有显式极性映射。Space 已在两个配置中声明：
+- `冷却液 → Cathode`
+- `燃料 → Anode`
+
+Space profile 验证要求所有自定义身份都有完整映射；Frozen Loadout schema 升为 3。schema 2 只允许精确的旧 Space 身份集合 `{冷却液, 燃料}` 迁移，其他任意身份不自动猜测。新增 Probe 覆盖成功迁移和未知身份 fail-closed。
+
+Space 相关提交：`851a0c9d20374a99c90bdfcb801dd83181c08813`、`c74c29b96c46b800389bbd0a1d0229f123b7ef53`、`03b8b1dcbee4b3f42058801dd7ec7d5f730f4631`、`4f5a84ebf63b96be0f1f2e9b29f4fcfd87677aab`、`f5fdffe9e958422f0c3c6612b22d75ead3ae5561`、`0a3454a59b22285368cfacea3a08db3b5221ae4a`。
+
+### 当前状态
+
+Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI 和 Space 跨仓库 CI 尚待最终结果。PR #63 保持 Draft。旧堆叠 PR 和远端分支暂不删除，直到 #63 合并并确认其内容完整覆盖。
