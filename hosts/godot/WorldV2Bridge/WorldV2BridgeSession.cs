@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using JarSystem.Core.World;
+using JarSystem.Core.Domain;
 using JarSystem.Core.World.Demands;
 
 namespace JarSystem.WorldV2Bridge;
@@ -176,10 +177,12 @@ public sealed class WorldV2BridgeSession : IDisposable
     /// <summary>以新配置准备并原子替换 Host 当前世界。</summary>
     public void RestoreExecutionCheckpoint(
         WorldV2Options options,
-        WorldV2ExecutionResourceCheckpoint checkpoint)
+        WorldV2ExecutionResourceCheckpoint checkpoint,
+        WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         ThrowIfDisposed();
-        _application.RestoreExecutionResourceCheckpoint(options, checkpoint);
+        _application.RestoreExecutionResourceCheckpoint(
+            options, checkpoint, legacyMigrationWorldInstanceId);
     }
 
     /// <summary>捕获完整根级检查点并编码为版本化 JSON。</summary>
@@ -191,10 +194,14 @@ public sealed class WorldV2BridgeSession : IDisposable
     }
 
     /// <summary>解码根级 JSON 检查点并通过新 Context 原子替换当前世界。</summary>
-    public void RestoreExecutionCheckpointJson(WorldV2Options options, string json)
+    public void RestoreExecutionCheckpointJson(
+        WorldV2Options options,
+        string json,
+        WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         ThrowIfDisposed();
-        _application.RestoreExecutionResourceCheckpointJson(options, json);
+        _application.RestoreExecutionResourceCheckpointJson(
+            options, json, legacyMigrationWorldInstanceId);
     }
 
     /// <summary>
