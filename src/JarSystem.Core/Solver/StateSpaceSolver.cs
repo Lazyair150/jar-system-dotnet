@@ -57,7 +57,7 @@ internal class SolverState
     public WorkshopRulebook.WorkshopOperationTransition? CreateTransition(JarState jar, SolverOperation operation) =>
         WorkshopRulebook.CreateTransition(
             _rules, _perLiquidCapacity,
-            new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
+            new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid)),
             ToWorkshopOperation(operation), Liquids);
 
     public WorkshopRulebook.WorkshopOperationTransition? CreateMatchTransition(JarState jar) =>
