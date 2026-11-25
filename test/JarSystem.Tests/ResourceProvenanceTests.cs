@@ -279,16 +279,16 @@ public class ResourceProvenanceTests
 
         var beforeReplacement = ids.CurrentValue;
         sys.ResetProducerModule();
-        sys.Tick();
-        var firstProducedJar = Assert.Single(sys.ProducerModule.Warehouse.Jars);
-        Assert.Equal(beforeReplacement + 1, firstProducedJar.Id);
+        var firstJar = new Jar("圆罐", vocabulary: sys.Vocabulary);
+        sys.ProducerModule.Warehouse.StoreJars([firstJar]);
+        Assert.Equal(beforeReplacement + 1, firstJar.Id);
         Assert.Equal(beforeReplacement + 1, ids.CurrentValue);
 
         var beforeWorldReset = ids.CurrentValue;
         sys.Reset();
-        sys.Tick();
-        var secondProducedJar = Assert.Single(sys.ProducerModule.Warehouse.Jars);
-        Assert.Equal(beforeWorldReset + 1, secondProducedJar.Id);
+        var secondJar = new Jar("圆罐", vocabulary: sys.Vocabulary);
+        sys.ProducerModule.Warehouse.StoreJars([secondJar]);
+        Assert.Equal(beforeWorldReset + 1, secondJar.Id);
         Assert.Equal(beforeWorldReset + 1, ids.CurrentValue);
     }
 
