@@ -167,6 +167,17 @@ public class ResourceProvenanceTests
     }
 
     [Fact]
+    public void LegacyJarSystemRejectsPartialStableIdentityWithoutOwnerMap()
+    {
+        var world = QuietWorld();
+        world.Workshops[0].OwnedInstanceId = "workshop-owned-partial";
+
+        Assert.Throws<ArgumentException>(() => new JarSystem.Core.JarSystem(
+            randomSeed: 37,
+            world: world));
+    }
+
+    [Fact]
     public void FlowIsRecordedSeparatelyFromProduction()
     {
         var world = QuietWorld();
