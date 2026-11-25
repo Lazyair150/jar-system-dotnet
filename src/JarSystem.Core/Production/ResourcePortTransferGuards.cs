@@ -20,6 +20,31 @@ internal static class ResourcePortTransferGuards
     }
 
     /// <summary>
+    /// Construct and validate the final receipt while the physical transaction is still
+    /// compensatable. Callers must publish the ledger batch only after this returns.
+    /// </summary>
+    public static ResourceTransferReceipt CreateCommittedReceipt(
+        ResourceTransferRequest request,
+        ResourcePortPreflight sourceBefore,
+        ResourcePortPreflight targetBefore,
+        ResourcePortPreflight sourceAfter,
+        ResourcePortPreflight targetAfter)
+    {
+        var receipt = new ResourceTransferReceipt(
+            request.OperationId, request.ConnectionId,
+            request.SourcePortId, request.TargetPortId,
+            request.ResourceKind, request.ResourceIdentity,
+            request.SourceAccount, request.TargetAccount,
+            request.Amount, request.Amount, 0, 0,
+            ResourceTransferOutcome.Transferred,
+            sourceBefore.ObservedVersionToken, sourceAfter.ObservedVersionToken,
+            targetBefore.ObservedVersionToken, targetAfter.ObservedVersionToken,
+            "allowed");
+        receipt.Validate();
+        return receipt;
+    }
+
+    /// <summary>
     /// Returns a no-mutation receipt when commit must stop, or null when both endpoints
     /// remain allowed at the exact versions captured by Prepare. Duplicate IDs are terminal.
     /// </summary>
