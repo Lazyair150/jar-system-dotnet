@@ -370,5 +370,11 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - EffectiveRuleProfile fingerprint 同时纳入 Profile schema version 与 RuleContributionSchemaRegistry.CurrentVersion。
 - WorldSnapshot RuleSetVersion 纳入 RuleContributionSchemaRegistry.CurrentVersion，确保 schema/interpreter 语义变化使结构候选缓存失效。
 - 新增测试：所有 RuleContributionEffect 必须有 schema；ModifyCapacity 明确不支持静态 Solver 投影；该 Effect 必须保留为 unresolvable，而不是被静默忽略。
-- 精确 head runs 45596511987 / 45596522515 在本记录时仍 in_progress；未宣称通过。
+- 精确代码 head d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed 的 runs 45596511987 / 45596522515 均 SUCCESS：866/866 xUnit、0 errors / 0 failures / 0 skipped；2,000 random + 3,000 capacity + 32 deterministic 资源样本 0 bugs；Core Build succeeded。
 - 下一步：将固定 Jar 候选操作从 Catalog 中抽为版本化 RuleOperator Provider Registry，再将 A/B 与岗位交接流程迁移为 OrderPolicy。
+
+
+### 第十五轮验收补记
+- RuleContribution Schema Version 指纹代码 head d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed 两条精确验证 45596511987 / 45596522515 均 SUCCESS。
+- xUnit 866/866；资源样本 5,032 组无错误；Core build 成功。
+- 最新工作记录更新为文档提交；代码验证证据对应 d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed。
