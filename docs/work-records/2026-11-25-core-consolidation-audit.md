@@ -186,3 +186,12 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 修正 `Workshop.PourOut(Jar)`：执行 Jar 状态转换后再尝试 AddLiquid；Ban/容量拒收仅丢弃产液，不回滚 Jar 操作。订单范围 PourOut 原有 receipt 继续记录 Requested/Accepted/Discarded。
 - 新增/调整回归：普通 PourOut Ban 丢弃；订单 PourOut Ban 丢弃；跨三个求解器验证 Ban Jar 液体可自耗；World A/B solver 与候选枚举器不因 Ban 拒绝 Jar 操作；工作台替换后接收台可操作迁移 Jar；允许重命名/重排两种液体，只要求显式映射；默认世界审批快照增加 liquidPolarities。
 - 当前待精确验收的 workflow 已触发于连续提交 `3c6af817...`、`2d2eff4c...` 等；需等最新 branch head 的全部 workflow 完成并继续修复失败项。此轮尚未宣称 CI 通过。
+
+
+## 2026-11-25 第八轮：StateSpaceSolver 产液路径纠偏与测试夹具迁移
+
+- CI run `45583163015` 在 853 项测试中暴露 18 项失败；除旧测试语义外，定位到 `StateSpaceSolver.Apply` 对 `ProducedFreeLiquid` 无条件 `AddLiquid`，会把被 Ban 的 POUR_OUT 产液重新记入工作台池，违背“拒收即丢弃、Jar 操作仍提交”的规则。现改为仅在目标 staging 未 Ban 时增加游离液体，Jar 状态转换始终继续。
+- 更新 `ProducerSlotTests` 与 World V2 WorkshopReplacement 测试夹具：所有非默认 Vocabulary 必须提供恰好两种身份和显式 Cathode/Anode 映射，不再用单液体/无映射构造绕过新世界契约。
+- 更新液体身份重命名测试：同步替换库存、流入速率、Ban 与订单模板中的身份键，验证完整 World 配置在显式映射下合法，而不只是修改词表数组。
+- 修订 B 类角色测试：Ban 不再让 Slave 缺少 Jar 操作候选；同一 Jar 可在交接后被从台操作。A/B partition differential 的预期已调整为允许 Jar 自耗，具体结果待最新 CI 复验。
+- 最新代码提交 `549afcd1efff5b909ad6b581212bc6052506ffff` 已触发 Core verify workflow；仍在执行，尚未标记通过。
