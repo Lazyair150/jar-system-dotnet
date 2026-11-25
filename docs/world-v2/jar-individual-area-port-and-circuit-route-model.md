@@ -205,6 +205,17 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 
 该路径复用现有 Ship 预留与 WorkshopPrefillTransaction，不是通用账户转移 API；不支持部分转移、多液种批次、Jar 或 Warehouse。
 
+### 3.8 第三条事务参与者：生产区仓库液体到工作台游离液体账户
+
+`WarehouseWorkshopLiquidPortTransfer.Prepare` 将 Production Area Warehouse Liquid Output 连接到指定 Workshop Free-Liquid Input：
+
+- Prepare 核验 Connection、Output → Input、资源类别、精确账户身份，以及两个 Adapter 与实际 Warehouse/Workshop 实例的引用绑定。
+- Commit 复用共享 `ResourcePortTransferGuards`，对两端版本令牌、Ban/容量判定与 OperationId 做同一套复核。
+- 物理路径只允许单液种、精确数量的全量转移。Warehouse 先精确扣出，Workshop 再通过 `AddLiquid` 入账；不调用 `FlowToMaster` 的批量部分接收语义，不移动 Jar，也不影响其它液种。
+- Workshop Ban 或单液种容量不足时拒绝，液体保持在 Warehouse；若入账或账本发布回调失败，则恢复 Warehouse 原余额与 Workshop 游离液体账户快照。
+- 账本使用 `flow/liquid` 事实；`RecordBatchOnce` 在双账户补偿边界内执行，OperationId 随账本检查点保存。该路径不将 Warehouse 账户与 Workshop 账户合并。
+- 这是对既有批量 `Warehouse.FlowToMaster` 的精确端口事务入口，不代表旧批量路径已经全部迁移。当前不支持 Jar、部分转移、多液种批次或 Workshop Prefill/订单子账。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
