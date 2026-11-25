@@ -175,7 +175,21 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 
 端口的资源身份白名单、单次数量上限和策略 ID/版本均参与预检。逻辑时间吞吐限制需要调度器提供时间窗口；在调度器接入前，遇到此类限制必须返回 Undetermined，不能猜测为 Allowed。
 
-这些 Adapter 当前没有 Apply/Commit API。下一步要先完成 Jar Storage Adapter 与预置账户 Adapter，再将各账户的现有事务能力抽象为可回滚参与者；只有全部参与者具备版本复验与补偿能力，才可实现统一 Transfer Coordinator。
+这些 Adapter 当前仍然只负责只读预检；七类账户适配器已覆盖 Workshop 游离液体、订单液体、预置液体、Jar 存储、自机液体库存和 Warehouse 的 Jar/液体账户。第一条事务参与者已在订单液体子账户路径落地，详见 3.6。其余账户仍未获得通用提交接口，不得据此宣称统一 Transfer Coordinator 已完成。
+
+### 3.6 第一条可执行事务参与者：订单液体子账户到订单液体子账户
+
+`OrderLiquidPortTransfer.Prepare` 将一个订单在来源 Workshop 的订单液体子账与目标 Workshop 的同一订单子账绑定到显式 Connection：
+
+- Prepare 阶段只验证 Connection、Output → Input 方向、资源类型、精确账户身份、订单 ID 和两端 Port Preflight，不修改任何账户。
+- Commit 阶段重新预检两端账户，并要求当前版本令牌与请求携带的预期令牌完全一致；版本已变化时返回 Undetermined，资源保持原位。
+- 目标 Ban、容量或源余额不满足时返回 Rejected，资源保持原位。
+- 物理提交复用既有 `OrderLiquidTransfer.TryExecute`，不再实现第二套扣款/入账逻辑。该方法同步捕获两端订单子账，执行全量扣出与接收；异常时恢复两端精确余额，补偿失败则抛出异常并要求上层停止推进。
+- 当前参与者只支持单一液体身份、同一订单 ID、两个不同 Workshop 实例之间的全有或全无交接；不支持部分转移，不处理 Jar、游离液体或预置液体账户。
+- 成功回执记录两端版本变化并满足数量守恒；拒绝/未确定回执记录完整源端保留量和不变版本。
+- 同一个 Prepared 实例的 Commit 重复调用返回同一回执；Cancel 在提交前幂等。跨 Prepared 实例或跨进程的 OperationId 去重仍需持久化 Receipt Journal，尚未完成，不能将对象级重复调用等同于持久幂等。
+
+该实现是第一个具体事务参与者，不是通用协调器。后续账户接入必须复用相同的 Prepare/版本复核/提交/补偿/回执原则，并明确各账户自身的领域语义。
 
 ## 4. 自机电路：固定拓扑、动态状态
 
