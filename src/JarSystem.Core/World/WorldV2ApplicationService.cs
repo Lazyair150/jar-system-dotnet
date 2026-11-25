@@ -40,7 +40,7 @@ public sealed class WorldV2ApplicationService
         lock (_lifecycleSync)
         {
             var snapshot = CloneOptions(options);
-            _host.Replace(options);
+            _host.Replace(snapshot);
             _lastOptions = snapshot;
         }
     }
@@ -52,7 +52,7 @@ public sealed class WorldV2ApplicationService
         lock (_lifecycleSync)
         {
             var snapshot = CloneOptions(options);
-            _host.Replace(options, worldInstanceId);
+            _host.Replace(snapshot, worldInstanceId);
             _lastOptions = snapshot;
         }
     }
@@ -67,7 +67,7 @@ public sealed class WorldV2ApplicationService
         lock (_lifecycleSync)
         {
             var snapshot = CloneOptions(options);
-            _host.Replace(options, worldInstanceId, ownerIdentities);
+            _host.Replace(snapshot, worldInstanceId, ownerIdentities);
             _lastOptions = snapshot;
         }
     }
@@ -412,7 +412,7 @@ public sealed class WorldV2ApplicationService
     {
         var snapshot = CloneOptions(options);
         _host.RestoreExecutionResourceCheckpoint(
-            options, checkpoint, legacyMigrationWorldInstanceId);
+            snapshot, checkpoint, legacyMigrationWorldInstanceId);
         _lastOptions = snapshot;
     }
 
