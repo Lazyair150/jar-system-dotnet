@@ -789,3 +789,10 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 - Receipt Journal 第二轮 Run `45634212889`（提交 `605316dafa6cf7b7910ce2f43f73b74016e4867b`）Build 成功，xUnit 945 项中 15 项失败。失败分成两类：14 项 WorldV2/WorkshopReplacement checkpoint 测试来自 `ResourceWorldRuntime` 在“退休主台没有任何可返还/丢弃液体”时仍调用 `RecordBatchOnce` 发布空批次；账本现明确拒绝空批次，故调用方应跳过无资源变化的操作。已修正为仅在 `mutations.Count > 0` 时记账。另 1 项账本回执冲突测试没有填写 From/To，违反新加的回执账户端点一致性校验；测试数据已补齐来源/目标账户 ID。
 - 对应修复提交：`00a9d3004acb673d9af34652c82343d6353192e9`；测试端点补齐由并行提交 `f0584f4e0aad1333bae5cb47b01c010a2110fb78` 完成。最新 HEAD Run `45634966051` 正在执行，待确认上述 15 项回归是否清零。
+
+- 最终回执提交后的 CI 回归复核：Run `45634539216`（提交 `3c85b7e5cfe50b1f6a1125de66635342accdf585`）xUnit 946 项中 15 项失败。失败集中在 World V2 订单结算/检查点恢复与一项账本 OperationId 冲突测试；构建、Godot Host、协议/配置、求解器差分、回放和安全扫描均通过。
+- 复核发现 `RecordBatchOnce` 的空批次不是无效操作：旧订单结算即使没有液体返还/丢弃事件，也需要写入 OperationId 以保证“零资源变化结算”不被重复执行。先前把空批次拒绝是对旧接口语义的破坏，已撤销；新增 `EmptyOperationBatchStillDeduplicatesZeroResourceSettlement` 验证空批次不增加事件 Seq，但仍记录并去重 OperationId。严格的非空/数量一致约束只保留在新 `RecordTransferOnce` 转移提交接口。
+- 同一失败 Run 中 `TransferReceiptJournalRejectsOperationIdPayloadCollision` 的首次账本写入没有填 From/To，违反新回执端点校验；测试现已补齐与 Receipt Source/Target OwnerId 一致的端点值。此处修的是测试输入，不放宽生产账本校验。
+- 新增最终回执协调器的提交后端点身份复核：对提交后 Source/Target Preflight 再 Validate，并要求 PortId、Account、ResourceKind、ResourceIdentity、Amount 与 Prepare 请求完全一致；漂移会在物理补偿窗口内失败。新增对应合同测试。
+- 上述修复相关提交：`c3be4bce76c15ba48cd31b7fa0794660b0a5b369`、`b524644a49e56c663269682108806528885de5d0`、`cbaf2cfd22bba6ac75d40734f472f7cc7d6690fd`、`f0584f4e0aad1333bae5cb47b01c010a2110fb78`、`9ed78ec22c6ca7148d3478c49114eaeafcb5ec2e`、`75db77ee3f1c9cfe3e07319fe82c0aa0b36957b7`、`fb9c71da3887148f070d2ede61dd5284bfb964ea`。
+- 当前最新 HEAD 包含零资源结算兼容、回执冲突测试端点修正、提交后端点复核和 RestoreFrom 回执索引测试；最新 CI Run `45635278057` 正在执行，最终状态待确认。PR #63 继续 Open / Draft / 不合并。
