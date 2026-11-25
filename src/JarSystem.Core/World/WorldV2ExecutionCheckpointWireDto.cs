@@ -669,6 +669,8 @@ public sealed class ResourceEventWireDto
     public string? To { get; set; }
     public string? FromAccountId { get; set; }
     public string? ToAccountId { get; set; }
+    public ResourceEndpointWireDto? FromEndpoint { get; set; }
+    public ResourceEndpointWireDto? ToEndpoint { get; set; }
     public string? Reason { get; set; }
 
     public static ResourceEventWireDto FromEvent(ResourceEvent value) => new()
@@ -676,7 +678,10 @@ public sealed class ResourceEventWireDto
         Seq = value.Seq, Tick = value.Tick, Cause = value.Cause, Kind = value.Kind,
         Name = value.Name, ResourceIdentity = value.ResourceIdentity, OperationId = value.OperationId,
         Amount = value.Amount, From = value.From, To = value.To,
-        FromAccountId = value.FromAccountId, ToAccountId = value.ToAccountId, Reason = value.Reason
+        FromAccountId = value.FromAccountId, ToAccountId = value.ToAccountId,
+        FromEndpoint = ResourceEndpointWireDto.FromEndpoint(value.FromEndpoint),
+        ToEndpoint = ResourceEndpointWireDto.FromEndpoint(value.ToEndpoint),
+        Reason = value.Reason
     };
 
     public void Validate()
@@ -688,6 +693,12 @@ public sealed class ResourceEventWireDto
             (ResourceIdentity != null && string.IsNullOrWhiteSpace(ResourceIdentity)) ||
             (FromAccountId != null && string.IsNullOrWhiteSpace(FromAccountId)) ||
             (ToAccountId != null && string.IsNullOrWhiteSpace(ToAccountId)) ||
+            (FromEndpoint != null && !FromEndpoint.IsValid) ||
+            (ToEndpoint != null && !ToEndpoint.IsValid) ||
+            (FromEndpoint?.Kind == ResourceEndpointKind.Account && FromEndpoint.AccountId != FromAccountId) ||
+            (ToEndpoint?.Kind == ResourceEndpointKind.Account && ToEndpoint.AccountId != ToAccountId) ||
+            (FromEndpoint == null && FromAccountId != null) ||
+            (ToEndpoint == null && ToAccountId != null) ||
             (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))) ||
             (OperationId != null && Kind == ResourceKinds.Jar && !IsCanonicalJarId(ResourceIdentity)))
             throw new InvalidOperationException("资源账本事件 Wire DTO 无效。");
@@ -739,4 +750,42 @@ public sealed class WorldClockWireDto
         return new WorldClockSnapshot(WorldTimeMilli, LogicalTimeMilli, SpeedRatioMilli,
             IsPaused, ConversionRemainder);
     }
+}
+
+/// <summary>Wire representation of the tagged resource provenance endpoint.</summary>
+public sealed class ResourceEndpointWireDto
+{
+    public ResourceEndpointKind Kind { get; set; }
+    public string? AccountId { get; set; }
+    public string? ExternalIdentity { get; set; }
+
+    public static ResourceEndpointWireDto FromEndpoint(ResourceEndpoint value) => new()
+    {
+        Kind = value.Kind,
+        AccountId = value.AccountId,
+        ExternalIdentity = value.ExternalIdentity
+    };
+
+    public bool IsValid
+    {
+        get
+        {
+            try { ToEndpoint().Validate(); return true; }
+            catch (ArgumentException) { return false; }
+            catch (FormatException) { return false; }
+        }
+    }
+
+    public ResourceEndpoint ToEndpoint() => Kind switch
+    {
+        ResourceEndpointKind.LegacyUnknown when AccountId == null && ExternalIdentity == null =>
+            ResourceEndpoint.LegacyUnknown,
+        ResourceEndpointKind.Account when AccountId != null && ExternalIdentity == null =>
+            ResourceEndpoint.ForAccount(AccountId),
+        ResourceEndpointKind.ExternalSource when AccountId == null && ExternalIdentity != null =>
+            ResourceEndpoint.ExternalSource(ExternalIdentity),
+        ResourceEndpointKind.ExternalSink when AccountId == null && ExternalIdentity != null =>
+            ResourceEndpoint.ExternalSink(ExternalIdentity),
+        _ => throw new ArgumentException("Resource endpoint wire payload does not match its tag.")
+    };
 }
