@@ -824,6 +824,61 @@ public sealed class ResourceLedgerSnapshotTests
             ledger.RecordBatchOnce(operationId, 3, new[] { changedIdentity }));
     }
 
+
+    [Fact]
+    public void SchemaEightOperationFingerprintRemainsIdempotentAfterDisplayNameUpgrade()
+    {
+        const string operationId = "schema-eight-display-name-upgrade";
+        var source = new RuleResourceAccount("workshop.liquid", "workshop-a");
+        var target = new RuleResourceAccount("ship.liquid", "ship-a");
+        var mutation = new ResourceLedgerMutation(
+            ResourceCauses.Transfer, ResourceKinds.Liquid, "wine", 2,
+            From: "主台", To: "自机",
+            ResourceIdentity: "liquid.wine",
+            FromAccountId: source.AccountId,
+            ToAccountId: target.AccountId,
+            FromEndpoint: ResourceEndpoint.ForAccount(source.AccountId),
+            ToEndpoint: ResourceEndpoint.ForAccount(target.AccountId),
+            DisplayName: "酒");
+
+        var schema8Mutation = new
+        {
+            mutation.Cause, mutation.Kind, mutation.Name, mutation.Amount,
+            mutation.From, mutation.To, mutation.Reason, mutation.ResourceIdentity,
+            mutation.FromAccountId, mutation.ToAccountId, mutation.FromEndpoint, mutation.ToEndpoint
+        };
+        var schema8Payload = JsonSerializer.Serialize(new
+        {
+            Mutations = new[] { schema8Mutation },
+            Receipt = (ResourceTransferReceipt?)null
+        });
+        var schema8Fingerprint = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(schema8Payload)));
+        var snapshot = new ResourceLedgerSnapshot(
+            8, 1, 0,
+            new[]
+            {
+                new ResourceEvent
+                {
+                    Seq = 1, Tick = 4, Cause = ResourceCauses.Transfer,
+                    Kind = ResourceKinds.Liquid, Name = "酒", DisplayName = "酒",
+                    ResourceIdentity = "liquid.wine", OperationId = operationId, Amount = 2,
+                    FromAccountId = source.AccountId, ToAccountId = target.AccountId,
+                    FromEndpoint = ResourceEndpoint.ForAccount(source.AccountId),
+                    ToEndpoint = ResourceEndpoint.ForAccount(target.AccountId)
+                }
+            },
+            new[] { operationId },
+            operationFingerprints: new Dictionary<string, string>
+            {
+                [operationId] = schema8Fingerprint
+            });
+
+        var restored = ResourceLedger.Restore(snapshot);
+        Assert.False(restored.RecordBatchOnce(operationId, 5, new[] { mutation }));
+        Assert.Equal(1, restored.LastSeq);
+    }
+
     [Fact]
     public void LegacyOperationFingerprintRemainsIdempotentAfterTaggedEndpointUpgrade()
     {
