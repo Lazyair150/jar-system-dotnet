@@ -40,7 +40,7 @@ internal static class ResourcePortTransferCommitCoordinator
         // This is the final fallible publication. Every caller must keep this invocation
         // inside a transaction that restores its physical account snapshots if it throws.
         if (ledger is not null &&
-            !ledger.RecordBatchOnce(request.OperationId, ledgerTick, mutations))
+            !ledger.RecordTransferOnce(request.OperationId, ledgerTick, mutations, receipt))
             throw new InvalidOperationException(ResourcePortTransferGuards.DuplicateOperationMessage);
 
         return receipt;
