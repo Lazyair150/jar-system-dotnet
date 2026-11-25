@@ -130,18 +130,13 @@ public sealed class RuleStateSnapshot
                 !canonical.TryGetValue("polarity", out var polarityValue))
                 throw new ArgumentException("Jar transition snapshots require both liquid and derived polarity.");
 
-            var expectedPolarity = JarPolarityResolver.Resolve(
-                string.IsNullOrEmpty(liquidValue) ? null : liquidValue).ToString();
-            if (!string.Equals(polarityValue, expectedPolarity, StringComparison.Ordinal))
-                throw new ArgumentException("Jar transition snapshot polarity does not match its authoritative liquid.");
-
-            if (canonical.TryGetValue("workshopPolarityMode", out var modeValue))
-            {
-                if (!Enum.TryParse<WorkshopPolarityMode>(modeValue, out var mode) || !Enum.IsDefined(mode) ||
-                    !WorkshopCapability.CanOperateJar(mode, JarPolarityResolver.Resolve(
-                        string.IsNullOrEmpty(liquidValue) ? null : liquidValue)))
-                    throw new ArgumentException("Workshop polarity mode is incompatible with the Jar polarity in this transition snapshot.");
-            }
+            if (!Enum.TryParse<JarPolarity>(polarityValue, out var polarity) || !Enum.IsDefined(polarity))
+                throw new ArgumentException("Jar transition snapshot contains an unknown polarity value.");
+            if (string.IsNullOrEmpty(liquidValue) != (polarity == JarPolarity.Neutral))
+                throw new ArgumentException("Jar transition snapshot must pair empty liquid with Neutral and non-empty liquid with one of the two opposed polarities.");
+            // The identity-to-polarity mapping belongs to the owning World vocabulary.
+            // This detached transition contract validates the structural three-state relation,
+            // but must not infer polarity from a liquid display/resource name.
         }
         else if (canonical.ContainsKey("polarity"))
         {
