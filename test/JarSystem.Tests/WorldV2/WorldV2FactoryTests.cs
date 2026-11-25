@@ -57,6 +57,37 @@ public sealed class WorldV2FactoryTests
     };
 
     [Fact]
+    public void ExecutionCheckpointPreservesWorldOwnedLiquidPolarityAcrossJsonRestore()
+    {
+        var options = ValidOptions();
+        options.Liquids = new List<string> { "fuel", "coolant" };
+        options.LiquidPolarities = new Dictionary<string, LiquidPolarity>
+        {
+            ["fuel"] = LiquidPolarity.Anode,
+            ["coolant"] = LiquidPolarity.Cathode
+        };
+        options.LiquidProductionRates = new Dictionary<string, double>
+        {
+            ["fuel"] = 0.5,
+            ["coolant"] = 0
+        };
+        options.InitialLiquidStock = new Dictionary<string, int> { ["fuel"] = 3 };
+
+        using var source = WorldV2Factory.Create(options);
+        var checkpoint = source.CaptureExecutionResourceCheckpoint();
+        var json = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(checkpoint);
+        var restoredCheckpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(json);
+
+        Assert.Equal(LiquidPolarity.Anode, restoredCheckpoint.LiquidPolarities["fuel"]);
+        Assert.Equal(LiquidPolarity.Cathode, restoredCheckpoint.LiquidPolarities["coolant"]);
+
+        using var target = WorldV2Factory.Create(options);
+        target.RestoreExecutionResourceCheckpoint(restoredCheckpoint);
+        Assert.Equal(3, target.ShipLiquidInventory!.GetAmount("fuel"));
+        Assert.Equal(0, target.ShipLiquidInventory.GetAmount("coolant"));
+    }
+
+    [Fact]
     public void FactoryAcceptsCustomLiquidIdentitiesOnlyWithExplicitPolarityAndFingerprintsTheMapping()
     {
         var options = ValidOptions();
