@@ -107,7 +107,11 @@ public sealed class PreparedOrderLiquidPortTransfer
                         {
                             new ResourceLedgerMutation(
                                 ResourceCauses.Transfer, ResourceKinds.Liquid, _request.ResourceIdentity,
-                                _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
+                                _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId,
+                                FromAccountId: _request.SourceAccount.AccountId,
+                                ToAccountId: _request.TargetAccount.AccountId,
+                                FromEndpoint: ResourceEndpoint.ForAccount(_request.SourceAccount.AccountId),
+                                ToEndpoint: ResourceEndpoint.ForAccount(_request.TargetAccount.AccountId))
                         });
                 }))
             {
