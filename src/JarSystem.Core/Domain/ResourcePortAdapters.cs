@@ -36,8 +36,17 @@ internal static class ResourcePortVersionToken
     }
 
     public static string Amounts(string prefix, IReadOnlyDictionary<string, int> amounts) =>
-        string.Join("|", amounts.OrderBy(item => item.Key, StringComparer.Ordinal)
-            .Select(item => prefix + ":" + item.Key + "=" + item.Value.ToString(CultureInfo.InvariantCulture)));
+        string.Concat(amounts.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => prefix.Length.ToString(CultureInfo.InvariantCulture) + ":" + prefix +
+                item.Key.Length.ToString(CultureInfo.InvariantCulture) + ":" + item.Key +
+                item.Value.ToString(CultureInfo.InvariantCulture) + ";"));
+
+    public static string Identities(IEnumerable<string> identities)
+    {
+        ArgumentNullException.ThrowIfNull(identities);
+        return string.Concat(identities.OrderBy(item => item, StringComparer.Ordinal)
+            .Select(item => item.Length.ToString(CultureInfo.InvariantCulture) + ":" + item));
+    }
 }
 
 internal static class ResourcePortPreflightFactory
@@ -122,7 +131,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
             new KeyValuePair<string, string>("owner", Account.OwnerId),
             new KeyValuePair<string, string>("capacity", _workshop.MaxLiquids.ToString(CultureInfo.InvariantCulture)),
             new KeyValuePair<string, string>("balances", ResourcePortVersionToken.Amounts("liquid", _workshop.LiquidStorage)),
-            new KeyValuePair<string, string>("banned", string.Join("|", _workshop.Ban.OrderBy(item => item, StringComparer.Ordinal)))
+            new KeyValuePair<string, string>("banned", ResourcePortVersionToken.Identities(_workshop.Ban))
         });
 
         if (port.AreaId != _areaId)
@@ -179,7 +188,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
             new KeyValuePair<string, string>("occupied", _staging.OccupiedCapacity.ToString(CultureInfo.InvariantCulture)),
             new KeyValuePair<string, string>("reserved", _staging.ReservedCapacity.ToString(CultureInfo.InvariantCulture)),
             new KeyValuePair<string, string>("balances", ResourcePortVersionToken.Amounts("liquid", balances)),
-            new KeyValuePair<string, string>("banned", string.Join("|", _staging.BannedLiquids.OrderBy(item => item, StringComparer.Ordinal)))
+            new KeyValuePair<string, string>("banned", ResourcePortVersionToken.Identities(_staging.BannedLiquids))
         });
 
         if (port.AreaId != _areaId)
@@ -249,5 +258,136 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
                 ? LiquidGrant.Yes()
                 : LiquidGrant.OverCapacity(resourceIdentity);
         });
+    }
+}
+
+
+/// <summary>Preflight adapter for one Workshop's independent prefill account, never merged with order sub-accounts.</summary>
+public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter
+{
+    public const string SupportedPolicyId = "workshop.prefill-liquid-staging";
+    public const int SupportedPolicyVersion = 1;
+
+    private readonly WorkshopLiquidStaging _staging;
+    private readonly string _areaId;
+    public RuleResourceAccount Account { get; }
+
+    public WorkshopPrefillLiquidPortAdapter(
+        WorkshopLiquidStaging staging, string workshopInstanceId, string areaId)
+    {
+        _staging = staging ?? throw new ArgumentNullException(nameof(staging));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        Account = new RuleResourceAccount(
+            "workshop.prefill-liquid-staging",
+            CircuitAreaDefinition.RequireIdentity(workshopInstanceId, nameof(workshopInstanceId)));
+        Account.Validate();
+    }
+
+    public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
+    {
+        ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
+        var token = ResourcePortVersionToken.Create(new[]
+        {
+            new KeyValuePair<string, string>("owner", Account.OwnerId),
+            new KeyValuePair<string, string>("capacity", _staging.Capacity.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("occupied", _staging.OccupiedCapacity.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("prefill", ResourcePortVersionToken.Amounts("liquid", _staging.PrefillBalances)),
+            new KeyValuePair<string, string>("banned", ResourcePortVersionToken.Identities(_staging.BannedLiquids))
+        });
+
+        if (port.AreaId != _areaId)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Liquid, resourceIdentity, amount, token,
+                "port.area.mismatch", "Port does not belong to this Workshop Area.");
+        if (port.PolicyId != SupportedPolicyId || port.PolicyVersion != SupportedPolicyVersion)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Liquid, resourceIdentity, amount, token,
+                "port.policy.unsupported", "Workshop prefill policy identity/version is unsupported.");
+
+        return ResourcePortPreflightFactory.Evaluate(this, port, resourceIdentity, amount, token, () =>
+        {
+            if (port.Direction == ResourcePortDirection.Input)
+                return _staging.CanAcceptOperation(resourceIdentity, amount);
+            if (_staging.BannedLiquids.Contains(resourceIdentity, StringComparer.Ordinal))
+                return LiquidGrant.Banned(resourceIdentity);
+            return _staging.PrefillBalances.GetValueOrDefault(resourceIdentity) >= amount
+                ? LiquidGrant.Yes()
+                : LiquidGrant.Insufficient(resourceIdentity);
+        });
+    }
+}
+
+/// <summary>Preflight adapter for the Workshop's discrete Jar storage; Jar-internal liquid is not checked against Workshop Ban.</summary>
+public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
+{
+    public const string SupportedPolicyId = "workshop.jar-storage";
+    public const int SupportedPolicyVersion = 1;
+
+    private readonly Workshop _workshop;
+    private readonly string _areaId;
+    public RuleResourceAccount Account { get; }
+
+    public WorkshopJarStoragePortAdapter(Workshop workshop, string areaId)
+    {
+        _workshop = workshop ?? throw new ArgumentNullException(nameof(workshop));
+        _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
+            throw new ArgumentException("An exact Board-owned Workshop instance identity is required.", nameof(workshop));
+        Account = new RuleResourceAccount("workshop.jar-storage", workshop.OwnedInstanceId);
+        Account.Validate();
+    }
+
+    public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
+    {
+        ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
+        var token = ResourcePortVersionToken.Create(new[]
+        {
+            new KeyValuePair<string, string>("owner", Account.OwnerId),
+            new KeyValuePair<string, string>("capacity", _workshop.MaxJars.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("jar-ids", string.Join(",", _workshop.Jars
+                .Select(jar => jar.Id.GetValueOrDefault())
+                .OrderBy(id => id).Select(id => id.ToString(CultureInfo.InvariantCulture))))
+        });
+
+        if (port.AreaId != _areaId)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.area.mismatch", "Port does not belong to this Workshop Area.");
+        if (port.PolicyId != SupportedPolicyId || port.PolicyVersion != SupportedPolicyVersion)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.policy.unsupported", "Workshop Jar storage policy identity/version is unsupported.");
+        if (port.ResourceKind != RuleResourceKind.Jar)
+            return new ResourcePortPreflight(RuleDecisionKind.Undetermined, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.resource-kind.unsupported", "Workshop Jar storage only supports Jar resources.");
+        if (port.MaxAmountPerTransfer is { } limit && amount > limit)
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.transfer-limit.exceeded", "Requested Jar count exceeds the port transfer limit.");
+        if (amount != 1)
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "jar.identity.amount.invalid", "A Jar resource identity represents exactly one discrete Jar.");
+        if (!int.TryParse(resourceIdentity, NumberStyles.None, CultureInfo.InvariantCulture, out var jarId) || jarId <= 0)
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "jar.identity.invalid", "Jar resource identity must be a positive invariant-culture integer.");
+        if (port.ResourceIdentities.Count > 0 && !port.ResourceIdentities.Contains(resourceIdentity, StringComparer.Ordinal))
+            return new ResourcePortPreflight(RuleDecisionKind.Rejected, port.PortId, Account,
+                RuleResourceKind.Jar, resourceIdentity, amount, token,
+                "port.resource-identity.mismatch", "Jar identity is outside the port allow-list.");
+
+        var exists = _workshop.Jars.Any(jar => jar.Id == jarId);
+        var allowed = port.Direction == ResourcePortDirection.Input
+            ? _workshop.HasJarCapacity() && !exists
+            : exists;
+        return new ResourcePortPreflight(
+            allowed ? RuleDecisionKind.Allowed : RuleDecisionKind.Rejected,
+            port.PortId, Account, RuleResourceKind.Jar, resourceIdentity, amount, token,
+            allowed ? "allowed" : port.Direction == ResourcePortDirection.Input
+                ? exists ? "jar.identity.already-owned" : "jar.storage.capacity"
+                : "jar.identity.not-owned",
+            allowed ? null : "Jar storage preflight rejected the requested ownership change.");
     }
 }
