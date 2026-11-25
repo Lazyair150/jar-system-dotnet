@@ -62,6 +62,17 @@ public sealed class ResourceAccountIdentityTests
         Assert.StartsWith("account:v2:", canonical);
         Assert.Contains("5:炉:1", canonical);
         Assert.Contains("13:生产:输出", canonical);
+        Assert.Equal(identity, AccountIdentity.ParseV2(canonical));
+    }
+
+    [Theory]
+    [InlineData("account:v2:01:w4:ship1:s1:a")]
+    [InlineData("account:v2:1:w99:ship1:s1:a")]
+    [InlineData("account:v2:1:w4:ship1:s1:a:trailing")]
+    [InlineData("account:v1:4:ship1:s")]
+    public void AccountIdentityV2ParserRejectsMalformedOrLegacyValues(string value)
+    {
+        Assert.Throws<System.FormatException>(() => AccountIdentity.ParseV2(value));
     }
 
     [Fact]
