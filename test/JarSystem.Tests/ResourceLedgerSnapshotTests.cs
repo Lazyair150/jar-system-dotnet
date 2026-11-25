@@ -309,6 +309,39 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void TransferReceiptAndOperationIdSurviveEventWindowTrimming()
+    {
+        var ledger = new ResourceLedger(capacity: 1);
+        var source = new RuleResourceAccount("workshop-liquid-staging", "workshop.trim.source");
+        var target = new RuleResourceAccount("workshop-liquid-staging", "workshop.trim.target");
+        var receipt = new ResourceTransferReceipt(
+            "operation.trim.receipt", "connection.trim.receipt",
+            "source.out", "target.in", RuleResourceKind.Liquid, "酒",
+            source, target, 1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+        var batch = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "酒", 1, From: source.OwnerId, To: target.OwnerId)
+        };
+
+        Assert.True(ledger.RecordTransferOnce(receipt.OperationId, 1, batch, receipt));
+        ledger.Record(2, ResourceCauses.Production, ResourceKinds.Liquid, "蜜", 1);
+
+        Assert.Equal(1, ledger.Dropped);
+        Assert.Single(ledger.Entries);
+        Assert.True(ledger.HasRecordedOperation(receipt.OperationId));
+        Assert.True(ledger.TryGetTransferReceipt(receipt.OperationId, out var retainedReceipt));
+        Assert.Equal(receipt, retainedReceipt);
+
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.True(restored.TryGetTransferReceipt(receipt.OperationId, out var restoredReceipt));
+        Assert.Equal(receipt, restoredReceipt);
+        Assert.False(restored.RecordTransferOnce(receipt.OperationId, 3, batch, receipt));
+        Assert.Equal(2, restored.LastSeq);
+    }
+
+    [Fact]
     public void TransferReceiptJournalSurvivesWorldCheckpointJsonWireRoundTrip()
     {
         var ledger = new ResourceLedger();
