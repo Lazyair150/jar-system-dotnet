@@ -131,4 +131,4 @@ This is still a staged migration:
 - LegacyUnknown remains allowed for old and not-yet-migrated write paths.
 - ResourceEvent.Name has not yet been fully separated into DisplayName.
 - The durable cross-account physical transaction coordinator remains unimplemented.
-- Code has been written to the feature branch; no local build/test pass is claimed by this work record.
+- Code has been written to the feature branch. GitHub Actions push run #5132 passed at code/test head `7329b7fa77488b616a222e6c00f14a34583de639`: 994 xUnit tests passed (0 failures), solver differential 4004/4004, modifier differential 400/1600, session replay 33 commands, config-world match, and security scan 6 projects / 0 vulnerable packages. No local build/test run is claimed.
