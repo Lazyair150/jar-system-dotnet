@@ -25,15 +25,40 @@ public static class SystemBootstrapper
     /// 否则进程级共享计数器会让"重建出的世界"与原次的 ID 不同（见 Sessions.WorldCommand 的边界说明）。
     /// </param>
     public static void Apply(WorldOptions world, Vocabulary vocabulary, ProducerModule producers,
-        List<Workshop> workshops, IIdGenerator? jarIds = null, ModifierStack? modifiers = null)
+        List<Workshop> workshops, IIdGenerator? jarIds = null, ModifierStack? modifiers = null,
+        IReadOnlyDictionary<string, OwnerIdentity>? producerOwners = null,
+        IReadOnlyDictionary<string, OwnerIdentity>? workshopOwners = null)
     {
         foreach (var p in world.Producers)
-            producers.RegisterProducer(p.Name, new Dictionary<string, double>(p.Rates));
+        {
+            OwnerIdentity? ownerIdentity = null;
+            if (producerOwners != null)
+            {
+                if (string.IsNullOrWhiteSpace(p.ProducerInstanceId) ||
+                    !producerOwners.TryGetValue(p.ProducerInstanceId, out var owner))
+                    throw new InvalidOperationException(
+                        "稳定身份装配缺少生产者的精确 ProducerInstanceId: " + p.Name);
+                ownerIdentity = owner;
+            }
+            producers.RegisterProducer(
+                p.Name, new Dictionary<string, double>(p.Rates),
+                p.ProducerInstanceId, ownerIdentity);
+        }
 
         foreach (var kv in world.InitialStock)
             producers.Warehouse.ProduceLiquid(kv.Key, kv.Value);
 
         foreach (var w in world.Workshops)
+        {
+            OwnerIdentity? ownerIdentity = null;
+            if (workshopOwners != null)
+            {
+                if (string.IsNullOrWhiteSpace(w.OwnedInstanceId) ||
+                    !workshopOwners.TryGetValue(w.OwnedInstanceId, out var owner))
+                    throw new InvalidOperationException(
+                        "稳定身份装配缺少工作台的精确 OwnedInstanceId: " + w.Name);
+                ownerIdentity = owner;
+            }
             workshops.Add(new Workshop(
                 w.Name,
                 new List<string>(w.BaseMarks),
@@ -45,6 +70,9 @@ public static class SystemBootstrapper
                 vocabulary: vocabulary,
                 modifiers: modifiers,
                 liquidStagingCapacity: w.LiquidStagingCapacity ??
-                    (w.MaxLiquids ?? world.DefaultMaxLiquids)));
+                    (w.MaxLiquids ?? world.DefaultMaxLiquids),
+                ownedInstanceId: w.OwnedInstanceId,
+                ownerIdentity: ownerIdentity));
+        }
     }
 }
