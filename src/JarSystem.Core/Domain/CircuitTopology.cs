@@ -62,6 +62,8 @@ public sealed class CircuitPortDefinition
     public IReadOnlyList<string> ResourceIdentities => _resourceIdentities;
     public string PolicyId { get; }
     public int PolicyVersion { get; }
+    public int? MaxAmountPerTransfer { get; }
+    public long? MaxAmountPerLogicalTimeMilli { get; }
 
     public CircuitPortDefinition(
         string portId,
@@ -70,7 +72,9 @@ public sealed class CircuitPortDefinition
         RuleResourceKind resourceKind,
         IEnumerable<string>? resourceIdentities,
         string policyId,
-        int policyVersion)
+        int policyVersion,
+        int? maxAmountPerTransfer = null,
+        long? maxAmountPerLogicalTimeMilli = null)
     {
         PortId = CircuitAreaDefinition.RequireIdentity(portId, nameof(portId));
         AreaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
@@ -84,6 +88,10 @@ public sealed class CircuitPortDefinition
         if (policyVersion <= 0)
             throw new ArgumentOutOfRangeException(nameof(policyVersion));
         PolicyVersion = policyVersion;
+        if (maxAmountPerTransfer < 0 || maxAmountPerLogicalTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(maxAmountPerTransfer), "Port transfer limits cannot be negative.");
+        MaxAmountPerTransfer = maxAmountPerTransfer;
+        MaxAmountPerLogicalTimeMilli = maxAmountPerLogicalTimeMilli;
 
         var identities = (resourceIdentities ?? Array.Empty<string>())
             .Select(value => CircuitAreaDefinition.RequireIdentity(value, nameof(resourceIdentities)))
