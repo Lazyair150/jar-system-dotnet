@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 using Xunit;
 
 namespace JarSystem.Tests;
