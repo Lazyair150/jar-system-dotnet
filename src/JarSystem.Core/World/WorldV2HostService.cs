@@ -34,9 +34,18 @@ public sealed class WorldV2HostService : IDisposable
     /// 新世界完整创建成功后才发布；配置校验或装配失败时，当前世界保持不变。
     /// 替换与正在执行的 ExecuteExclusive 回调串行，不会提前释放正在使用的 Context。
     /// </summary>
-    public void Replace(WorldV2Options options)
+    public void Replace(WorldV2Options options) =>
+        Replace(options, new WorldInstanceId(Guid.NewGuid().ToString("N")));
+
+    /// <summary>
+    /// 使用宿主显式提供的身份创建或替换世界。宿主可在存档/重放边界复用已持久化身份；
+    /// 普通新世界由上层 Replace(options) 在 Host 边界生成一次。
+    /// </summary>
+    public void Replace(WorldV2Options options, WorldInstanceId worldInstanceId)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
+        if (!worldInstanceId.IsValid)
+            throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
         ThrowIfOperationReentrant();
 
         lock (_operationSync)
@@ -44,7 +53,7 @@ public sealed class WorldV2HostService : IDisposable
             lock (_sync) ThrowIfDisposed();
 
             // Factory 失败时尚未改动当前世界。
-            var next = WorldV2Factory.Create(options);
+            var next = WorldV2Factory.Create(options, worldInstanceId: worldInstanceId);
             WorldV2Context? previous;
             lock (_sync)
             {
@@ -65,7 +74,8 @@ public sealed class WorldV2HostService : IDisposable
     /// </summary>
     public void RestoreExecutionResourceCheckpoint(
         WorldV2Options options,
-        WorldV2ExecutionResourceCheckpoint checkpoint)
+        WorldV2ExecutionResourceCheckpoint checkpoint,
+        WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
@@ -77,7 +87,7 @@ public sealed class WorldV2HostService : IDisposable
 
             // Prepare 对象拥有未发布 Context；异常或提前退出时自动释放。
             // Restore 成功后 TakeContext 才把所有权交给 Host 的唯一发布点。
-            using var preparedRestore = PreparedWorldV2Restore.Create(options, checkpoint);
+            using var preparedRestore = PreparedWorldV2Restore.Create(options, checkpoint, legacyMigrationWorldInstanceId);
             var next = preparedRestore.TakeContext();
 
             // Commit：唯一发布点。Host 操作门保证没有调用方同时使用旧 Context。
