@@ -58,15 +58,21 @@ internal sealed class ResourceTransferrer
             if (newMaster.HasJarCapacity())
             {
                 newMaster.AddJar(jar);
+                if (jar.Id is not > 0)
+                    throw new DomainValidationException("主台迁徙账本事实缺少 canonical JarId。");
                 Record(ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
-                    oldMaster.Name, newMaster.Name);
+                    oldMaster.Name, newMaster.Name,
+                    resourceIdentity: jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 log.Add("transfer_jar", $"转移 {jar.GetDescription()} → 新主台");
             }
             else
             {
                 _discardedJarCount++;
+                if (jar.Id is not > 0)
+                    throw new DomainValidationException("主台迁徙丢弃事实缺少 canonical JarId。");
                 Record(ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
-                    oldMaster.Name, to: null, reason: "新主台容量已满");
+                    oldMaster.Name, to: null, reason: "新主台容量已满",
+                    resourceIdentity: jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 log.Add("discard_jar", $"丢弃 {jar.GetDescription()} (新主台容量已满)");
                 // 只暂存回收请求。迁徙提交前不能 Return，否则取消回滚时快照中的原对象已失效。
                 _jarsToReturn.Add(jar);
@@ -93,14 +99,14 @@ internal sealed class ResourceTransferrer
                     if (accepted > 0)
                     {
                         Record(ResourceCauses.Transfer, ResourceKinds.Liquid, l, accepted,
-                            oldMaster.Name, newMaster.Name);
+                            oldMaster.Name, newMaster.Name, resourceIdentity: l);
                         log.Add("transfer_liquid", $"转移 {l}×{accepted} → 新主台");
                     }
                     if (lost > 0)
                     {
                         AddDiscardedLiquid(l, lost);
                         Record(ResourceCauses.Discard, ResourceKinds.Liquid, l, lost,
-                            oldMaster.Name, to: null, reason: "新主台容量已满");
+                            oldMaster.Name, to: null, reason: "新主台容量已满", resourceIdentity: l);
                         log.Add("discard_liquid", $"丢弃 {l}×{lost} (新主台容量已满)");
                     }
                 }
@@ -108,7 +114,7 @@ internal sealed class ResourceTransferrer
                 {
                     AddDiscardedLiquid(l, amt);
                     Record(ResourceCauses.Discard, ResourceKinds.Liquid, l, amt,
-                        oldMaster.Name, to: null, reason: "新主台禁" + l);
+                        oldMaster.Name, to: null, reason: "新主台禁" + l, resourceIdentity: l);
                     log.Add("discard_liquid", $"丢弃 {l}×{amt} (新主台禁{l})");
                 }
             }
@@ -123,10 +129,11 @@ internal sealed class ResourceTransferrer
     }
 
     private void Record(string cause, string kind, string name, int amount,
-        string? from, string? to = null, string? reason = null)
+        string? from, string? to = null, string? reason = null, string? resourceIdentity = null)
     {
         if (amount > 0)
-            _ledgerRecords.Add(new PendingLedgerRecord(cause, kind, name, amount, from, to, reason));
+            _ledgerRecords.Add(new PendingLedgerRecord(
+                cause, kind, name, amount, from, to, reason, resourceIdentity));
     }
 
     /// <summary>
@@ -140,7 +147,7 @@ internal sealed class ResourceTransferrer
 
         foreach (var entry in _ledgerRecords)
             _ledger?.Record(_tickOf?.Invoke() ?? 0, entry.Cause, entry.Kind, entry.Name,
-                entry.Amount, entry.From, entry.To, entry.Reason);
+                entry.Amount, entry.From, entry.To, entry.Reason, entry.ResourceIdentity);
 
         if (_discardedJarCount > 0)
             _countDiscardedJars?.Invoke(_discardedJarCount);
@@ -167,5 +174,5 @@ internal sealed class ResourceTransferrer
 
     private sealed record PendingLedgerRecord(
         string Cause, string Kind, string Name, int Amount,
-        string? From, string? To, string? Reason);
+        string? From, string? To, string? Reason, string? ResourceIdentity);
 }
