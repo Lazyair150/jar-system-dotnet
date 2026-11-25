@@ -57,7 +57,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
     {
         const string json = """
             {
-              "schemaVersion": 4,
+              "schemaVersion": 5,
               "kind": "world-v2-execution-checkpoint",
               "configurationFingerprint": null,
               "payload": {}
