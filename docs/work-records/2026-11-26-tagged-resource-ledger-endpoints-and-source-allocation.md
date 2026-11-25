@@ -183,3 +183,10 @@ ExternalSource / ExternalSink 与 Account 之间的资源边仍允许，因为�
 ### 第三轮 CI 测试分析器修复
 
 修复预置回滚作用域错误后，Release build 继续推进到测试项目，新的首个阻断是 xUnit2031：`Assert.Single(collection.Where(predicate))` 必须改为 `Assert.Single(collection, predicate)`。三个位置均在新增的 World V2 ledger endpoint 端到端测试中；已在提交 `3828d06dc05fe9c64dfef7550e297c835fd901d3` 统一修正。该提交 push run `45678588961` 正在执行，尚未得到完整 build/test/contract 结果。
+
+
+### 传统切换与生产写入边界补记
+
+- 传统 `ResourceTransferrer`（主台切换）现按 Workshop.OwnerIdentity 生成 account:v2 端点；没有新身份但有精确 OwnedInstanceId 时保留 account:v1；缺少身份时明确写 LegacyUnknown。容量丢弃和 Ban 拒收分别落到不同 ExternalSink。暂存记录同时保留旧 AccountId 投影与 tagged endpoint，提交时一次性写入。
+- 旧版 `ProductionService` 尚未由 World V2 Host 装配，故其生产/流入端点显式标为 LegacyUnknown，不以“生产者”“仓库”等显示名称伪造账户身份；其容量溢出目标使用明确 ExternalSink。待旧宿主注入 WorldInstanceId/OwnerIdentity 后再迁移为 account:v2。
+- 增加主台切换溢出端点测试：来源必须是原工作台 account:v2，去向必须是指定 Jar 容量 ExternalSink。
