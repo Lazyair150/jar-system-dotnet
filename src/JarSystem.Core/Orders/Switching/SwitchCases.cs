@@ -10,7 +10,7 @@ internal static class BanComparison
 {
     public static bool Same(Workshop a, Workshop b)
     {
-        foreach (var l in Constants.LIQUIDS)
+        foreach (var l in a.LiquidStorage.Keys)
             if (a.IsBanned(l) != b.IsBanned(l))
                 return false;
         return true;
@@ -57,7 +57,7 @@ internal sealed class SameBansCase : ISwitchCase
             if (emptyJar == null) break;
 
             // 优先使用游离液体（未禁、有库存）
-            var freeLiquid = Constants.LIQUIDS.FirstOrDefault(l =>
+            var freeLiquid = oldMaster.LiquidStorage.Keys.FirstOrDefault(l =>
                 !oldMaster.IsBanned(l) && oldMaster.LiquidStorage.GetValueOrDefault(l, 0) > 0);
             if (freeLiquid != null)
             {
