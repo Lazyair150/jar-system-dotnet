@@ -83,7 +83,6 @@ public sealed class ResourceLedger
 
     private readonly object _gate = new();
     private readonly List<ResourceEvent> _entries = new();
-    private readonly IReadOnlyList<ResourceEvent> _entriesView;
     private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ResourceTransferReceipt> _transferReceipts = new(StringComparer.Ordinal);
     private long _seq;
@@ -93,7 +92,6 @@ public sealed class ResourceLedger
         if (capacity < 1)
             throw new DomainValidationException("资源账本容量必须是正整数: " + capacity);
         Capacity = capacity;
-        _entriesView = _entries.AsReadOnly();
     }
 
     /// <summary>容量（条）。</summary>
@@ -109,7 +107,14 @@ public sealed class ResourceLedger
     public long LastSeq { get { lock (_gate) return _seq; } }
 
     /// <summary>保留的事件（按发生顺序，最旧在前）。只读视图。</summary>
-    public IReadOnlyList<ResourceEvent> Entries => _entriesView;
+    public IReadOnlyList<ResourceEvent> Entries
+    {
+        get
+        {
+            lock (_gate)
+                return Array.AsReadOnly(_entries.Select(Clone).ToArray());
+        }
+    }
 
     /// <summary>捕获完整账本游标、裁剪计数和当前保留事件。</summary>
     public ResourceLedgerSnapshot Capture()
@@ -171,18 +176,23 @@ public sealed class ResourceLedger
         var restored = Restore(snapshot);
         if (restored.Capacity != Capacity)
             throw new DomainValidationException("资源账本快照容量与当前账本不一致。");
+
         lock (_gate)
         {
+            // Reserve every backing store before replacing any live state.
             _entries.EnsureCapacity(restored._entries.Count);
             _operationIds.EnsureCapacity(restored._operationIds.Count);
             _transferReceipts.EnsureCapacity(restored._transferReceipts.Count);
+
             _entries.Clear();
             _entries.AddRange(restored._entries);
             _seq = restored._seq;
             Dropped = restored.Dropped;
+
             _operationIds.Clear();
             foreach (var operationId in restored._operationIds)
                 _operationIds.Add(operationId);
+
             _transferReceipts.Clear();
             foreach (var item in restored._transferReceipts)
                 _transferReceipts.Add(item.Key, item.Value with { });
