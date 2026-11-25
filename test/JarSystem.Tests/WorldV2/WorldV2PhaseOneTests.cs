@@ -98,6 +98,34 @@ public sealed class ResourceWorldRuntimeTests
         Assert.Equal(500, runtime.Clock.WorldTimeMilli);
         Assert.Equal(1_000, runtime.Clock.LogicalTimeMilli);
     }
+
+    [Fact]
+    public void LiquidProductionAndDiscardFactsCarryCanonicalVocabularyIdentity()
+    {
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "酒", "蜜" });
+        var producers = new ProducerModule(vocabulary);
+        var liquids = new LiquidProduction(
+            vocabulary,
+            defaults: new Dictionary<string, double> { ["酒"] = 2, ["蜜"] = 0 });
+        var ship = new ShipLiquidInventory(capacity: 1);
+        var area = new ResourceArea(
+            producers, liquids, jarFlowRate: 0, liquidFlowRate: 0,
+            shipLiquidInventory: ship);
+        var ledger = new ResourceLedger();
+        var runtime = new ResourceWorldRuntime(area, resourceLedger: ledger);
+
+        runtime.AdvanceWorldTime(1_000, master: null);
+
+        var production = Assert.Single(ledger.For(ResourceCauses.Production));
+        var discarded = Assert.Single(ledger.For(ResourceCauses.Discard));
+        Assert.Equal(ResourceKinds.Liquid, production.Kind);
+        Assert.Equal(ResourceKinds.Liquid, discarded.Kind);
+        Assert.Equal("酒", production.ResourceIdentity);
+        Assert.Equal("酒", discarded.ResourceIdentity);
+        Assert.Equal(1, production.Amount);
+        Assert.Equal(1, discarded.Amount);
+    }
+
 }
 
 public sealed class ResourceAreaTests
