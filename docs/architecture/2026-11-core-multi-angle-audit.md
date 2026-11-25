@@ -60,6 +60,25 @@
 
 在实现前必须评估 Jar 的对象池回收/重用、跨 World 隔离、快照恢复、旧存档迁移与所有构造入口，避免引入隐式全局上下文。
 
+
+## 2.4 本轮已实施的核心修正（待整合 head CI 复验）
+
+- 新增 `Config.LiquidPolarity`，`WorldOptions.LiquidPolarities` 以显式字典将两种世界液体身份分别映射到 Cathode/Anode。
+- `Vocabulary` 以只读映射保存二元关系；自定义液体身份必须显式给出映射，列表顺序和名称不参与推断。仅旧默认词表保留精确兼容映射。
+- `Jar.Polarity` 通过创建该 Jar 的 Vocabulary 解析；context-free 的静态 resolver overload 已移除。Solver facts 不再从任意 liquid 字符串静态推导极性。
+- `WorkshopCapability` 不再从 Ban 推导 `WorkshopPolarityMode`；该兼容投影固定为 Unrestricted。Ban 只在 free-liquid staging 的 pay/receive/transfer 入口生效。
+- `ReshapeRules.SelfConsume` 不再因工作台 Ban 拒绝 Jar 自耗；`WorkshopRulebook` 不再按 Ban/极性拒绝 MATCH、PourOut 或 Jar 内部液体操作。
+- 规则契约版本提升至 5，PourOut/ReshapeFull/MATCH 规则版本分别提升，表示规则语义变化。
+- `MatchingSolver`、`SolverPrecheck`、`StateSpaceSolver`、`PartitionSearch`、`WorldOrderRuleCandidateProfile`、`GreedyPlanBuilder`、`SwitchCases`、`ResourceTransferrer` 与 `OrderExecutionSession` 已从静态液体常量迁移到所属 World/Workshop 的液体目录或账户键。
+- `LiquidRequirementCalculator` 增加显式 World vocabulary 参数；B 类主从资源需求/容量路径已传入对应工作台词表。无参数重载仅保留旧默认世界兼容。
+- `RuleTransitionContract` 只验证空/Neutral 与非空/两种极性之间的三态结构；液体名与极性的对应由拥有该 World 的 Vocabulary 负责。
+- 默认 Core `config/world.json` 显式声明旧默认映射 `酒→Cathode`、`蜜→Anode`。
+- 新增 Core 测试覆盖自定义名称、顺序无关映射、无映射拒绝、WorldOptions JSON 往返，以及 staging Ban 不限制 Jar 极性/自耗。
+
+Space 侧同时在两个实际战斗世界中明确声明 `冷却液→Cathode`、`燃料→Anode`；Loadout schema 升为 3，并只对精确旧 Space 液体集合提供确定迁移。
+
+当前仍需 CI 证明所有旧测试/协议 fixture 已完成迁移；截至本报告更新时，最新 Core run 仍在执行，不能标记绿色。
+
 ## 3. 六个工程审计维度
 
 ### 3.1 静态质量与代码设计
