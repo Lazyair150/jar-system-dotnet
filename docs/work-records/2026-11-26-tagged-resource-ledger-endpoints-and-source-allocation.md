@@ -168,3 +168,8 @@ ExternalSource / ExternalSink 与 Account 之间的资源边仍允许，因为�
 ### 迁移边界再次明确
 
 `ProductionService` 属于旧版生产系统入口，目前没有可靠的 WorldInstanceId / OwnerIdentity 注入契约；它的传统 Record 写入暂时保留 LegacyUnknown，不能拿名称或 Shape/Name 字段冒充 OwnerIdentity。待旧宿主也通过明确的身份装配边界创建 OwnerIdentity 后再迁移。此限制不影响上述 World V2 Runtime 路径。
+
+
+### 账本边界强化补记
+
+账户到账户的 World 范围校验不仅应用于新写入的 Record / RecordBatchOnce，也应用于 ResourceLedger.Restore 的历史快照事件校验。即使 wire payload 的 endpoint tag 和旧 AccountId 投影各自有效，只要两个账户端点混用 account:v1/account:v2，或两个 v2 账户来自不同 World，恢复阶段也会拒绝；避免通过存档绕过写入边界。新增测试覆盖跨 World snapshot 的拒绝。
