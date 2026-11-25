@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using System.Linq;
 using JarSystem.Core.Domain;
