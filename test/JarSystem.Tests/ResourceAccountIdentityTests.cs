@@ -149,13 +149,13 @@ public sealed class ResourceAccountIdentityTests
             new WorkshopLiquidStaging(20), workshopOwner, "area.workshop");
         Assert.StartsWith("account:v2:", prefill.Account.AccountId);
 
-        var productionOwner = new OwnerIdentity(
-            worldA, ResourceOwnerKind.ProductionArea, "production-area-owned-1");
-        var warehouse = new Warehouse();
+        var warehouseOwner = new OwnerIdentity(
+            worldA, ResourceOwnerKind.Warehouse, "warehouse-owned-1");
+        var warehouse = new Warehouse(ownerIdentity: warehouseOwner);
         var warehouseJars = new WarehouseJarStoragePortAdapter(
-            warehouse, productionOwner, "area.production");
+            warehouse, warehouseOwner, "area.production");
         var warehouseLiquids = new WarehouseLiquidStoragePortAdapter(
-            warehouse, productionOwner, "area.production");
+            warehouse, warehouseOwner, "area.production");
         Assert.StartsWith("account:v2:", warehouseJars.Account.AccountId);
         Assert.StartsWith("account:v2:", warehouseLiquids.Account.AccountId);
 
