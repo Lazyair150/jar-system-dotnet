@@ -1,5 +1,6 @@
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
+using JarSystem.Core.World;
 using Xunit;
 
 namespace JarSystem.Tests;
@@ -122,6 +123,73 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.Equal(0, ledger.LastSeq);
         Assert.Empty(ledger.Entries);
         Assert.False(ledger.HasRecordedOperation("operation.empty"));
+    }
+
+    [Fact]
+    public void TransferReceiptAndOperationIdSurviveSnapshotAndCheckpointWireRoundTrip()
+    {
+        var ledger = new ResourceLedger(capacity: 4);
+        var receipt = new ResourceTransferReceipt(
+            "operation.transfer.1", "connection.1", "source.out", "target.in",
+            RuleResourceKind.Liquid, "酒",
+            new RuleResourceAccount("workshop.free-liquid-staging", "workshop.source"),
+            new RuleResourceAccount("workshop.free-liquid-staging", "workshop.target"),
+            2, 2, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+
+        Assert.True(ledger.RecordTransferOnce(
+            receipt.OperationId, 21,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "酒", 2, From: "workshop.source", To: "workshop.target")
+            },
+            receipt));
+
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.True(restored.TryGetTransferReceipt(receipt.OperationId, out var restoredReceipt));
+        Assert.Equal(receipt, restoredReceipt);
+
+        var wire = ResourceLedgerWireDto.FromSnapshot(restored.Capture());
+        wire.Validate();
+        var roundTripped = ResourceLedger.Restore(wire.ToSnapshot());
+        Assert.True(roundTripped.TryGetTransferReceipt(receipt.OperationId, out var wireReceipt));
+        Assert.Equal(receipt, wireReceipt);
+        Assert.False(roundTripped.RecordTransferOnce(
+            receipt.OperationId, 22,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "酒", 2, From: "workshop.source", To: "workshop.target")
+            },
+            receipt));
+        Assert.Equal(1, roundTripped.Entries.Count);
+    }
+
+    [Fact]
+    public void TransferReceiptJournalRejectsOperationIdPayloadCollision()
+    {
+        var ledger = new ResourceLedger();
+        var receipt = new ResourceTransferReceipt(
+            "operation.transfer.collision", "connection.1", "source.out", "target.in",
+            RuleResourceKind.Liquid, "酒",
+            new RuleResourceAccount("workshop.free-liquid-staging", "workshop.source"),
+            new RuleResourceAccount("workshop.free-liquid-staging", "workshop.target"),
+            1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+        var different = receipt with { RequestedAmount = 2, TransferredAmount = 2 };
+
+        Assert.True(ledger.RecordTransferOnce(
+            receipt.OperationId, 1,
+            new[] { new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 1) },
+            receipt));
+        Assert.Throws<System.InvalidOperationException>(() => ledger.RecordTransferOnce(
+            receipt.OperationId, 2,
+            new[] { new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 2) },
+            different));
+        Assert.Equal(1, ledger.LastSeq);
+        Assert.True(ledger.TryGetTransferReceipt(receipt.OperationId, out var stored));
+        Assert.Equal(receipt, stored);
     }
 
     [Fact]
