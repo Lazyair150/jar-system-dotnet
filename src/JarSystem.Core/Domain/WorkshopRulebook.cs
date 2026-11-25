@@ -284,10 +284,9 @@ public static class WorkshopRulebook
                 if (rules.SuppressionReason("POUR_OUT", jar.Shape, liquid) is { } suppressed)
                     return WorkshopRuleDecision.Reject("modifier.operation-suppressed", suppressed);
 
-                // Jar polarity compatibility was checked against the owning Workshop above.
-                // Production is not cancelled by staging admission: the output first enters the
-                // current workshop's staging/output boundary, where Ban or capacity rejects it
-                // into an explicit Discard effect. This keeps Jar chemistry separate from storage.
+                // Pouring out changes Jar-owned liquid into a free-liquid output.
+                // The caller applies staging Ban/capacity at the receiving account boundary;
+                // a staging rejection becomes an explicit discard, never a Jar-operation rejection.
                 return WorkshopRuleDecision.Allow();
             }
 
