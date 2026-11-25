@@ -599,6 +599,8 @@ public sealed class ResourceLedgerWireDto
         {
             if (item == null) throw new InvalidOperationException("资源账本 Wire DTO 包含空事件。");
             item.Validate();
+            if (item.OperationId != null && !OperationIds.Contains(item.OperationId, StringComparer.Ordinal))
+                throw new InvalidOperationException("账本事件 OperationId 不存在于幂等索引。");
             if (item.Seq <= previous || item.Seq > LastSeq) throw new InvalidOperationException("账本事件序号无效。");
             previous = item.Seq;
         }
@@ -627,6 +629,8 @@ public sealed class ResourceEventWireDto
     public string Cause { get; set; } = "";
     public string Kind { get; set; } = "";
     public string Name { get; set; } = "";
+    public string? ResourceIdentity { get; set; }
+    public string? OperationId { get; set; }
     public int Amount { get; set; }
     public string? From { get; set; }
     public string? To { get; set; }
@@ -635,7 +639,8 @@ public sealed class ResourceEventWireDto
     public static ResourceEventWireDto FromEvent(ResourceEvent value) => new()
     {
         Seq = value.Seq, Tick = value.Tick, Cause = value.Cause, Kind = value.Kind,
-        Name = value.Name, Amount = value.Amount, From = value.From, To = value.To, Reason = value.Reason
+        Name = value.Name, ResourceIdentity = value.ResourceIdentity, OperationId = value.OperationId,
+        Amount = value.Amount, From = value.From, To = value.To, Reason = value.Reason
     };
 
     public void Validate()
@@ -643,7 +648,9 @@ public sealed class ResourceEventWireDto
         if (Seq <= 0 || Tick < 0 || Amount <= 0 ||
             !ResourceCauses.All.Contains(Cause, StringComparer.Ordinal) ||
             (Kind != ResourceKinds.Jar && Kind != ResourceKinds.Liquid) ||
-            string.IsNullOrWhiteSpace(Name))
+            string.IsNullOrWhiteSpace(Name) ||
+            (ResourceIdentity != null && string.IsNullOrWhiteSpace(ResourceIdentity)) ||
+            (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))))
             throw new InvalidOperationException("资源账本事件 Wire DTO 无效。");
     }
 
@@ -653,6 +660,7 @@ public sealed class ResourceEventWireDto
         return new ResourceEvent
         {
             Seq = Seq, Tick = Tick, Cause = Cause, Kind = Kind, Name = Name,
+            ResourceIdentity = ResourceIdentity, OperationId = OperationId,
             Amount = Amount, From = From, To = To, Reason = Reason
         };
     }
