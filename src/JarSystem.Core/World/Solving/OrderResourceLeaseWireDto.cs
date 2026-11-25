@@ -212,6 +212,7 @@ public sealed class LiquidBatchSourceAllocationWireDto
 {
     public ResourceEndpointWireDto SourceEndpoint { get; set; } = new();
     public ResourceEndpointWireDto TargetEndpoint { get; set; } = new();
+    public ResourceEndpointWireDto DiscardEndpoint { get; set; } = new();
     public Dictionary<string, int> Requested { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> Accepted { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> Discarded { get; set; } = new(StringComparer.Ordinal);
@@ -220,6 +221,7 @@ public sealed class LiquidBatchSourceAllocationWireDto
     {
         SourceEndpoint = ResourceEndpointWireDto.FromEndpoint(value.SourceEndpoint),
         TargetEndpoint = ResourceEndpointWireDto.FromEndpoint(value.TargetEndpoint),
+        DiscardEndpoint = ResourceEndpointWireDto.FromEndpoint(value.DiscardEndpoint),
         Requested = Copy(value.Requested),
         Accepted = Copy(value.Accepted),
         Discarded = Copy(value.Discarded)
@@ -239,6 +241,12 @@ public sealed class LiquidBatchSourceAllocationWireDto
             AccountId = TargetEndpoint.AccountId,
             ExternalIdentity = TargetEndpoint.ExternalIdentity
         },
+        DiscardEndpoint = new ResourceEndpointWireDto
+        {
+            Kind = DiscardEndpoint.Kind,
+            AccountId = DiscardEndpoint.AccountId,
+            ExternalIdentity = DiscardEndpoint.ExternalIdentity
+        },
         Requested = Copy(Requested),
         Accepted = Copy(Accepted),
         Discarded = Copy(Discarded)
@@ -246,8 +254,8 @@ public sealed class LiquidBatchSourceAllocationWireDto
 
     public void Validate()
     {
-        if (SourceEndpoint == null || TargetEndpoint == null ||
-            !SourceEndpoint.IsValid || !TargetEndpoint.IsValid ||
+        if (SourceEndpoint == null || TargetEndpoint == null || DiscardEndpoint == null ||
+            !SourceEndpoint.IsValid || !TargetEndpoint.IsValid || !DiscardEndpoint.IsValid ||
             Requested == null || Accepted == null || Discarded == null)
             throw new InvalidOperationException("Per-source settlement Wire allocation is invalid.");
         _ = ToAllocation();
@@ -257,14 +265,14 @@ public sealed class LiquidBatchSourceAllocationWireDto
     {
         ValidateEndpoints();
         return new LiquidBatchSourceAllocation(
-            SourceEndpoint.ToEndpoint(), TargetEndpoint.ToEndpoint(),
+            SourceEndpoint.ToEndpoint(), TargetEndpoint.ToEndpoint(), DiscardEndpoint.ToEndpoint(),
             Requested, Accepted, Discarded);
     }
 
     private void ValidateEndpoints()
     {
-        if (SourceEndpoint == null || TargetEndpoint == null ||
-            !SourceEndpoint.IsValid || !TargetEndpoint.IsValid)
+        if (SourceEndpoint == null || TargetEndpoint == null || DiscardEndpoint == null ||
+            !SourceEndpoint.IsValid || !TargetEndpoint.IsValid || !DiscardEndpoint.IsValid)
             throw new InvalidOperationException("Per-source settlement endpoint is invalid.");
     }
 
