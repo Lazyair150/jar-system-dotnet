@@ -308,6 +308,11 @@ public sealed class WorldV2Context : IDisposable
             throw new InvalidOperationException("检查点 OwnerIdentity 映射与当前世界不一致，拒绝恢复。");
         foreach (var entry in checkpoint.ResourceLedger.Entries)
         {
+            if (entry.FromEndpoint.Kind == ResourceEndpointKind.Account)
+                AccountIdentity.ValidateWorldScope(entry.FromEndpoint.AccountId!, WorldInstanceId);
+            if (entry.ToEndpoint.Kind == ResourceEndpointKind.Account)
+                AccountIdentity.ValidateWorldScope(entry.ToEndpoint.AccountId!, WorldInstanceId);
+            // Keep validating the legacy projection while schema-7 and earlier events are migrated.
             if (entry.FromAccountId != null)
                 AccountIdentity.ValidateWorldScope(entry.FromAccountId, WorldInstanceId);
             if (entry.ToAccountId != null)
