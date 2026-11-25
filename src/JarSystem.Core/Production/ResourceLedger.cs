@@ -319,9 +319,12 @@ public sealed class ResourceLedger
     {
         // In the current World Vocabulary, a liquid's canonical identity is its vocabulary key.
         // Jar identities are never inferred from Shape/Name and must be supplied explicitly.
-        var normalized = item.ResourceIdentity == null && item.Kind == ResourceKinds.Liquid
-            ? item with { ResourceIdentity = item.Name }
-            : item;
+        // Legacy mutations that do not opt into DisplayName retain their old vocabulary-key
+        // fallback. New presentation-separated writes must provide ResourceIdentity explicitly.
+        var normalized = item.ResourceIdentity == null &&
+            item.DisplayName == null && item.Kind == ResourceKinds.Liquid
+                ? item with { ResourceIdentity = item.Name }
+                : item;
         return normalized with
         {
             DisplayName = normalized.DisplayName ?? normalized.Name,
@@ -382,6 +385,8 @@ public sealed class ResourceLedger
         string? displayName = null)
     {
         if (amount <= 0) return null;
+        if (displayName != null && string.IsNullOrWhiteSpace(resourceIdentity))
+            throw new DomainValidationException("Explicit DisplayName requires a canonical ResourceIdentity.");
         lock (_gate)
         {
             var nextSeq = checked(_seq + 1);
