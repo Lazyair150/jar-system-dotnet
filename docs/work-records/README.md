@@ -31,3 +31,6 @@
 
 - [ADR 0009：资源回执日志保留与零资源结算语义](../decisions/0009-resource-receipt-journal-and-zero-resource-settlement.md)
 - [第二十五轮：Receipt Journal 与零资源结算复核](2026-11-25-core-consolidation-audit.md)
+
+- [ADR 0010：复合资源转移与资源事实身份](../decisions/0010-compound-resource-transfer-and-fact-identity.md)
+- [第二十六轮：B 类复合交接与资源事实身份审查](2026-11-25-core-consolidation-audit.md)
