@@ -74,4 +74,20 @@ public sealed class CircuitTopologyTests
         Assert.Throws<ArgumentException>(() => new CircuitTopology(areas, [output, input],
             [new CircuitConnectionDefinition("bad", "a.out", "b.in")]));
     }
+    [Fact]
+    public void PortCarriesOptionalTransferAndLogicalThroughputLimits()
+    {
+        var port = new CircuitPortDefinition(
+            "production.out", "production", ResourcePortDirection.Output,
+            RuleResourceKind.Jar, ["圆罐"], "production.policy", 2,
+            maxAmountPerTransfer: 4, maxAmountPerLogicalTimeMilli: 2500);
+
+        Assert.Equal(4, port.MaxAmountPerTransfer);
+        Assert.Equal(2500, port.MaxAmountPerLogicalTimeMilli);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CircuitPortDefinition(
+            "bad.out", "production", ResourcePortDirection.Output,
+            RuleResourceKind.Jar, null, "production.policy", 2,
+            maxAmountPerTransfer: -1));
+    }
+
 }
