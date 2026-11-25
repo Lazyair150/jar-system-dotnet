@@ -371,7 +371,7 @@ public sealed class ResourceLedger
             {
                 Seq = nextSeq, Tick = tick, Cause = cause, Kind = kind,
                 Name = displayName ?? name, DisplayName = displayName ?? name,
-                ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = from == null ? to : to,
+                ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = to,
                 FromAccountId = fromAccountId, ToAccountId = toAccountId, Reason = reason,
                 FromEndpoint = fromEndpoint ?? (fromAccountId == null
                     ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(fromAccountId)),
