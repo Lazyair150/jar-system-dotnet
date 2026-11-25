@@ -316,6 +316,14 @@ public sealed class ResourceLedger
             throw new DomainValidationException("Transfer receipt OperationId does not match its ledger key.");
         if (receipt.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
             throw new DomainValidationException("Only a committed transfer can enter the receipt journal.");
+        if (receipt.ResourceKind == RuleResourceKind.Jar &&
+            (receipt.RequestedAmount != 1 || receipt.TransferredAmount != 1 ||
+             receipt.RetainedAtSourceAmount != 0 || receipt.DiscardedAmount != 0 ||
+             !int.TryParse(receipt.ResourceIdentity, System.Globalization.NumberStyles.None,
+                 System.Globalization.CultureInfo.InvariantCulture, out var jarId) ||
+             jarId <= 0 ||
+             jarId.ToString(System.Globalization.CultureInfo.InvariantCulture) != receipt.ResourceIdentity))
+            throw new DomainValidationException("Jar transfer receipts must identify one canonical positive JarId and transfer exactly one Jar.");
 
         lock (_gate)
         {
@@ -330,7 +338,9 @@ public sealed class ResourceLedger
             var expectedKind = receipt.ResourceKind == RuleResourceKind.Jar
                 ? ResourceKinds.Jar
                 : ResourceKinds.Liquid;
-            if (batch.Length == 0 || batch.Any(item =>
+            if (batch.Length == 0 ||
+                (receipt.ResourceKind == RuleResourceKind.Jar && batch.Length != 1) ||
+                batch.Any(item =>
                     item.Amount <= 0 ||
                     (item.Cause != ResourceCauses.Transfer && item.Cause != ResourceCauses.Flow) ||
                     item.Kind != expectedKind ||
