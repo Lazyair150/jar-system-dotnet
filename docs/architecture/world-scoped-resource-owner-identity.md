@@ -1,7 +1,7 @@
 # World-scoped Resource Owner Identity
 
 Date: 2026-11-26  
-Status: Normative target model; implementation migration pending  
+Status: Normative target model; WorldInstanceId host-lifecycle slice implemented, OwnerIdentity migration pending  
 Related: ADR 0011, ADR 0010, Core conceptual model sections 20–22
 
 ## Purpose
@@ -32,6 +32,14 @@ Every durable World has one immutable WorldInstanceId. It is distinct from its c
 The host may create a random identifier once, but must persist it and inject the same value during restore and deterministic replay. Core constructors and test fixtures must not silently generate new IDs in ways that alter replay output.
 
 Legacy checkpoints without WorldInstanceId require an explicit migration identity supplied by the owning save/session boundary. Core must not derive it from configuration fingerprints or display labels because identical worlds could then alias.
+
+The current implementation boundary is:
+- A normal `WorldV2HostService.Replace(options)` creates one new opaque identity at the Host boundary.
+- The Host also exposes an explicit `Replace(options, worldInstanceId)` path for a save/session owner that has already persisted the identity.
+- `WorldV2Factory` and `WorldV2Context` accept the identity as an injected value; neither creates one implicitly.
+- Execution checkpoints and the Godot bridge expose/persist the same identity. Restore creates the replacement Context with the checkpoint identity before applying the checkpoint.
+- Legacy checkpoint restore is rejected unless the caller supplies a migration identity. The migration identity is copied into the migrated checkpoint; it is never guessed or silently generated during restore.
+- The save/session owner must persist the identity returned by `GetWorldInstanceId()` or, preferably, the captured checkpoint. A fresh ordinary world replacement intentionally receives a different identity.
 
 ## 3. Owner identity
 
