@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Domain;
 
@@ -208,7 +209,7 @@ public static class WorkshopRulebook
             new WorkshopOperationTransition(
                 definition.RuleId,
                 definition.RuleVersion,
-                new JarFacts(jar.Shape, jar.Liquid, true),
+                new JarFacts(jar.Shape, jar.Liquid, true, jar.Polarity),
                 null, null, null)
             { WorkshopPolarityMode = rules.PolarityMode });
     }
