@@ -346,6 +346,8 @@ public sealed class ResourceLedger
             if (batch.Sum(item => (long)item.Amount) != receipt.TransferredAmount)
                 throw new DomainValidationException("Transfer ledger amount does not match the final receipt.");
 
+            // Clone before any visible mutation so the final journal publication does not allocate.
+            var receiptCopy = receipt with { };
             var nextSeq = _seq;
             var events = new List<ResourceEvent>(batch.Length);
             foreach (var item in batch)
@@ -365,7 +367,7 @@ public sealed class ResourceLedger
 
             if (!_operationIds.Add(operationId)) return false;
             _entries.AddRange(events);
-            _transferReceipts.Add(operationId, receipt with { });
+            _transferReceipts.Add(operationId, receiptCopy);
             _seq = nextSeq;
             Trim();
             return true;
