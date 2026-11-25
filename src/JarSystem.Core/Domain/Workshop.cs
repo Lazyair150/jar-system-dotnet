@@ -389,10 +389,10 @@ public class Workshop
     internal void RestoreJarIdGeneratorAtLeast(int value)
     {
         if (value < 0) throw new ArgumentOutOfRangeException(nameof(value));
-        if (_ids is IRestorableIdGenerator restorable)
-            restorable.RestoreAtLeast(value);
-        else if (value > 0)
+        if (value == 0) return;
+        if (_ids is not IRestorableIdGenerator restorable)
             throw new InvalidOperationException("Checkpoint restore requires a restorable Jar ID generator.");
+        restorable.RestoreAtLeast(value);
     }
 
     public bool AddJar(Jar j)
