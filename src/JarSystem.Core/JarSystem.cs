@@ -489,7 +489,10 @@ public partial class JarSystem : Rules.IWorldFacts
             ledger.Record(0, Production.ResourceCauses.Stock, Production.ResourceKinds.Liquid,
                 liquid, amount, from: "关卡配置", to: "仓库", resourceIdentity: liquid,
                 fromEndpoint: ResourceEndpoint.ExternalSource("level.initial-stock"),
-                toEndpoint: ResourceEndpoint.LegacyUnknown);
+                toEndpoint: ProducerModule.Warehouse.OwnerIdentity is { } warehouseOwner
+                    ? ResourceEndpoint.ForAccount(new RuleResourceAccount(
+                        warehouseOwner, "production.warehouse.liquid-storage").AccountId)
+                    : ResourceEndpoint.LegacyUnknown);
     }
 
     // ============================================================
