@@ -152,7 +152,7 @@ public sealed class Warehouse
 
     /// <summary>
     /// 仓库 → 主台流入：罐子优先给"主台基础形状"（带主台容量检查），液体按主台的**容量**部分填充
-    /// （被禁的液体同样会流入 —— 那一格仍然存在，只是取不出来）。
+    /// （被禁液体不会流入，仍完整留在中央仓库）。
     /// 返回本次实际流入的罐子与液体（与抽取前逐字一致）。
     /// </summary>
     public (List<Jar> Jars, Dictionary<string, int> Liquids) FlowToMaster(
