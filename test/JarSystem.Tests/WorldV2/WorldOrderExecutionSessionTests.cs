@@ -1337,17 +1337,23 @@ public sealed class WorldOrderExecutionSessionTests
     [Fact]
     public void BOrderUsesOrderScopesPumpsRequiredLiquidAndSettlesBackToShipInventory()
     {
+        var worldId = new WorldInstanceId("world-b-order-scope-endpoints");
+        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "scope-master");
+        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "scope-slave");
+        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "scope-ship");
         var master = new Workshop("主台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "scope-master", ownerIdentity: masterOwner);
         var slave = new Workshop("从台", new List<string> { "圆罐" },
-            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "scope-slave", ownerIdentity: slaveOwner);
         var jar = new Jar("圆罐", vocabulary: Words);
         master.AddJar(jar);
         master.AddLiquid("酒", 1); // 求解快照的兼容投影
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
         var setup = Prepare(master, slave, demand);
         var ship = new ShipLiquidInventory(4,
-            new Dictionary<string, int> { ["酒"] = 2 });
+            new Dictionary<string, int> { ["酒"] = 2 }, shipOwner);
         ReevaluateWithShip(setup.Book, setup.Roster, ship, demand.Id);
         var admission = new WorldOrderExecutionAdmission(
             setup.Board, setup.Book, setup.Roster, setup.Reservations, ship);
@@ -1396,6 +1402,10 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal("自机液库", funding.From);
         Assert.Equal("主台", funding.To);
         Assert.Equal(1, funding.Amount);
+        Assert.Equal(ResourceEndpointKind.Account, funding.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, funding.ToEndpoint.Kind);
+        Assert.Equal("scope-ship", AccountIdentity.ParseV2(funding.FromEndpoint.AccountId!).Owner.LocalOwnerId);
+        Assert.Equal("scope-master", AccountIdentity.ParseV2(funding.ToEndpoint.AccountId!).Owner.LocalOwnerId);
         var transfer = Assert.Single(ledger.For(ResourceCauses.Transfer),
             item => item.Kind == ResourceKinds.Liquid);
         Assert.Equal("主台", transfer.From);
@@ -1406,6 +1416,8 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal("订单暂存", returned.From);
         Assert.Equal("自机液库", returned.To);
         Assert.Equal(1, returned.Amount);
+        Assert.Equal(ResourceEndpointKind.Account, returned.ToEndpoint.Kind);
+        Assert.Equal("scope-ship", AccountIdentity.ParseV2(returned.ToEndpoint.AccountId!).Owner.LocalOwnerId);
     }
 
 
