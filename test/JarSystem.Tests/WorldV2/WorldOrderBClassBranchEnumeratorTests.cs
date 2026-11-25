@@ -486,6 +486,25 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
     }
 
     [Fact]
+    public void BClassCannotUsePreExistingSlaveInventory()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        master.AddJar(new Jar("圆罐", id: 9801));
+        slave.AddJar(new Jar("圆罐", id: 9802));
+        var input = Profiles(master, slave, new[]
+        {
+            new Requirement { Shape = "圆罐" }
+        });
+
+        var result = WorldOrderBClassBranchEnumerator.Enumerate(
+            980, input.Master, input.Slave, input.World);
+
+        Assert.Equal(WorldOrderBClassBranchEnumerationStatus.Infeasible, result.Status);
+        Assert.Null(result.Assembly);
+    }
+
+    [Fact]
     public void BClassBudgetExhaustionIsUndetermined()
     {
         var master = new Workshop("主台", new List<string> { "圆罐", "方罐" });
