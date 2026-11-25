@@ -473,3 +473,15 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 特别明确：CanReceive / CanWithdraw 是纯预检；跨区域提交必须由 Transfer Coordinator 同时验证源 Output 与目标 Input，不能让调用方分别调用两个独立写接口造成半提交。部分接收必须有明确保留/丢弃结果，版本冲突不得重复扣款。
 
+
+
+### 第十七轮跨仓库映射补记：Space Board 区域标识待裁决
+
+检查 Space PR #2 分支 world-v2/phase-4.10b-hangar-ui，当前 branch head 8b70979d5f56f559f69f55842790b520236a5aa。SpaceHangarBoardSlotDefinition 的 area_id 枚举包含 workshop、decomposition、orders、production；SpaceHangarBoardDefinition 的 runtime projection 要求一个 ore_parser 槽位，demo_board.tres 将其放在 decomposition，而 production_device 放在 production。
+
+用户最新概念确认的是生产区、工作台区、订单区三个顶层区域。当前实现把 decomposition 与 production 分成两个 area_id，不能擅自认定二者是同一层级，也不能擅自增加第四个领域区域。需由用户裁决：decomposition 是否作为 Production Area 的子区域（建议保留 parser 专属子区域身份，但挂在生产区下），还是维持独立第四区域。裁决前不改 Space schema、不做破坏性重命名。
+
+其他映射事实：
+- SpaceHangarBoardDefinition 是结构蓝图；SpaceHangarBoardAssignment 是玩家的安装映射，校验 Owned Instance 唯一性、Definition 版本和 progression revision。
+- SpaceBoardRuntimeProfileSet 是按组件类别将冻结 assignment 路由给 Core Workshop、Space Parser、Space Skill 等消费者的 profile manifest；其源码明确不是规则解释器。
+- demo_board.tres 当前有 Master/Slave Workshop、Parser、Active/Passive Order slots；未配置 production_device slot。

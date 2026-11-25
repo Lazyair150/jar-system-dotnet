@@ -50,6 +50,14 @@ Jar 系统不是“若干工作台功能 + 一个订单算法”，而是由**�
 
 生产区的产出只有在存在明确的输出端口、接收端口和连接通路时，才能进入其他区域。不能因为生产区与工作台区都在同一块板上，就推定它们天然共享库存或自动连通。
 
+### 2.3 与当前 Space Board 模型的对齐问题
+
+跨仓库检查 Space 分支 world-v2/phase-4.10b-hangar-ui 后，发现 SpaceHangarBoardSlotDefinition 当前允许四种 area_id：workshop、decomposition、orders、production。其中 ore_parser 安装在 decomposition 区域，production_device 安装在 production 区域；这两个区域在当前代码中是两个不同的顶层标识。
+
+用户确认的概念层目前是三个区域：生产区、工作台区、订单区。不能擅自把 Space 的 decomposition 合并/重命名为 production，也不能继续把四种标识当作最终领域模型。需要明确 decomposition 是 Production Area 内的子区域，还是应继续作为独立第四区域。该决定会影响 Board Definition schema、slot validation、Circuit Image topology、生产资源路径和 Space/Core 映射。
+
+在该语义确定之前，规范保留三个用户定义的概念区域，同时将当前 Space 的 decomposition 标识视为待迁移的兼容实现细节，不据此增加第四个领域区域。
+ 
 ## 3. 区域与接口/端口是不同概念
 
 ### 3.1 Area
