@@ -57,7 +57,14 @@ public sealed class WorldV2HostEndToEndTests
     public void HostRunsACompleteWorldV2ProductionToTimedOrderSettlementFlow()
     {
         using var host = new WorldV2HostService();
-        host.Replace(Options());
+        var options = Options();
+        options.Producers[0].ProducerInstanceId = "producer-e2e";
+        options.Workshops[0].OwnedInstanceId = "workshop-e2e";
+        var worldId = new WorldInstanceId("world-ledger-e2e");
+        var ownerMap = new WorldV2OwnerIdentityMap(
+            worldId, "ship-e2e", "board-e2e", "production-e2e", "warehouse-e2e",
+            new[] { "producer-e2e" }, new[] { "workshop-e2e" });
+        host.Replace(options, worldId, ownerMap);
 
         var producedJars = 0;
         var flowedJars = 0;
@@ -129,6 +136,26 @@ public sealed class WorldV2HostEndToEndTests
             item.Name == "酒" && item.From == "自机液库" && item.To == "主台" &&
             item.Amount == 1);
         Assert.DoesNotContain(resourceEvents, item => item.Cause == ResourceCauses.Transfer);
+
+        var stockEvent = Assert.Single(resourceEvents.Where(item => item.Cause == ResourceCauses.Stock));
+        Assert.Equal(ResourceEndpointKind.ExternalSource, stockEvent.FromEndpoint.Kind);
+        Assert.Equal("level.initial-stock", stockEvent.FromEndpoint.ExternalIdentity);
+        Assert.Equal(ResourceEndpointKind.Account, stockEvent.ToEndpoint.Kind);
+        var stockTarget = AccountIdentity.ParseV2(stockEvent.ToEndpoint.AccountId!);
+        Assert.Equal(ResourceOwnerKind.Ship, stockTarget.Owner.OwnerKind);
+        Assert.Equal("ship-e2e", stockTarget.Owner.LocalOwnerId);
+
+        var productionJar = Assert.Single(resourceEvents.Where(item =>
+            item.Cause == ResourceCauses.Production && item.Kind == ResourceKinds.Jar));
+        Assert.Equal(ResourceOwnerKind.ProductionArea,
+            AccountIdentity.ParseV2(productionJar.FromEndpoint.AccountId!).Owner.OwnerKind);
+        Assert.Equal(ResourceOwnerKind.Warehouse,
+            AccountIdentity.ParseV2(productionJar.ToEndpoint.AccountId!).Owner.OwnerKind);
+
+        var flowedJar = Assert.Single(resourceEvents.Where(item =>
+            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Jar));
+        Assert.Equal("warehouse-e2e", AccountIdentity.ParseV2(flowedJar.FromEndpoint.AccountId!).Owner.LocalOwnerId);
+        Assert.Equal("workshop-e2e", AccountIdentity.ParseV2(flowedJar.ToEndpoint.AccountId!).Owner.LocalOwnerId);
 
         // Host 操作结束后，仍可通过下一次独占操作读取同一世界的脱离式状态。
         var worldStillAvailable = false;
