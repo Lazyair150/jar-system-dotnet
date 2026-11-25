@@ -6,11 +6,18 @@ public interface IIdGenerator
     int Next();
 }
 
+/// <summary>An ID generator whose monotonic state can be restored from an authoritative checkpoint.</summary>
+public interface IRestorableIdGenerator : IIdGenerator
+{
+    int CurrentValue { get; }
+    void RestoreAtLeast(int value);
+}
+
 /// <summary>
 /// 可检查点化的单调 ID 源。Restore 只允许把计数器推进到不小于当前值的位置，
 /// 避免同一进程内已发出的 ID 被重新分配。
 /// </summary>
-public sealed class SequentialIdGenerator : IIdGenerator
+public sealed class SequentialIdGenerator : IRestorableIdGenerator
 {
     private int _value;
 
