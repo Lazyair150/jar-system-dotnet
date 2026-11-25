@@ -43,6 +43,20 @@ public sealed class WorldV2BridgeSession : IDisposable
         _application.CreateOrReplaceWorld(options);
     }
 
+    /// <summary>使用已持久化的 WorldInstanceId 创建或重建世界。</summary>
+    public void CreateOrReplaceWorld(WorldV2Options options, WorldInstanceId worldInstanceId)
+    {
+        ThrowIfDisposed();
+        _application.CreateOrReplaceWorld(options, worldInstanceId);
+    }
+
+    /// <summary>读取当前 World 的稳定实例身份，供宿主存档元数据使用。</summary>
+    public WorldInstanceId GetWorldInstanceId()
+    {
+        ThrowIfDisposed();
+        return _application.GetWorldInstanceId();
+    }
+
     /// <summary>推进指定的世界时间毫秒数；逻辑时间换算由 Core 的 WorldClock 完成。</summary>
     public WorldV2AdvanceResultDto AdvanceWorld(long deltaWorldTimeMilli)
     {
