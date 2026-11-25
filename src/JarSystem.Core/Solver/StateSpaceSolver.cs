@@ -376,7 +376,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
             if (st.Allows(st.Jars[di], match)) ops.Add(match);
         }
         // 空罐改形：按（成本液体 → 罐子描述符）去重，理由同上（同构罐子互为等价分支）。
-        foreach (var cl in Constants.LIQUIDS)
+        foreach (var cl in st.Liquids.Keys)
         {
             var seenEmpty = new HashSet<string>();
             for (int i = 0; i < st.Jars.Count; i++)
