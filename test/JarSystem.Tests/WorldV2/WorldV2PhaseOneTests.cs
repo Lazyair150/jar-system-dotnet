@@ -126,8 +126,6 @@ public sealed class ResourceWorldRuntimeTests
         Assert.Equal(1, discarded.Amount);
     }
 
-}
-
     [Fact]
     public void JarProductionAndWarehouseFlowFactsCarryTheSameCanonicalJarId()
     {
@@ -192,6 +190,8 @@ public sealed class ResourceWorldRuntimeTests
         Assert.Equal(1, discarded.Amount);
         Assert.Equal(Constants.WAREHOUSE_MAX_JARS, area.Inventory.JarCount);
     }
+
+}
 
 public sealed class ResourceAreaTests
 {
