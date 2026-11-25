@@ -142,7 +142,7 @@ public sealed class WorldV2Context : IDisposable
             ownerIdentities.ValidateForWorld(worldInstanceId!.Value);
             if (shipLiquidInventory?.OwnerIdentity != ownerIdentities.Ship ||
                 resources.OwnerIdentity != ownerIdentities.ProductionArea ||
-                resources.Inventory.OwnerIdentity != ownerIdentities.Warehouse)
+                resources.Producers.Warehouse.OwnerIdentity != ownerIdentities.Warehouse)
                 throw new ArgumentException(
                     "Ship/ProductionArea/Warehouse runtime objects do not match the supplied OwnerIdentity map.",
                     nameof(ownerIdentities));
