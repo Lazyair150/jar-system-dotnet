@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Solving;
@@ -110,8 +111,14 @@ public sealed class OrderResourceSettlementService
                 }
 
                 var returned = admission.ShipLiquidInventory.Return(requested);
+                var sourceAllocations = BuildSourceAllocations(
+                    scopes.Value.Master, masterBefore,
+                    scopes.Value.Slave, slaveBefore,
+                    returned, admission.ShipLiquidInventory);
+                var attributedReceipt = new LiquidBatchReceipt(
+                    returned.Requested, returned.Accepted, returned.Discarded, sourceAllocations);
                 _faults.AfterShipReturnBeforeReceipt();
-                receipt = lease.RecordSettlement(returned);
+                receipt = lease.RecordSettlement(attributedReceipt);
             }
             catch (Exception settlementError)
             {
@@ -136,13 +143,7 @@ public sealed class OrderResourceSettlementService
             ledger != null)
         {
             var tick = settlementTick ?? 0;
-            var mutations = receipt.Accepted.Select(item => new ResourceLedgerMutation(
-                    ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
-                    From: "订单暂存", To: "自机液库"))
-                .Concat(receipt.Discarded.Select(item => new ResourceLedgerMutation(
-                    ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
-                    From: "订单暂存", To: null, Reason: "自机液库总容量不足")))
-                .ToArray();
+            var mutations = BuildSettlementLedgerMutations(receipt).ToArray();
             // Zero accepted and zero discarded means no resource changed; do not publish an
             // empty ledger operation, but still advance the settlement lease stage below.
             if (mutations.Length > 0)
@@ -157,6 +158,111 @@ public sealed class OrderResourceSettlementService
             throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
 
         return receipt;
+    }
+
+    private static IReadOnlyList<LiquidBatchSourceAllocation> BuildSourceAllocations(
+        OrderLiquidScope master,
+        IReadOnlyDictionary<string, int> masterBalances,
+        OrderLiquidScope? slave,
+        IReadOnlyDictionary<string, int>? slaveBalances,
+        LiquidBatchReceipt aggregate,
+        ShipLiquidInventory ship)
+    {
+        var targetEndpoint = ship.OwnerIdentity is { } shipOwner
+            ? ResourceEndpoint.ForAccount(new RuleResourceAccount(shipOwner, "ship.liquid-inventory").AccountId)
+            : ResourceEndpoint.LegacyUnknown;
+        var acceptedRemaining = new Dictionary<string, int>(aggregate.Accepted, StringComparer.Ordinal);
+        var discardedRemaining = new Dictionary<string, int>(aggregate.Discarded, StringComparer.Ordinal);
+        var result = new List<LiquidBatchSourceAllocation>();
+
+        Allocate(master, masterBalances);
+        if (slave != null)
+            Allocate(slave, slaveBalances ?? throw new InvalidOperationException("Slave settlement balances are missing."));
+
+        if (acceptedRemaining.Values.Any(value => value != 0) ||
+            discardedRemaining.Values.Any(value => value != 0))
+            throw new InvalidOperationException("Per-source settlement attribution does not cover the aggregate receipt.");
+        return result.AsReadOnly();
+
+        void Allocate(OrderLiquidScope scope, IReadOnlyDictionary<string, int> balances)
+        {
+            var requested = balances.Where(item => item.Value > 0)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+            var accepted = new Dictionary<string, int>(StringComparer.Ordinal);
+            var discarded = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var item in requested.OrderBy(item => item.Key, StringComparer.Ordinal))
+            {
+                var acceptedAmount = Math.Min(item.Value, acceptedRemaining.GetValueOrDefault(item.Key));
+                var discardedAmount = item.Value - acceptedAmount;
+                if (discardedAmount > discardedRemaining.GetValueOrDefault(item.Key))
+                    throw new InvalidOperationException("Per-source settlement discard attribution exceeds the aggregate receipt.");
+                if (acceptedAmount > 0)
+                {
+                    accepted[item.Key] = acceptedAmount;
+                    acceptedRemaining[item.Key] -= acceptedAmount;
+                }
+                if (discardedAmount > 0)
+                {
+                    discarded[item.Key] = discardedAmount;
+                    discardedRemaining[item.Key] -= discardedAmount;
+                }
+            }
+            result.Add(new LiquidBatchSourceAllocation(
+                GetOrderSourceEndpoint(scope), targetEndpoint, requested, accepted, discarded));
+        }
+    }
+
+    private static ResourceEndpoint GetOrderSourceEndpoint(OrderLiquidScope scope)
+    {
+        if (scope.WorkshopOwnerIdentity is { } owner)
+        {
+            var orderOwner = ResourceOwnerIdentityGuard.ForOrderStaging(owner, scope.OrderId);
+            return ResourceEndpoint.ForAccount(
+                new RuleResourceAccount(orderOwner, "workshop.order-liquid-staging").AccountId);
+        }
+        if (scope.WorkshopInstanceId == null)
+            return ResourceEndpoint.LegacyUnknown;
+        var localOwnerId = scope.WorkshopInstanceId + ":order:" +
+            scope.OrderId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return ResourceEndpoint.ForAccount(
+            new RuleResourceAccount("workshop.order-liquid-staging", localOwnerId).AccountId);
+    }
+
+    private static IEnumerable<ResourceLedgerMutation> BuildSettlementLedgerMutations(
+        LiquidBatchReceipt receipt)
+    {
+        if (receipt.SourceAllocations.Count == 0)
+        {
+            return receipt.Accepted.Select(item => new ResourceLedgerMutation(
+                    ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: "自机液库"))
+                .Concat(receipt.Discarded.Select(item => new ResourceLedgerMutation(
+                    ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: null, Reason: "自机液库总容量不足")));
+        }
+
+        var mutations = new List<ResourceLedgerMutation>();
+        foreach (var source in receipt.SourceAllocations)
+        {
+            var sourceAccountId = source.SourceEndpoint.Kind == ResourceEndpointKind.Account
+                ? source.SourceEndpoint.AccountId : null;
+            var targetAccountId = source.TargetEndpoint.Kind == ResourceEndpointKind.Account
+                ? source.TargetEndpoint.AccountId : null;
+            foreach (var item in source.Accepted.Where(item => item.Value > 0))
+                mutations.Add(new ResourceLedgerMutation(
+                    ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: "自机液库", ResourceIdentity: item.Key,
+                    FromAccountId: sourceAccountId, ToAccountId: targetAccountId,
+                    FromEndpoint: source.SourceEndpoint, ToEndpoint: source.TargetEndpoint));
+            foreach (var item in source.Discarded.Where(item => item.Value > 0))
+                mutations.Add(new ResourceLedgerMutation(
+                    ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: null, Reason: "自机液库总容量不足", ResourceIdentity: item.Key,
+                    FromAccountId: sourceAccountId,
+                    FromEndpoint: source.SourceEndpoint,
+                    ToEndpoint: ResourceEndpoint.ExternalSink("ship.liquid-inventory.capacity-overflow")));
+        }
+        return mutations;
     }
 
     private static void Merge(
