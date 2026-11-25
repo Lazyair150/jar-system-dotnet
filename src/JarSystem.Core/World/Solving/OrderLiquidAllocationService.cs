@@ -121,8 +121,8 @@ internal sealed class OrderLiquidAllocationService
                 }
             }
 
-            var masterScope = new OrderLiquidScope(manifest.DemandId, masterStaging, master.OwnedInstanceId);
-            var slaveScope = slaveStaging == null ? null : new OrderLiquidScope(manifest.DemandId, slaveStaging, slave!.OwnedInstanceId);
+            var masterScope = new OrderLiquidScope(manifest.DemandId, masterStaging, master.OwnedInstanceId, master.OwnerIdentity);
+            var slaveScope = slaveStaging == null ? null : new OrderLiquidScope(manifest.DemandId, slaveStaging, slave!.OwnedInstanceId, slave.OwnerIdentity);
             var lease = _reservations.FindLease(manifest.DemandId)
                 ?? throw new InvalidOperationException("订单液体分配完成后缺少资源租约。");
             lease.AttachLiquidScopes(masterScope, slaveScope);
