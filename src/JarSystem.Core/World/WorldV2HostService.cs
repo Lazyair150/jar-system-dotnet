@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using JarSystem.Core.Domain;
 
@@ -35,15 +36,68 @@ public sealed class WorldV2HostService : IDisposable
     /// 新世界完整创建成功后才发布；配置校验或装配失败时，当前世界保持不变。
     /// 替换与正在执行的 ExecuteExclusive 回调串行，不会提前释放正在使用的 Context。
     /// </summary>
-    public void Replace(WorldV2Options options) =>
-        Replace(options, new WorldInstanceId(Guid.NewGuid().ToString("N")));
+    public void Replace(WorldV2Options options)
+    {
+        var worldInstanceId = CreateWorldInstanceId();
+        var ownerIdentities = EnsureOwnerIdentityMap(options, worldInstanceId);
+        Replace(options, worldInstanceId, ownerIdentities);
+    }
+
+    internal static WorldInstanceId CreateWorldInstanceId() =>
+        new(Guid.NewGuid().ToString("N"));
+
+    /// <summary>
+    /// Assigns opaque local instance IDs at the host composition boundary when a legacy
+    /// definition omits them, then builds one exact immutable owner map for this World.
+    /// Existing IDs (including Board-assigned Workshop IDs) are preserved verbatim.
+    /// </summary>
+    internal static WorldV2OwnerIdentityMap EnsureOwnerIdentityMap(
+        WorldV2Options options,
+        WorldInstanceId worldInstanceId)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (!worldInstanceId.IsValid)
+            throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
+        if (options.Producers == null || options.Workshops == null)
+            throw new ArgumentException("World V2 Producers / Workshops 不能为 null。", nameof(options));
+
+        foreach (var producer in options.Producers)
+            if (producer.ProducerInstanceId == null)
+                producer.ProducerInstanceId = "producer-" + Guid.NewGuid().ToString("N");
+
+        var assignments = options.BoardAssignmentSnapshot?.Assignments;
+        foreach (var workshop in options.Workshops)
+        {
+            if (workshop.OwnedInstanceId != null) continue;
+            var assigned = assignments?.FirstOrDefault(item =>
+                item != null &&
+                string.Equals(item.ComponentKind, "workshop", StringComparison.Ordinal) &&
+                string.Equals(item.SlotId, workshop.BoardSlotId, StringComparison.Ordinal));
+            workshop.OwnedInstanceId = assigned?.OwnedInstanceId
+                ?? "workshop-" + Guid.NewGuid().ToString("N");
+        }
+
+        return new WorldV2OwnerIdentityMap(
+            worldInstanceId,
+            "ship-" + Guid.NewGuid().ToString("N"),
+            "circuit-board-" + Guid.NewGuid().ToString("N"),
+            "production-area-" + Guid.NewGuid().ToString("N"),
+            "warehouse-" + Guid.NewGuid().ToString("N"),
+            options.Producers.Select(item => item.ProducerInstanceId
+                ?? throw new ArgumentException("ProducerInstanceId 不能为 null。", nameof(options))),
+            options.Workshops.Select(item => item.OwnedInstanceId
+                ?? throw new ArgumentException("OwnedInstanceId 不能为 null。", nameof(options))));
+    }
 
     /// <summary>
     /// 使用宿主显式提供的身份创建或替换世界。宿主可在存档/重放边界复用已持久化身份；
     /// 普通新世界由上层 Replace(options) 在 Host 边界生成一次。
     /// </summary>
-    public void Replace(WorldV2Options options, WorldInstanceId worldInstanceId) =>
-        Replace(options, worldInstanceId, null);
+    public void Replace(WorldV2Options options, WorldInstanceId worldInstanceId)
+    {
+        var ownerIdentities = EnsureOwnerIdentityMap(options, worldInstanceId);
+        Replace(options, worldInstanceId, ownerIdentities);
+    }
 
     /// <summary>使用已持久化的 World 与 Owner 身份映射装配世界。</summary>
     public void Replace(
