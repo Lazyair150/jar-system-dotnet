@@ -576,19 +576,23 @@ public sealed class ResourceLedgerWireDto
     public int Dropped { get; set; }
     public List<ResourceEventWireDto> Events { get; set; } = new();
     public List<string> OperationIds { get; set; } = new();
+    public List<ResourceTransferReceipt> TransferReceipts { get; set; } = new();
 
     public static ResourceLedgerWireDto FromSnapshot(ResourceLedgerSnapshot value) => new()
     {
         Capacity = value.Capacity, LastSeq = value.LastSeq, Dropped = value.Dropped,
         Events = value.Entries.Select(ResourceEventWireDto.FromEvent).ToList(),
-        OperationIds = value.OperationIds.ToList()
+        OperationIds = value.OperationIds.ToList(),
+        TransferReceipts = value.TransferReceipts.Select(item => item with { }).ToList()
     };
 
     public void Validate()
     {
         if (Capacity < 1 || LastSeq < 0 || Dropped < 0 || Events == null || OperationIds == null ||
-            Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
-            OperationIds.Distinct(StringComparer.Ordinal).Count() != OperationIds.Count)
+            TransferReceipts == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
+            OperationIds.Distinct(StringComparer.Ordinal).Count() != OperationIds.Count ||
+            TransferReceipts.Any(item => item == null || !OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
+            TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != TransferReceipts.Count)
             throw new InvalidOperationException("资源账本 Wire DTO 无效。");
         long previous = 0;
         foreach (var item in Events)
@@ -600,13 +604,19 @@ public sealed class ResourceLedgerWireDto
         }
         if (Events.Count > 0 && Events[^1].Seq != LastSeq)
             throw new InvalidOperationException("账本 LastSeq 与最后事件不一致。");
+        foreach (var receipt in TransferReceipts)
+        {
+            receipt.Validate();
+            if (receipt.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
+                throw new InvalidOperationException("资源账本 Wire DTO 只能包含已提交的转移回执。");
+        }
     }
 
     public ResourceLedgerSnapshot ToSnapshot()
     {
         Validate();
         return new ResourceLedgerSnapshot(Capacity, LastSeq, Dropped,
-            Events.Select(item => item.ToEvent()), OperationIds);
+            Events.Select(item => item.ToEvent()), OperationIds, TransferReceipts);
     }
 }
 
