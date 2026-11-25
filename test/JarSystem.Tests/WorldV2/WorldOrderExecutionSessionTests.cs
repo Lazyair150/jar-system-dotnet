@@ -818,8 +818,11 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(scopes.Master.Staging.TryReceiveExact(
             setup.Demand.Id, "酒", 1, out var masterGrant), masterGrant.Reason);
 
-        var receipt = new OrderResourceSettlementService().SettleAndRelease(
-            setup.Demand.Id, setup.Admission, setup.Ledger, 19);
+        var settlementError = Assert.Throws<InvalidOperationException>(() =>
+            new OrderResourceSettlementService(new ThrowAtSettlementBoundary("reservation-release"))
+                .SettleAndRelease(setup.Demand.Id, setup.Admission, setup.Ledger, 19));
+        Assert.Contains("Injected settlement failure", settlementError.Message);
+        var receipt = lease.SettlementReceipt;
 
         Assert.NotNull(receipt);
         Assert.Equal(2, receipt!.Requested["酒"]);
