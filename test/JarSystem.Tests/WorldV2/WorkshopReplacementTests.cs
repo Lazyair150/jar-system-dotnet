@@ -739,7 +739,12 @@ public sealed class WorkshopReplacementTests
     [Fact]
     public void WorldV2MasterReplacementPrefillsTargetBeforeMigrationAndRecordsLedger()
     {
-        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" });
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["蜜"] = LiquidPolarity.Anode,
+                ["酒"] = LiquidPolarity.Cathode
+            });
         var ship = new ShipLiquidInventory(8, new Dictionary<string, int>
         {
             ["酒"] = 3,
@@ -830,7 +835,12 @@ public sealed class WorkshopReplacementTests
     [Fact]
     public void RetiredMasterPrefillReturnsOnlyAfterCommitAndCancelPreservesIt()
     {
-        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" });
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["蜜"] = LiquidPolarity.Anode,
+                ["酒"] = LiquidPolarity.Cathode
+            });
         var ship = new ShipLiquidInventory(8, new Dictionary<string, int>
         {
             ["酒"] = 4,
@@ -911,7 +921,12 @@ public sealed class WorkshopReplacementTests
     [Fact]
     public void RetiredMasterPrefillUsesShipReturnCapacityAndRecordsOverflowDiscard()
     {
-        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" });
+        var vocabulary = new Vocabulary(new[] { "圆罐" }, new[] { "蜜", "酒" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["蜜"] = LiquidPolarity.Anode,
+                ["酒"] = LiquidPolarity.Cathode
+            });
         var ship = new ShipLiquidInventory(8, new Dictionary<string, int>
         {
             ["酒"] = 4,
