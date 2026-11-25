@@ -42,6 +42,7 @@ public sealed class ResourcePortTransferContractTests
         receipt.Validate();
 
         Assert.Throws<ArgumentException>(() => (receipt with { RetainedAtSourceAmount = 1 }).Validate());
+        Assert.Throws<ArgumentException>(() => (receipt with { TargetVersionAfter = receipt.TargetVersionBefore }).Validate());
     }
 
     [Fact]
