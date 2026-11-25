@@ -44,7 +44,7 @@ public static class WorldV2CheckpointJsonCodec
     /// <summary>解码根级 World V2 检查点，并恢复为经过 wire 校验的领域快照对象图。</summary>
     public static WorldV2ExecutionResourceCheckpoint DecodeExecutionResourceCheckpoint(
         string json,
-        WorldInstanceId? legacyMigrationWorldInstanceId = null)
+        global::JarSystem.Core.Domain.WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         var envelope = Decode<WorldV2ExecutionCheckpointWireDto>(json);
         var ledgerEvents = envelope.Payload.ResourceLedger?.Events;
