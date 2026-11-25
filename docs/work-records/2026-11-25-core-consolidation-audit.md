@@ -796,3 +796,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 新增最终回执协调器的提交后端点身份复核：对提交后 Source/Target Preflight 再 Validate，并要求 PortId、Account、ResourceKind、ResourceIdentity、Amount 与 Prepare 请求完全一致；漂移会在物理补偿窗口内失败。新增对应合同测试。
 - 上述修复相关提交：`c3be4bce76c15ba48cd31b7fa0794660b0a5b369`、`b524644a49e56c663269682108806528885de5d0`、`cbaf2cfd22bba6ac75d40734f472f7cc7d6690fd`、`f0584f4e0aad1333bae5cb47b01c010a2110fb78`、`9ed78ec22c6ca7148d3478c49114eaeafcb5ec2e`、`75db77ee3f1c9cfe3e07319fe82c0aa0b36957b7`、`fb9c71da3887148f070d2ede61dd5284bfb964ea`。
 - 当前最新 HEAD 包含零资源结算兼容、回执冲突测试端点修正、提交后端点复核和 RestoreFrom 回执索引测试；最新 CI Run `45635278057` 正在执行，最终状态待确认。PR #63 继续 Open / Draft / 不合并。
+
+- 从 Run `45635042259` 的归档 `_verify_output.txt` 读取完整异常栈后，确认 10 项剩余失败的真正共同根因不是 `ResourceWorldRuntime`，而是 `OrderResourceSettlementService.SettleAndRelease` 在“Accepted 与 Discarded 都为空”时仍调用 `RecordBatchOnce`。该路径在订单失败终止/预留释放中被多个 WorldV2 测试覆盖。已将惰性枚举物化为数组，仅在长度大于 0 时发布账本批次；无资源变化仍继续执行 fault hook 与 `MarkSettlementLedgerRecorded`，保持 Settlement Lease 状态机不变。提交 `a9476c0372786901e221e08009764d5b2b47677c`。
