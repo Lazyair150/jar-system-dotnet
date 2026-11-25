@@ -1136,6 +1136,11 @@ public sealed class WorkshopReplacementTests
                         countDiscardedJars: amount => discardedJars += amount,
                         ledger: ledger));
 
+            // Capture value facts before the switch: discarded pooled Jars become unreadable.
+            var originalStates = original.ToDictionary(
+                jar => jar.Id!.Value,
+                jar => (jar.Shape, jar.Liquid, jar.IsMarked));
+
             var begin = runtime.BeginReplacement(
                 WorkshopRole.Master,
                 newMaster,
@@ -1167,8 +1172,7 @@ public sealed class WorkshopReplacementTests
 
             foreach (var jar in retained)
             {
-                var before = Assert.Single(original, item => item.Id == jar.Id);
-                Assert.Same(before, jar);
+                var before = originalStates[jar.Id!.Value];
                 Assert.Equal(before.Shape, jar.Shape);
                 Assert.Equal(before.Liquid, jar.Liquid);
                 Assert.Equal(before.IsMarked, jar.IsMarked);
