@@ -107,6 +107,16 @@ public class ResourceProvenanceTests
             system.ProducerModule.Producers["陶工"].OwnerIdentity);
         Assert.Equal(owners.GetWorkshop("workshop-owned-1"), system.Workshops[0].OwnerIdentity);
 
+        system.ResetProducerModule();
+        Assert.Equal(owners.Warehouse, system.ProducerModule.Warehouse.OwnerIdentity);
+        system.Reset();
+        Assert.Equal(worldId, system.WorldInstanceId);
+        Assert.True(owners.IsEquivalentTo(system.OwnerIdentities));
+        Assert.Equal(owners.Warehouse, system.ProducerModule.Warehouse.OwnerIdentity);
+        Assert.Equal(owners.GetProducer("producer-owned-1"),
+            system.ProducerModule.Producers["陶工"].OwnerIdentity);
+        Assert.Equal(owners.GetWorkshop("workshop-owned-1"), system.Workshops[0].OwnerIdentity);
+
         system.SetMasterIndex(0);
         system.Tick();
 
