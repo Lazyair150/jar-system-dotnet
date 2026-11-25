@@ -160,4 +160,51 @@ public sealed class ResourcePortAdapterTests
         Assert.Equal(stagingBefore, staging.UsedCapacity);
         Assert.Equal(shipBefore, ship.GetAmount("酒"));
     }
+    [Fact]
+    public void PrefillAccountHasItsOwnIdentityAndDoesNotMergeWithOrderBalances()
+    {
+        var staging = new WorkshopLiquidStaging(4, new[] { "蜜" });
+        staging.Receive(101, "酒", 2);
+        var adapter = new WorkshopPrefillLiquidPortAdapter(staging, "workshop.06", "area.workshop");
+        var input = Port("prefill.in", "area.workshop", ResourcePortDirection.Input,
+            WorkshopPrefillLiquidPortAdapter.SupportedPolicyId);
+        var output = Port("prefill.out", "area.workshop", ResourcePortDirection.Output,
+            WorkshopPrefillLiquidPortAdapter.SupportedPolicyId);
+
+        var canPrefill = adapter.Preflight(input, "盐", 2);
+        var noPrefillBalance = adapter.Preflight(output, "酒", 1);
+
+        Assert.Equal(RuleDecisionKind.Allowed, canPrefill.Decision);
+        Assert.Equal(RuleDecisionKind.Rejected, noPrefillBalance.Decision);
+        Assert.Equal("workshop.prefill-liquid-staging", adapter.Account.AccountKind);
+        Assert.Equal("workshop.06", adapter.Account.OwnerId);
+        Assert.Equal(2, staging.GetAmount(101, "酒"));
+        Assert.Equal(0, staging.PrefillBalances.GetValueOrDefault("酒"));
+    }
+
+    [Fact]
+    public void JarStorageAdapterDoesNotApplyWorkshopLiquidBanToJarContents()
+    {
+        var workshop = new Workshop("master", ban: new List<string> { "蜜" },
+            maxJars: 2, ownedInstanceId: "workshop.jar.01");
+        Assert.True(workshop.AddJar(new Jar("圆罐", "蜜", id: 77)));
+        var adapter = new WorkshopJarStoragePortAdapter(workshop, "area.workshop.jars");
+        var output = new CircuitPortDefinition("jar.out", "area.workshop.jars",
+            ResourcePortDirection.Output, RuleResourceKind.Jar, null,
+            WorkshopJarStoragePortAdapter.SupportedPolicyId, 1);
+        var input = new CircuitPortDefinition("jar.in", "area.workshop.jars",
+            ResourcePortDirection.Input, RuleResourceKind.Jar, null,
+            WorkshopJarStoragePortAdapter.SupportedPolicyId, 1);
+
+        var existingBannedLiquidJar = adapter.Preflight(output, "77", 1);
+        var newJar = adapter.Preflight(input, "88", 1);
+        var duplicate = adapter.Preflight(input, "77", 1);
+
+        Assert.Equal(RuleDecisionKind.Allowed, existingBannedLiquidJar.Decision);
+        Assert.Equal(RuleDecisionKind.Allowed, newJar.Decision);
+        Assert.Equal(RuleDecisionKind.Rejected, duplicate.Decision);
+        Assert.Equal("jar.identity.already-owned", duplicate.ReasonCode);
+        Assert.Equal("workshop.jar-storage", existingBannedLiquidJar.Account.AccountKind);
+    }
+
 }
