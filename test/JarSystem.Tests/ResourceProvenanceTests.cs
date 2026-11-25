@@ -195,9 +195,9 @@ public class ResourceProvenanceTests
 
         var moved = sys.ResourceLedger.For(ResourceCauses.Transfer);
         Assert.Contains(moved, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐" && e.Amount == 1
-                                    && e.From == "旧主台" && e.To == "新主台");
+                                    && e.From == "旧主台" && e.To == "新主台" && e.ResourceIdentity == "9001");
         Assert.Contains(moved, e => e.Kind == ResourceKinds.Liquid && e.Name == "酒" && e.Amount == 1
-                                    && e.From == "旧主台" && e.To == "新主台");
+                                    && e.From == "旧主台" && e.To == "新主台" && e.ResourceIdentity == "酒");
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public class ResourceProvenanceTests
 
         var discarded = sys.ResourceLedger.For(ResourceCauses.Discard);
         Assert.Contains(discarded, e => e.Kind == ResourceKinds.Jar && e.Amount == 1
-                                       && e.From == "旧主台" && e.Reason == "新主台容量已满");
+                                       && e.From == "旧主台" && e.Reason == "新主台容量已满" && e.ResourceIdentity == "9002");
         Assert.Contains(discarded, e => e.Kind == ResourceKinds.Liquid && e.Name == "酒"
                                        && e.Amount == 1 && e.Reason == "新主台容量已满");
         Assert.DoesNotContain(sys.ResourceLedger.For(ResourceCauses.Transfer), e => e.From == "旧主台");
@@ -259,12 +259,12 @@ public class ResourceProvenanceTests
 
         var returned = sys.ResourceLedger.For(ResourceCauses.Return);
         Assert.Contains(returned, e => e.Kind == ResourceKinds.Jar && e.Amount == 1
-                                      && e.From == "从台" && e.To == "主台");
+                                      && e.From == "从台" && e.To == "主台" && e.ResourceIdentity == "9102");
         Assert.Contains(returned, e => e.Kind == ResourceKinds.Liquid && e.Name == "蜜"
-                                      && e.Amount == 2 && e.From == "从台" && e.To == "主台");
+                                      && e.Amount == 2 && e.From == "从台" && e.To == "主台" && e.ResourceIdentity == "蜜");
         var lost = sys.ResourceLedger.For(ResourceCauses.Discard);
         Assert.Contains(lost, e => e.Kind == ResourceKinds.Jar && e.Amount == 1
-                                  && e.Reason == "主台罐子容量满");
+                                  && e.Reason == "主台罐子容量满" && e.ResourceIdentity == "9103");
         Assert.All(lost, e => Assert.False(string.IsNullOrEmpty(e.Reason)));
     }
 
