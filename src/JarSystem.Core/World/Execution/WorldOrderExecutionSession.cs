@@ -498,7 +498,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 var tick = resourceLedgerTick?.Invoke() ?? 0;
                 foreach (var item in admitted.Manifest.MasterInitialLiquidAmounts)
                     resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
-                        item.Key, item.Value, from: "自机液库", to: roster.Master!.Name);
+                        item.Key, item.Value, from: "自机液库", to: roster.Master!.Name,
+                        resourceIdentity: item.Key);
             }
             return WorldOrderExecutionStartResult.Started(session);
         }

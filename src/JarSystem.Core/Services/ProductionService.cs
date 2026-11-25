@@ -114,7 +114,8 @@ internal sealed class ProductionService
     {
         if (amount <= 0) return;
         _system.ResourceLedger.Record(
-            _system.Processes.Clock.Tick, cause, ResourceKinds.Liquid, liquid, amount, from, to);
+            _system.Processes.Clock.Tick, cause, ResourceKinds.Liquid, liquid, amount, from, to,
+            resourceIdentity: liquid);
     }
 
     /// <summary>
@@ -137,7 +138,7 @@ internal sealed class ProductionService
             var delta = total - before;
             if (delta <= 0) continue;
             _system.ResourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid, liquid, delta,
-                from: "仓库", reason: "仓库该液体已满");
+                from: "仓库", reason: "仓库该液体已满", resourceIdentity: liquid);
         }
     }
 }
