@@ -14,7 +14,7 @@ namespace JarSystem.Core.World;
 /// </summary>
 public static class WorldV2CheckpointJsonCodec
 {
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 7;
     public const string CurrentKind = "world-v2-execution-checkpoint";
 
     private static readonly Regex FingerprintPattern =
@@ -115,9 +115,9 @@ public static class WorldV2CheckpointJsonCodec
             versionElement.ValueKind != JsonValueKind.Number ||
             !versionElement.TryGetInt32(out var version))
             throw new JsonException("检查点缺少有效 schemaVersion。");
-        // Schemas 3, 4 and 5 predate the WorldInstanceId wire field.
-        // Missing identity remains explicitly unknown; never infer it from configuration fingerprints or names.
-        if (version is not (3 or 4 or 5 or CurrentSchemaVersion))
+        // Schemas 3, 4 and 5 predate WorldInstanceId; schema 6 predates the owner identity map.
+        // Missing identities remain explicitly unknown; never infer them from fingerprints or names.
+        if (version is not (3 or 4 or 5 or 6 or CurrentSchemaVersion))
             throw new NotSupportedException("不支持的检查点 schemaVersion: " + version);
 
         if (!root.TryGetProperty("kind", out var kindElement) ||
