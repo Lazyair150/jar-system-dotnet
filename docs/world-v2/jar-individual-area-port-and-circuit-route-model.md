@@ -138,6 +138,22 @@ Connection 是两个端口之间的显式连接，必须满足：
 
 连接只表示“可尝试通过”，不等于资源已经转移。实际转移仍需规则判定与原子 ResourceEffect。
 
+### 3.4 端口预检、转移请求与收据
+
+Core 的最小纯值契约分为三个阶段，不能把它们合成一个带副作用的 `Transfer()`：
+
+1. **Port Preflight**：针对单个端口执行只读检查，结果只能是 Allowed / Rejected / Undetermined，并记录端口、权威账户、资源身份、数量、观察到的 Area Version 和稳定 ReasonCode。
+2. **Transfer Request**：描述一条已存在 Connection 上的跨账户意图，必须包含 OperationId、ConnectionId、源/目标端口、资源身份、数量、两端权威账户及预期版本。
+3. **Transfer Receipt**：记录一次尝试的最终结果，并满足数量守恒：
+
+```text
+Requested = Transferred + RetainedAtSource + Discarded
+```
+
+Rejected / Undetermined 必须保留全部源资源，且两端账户版本不变。部分接收必须明确记录已转移、源端保留和显式丢弃的数量，不能把未接收资源默认为消失。
+
+这些纯值契约只定义协议和可审计事实，不代表事务协调器已经实现。跨账户提交仍必须由一个明确事务边界完成；不能把分别调用 Input.TryReceive 与 Output.TryWithdraw 当成原子转移。只有当具体账户 Adapter 能提供可复验的版本与提交/回滚能力后，才允许接入 Transfer Coordinator。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
