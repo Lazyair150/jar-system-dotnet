@@ -75,33 +75,12 @@ public sealed class PreparedOrderLiquidPortTransfer
 
         var source = _sourceAdapter.Preflight(_sourcePort, _request.ResourceIdentity, _request.Amount);
         var target = _targetAdapter.Preflight(_targetPort, _request.ResourceIdentity, _request.Amount);
-        source.Validate();
-        target.Validate();
-
-        if (_ledger?.HasRecordedOperation(_request.OperationId) == true)
-        {
-            _duplicateOperation = true;
-            throw new InvalidOperationException(
-                "This OperationId was already committed; reconcile from the authoritative ledger instead of replaying.");
-        }
-
-        if (source.ObservedVersionToken != _request.ExpectedSourceVersionToken ||
-            target.ObservedVersionToken != _request.ExpectedTargetVersionToken)
-            return _receipt = CreateNoMutationReceipt(
-                ResourceTransferOutcome.Undetermined, "account.version.changed", source, target);
-
-        if (source.Decision != RuleDecisionKind.Allowed ||
-            target.Decision != RuleDecisionKind.Allowed)
-        {
-            var decision = source.Decision == RuleDecisionKind.Undetermined ||
-                target.Decision == RuleDecisionKind.Undetermined
-                ? ResourceTransferOutcome.Undetermined
-                : ResourceTransferOutcome.Rejected;
-            var reason = source.Decision != RuleDecisionKind.Allowed
-                ? source.ReasonCode
-                : target.ReasonCode;
-            return _receipt = CreateNoMutationReceipt(decision, reason, source, target);
-        }
+        var preflightReceipt = ResourcePortTransferGuards.EvaluateCommitPreflight(
+            _request, source, target, _ledger,
+            () => _duplicateOperation = true,
+            (outcome, reason) => CreateNoMutationReceipt(outcome, reason, source, target));
+        if (preflightReceipt is not null)
+            return _receipt = preflightReceipt;
 
         var ledgerTick = _ledger is null ? 0 : _ledgerTickProvider!();
         if (ledgerTick < 0)
@@ -229,8 +208,7 @@ public static class OrderLiquidPortTransfer
         ArgumentNullException.ThrowIfNull(sourceStaging);
         ArgumentNullException.ThrowIfNull(targetStaging);
         request.Validate();
-        if ((ledger is null) != (ledgerTickProvider is null))
-            throw new ArgumentException("ResourceLedger and its logical tick provider must be supplied together.");
+        ResourcePortTransferGuards.ValidateLedgerPair(ledger, ledgerTickProvider);
 
         if (orderId <= 0) throw new ArgumentOutOfRangeException(nameof(orderId));
         if (ReferenceEquals(sourceStaging, targetStaging))
