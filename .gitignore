@@ -1,42 +1,52 @@
 # ============================================================
-#  jar-system-dotnet — .gitignore
-#  原则：只忽略"可再生成"与"每次运行都会变"的东西；
-#        契约基线属于**产物**，必须提交（见文末说明）。
+# jar-system-dotnet — .gitignore
+# Ignore only reproducible build/cache/local artifacts.
+# Keep contract baselines, schemas, fixtures and documentation tracked.
 # ============================================================
 
-# ---- 构建产物（全部可再生成）----
+# .NET build output
 [Bb]in/
 [Oo]bj/
+.vs/
+TestResults/
+artifacts/
+coverage/
 *.user
 *.suo
+*.cache
 
-# ---- 验证/构建日志（每次运行都覆盖，且是 GBK/UTF-8 混合）----
+# IDE/local tooling
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs and temporary diagnostics
+*.log
+*.tmp
+*.bak
+*.received.*
+_test_diag.csx
+
+# Verification/build outputs (regenerated)
 重构报告/_verify_output.txt
 重构报告/_build_output.txt
 重构报告/_quality_output.txt
 
-# ---- 过程系统：过程日志产物（每次运行都会变，可再生成） ----
-# 过程日志的**导出产物**是证据而非契约；数字与结论写进 过程系统/0N_*.md 报告。
+# Process journal exports (generated evidence; conclusions live in reports)
 过程系统/_journal/
 
-# ---- 契约：基线提交，运行产物忽略 ----
-# state_keys.baseline.txt 是**契约基线**，必须提交（否则 diff 无从比对）
-# state.schema.json 是**模块间接口产物**，必须提交（前端/Godot 侧要消费它）
+# Contract generated comparison outputs; committed baselines/schemas remain tracked
 重构报告/_contract/state_keys.txt
 重构报告/_contract/diff.txt
 重构报告/_contract/state_keys_config.txt
 重构报告/_contract/diff_config.txt
 
-# ---- 重构前的整树快照（与 src/ 重复，体积大）----
+# Large pre-refactor snapshot duplicated by src/
 重构报告/_backup/
 
-# ---- 临时/诊断文件 ----
-_test_diag.csx
-*.received.*
-
-# ---- 审批测试：基线提交、过程产物忽略 ----
+# Approval test received files are transient; approved baselines remain tracked
 test/JarSystem.Tests/Approvals/*.received.json
 
-# ---- Godot 练习工程（与陶罐系统无关，约 1300 个文件）----
-# 若你希望把它纳入版本管理，删掉下面这行即可
+# Godot practice project unrelated to the jar system
 文档归档/05_Godot练习工程/
