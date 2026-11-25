@@ -115,7 +115,7 @@ public sealed class WorldV2HostServiceTests
             checkpoint.ShipLiquidInventory, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop,
             checkpoint.Admission, checkpoint.Reservations, checkpoint.ReservationLeases,
             checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick,
-            new[] { "伪造形状", "方罐" }, checkpoint.Liquids, checkpoint.Sessions);
+            new[] { "伪造形状", "方罐" }, checkpoint.Liquids, checkpoint.LiquidPolarities, checkpoint.Sessions);
         Assert.Throws<InvalidOperationException>(() =>
             application.RestoreExecutionResourceCheckpoint(ValidOptions(), tamperedVocabulary));
 
