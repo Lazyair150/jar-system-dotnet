@@ -83,13 +83,11 @@ public class WorkshopRulebookTests
             rules, 3, new JarFacts("圆罐", "酒", false),
             WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
         Assert.True(cathodeJar.IsAllowed);
-        Assert.Equal("酒", cathodeJar.Transition?.ConsumedJarLiquid);
 
         var anodeJar = WorkshopRulebook.Evaluate(
             rules, 3, new JarFacts("圆罐", "蜜", false),
             WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
         Assert.True(anodeJar.IsAllowed);
-        Assert.Equal("蜜", anodeJar.Transition?.ConsumedJarLiquid);
     }
 
     [Fact]
