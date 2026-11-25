@@ -47,7 +47,7 @@ internal class SolverState
     {
         if (operation.Type == "MATCH")
             return WorkshopRulebook.EvaluateMatchTransition(
-                _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked)).Decision.IsAllowed;
+                _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid))).Decision.IsAllowed;
         return WorkshopRulebook.IsAllowed(
             _rules, _perLiquidCapacity,
             new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
