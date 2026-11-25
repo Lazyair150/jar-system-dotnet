@@ -158,7 +158,7 @@ public class ProducerSlotTests
         var world = new WorldOptions
         {
             Shapes = new List<string> { "圆罐", "方罐" },
-            Liquids = new List<string> { "酒" },
+            Liquids = new List<string> { "酒", "蜜" },
             ProducerSlots = 1,
             Producers = new List<ProducerOptions>
             {
