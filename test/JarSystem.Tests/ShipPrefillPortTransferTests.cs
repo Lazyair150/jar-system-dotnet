@@ -79,6 +79,26 @@ public sealed class ShipPrefillPortTransferTests
     }
 
     [Fact]
+    public void ExactPrefillReservationRollbackRestoresBothAuthoritativeAccounts()
+    {
+        var path = CreatePath();
+
+        var transaction = path.Staging.BeginPrefillTransferFromShip(path.Ship, "酒", 2);
+
+        Assert.Equal(3, path.Ship.GetAmount("酒"));
+        Assert.Equal(2, path.Ship.ReservedReturnCapacity);
+        Assert.Equal(2, path.Staging.PrefillBalances["酒"]);
+        Assert.Throws<System.InvalidOperationException>(() => path.Staging.Receive(101, "盐", 1));
+
+        transaction.Rollback();
+
+        Assert.Equal(5, path.Ship.GetAmount("酒"));
+        Assert.Equal(0, path.Ship.ReservedReturnCapacity);
+        Assert.Empty(path.Staging.PrefillBalances);
+        Assert.Equal(0, path.Staging.OccupiedCapacity);
+    }
+
+    [Fact]
     public void TargetWorkshopBanRejectsPrefillWithoutWithdrawingFromShip()
     {
         var path = CreatePath(targetBan: new[] { "蜜" });
