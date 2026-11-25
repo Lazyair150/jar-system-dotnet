@@ -419,6 +419,13 @@ public partial class JarSystem : Rules.IWorldFacts
         _world = (world ?? WorldOptions.Default).Clone();
         if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
             throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
+        var hasExplicitOwnerIds =
+            _world.Producers.Any(item => item.ProducerInstanceId != null) ||
+            _world.Workshops.Any(item => item.OwnedInstanceId != null);
+        if ((worldInstanceId.HasValue || hasExplicitOwnerIds) && ownerIdentities == null)
+            throw new ArgumentException(
+                "显式 WorldInstanceId / ProducerInstanceId / OwnedInstanceId 必须与完整 OwnerIdentity map 一起注入。",
+                nameof(ownerIdentities));
         if (ownerIdentities != null)
         {
             if (!worldInstanceId.HasValue)
