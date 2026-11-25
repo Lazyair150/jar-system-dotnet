@@ -641,13 +641,16 @@ public sealed class ResourceEventWireDto
     public int Amount { get; set; }
     public string? From { get; set; }
     public string? To { get; set; }
+    public string? FromAccountId { get; set; }
+    public string? ToAccountId { get; set; }
     public string? Reason { get; set; }
 
     public static ResourceEventWireDto FromEvent(ResourceEvent value) => new()
     {
         Seq = value.Seq, Tick = value.Tick, Cause = value.Cause, Kind = value.Kind,
         Name = value.Name, ResourceIdentity = value.ResourceIdentity, OperationId = value.OperationId,
-        Amount = value.Amount, From = value.From, To = value.To, Reason = value.Reason
+        Amount = value.Amount, From = value.From, To = value.To,
+        FromAccountId = value.FromAccountId, ToAccountId = value.ToAccountId, Reason = value.Reason
     };
 
     public void Validate()
@@ -657,6 +660,8 @@ public sealed class ResourceEventWireDto
             (Kind != ResourceKinds.Jar && Kind != ResourceKinds.Liquid) ||
             string.IsNullOrWhiteSpace(Name) ||
             (ResourceIdentity != null && string.IsNullOrWhiteSpace(ResourceIdentity)) ||
+            (FromAccountId != null && string.IsNullOrWhiteSpace(FromAccountId)) ||
+            (ToAccountId != null && string.IsNullOrWhiteSpace(ToAccountId)) ||
             (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))) ||
             (OperationId != null && Kind == ResourceKinds.Jar && !IsCanonicalJarId(ResourceIdentity)))
             throw new InvalidOperationException("资源账本事件 Wire DTO 无效。");
@@ -674,7 +679,8 @@ public sealed class ResourceEventWireDto
         {
             Seq = Seq, Tick = Tick, Cause = Cause, Kind = Kind, Name = Name,
             ResourceIdentity = ResourceIdentity, OperationId = OperationId,
-            Amount = Amount, From = From, To = To, Reason = Reason
+            Amount = Amount, From = From, To = To,
+            FromAccountId = FromAccountId, ToAccountId = ToAccountId, Reason = Reason
         };
     }
 }
