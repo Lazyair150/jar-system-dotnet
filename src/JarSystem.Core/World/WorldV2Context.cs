@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Collections.ObjectModel;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Config;
@@ -37,6 +38,7 @@ public sealed class WorldV2Context : IDisposable
     public string? ConfigurationFingerprint { get; }
     public IReadOnlyList<string> Shapes { get; }
     public IReadOnlyList<string> Liquids { get; }
+    public IReadOnlyDictionary<string, LiquidPolarity> LiquidPolarities { get; }
     public OrderTemplateLibrary OrderTemplates { get; }
     public WorldOrderSolveBook SolveBook { get; }
     /// <summary>
@@ -63,6 +65,7 @@ public sealed class WorldV2Context : IDisposable
         string? configurationFingerprint,
         IReadOnlyList<string> shapes,
         IReadOnlyList<string> liquids,
+        IReadOnlyDictionary<string, LiquidPolarity> liquidPolarities,
         OrderTemplateLibrary orderTemplates)
     {
         Resources = resources;
@@ -79,6 +82,8 @@ public sealed class WorldV2Context : IDisposable
         ConfigurationFingerprint = configurationFingerprint;
         Shapes = Array.AsReadOnly(shapes.ToArray());
         Liquids = Array.AsReadOnly(liquids.ToArray());
+        LiquidPolarities = new ReadOnlyDictionary<string, LiquidPolarity>(
+            new Dictionary<string, LiquidPolarity>(liquidPolarities, StringComparer.Ordinal));
         OrderTemplates = orderTemplates ?? throw new ArgumentNullException(nameof(orderTemplates));
     }
 
@@ -155,7 +160,8 @@ public sealed class WorldV2Context : IDisposable
         return new WorldV2Context(
             resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
             solveBook, reservations, admission, runtime, scheduler, configurationFingerprint,
-            shapes, liquids, orderTemplates ?? OrderTemplateLibrary.Empty);
+            shapes, liquids, master.Capability.LiquidPolarities,
+            orderTemplates ?? OrderTemplateLibrary.Empty);
     }
 
     /// <summary>
@@ -188,6 +194,7 @@ public sealed class WorldV2Context : IDisposable
             Runtime.LedgerTick,
             Shapes,
             Liquids,
+            LiquidPolarities,
             Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()));
     }
 
@@ -211,8 +218,10 @@ public sealed class WorldV2Context : IDisposable
         if (!string.Equals(ConfigurationFingerprint, checkpoint.ConfigurationFingerprint, StringComparison.Ordinal))
             throw new InvalidOperationException("检查点配置指纹与当前世界不一致，拒绝恢复。");
         if (!Shapes.SequenceEqual(checkpoint.Shapes, StringComparer.Ordinal) ||
-            !Liquids.SequenceEqual(checkpoint.Liquids, StringComparer.Ordinal))
-            throw new InvalidOperationException("检查点形状/液体词表与当前世界配置不一致，拒绝恢复。");
+            !Liquids.SequenceEqual(checkpoint.Liquids, StringComparer.Ordinal) ||
+            checkpoint.LiquidPolarities.Count != LiquidPolarities.Count ||
+            LiquidPolarities.Any(item => !checkpoint.LiquidPolarities.TryGetValue(item.Key, out var polarity) || polarity != item.Value))
+            throw new InvalidOperationException("检查点形状/液体词表/极性映射与当前世界配置不一致，拒绝恢复。");
         if (checkpoint.ShipLiquidInventory.Capacity != ShipLiquidInventory.Capacity)
             throw new InvalidOperationException("检查点自机液库容量与当前世界配置不一致。");
         if ((Roster.Slave == null) != (checkpoint.SlaveWorkshop == null))
@@ -238,7 +247,7 @@ public sealed class WorldV2Context : IDisposable
         var stagedShip = new ShipLiquidInventory(
             checkpoint.ShipLiquidInventory.Capacity,
             checkpoint.ShipLiquidInventory.Balances);
-        var vocabulary = new Vocabulary(checkpoint.Shapes, checkpoint.Liquids);
+        var vocabulary = new Vocabulary(checkpoint.Shapes, checkpoint.Liquids, checkpoint.LiquidPolarities);
         var stagedDemandIds = new SequentialIdGenerator();
         var stagedBoard = OrderDemandBoard.RestoreRuntimeState(
             checkpoint.DemandBoard, vocabulary, stagedDemandIds);
@@ -318,6 +327,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         int runtimeLedgerTick,
         IEnumerable<string> shapes,
         IEnumerable<string> liquids,
+        IReadOnlyDictionary<string, LiquidPolarity> liquidPolarities,
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions)
     {
         ResourceArea = resourceArea;
@@ -342,6 +352,14 @@ public sealed class WorldV2ExecutionResourceCheckpoint
             throw new ArgumentException("检查点形状或液体词表无效");
         Shapes = Array.AsReadOnly(shapeValues);
         Liquids = Array.AsReadOnly(liquidValues);
+        if (liquidPolarities == null || liquidPolarities.Count != 2 ||
+            liquidValues.Any(liquid => !liquidPolarities.ContainsKey(liquid)) ||
+            liquidPolarities.Keys.Any(key => !liquidValues.Contains(key, StringComparer.Ordinal)) ||
+            liquidPolarities.Values.Count(value => value == LiquidPolarity.Cathode) != 1 ||
+            liquidPolarities.Values.Count(value => value == LiquidPolarity.Anode) != 1)
+            throw new ArgumentException("检查点液体极性映射必须完整且恰好包含一个 Cathode 和一个 Anode");
+        LiquidPolarities = new ReadOnlyDictionary<string, LiquidPolarity>(
+            new Dictionary<string, LiquidPolarity>(liquidPolarities, StringComparer.Ordinal));
         Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
     }
 
@@ -360,5 +378,6 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     public int RuntimeLedgerTick { get; }
     public IReadOnlyList<string> Shapes { get; }
     public IReadOnlyList<string> Liquids { get; }
+    public IReadOnlyDictionary<string, LiquidPolarity> LiquidPolarities { get; }
     public IReadOnlyList<WorldOrderExecutionSessionProgressSnapshot> Sessions { get; }
 }
