@@ -227,6 +227,16 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 - 账本写入一条 `flow/jar` 事实，Name 使用 Jar Shape，From/To 使用两个权威账户身份；账本发布位于所有权补偿边界内，失败时恢复原 Jar 实体归属。
 - 当前路径不处理 Jar 改形、倒液、标记状态或多 Jar 批次；它只改变两个存储区之间的所有权位置。
 
+### 3.10 第五条事务参与者：工作台游离液体账户到工作台游离液体账户
+
+`WorkshopFreeLiquidPortTransfer.Prepare` 连接两个不同 Workshop 的 Free-Liquid Output/Input：
+
+- 两端仍是各自独立的 Workshop 游离液体账户；不进入订单子账、Prefill 或自机液库。
+- 源端 `CanUseLiquid` 与目标端 `CanStoreLiquid` 共同决定 Ban/库存/容量。源端 Ban、目标端 Ban、库存不足或目标单液种容量不足都会在物理转移前拒绝。
+- 提交复用 `LegacyWorkshopLiquidTransfer` 的双工作台快照补偿语义；账本 `transfer/liquid` 发布回调位于该补偿边界内，发布失败恢复两个 Workshop 的完整游离液体余额。
+- 共享 `ResourcePortTransferGuards` 统一两端版本令牌、规则决策与 OperationId 检查；同一个 OperationId 的跨实例重放由 ResourceLedger 检查点阻断。
+- 当前只支持一个液种、精确数量、全有或全无；旧换台/订单迁徙流程不因此自动改写。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
