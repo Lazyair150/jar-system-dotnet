@@ -131,6 +131,31 @@ public sealed class BinaryLiquidVocabularyTests
 
 
     [Fact]
+    public void CustomLiquidBanRejectsOnlyStagingAdmissionNotJarPourOut()
+    {
+        var vocabulary = CreateSpaceVocabulary();
+        var workshop = new Workshop(
+            "custom-world-workshop",
+            new List<string> { "圆罐" },
+            ban: new List<string> { "燃料" },
+            maxJars: 4,
+            maxLiquids: 4,
+            vocabulary: vocabulary);
+        var jar = new Jar("圆罐", "燃料", vocabulary: vocabulary);
+        Assert.True(workshop.AddJar(jar));
+
+        var staging = new WorkshopLiquidStaging(4, new[] { "燃料" });
+        var scope = new OrderLiquidScope(1, staging);
+        var result = workshop.PourOutWithSettlement(jar, scope);
+
+        Assert.True(result.Success, result.Reason);
+        Assert.Null(jar.Liquid);
+        Assert.Equal(0, result.Receipt!.AcceptedAmount);
+        Assert.Equal(1, result.Receipt.DiscardedAmount);
+        Assert.Equal(0, staging.UsedCapacity);
+    }
+
+    [Fact]
     public void WorldOptionsSerializesAndValidatesExplicitPolarityMapping()
     {
         var options = new WorldOptions
