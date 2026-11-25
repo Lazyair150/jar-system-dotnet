@@ -205,25 +205,20 @@ public sealed class ResourceLedger
         string? from = null, string? to = null, string? reason = null)
     {
         if (amount <= 0) return null;
-
-        var nextSeq = checked(_seq + 1);
-        _entries.EnsureCapacity(checked(_entries.Count + 1));
-        var e = new ResourceEvent
+        lock (_gate)
         {
-            Seq = nextSeq,
-            Tick = tick,
-            Cause = cause,
-            Kind = kind,
-            Name = name,
-            Amount = amount,
-            From = from,
-            To = to,
-            Reason = reason
-        };
-        _entries.Add(e);
-        _seq = nextSeq;
-        Trim();
-        return e;
+            var nextSeq = checked(_seq + 1);
+            _entries.EnsureCapacity(checked(_entries.Count + 1));
+            var e = new ResourceEvent
+            {
+                Seq = nextSeq, Tick = tick, Cause = cause, Kind = kind, Name = name,
+                Amount = amount, From = from, To = to, Reason = reason
+            };
+            _entries.Add(e);
+            _seq = nextSeq;
+            Trim();
+            return e;
+        }
     }
 
     /// <summary>
@@ -237,6 +232,8 @@ public sealed class ResourceLedger
             throw new ArgumentException("账本操作 ID 不能为空。", nameof(operationId));
         if (tick < 0) throw new ArgumentOutOfRangeException(nameof(tick));
         ArgumentNullException.ThrowIfNull(mutations);
+        lock (_gate)
+        {
         if (_operationIds.Contains(operationId)) return false;
 
         var batch = mutations.Where(item => item.Amount > 0).ToArray();
@@ -280,6 +277,7 @@ public sealed class ResourceLedger
         _seq = nextSeq;
         Trim();
         return true;
+        }
     }
 
     /// <summary>
@@ -368,15 +366,19 @@ public sealed class ResourceLedger
     }
 
     /// <summary>清空保留的事件（序号不回绕，于是"清过"也能从序号跳变看出）。</summary>
-    public void Clear() => _entries.Clear();
+    public void Clear() { lock (_gate) _entries.Clear(); }
 
     /// <summary>按原因筛选（如"这回合的产出都有哪些"）。顺序保持发生顺序。</summary>
-    public IReadOnlyList<ResourceEvent> For(string cause) =>
-        _entries.Where(e => e.Cause == cause).ToList();
+    public IReadOnlyList<ResourceEvent> For(string cause)
+    {
+        lock (_gate) return _entries.Where(e => e.Cause == cause).Select(Clone).ToList();
+    }
 
     /// <summary>从 <paramref name="afterSeq"/> 之后的事件（供增量读、断线重连补差）。</summary>
-    public IReadOnlyList<ResourceEvent> Since(long afterSeq) =>
-        _entries.Where(e => e.Seq > afterSeq).ToList();
+    public IReadOnlyList<ResourceEvent> Since(long afterSeq)
+    {
+        lock (_gate) return _entries.Where(e => e.Seq > afterSeq).Select(Clone).ToList();
+    }
 
     private void Trim()
     {
