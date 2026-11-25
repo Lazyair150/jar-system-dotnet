@@ -147,10 +147,14 @@ public sealed class WorldV2Context : IDisposable
                     "Ship/ProductionArea/Warehouse runtime objects do not match the supplied OwnerIdentity map.",
                     nameof(ownerIdentities));
 
-            var workshopIds = roster.Workshops.Select(item => item.OwnedInstanceId).ToArray();
-            if (workshopIds.Any(string.IsNullOrWhiteSpace) ||
+            var workshopIds = roster.Workshops
+                .Select(item => item.OwnedInstanceId)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item!)
+                .ToArray();
+            if (roster.Workshops.Any(item => string.IsNullOrWhiteSpace(item.OwnedInstanceId)) ||
                 !ownerIdentities.Workshops.Keys.ToHashSet(StringComparer.Ordinal)
-                    .SetEquals(workshopIds!))
+                    .SetEquals(workshopIds))
                 throw new ArgumentException(
                     "OwnerIdentity map must identify every exact Workshop OwnedInstanceId and no others.",
                     nameof(ownerIdentities));
@@ -161,10 +165,14 @@ public sealed class WorldV2Context : IDisposable
                         nameof(ownerIdentities));
 
             var producerInstances = resources.Producers.Producers.Values.ToArray();
-            var producerIds = producerInstances.Select(item => item.ProducerInstanceId).ToArray();
-            if (producerIds.Any(string.IsNullOrWhiteSpace) ||
+            var producerIds = producerInstances
+                .Select(item => item.ProducerInstanceId)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item!)
+                .ToArray();
+            if (producerInstances.Any(item => string.IsNullOrWhiteSpace(item.ProducerInstanceId)) ||
                 !ownerIdentities.Producers.Keys.ToHashSet(StringComparer.Ordinal)
-                    .SetEquals(producerIds!))
+                    .SetEquals(producerIds))
                 throw new ArgumentException(
                     "OwnerIdentity map must identify every exact ProducerInstanceId and no others.",
                     nameof(ownerIdentities));
