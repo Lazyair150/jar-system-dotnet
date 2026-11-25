@@ -26,6 +26,12 @@ internal sealed class SlaveRollback
     /// 日志本身不再对外可变，因此这里收回调而不是可变 List。</param>
     /// <param name="ledger">资源账本（只读投影）：回落记 `return`，主台收不下的记 `discard`。</param>
     /// <param name="tickOf">取当前逻辑 tick 的出口（账本只记录事实，不推进时间）。</param>
+    private static string? WorkshopAccountId(Workshop workshop, string accountKind)
+    {
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId)) return null;
+        return new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId;
+    }
+
     public void Execute(
         Workshop master,
         Workshop slave,
@@ -57,7 +63,8 @@ internal sealed class SlaveRollback
                 countDiscardedJars?.Invoke(1);
                 ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Jar,
                     jar.Shape, 1, from: slave.Name, to: null, reason: "主台罐子容量满",
-                    resourceIdentity: jarIdentity);
+                    resourceIdentity: jarIdentity,
+                    fromAccountId: WorkshopAccountId(slave, "workshop.jar-storage"));
                 appendLog(new ExecutionLogEntry
                 {
                     Phase = "rollback",
@@ -70,7 +77,9 @@ internal sealed class SlaveRollback
             {
                 ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Jar,
                     jar.Shape, 1, from: slave.Name, to: master.Name,
-                    resourceIdentity: jarIdentity);
+                    resourceIdentity: jarIdentity,
+                    fromAccountId: WorkshopAccountId(slave, "workshop.jar-storage"),
+                    toAccountId: WorkshopAccountId(master, "workshop.jar-storage"));
             }
         }
 
@@ -88,14 +97,17 @@ internal sealed class SlaveRollback
                     : master.TryReceiveLiquid(liquid, amount);
                 int remainder = amount - accepted;
                 ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Liquid,
-                    liquid, accepted, from: slave.Name, to: master.Name, resourceIdentity: liquid);
+                    liquid, accepted, from: slave.Name, to: master.Name, resourceIdentity: liquid,
+                    fromAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging"),
+                    toAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"));
                 if (remainder > 0)
                 {
                     countDiscardedLiquids?.Invoke(liquid, remainder);
                     ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Liquid,
                         liquid, remainder, from: slave.Name, to: null,
                         reason: master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满",
-                        resourceIdentity: liquid);
+                        resourceIdentity: liquid,
+                        fromAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging"));
                     appendLog(new ExecutionLogEntry
                     {
                         Phase = "rollback",
