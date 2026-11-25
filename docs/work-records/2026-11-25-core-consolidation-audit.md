@@ -716,3 +716,10 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 新增 `WarehouseWorkshopLiquidPortTransferTests`，覆盖精确转移、Ban、容量不足、Prepare 后版本变化、账本 OperationId 检查点恢复去重、账本发布失败补偿、Adapter 绑定错配。
 - 第三条路径相关提交：`26fa5244b0ee7e62a2bb121dc6035c13deba95ad`、`f0e91afff6a265174867c84a3ae9a751e4216e28`、`dbe07f161c0edd1a134bc174e82d1fd604434f63`、`7ad92e3a2e336b864a95968074c390730f35854c`、`066872d5886e1d48021c103ebc614d07e97999e7`、`4f1e305feadd34856ff87177541fe8746cba7592`、`a5f16fe4ae2628a0a3f91b6da77044af68a5abbc`。
 - 当前 HEAD 的 Run `45627124181` / `45627111486` 正在执行；本次新测试尚未得到最终 CI 结果。PR #63 仍 Open、Draft、GitHub API mergeable=true；没有合并。
+
+- Warehouse→Workshop 游离液体路径的 Run `45627124181`（提交 `a5f16fe4ae2628a0a3f91b6da77044af68a5abbc`）Build 成功，xUnit 913 项中 1 项失败：`WorkshopWritersTests.EveryWorkshopWriterIsOnTheList`。失败是架构写入者白名单未登记新增事务参与者，不是业务断言或编译错误。已登记 `Production/WarehouseWorkshopLiquidPortTransfer.cs` 与 `Production/WarehouseWorkshopJarPortTransfer.cs` 两个新写入主体，并说明其权限依据；提交 `ca0095efbce0b1cec24d91db661e6b9eebe56890`。
+- 第四条路径开始：新增 `WarehouseWorkshopJarPortTransfer`，JarId 是规范化正整数，数量固定为 1；从 Warehouse 取出原 Jar 实体并把同一对象引用交给 Workshop，失败时原对象回到 Warehouse，不克隆、不回收。
+- 明确验证领域边界：Jar 内部液体不会触发 Workshop 游离液体 Ban。新增测试以“蜜”作为 Jar 内液体、目标 Workshop Ban 同样禁止“蜜”，仍允许 Jar 个体转移；这不是绕过 Ban，因为转移对象是 Jar，而非将液体写入游离暂存区。
+- 第四条路径测试覆盖精确对象身份、Ban 与 Jar 存储相互隔离、Jar 位容量、版本变化、账本 OperationId 检查点恢复去重、账本发布失败时恢复实体归属、Adapter 实例绑定错配。
+- 第四条路径及写入者清单相关提交：`4bbca356c67cb4a5e6e3ba1c9939b46f9f7090fc`、`89e5c4253ffe034aa0c38ecedb371c22f6ade69f`、`f4242e01841b0ba1abd6335106a259a06299de63`、`7e901367205e39832981eedd5d7e68ed5be3a82c`、`540996b51ccb304718005288c843e9f2518c8682`、`ca0095efbce0b1cec24d91db661e6b9eebe56890`、`0169e8d0cd8524f29bbd6981db04e03437856ad4`。
+- 第三条 Warehouse→Workshop 液体路径与第四条 Jar 路径的新 CI 尚待最终确认；不把旧的 906 项成功结果当作本轮最终验证。
