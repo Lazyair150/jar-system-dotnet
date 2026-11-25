@@ -243,3 +243,49 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 最终 marker：`CROSS-REPO-WORLD-V2-OK core=5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。日志中 overflow fault 与缺失主菜单资源为故意注入的负向测试，相关 probe 均以 passed 结束，非 CI 失败。
 - 前一轮 Space run `45588471573` 在 Core source `fd0b3761babe3af7f7d770483004ef1a454021f8` 下也成功；最终验收以当前 `5023...` pin 的 run 为准。
 - GitHub 当前仅保留两个 Open Draft PR：Jar Core #63 与 Space #2；所有已确认 superseded 的旧 PR 已关闭，历史分支保留作审计证据。
+
+
+## 2026-11-25 第十二轮：Core 概念体系与规则正式化
+
+### 起始状态
+- Repository：Lazyair150/jar-system-dotnet
+- Branch：architecture/core-liquid-identity-consolidation
+- 本轮文档前起始 HEAD：4270dd3669a12cbc8cb15bfeaa4b0e41a702ecde
+- PR #63：Open / Draft；未合并。
+- 前一轮 Core/Space 精确集成证据为 Core 5023b38b75ad4cf66d953e3bb3fa4c490076d4d7 与 Space run 45588639250。本轮文档提交不自动继承旧 head 的 CI 结论。
+
+### 本轮源码审查事实
+- 已有：World-owned Vocabulary 与明确液体极性映射；RuleContribution / EffectiveRuleProfile；RuleContext；Allowed/Rejected/Undetermined；资源效果契约；候选 Profile、符号解与资源模拟等结构。
+- 缺口 A：WorldOrderRuleCandidateCatalog.Build 仍以 Constants.SHAPES 初始化候选形状空间；候选生成尚未完全使用 World-owned shape vocabulary。
+- 缺口 B：WorkshopRulebook 仍以 WorkshopOperationKind + DefinitionFor + 多处 switch 实现固定算子；这是受控内建规则，但还不是统一 Rule Registry/Interpreter 驱动的规则目录。
+- 缺口 C：RuleContext.From(EffectiveRuleProfile) 仍以 RuleContributionEffect switch 解释贡献；Effect schema/参数默认值/unsupported handling 需要集中化、强类型化和版本化。
+- 缺口 D：WorldOrderAClassBranchEnumerator / WorldOrderBClassBranchEnumerator 直接知道 Master/Slave、订单 A/B 与交接阶段；这些领域策略必须保留语义但从通用搜索算法移出。
+- 缺口 E：候选操作字符串、岗位角色字符串和固定预算/上限散布在不同类；需区分协议身份、默认策略、安全护栏和真实玩法硬编码，不能简单删除全部常量。
+- 缺口 F：WorldSnapshot 已区分 RuleSetVersion / WorkshopProfileVersion / ResourceVersion，但没有把 World shape vocabulary 作为候选枚举唯一输入显式传递；需补齐快照及其指纹。
+- 缺口 G：已有结构候选与资源模拟，但完整 SolveProblem / policy / proof-completeness / dependency footprint 契约尚未成为所有 Solver 的唯一入口。
+
+### 本轮架构裁决
+- 新增 docs/architecture/core-conceptual-model-and-formal-rules.md，作为规范性目标架构。
+- 新增 docs/decisions/0007-core-rule-system-and-solver-decoupling.md，确定 Rule Registry/Interpreter、SolveProblem、OrderPolicy、结构解与资源绑定分离方向。
+- 保留电路板模型、Jar/液体资源语义、Ban staging scope、A/B 单向交接、Mark 生命周期与失败代价；不允许为通用化改写语义。
+- 不允许任意动态代码插件成为持久化规则；声明式贡献由 Core 受控解释器执行，未知规则 fail-closed/Undetermined。
+- 不允许把算法预算、候选顺序或启发式变成玩法规则。
+
+### 本轮变更文件
+- docs/architecture/core-conceptual-model-and-formal-rules.md
+- docs/decisions/0007-core-rule-system-and-solver-decoupling.md
+- docs/work-records/README.md
+- docs/architecture/2026-11-core-multi-angle-audit.md
+- docs/work-records/2026-11-25-core-consolidation-audit.md
+
+### 验证
+- 本轮为文档/架构决策提交；没有宣称生产代码已完成去硬编码。
+- 本轮精确新 commit 的 CI 尚待执行。
+- 后续代码阶段必须验证 rename-isomorphism、polarity swap、multi-world isolation、unsupported fail-closed、solver differential、resource conservation、Ban scope、Mark lifecycle、admission atomicity、replay、checkpoint。
+
+### 下一步
+1. 将 World shape/liquid vocabulary 作为 SolveProblem / WorldSnapshot 显式输入，移除候选生成对 Constants.SHAPES 的依赖。
+2. 盘点固定算子字符串、角色字符串和 RuleContributionEffect 分支，建立唯一注册/解释入口。
+3. 将 A/B 与 Master/Slave 迁移为显式订单/交接策略，先保持旧实现对拍，不一次性替换。
+4. 将统一规则 evaluator 的结果贯穿候选生成、资源模拟、Admission 与 Executor。
+5. 完成后再做多算法对拍与大规模固定 Seed 资源守恒样本。
