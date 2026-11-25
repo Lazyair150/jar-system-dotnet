@@ -320,8 +320,27 @@ public sealed class LiquidBatchSourceAllocation
         SourceEndpoint.Validate();
         TargetEndpoint.Validate();
         DiscardEndpoint.Validate();
+        if (SourceEndpoint.Kind is not (ResourceEndpointKind.Account or ResourceEndpointKind.LegacyUnknown) ||
+            TargetEndpoint.Kind is not (ResourceEndpointKind.Account or ResourceEndpointKind.LegacyUnknown))
+            throw new ArgumentException("Settlement source and return target must be internal accounts or legacy unknown endpoints.");
         if (DiscardEndpoint.Kind != ResourceEndpointKind.ExternalSink)
             throw new ArgumentException("Discarded settlement quantity must target an explicit ExternalSink.");
+        if (SourceEndpoint.Kind == ResourceEndpointKind.Account &&
+            SourceEndpoint.AccountId!.StartsWith("account:v2:", StringComparison.Ordinal))
+        {
+            var sourceIdentity = AccountIdentity.ParseV2(SourceEndpoint.AccountId);
+            if (sourceIdentity.Owner.OwnerKind != ResourceOwnerKind.Workshop ||
+                sourceIdentity.AccountKind != "workshop.order-liquid-staging")
+                throw new ArgumentException("Settlement source must be the exact Workshop order-staging account.");
+        }
+        if (TargetEndpoint.Kind == ResourceEndpointKind.Account &&
+            TargetEndpoint.AccountId!.StartsWith("account:v2:", StringComparison.Ordinal))
+        {
+            var targetIdentity = AccountIdentity.ParseV2(TargetEndpoint.AccountId);
+            if (targetIdentity.Owner.OwnerKind != ResourceOwnerKind.Ship ||
+                targetIdentity.AccountKind != "ship.liquid-inventory")
+                throw new ArgumentException("Settlement target must be the Ship liquid-inventory account.");
+        }
         if (SourceEndpoint.Kind == ResourceEndpointKind.Account &&
             TargetEndpoint.Kind == ResourceEndpointKind.Account)
         {
