@@ -451,3 +451,12 @@ ADDENDUM — RUNTIME WORKSHOP SWITCH-EVENT CONSERVATION (2026-11-25)
 - Assertions cover exact Jar identity accounting across old Master, new Master and JarPool; preservation of retained Jar shape/internal liquid/Mark; no conversion of Jar-internal liquid into workshop free-liquid staging; agreement among discard callback, pool return count and discard ledger; and successful runtime role commit without a destination polarity-operation gate.
 - Change is stacked as PR #62 (Draft/Open/unmerged), based on the current PR #60 target branch snapshot 8ea8106367a9246a4e97aee3191f10114c1f2f99.
 - Exact-head verify run 45443745916 was observed in progress for head ca9df6c1f417dd6201550c516a171938b0a0cf07. Do not mark this new suite passed until that exact head's run completes successfully; prior 841-test verification does not cover these new tests.
+
+
+SUPERSESSION NOTE — 2026-11-25
+
+This chronological handoff ledger remains preserved for its original World V2 execution decisions and fixed-seed evidence. Its old statements that PR #60 is the current integration PR, and its old liquid Ban/polarity model, are historical and no longer authoritative. The current consolidation is tracked in:
+- docs/architecture/2026-11-core-multi-angle-audit.md
+- docs/work-records/2026-11-25-core-consolidation-audit.md
+- docs/decisions/0006-world-owned-binary-liquid-polarity.md
+The successor integration is PR #63 (Draft/Open). The Core model now requires explicit World liquid identity-to-polarity mapping; Ban is staging-only and never defines Jar polarity or blocks Jar-internal consumption/migration. Do not delete this historical ledger; use the dated work-record index for current status.
