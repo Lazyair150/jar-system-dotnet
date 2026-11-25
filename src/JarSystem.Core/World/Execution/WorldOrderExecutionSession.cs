@@ -496,10 +496,24 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             if (resourceLedger != null && admission.ShipLiquidInventory != null)
             {
                 var tick = resourceLedgerTick?.Invoke() ?? 0;
+                var shipOwner = admission.ShipLiquidInventory.OwnerIdentity;
+                var source = shipOwner is { } owner
+                    ? ResourceEndpoint.ForAccount(new RuleResourceAccount(owner, "ship.liquid-inventory").AccountId)
+                    : ResourceEndpoint.LegacyUnknown;
+                var master = roster.Master
+                    ?? throw new InvalidOperationException("订单初始液体注入缺少主工作台。");
+                var target = master.OwnerIdentity is { } masterOwner
+                    ? ResourceEndpoint.ForAccount(new RuleResourceAccount(masterOwner, "workshop.free-liquid-staging").AccountId)
+                    : !string.IsNullOrWhiteSpace(master.OwnedInstanceId)
+                        ? ResourceEndpoint.ForAccount(new RuleResourceAccount("workshop.free-liquid-staging", master.OwnedInstanceId).AccountId)
+                        : ResourceEndpoint.LegacyUnknown;
                 foreach (var item in admitted.Manifest.MasterInitialLiquidAmounts)
                     resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
-                        item.Key, item.Value, from: "自机液库", to: roster.Master!.Name,
-                        resourceIdentity: item.Key);
+                        item.Key, item.Value, from: "自机液库", to: master.Name,
+                        resourceIdentity: item.Key, displayName: item.Key,
+                        fromAccountId: source.Kind == ResourceEndpointKind.Account ? source.AccountId : null,
+                        toAccountId: target.Kind == ResourceEndpointKind.Account ? target.AccountId : null,
+                        fromEndpoint: source, toEndpoint: target);
             }
             return WorldOrderExecutionStartResult.Started(session);
         }
