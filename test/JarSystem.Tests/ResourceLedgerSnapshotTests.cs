@@ -116,18 +116,18 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
-    public void EmptyOperationBatchStillDeduplicatesZeroResourceSettlement()
+    public void EmptyOperationBatchDoesNotCreatePhantomLedgerOperation()
     {
         var ledger = new ResourceLedger();
 
-        Assert.True(ledger.RecordBatchOnce(
+        Assert.False(ledger.RecordBatchOnce(
             "operation.empty-settlement", 1, Array.Empty<ResourceLedgerMutation>()));
         Assert.False(ledger.RecordBatchOnce(
             "operation.empty-settlement", 1, Array.Empty<ResourceLedgerMutation>()));
 
         Assert.Equal(0, ledger.LastSeq);
         Assert.Empty(ledger.Entries);
-        Assert.True(ledger.HasRecordedOperation("operation.empty-settlement"));
+        Assert.False(ledger.HasRecordedOperation("operation.empty-settlement"));
     }
 
     [Fact]
