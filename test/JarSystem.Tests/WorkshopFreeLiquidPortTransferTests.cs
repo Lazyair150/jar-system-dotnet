@@ -210,6 +210,31 @@ public sealed class WorkshopFreeLiquidPortTransferTests
     }
 
     [Fact]
+    public void SameOperationIdWithDifferentTransferPayloadIsRejected()
+    {
+        var path = CreatePath();
+        var request = Request(path.SourceAdapter, path.TargetAdapter,
+            path.SourcePort, path.TargetPort, 2);
+        var ledger = new ResourceLedger();
+        var first = WorkshopFreeLiquidPortTransfer.Prepare(
+            request, path.Connection, path.SourcePort, path.TargetPort,
+            path.SourceAdapter, path.TargetAdapter, path.Source, path.Target,
+            ledger, () => 123);
+        var committed = first.Commit();
+
+        var conflictingRequest = request with { Amount = 1 };
+        var conflicting = WorkshopFreeLiquidPortTransfer.Prepare(
+            conflictingRequest, path.Connection, path.SourcePort, path.TargetPort,
+            path.SourceAdapter, path.TargetAdapter, path.Source, path.Target,
+            ResourceLedger.Restore(ledger.Capture()), () => 124);
+
+        Assert.Throws<System.InvalidOperationException>(() => conflicting.Commit());
+        Assert.Equal(3, path.Source.LiquidStorage[Liquid]);
+        Assert.Equal(2, path.Target.LiquidStorage[Liquid]);
+        Assert.Equal(ResourceTransferOutcome.Transferred, committed.Outcome);
+    }
+
+    [Fact]
     public void LedgerPublicationFailureRestoresBothWorkshopFreeAccounts()
     {
         var path = CreatePath();
