@@ -456,9 +456,12 @@ public static class WorldV2Factory
     public static WorldV2Context Create(
         WorldV2Options options,
         WorldClock? clock = null,
-        IEnumerable<IWorldOrderSpecificationSolver>? additionalSolvers = null)
+        IEnumerable<IWorldOrderSpecificationSolver>? additionalSolvers = null,
+        WorldInstanceId? worldInstanceId = null)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
+        if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
+            throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
 
         var validation = options.Validate();
         if (!validation.IsValid)
@@ -546,6 +549,7 @@ public static class WorldV2Factory
             WorldV2ConfigurationFingerprint.Compute(options),
             options.Shapes,
             options.Liquids,
-            OrderTemplateLibrary.FromOptions(options.OrderTemplates, options.Shapes, options.Liquids));
+            OrderTemplateLibrary.FromOptions(options.OrderTemplates, options.Shapes, options.Liquids),
+            worldInstanceId);
     }
 }
