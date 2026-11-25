@@ -487,7 +487,9 @@ public partial class JarSystem : Rules.IWorldFacts
         var ledger = ResourceLedger;
         foreach (var (liquid, amount) in World.InitialStock)
             ledger.Record(0, Production.ResourceCauses.Stock, Production.ResourceKinds.Liquid,
-                liquid, amount, from: "关卡配置", to: "仓库", resourceIdentity: liquid);
+                liquid, amount, from: "关卡配置", to: "仓库", resourceIdentity: liquid,
+                fromEndpoint: ResourceEndpoint.ExternalSource("level.initial-stock"),
+                toEndpoint: ResourceEndpoint.LegacyUnknown);
     }
 
     // ============================================================
