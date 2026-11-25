@@ -168,3 +168,12 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 清理旧文档中的错误语义：Ban 不再被描述为 Jar 操作极性门禁。更新 phase-4.10b-9l-ban-storage-invariant、order-funnel、solver-integration-audit 与 World V2 README；历史阶段结论明确标为被 ADR-0006 修正。
 - World V2 README 已加入 ADR-0006 索引。
 - 当前 Core 最新相关 verify run `45579355853` 对提交 `37873ee08d2e74e425bf1d490c30468e6f257a6d` 尚在执行；该 SHA 之后仍有文档提交，因此最终必须以最终 head 的精确 CI 结果验收。
+
+
+## 2026-11-25 第六轮：A 类旧栈收敛与过期 PR 关闭准备
+
+- PR #52 有 11 个 head-only commits。核对后确认其关键实现已在当前树中：A 类具体分支入口、Master 输出 Jar 与 Slave 操作 Jar 的单次 handoff、Jar revision dependency，以及对应的 preparatory program 回归测试均已存在。
+- 创建双父 merge commit `61f1da1108c0c32457f9a0947fe32cb254687740`，第二父为 PR #52 head `6fc93a10aee3d0ea682c32f3fc5899bba8a37415`。比较确认 PR #52 head 已进入整合分支祖先链。
+- 目前已确认以下旧 PR head 均是整合分支祖先，可标记为被 PR #63 替代：#1–#20（#21 除外）、#22–#49（#50/#51 除外）、#52–#62（不含 #63）。其中 #21、#50、#51 的 head 不在整合分支祖先链中，暂时保留，避免误关仍有独有提交的分支。
+- 计划将所有已确认祖先的旧 Draft PR 关闭为 Superseded；不会删除分支、提交或测试文件。历史内容已由 PR #63 的多父提交链保留。
+- 关闭动作不代表 PR #63 已通过 CI 或已合并 main；PR #63 仍 Draft/Open，等待精确 head 的全量验证。
