@@ -240,9 +240,15 @@ public sealed class ResourceWorldRuntime
                     if (_resourceLedger != null)
                     {
                         foreach (var item in transaction.Receipt.Accepted)
+                        {
+                            var source = OwnerAccountEndpoint(Resources.ShipLiquidInventory?.OwnerIdentity, "ship.liquid-inventory");
+                            var target = WorkshopAccountEndpoint(targetWorkshop, "workshop.prefill-liquid-staging");
                             _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
                                 item.Key, item.Value, from: "自机液库", to: "主台预置",
-                                reason: "主工作台切换前置补液", resourceIdentity: item.Key);
+                                reason: "主工作台切换前置补液", resourceIdentity: item.Key,
+                                fromAccountId: AccountId(source), toAccountId: AccountId(target),
+                                fromEndpoint: source, toEndpoint: target);
+                        }
                     }
                     return transaction;
                 }
@@ -269,9 +275,15 @@ public sealed class ResourceWorldRuntime
                 if (_resourceLedger != null)
                 {
                     foreach (var item in transaction.Receipt.Accepted)
+                    {
+                        var source = WorkshopAccountEndpoint(targetWorkshop, "workshop.prefill-liquid-staging");
+                        var target = OwnerAccountEndpoint(Resources.ShipLiquidInventory?.OwnerIdentity, "ship.liquid-inventory");
                         _resourceLedger.Record(tick, ResourceCauses.Return, ResourceKinds.Liquid,
                             item.Key, item.Value, from: "主台预置", to: "自机液库",
-                            reason: "主工作台切换回滚", resourceIdentity: item.Key);
+                            reason: "主工作台切换回滚", resourceIdentity: item.Key,
+                            fromAccountId: AccountId(source), toAccountId: AccountId(target),
+                            fromEndpoint: source, toEndpoint: target);
+                    }
                 }
             };
         }
@@ -288,16 +300,23 @@ public sealed class ResourceWorldRuntime
                 if (_resourceLedger == null) return;
 
                 var mutations = new List<ResourceLedgerMutation>();
+                var prefillSource = WorkshopAccountEndpoint(retiredMaster, "workshop.prefill-liquid-staging");
+                var shipTarget = OwnerAccountEndpoint(Resources.ShipLiquidInventory?.OwnerIdentity, "ship.liquid-inventory");
                 foreach (var item in receipt.Accepted)
                     mutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
                         From: "主台预置", To: "自机液库",
-                        Reason: "主工作台替换后返还未消费预置液体", ResourceIdentity: item.Key));
+                        Reason: "主工作台替换后返还未消费预置液体", ResourceIdentity: item.Key,
+                        FromAccountId: AccountId(prefillSource), ToAccountId: AccountId(shipTarget),
+                        FromEndpoint: prefillSource, ToEndpoint: shipTarget));
                 foreach (var item in receipt.Discarded)
                     mutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
                         From: "主台预置", To: null,
-                        Reason: "主工作台替换后返还自机液库时容量不足", ResourceIdentity: item.Key));
+                        Reason: "主工作台替换后返还自机液库时容量不足", ResourceIdentity: item.Key,
+                        FromAccountId: AccountId(prefillSource),
+                        FromEndpoint: prefillSource,
+                        ToEndpoint: ResourceEndpoint.ExternalSink("ship.liquid-inventory.capacity-overflow")));
 
                 // 没有返还或丢弃的资源时，不制造空账本操作；有资源变化时整批原子发布。
                 if (mutations.Count > 0)
