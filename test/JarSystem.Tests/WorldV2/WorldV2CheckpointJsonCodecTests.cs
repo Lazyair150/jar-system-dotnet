@@ -57,14 +57,13 @@ public sealed class WorldV2CheckpointJsonCodecTests
     [InlineData(4)]
     public void DecodeAcceptsLegacyCheckpointEnvelopes(int version)
     {
-        var json = $$"""
-            {
-              "schemaVersion": {{version}},
-              "kind": "world-v2-execution-checkpoint",
-              "configurationFingerprint": null,
-              "payload": { "Name": "legacy", "Count": 1 }
-            }
-            """;
+        var json = JsonSerializer.Serialize(new
+        {
+            schemaVersion = version,
+            kind = WorldV2CheckpointJsonCodec.CurrentKind,
+            configurationFingerprint = (string?)null,
+            payload = new Payload("legacy", 1)
+        });
 
         var decoded = WorldV2CheckpointJsonCodec.Decode<Payload>(json);
 
