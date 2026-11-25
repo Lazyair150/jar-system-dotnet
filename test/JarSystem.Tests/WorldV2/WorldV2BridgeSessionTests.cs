@@ -268,7 +268,7 @@ public sealed class WorldV2BridgeSessionTests
         Assert.Equal(0, completed.FlowedJarCount);
 
         // Restore returns both the original rate and its fractional production state.
-        session.RestoreExecutionCheckpointJson(options, checkpointJson);
+        session.RestoreExecutionCheckpointJson(session.CaptureWorldOptions(), checkpointJson);
         session.UpdateProducerRates("陶工", nextRates);
         var restored = session.AdvanceWorld(250);
         Assert.Equal(1, restored.ProducedJarCount);
