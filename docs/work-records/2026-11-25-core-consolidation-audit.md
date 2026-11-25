@@ -177,3 +177,12 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 目前已确认以下旧 PR head 均是整合分支祖先，可标记为被 PR #63 替代：#1–#20（#21 除外）、#22–#49（#50/#51 除外）、#52–#62（不含 #63）。其中 #21、#50、#51 的 head 不在整合分支祖先链中，暂时保留，避免误关仍有独有提交的分支。
 - 计划将所有已确认祖先的旧 Draft PR 关闭为 Superseded；不会删除分支、提交或测试文件。历史内容已由 PR #63 的多父提交链保留。
 - 关闭动作不代表 PR #63 已通过 CI 或已合并 main；PR #63 仍 Draft/Open，等待精确 head 的全量验证。
+
+
+## 2026-11-25 第七轮：Ban staging-only 语义落到核心执行与求解路径
+
+- 复查 CI `45581332967` / `45581325843` / `45581319193`，确认旧测试仍大批断言 Ban 派生 Cathode/Anode 工作台权限；同时定位 `SolverPrecheck.CanServe` 将被 Ban 的 Jar 内液体误判为不可 POUR_OUT，及 `MatchingSolver` 的来源/操作检查残留 `CanOperateJar`。
+- 修正 `SolverPrecheck`：Jar 操作候选不再调用工作台极性许可；满 Jar RESHAPE 自耗不查 Ban；POUR_OUT 即使产液被 Ban 拒收，也可清空 Jar 并满足空 Jar 需求。修正 `MatchingSolver`：Jar 操作不再依赖 `CanOperateJar`，但只有未被 Ban 的 POUR_OUT 产液才可进入 staging 并作为后续游离液体供给。
+- 修正 `Workshop.PourOut(Jar)`：执行 Jar 状态转换后再尝试 AddLiquid；Ban/容量拒收仅丢弃产液，不回滚 Jar 操作。订单范围 PourOut 原有 receipt 继续记录 Requested/Accepted/Discarded。
+- 新增/调整回归：普通 PourOut Ban 丢弃；订单 PourOut Ban 丢弃；跨三个求解器验证 Ban Jar 液体可自耗；World A/B solver 与候选枚举器不因 Ban 拒绝 Jar 操作；工作台替换后接收台可操作迁移 Jar；允许重命名/重排两种液体，只要求显式映射；默认世界审批快照增加 liquidPolarities。
+- 当前待精确验收的 workflow 已触发于连续提交 `3c6af817...`、`2d2eff4c...` 等；需等最新 branch head 的全部 workflow 完成并继续修复失败项。此轮尚未宣称 CI 通过。
