@@ -38,3 +38,4 @@
 - [第二十七轮：最新 Core CI 与账本事件身份实现前置检查](2026-11-25-core-consolidation-audit.md)
 
 - [第二十八轮：账本事实身份、操作指纹与 Jar 出生身份贯通](2026-11-25-core-consolidation-audit.md)
+- [第二十九轮：Jar 出生身份覆盖、固定契约基线与回放门禁复核](2026-11-25-core-consolidation-audit.md)
