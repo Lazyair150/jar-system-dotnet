@@ -329,9 +329,9 @@ public sealed class PartitionSearch
             }
             if (sr.Feasible)
             {
-                var transferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path!);
-                var masterPeak = LiquidRequirementCalculator.ComputePeakCapacity(masterPath, transferLiquids);
-                var slavePeak = LiquidRequirementCalculator.ComputePeakCapacity(sr.Path!);
+                var transferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path!, null, request.SlaveInfo.Capability.Liquids);
+                var masterPeak = LiquidRequirementCalculator.ComputePeakCapacity(masterPath, transferLiquids, request.MasterInfo.Capability.Liquids);
+                var slavePeak = LiquidRequirementCalculator.ComputePeakCapacity(sr.Path!, null, request.SlaveInfo.Capability.Liquids);
                 if (masterPeak > request.MasterInfo.MaxLiquidCapacity)
                 {
                     blockage = "主台订单液体路径及从台交接预留超过总暂存容量";
