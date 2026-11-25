@@ -14,7 +14,7 @@ namespace JarSystem.Core.World;
 /// </summary>
 public static class WorldV2CheckpointJsonCodec
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
     public const string CurrentKind = "world-v2-execution-checkpoint";
 
     private static readonly Regex FingerprintPattern =
@@ -112,10 +112,9 @@ public static class WorldV2CheckpointJsonCodec
             versionElement.ValueKind != JsonValueKind.Number ||
             !versionElement.TryGetInt32(out var version))
             throw new JsonException("检查点缺少有效 schemaVersion。");
-        // Schemas 3 and 4 predate stable ledger account endpoint identities.
-        // Missing nullable fields remain explicitly legacy/unknown; never infer JarId
-        // from Shape or account identity from display names.
-        if (version is not (3 or 4 or CurrentSchemaVersion))
+        // Schemas 3, 4 and 5 predate the WorldInstanceId wire field.
+        // Missing identity remains explicitly unknown; never infer it from configuration fingerprints or names.
+        if (version is not (3 or 4 or 5 or CurrentSchemaVersion))
             throw new NotSupportedException("不支持的检查点 schemaVersion: " + version);
 
         if (!root.TryGetProperty("kind", out var kindElement) ||
