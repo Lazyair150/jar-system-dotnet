@@ -234,6 +234,46 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void RestoreFromReplacesEventsOperationIdsAndReceiptJournalTogether()
+    {
+        var current = new ResourceLedger();
+        var replacement = new ResourceLedger();
+        var currentSource = new RuleResourceAccount("workshop-liquid-staging", "workshop.current.source");
+        var currentTarget = new RuleResourceAccount("workshop-liquid-staging", "workshop.current.target");
+        var replacementSource = new RuleResourceAccount("workshop-liquid-staging", "workshop.replacement.source");
+        var replacementTarget = new RuleResourceAccount("workshop-liquid-staging", "workshop.replacement.target");
+        var currentReceipt = new ResourceTransferReceipt(
+            "operation.current", "connection.current", "current.out", "current.in",
+            RuleResourceKind.Liquid, "酒", currentSource, currentTarget,
+            1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "current-source-before", "current-source-after",
+            "current-target-before", "current-target-after", "allowed");
+        var replacementReceipt = new ResourceTransferReceipt(
+            "operation.replacement", "connection.replacement", "replacement.out", "replacement.in",
+            RuleResourceKind.Liquid, "蜜", replacementSource, replacementTarget,
+            2, 2, 0, 0, ResourceTransferOutcome.Transferred,
+            "replacement-source-before", "replacement-source-after",
+            "replacement-target-before", "replacement-target-after", "allowed");
+
+        current.RecordTransferOnce(currentReceipt.OperationId, 1,
+            new[] { new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "酒", 1, From: currentSource.OwnerId, To: currentTarget.OwnerId) }, currentReceipt);
+        replacement.RecordTransferOnce(replacementReceipt.OperationId, 2,
+            new[] { new ResourceLedgerMutation(ResourceCauses.Flow, ResourceKinds.Liquid,
+                "蜜", 2, From: replacementSource.OwnerId, To: replacementTarget.OwnerId) }, replacementReceipt);
+
+        current.RestoreFrom(replacement.Capture());
+
+        Assert.False(current.HasRecordedOperation(currentReceipt.OperationId));
+        Assert.True(current.HasRecordedOperation(replacementReceipt.OperationId));
+        Assert.False(current.TryGetTransferReceipt(currentReceipt.OperationId, out _));
+        Assert.True(current.TryGetTransferReceipt(replacementReceipt.OperationId, out var restored));
+        Assert.Equal(replacementReceipt, restored);
+        Assert.Single(current.Entries);
+        Assert.Equal(1, current.LastSeq);
+    }
+
+    [Fact]
     public void ConcurrentSameOperationPublishesExactlyOneReceiptAndEventBatch()
     {
         var ledger = new ResourceLedger();
