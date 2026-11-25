@@ -215,6 +215,7 @@ public sealed class WorldV2Context : IDisposable
                 resourceLedger.Record(0, ResourceCauses.Stock, ResourceKinds.Liquid,
                     item.Key, item.Value, from: "关卡初始库存", to: "自机液库",
                     resourceIdentity: item.Key,
+                    displayName: item.Key,
                     toAccountId: shipStockTarget.Kind == ResourceEndpointKind.Account ? shipStockTarget.AccountId : null,
                     fromEndpoint: stockSource, toEndpoint: shipStockTarget);
         }
