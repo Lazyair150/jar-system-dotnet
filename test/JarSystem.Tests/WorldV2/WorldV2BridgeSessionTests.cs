@@ -208,8 +208,11 @@ public sealed class WorldV2BridgeSessionTests
         Assert.True(session.StartActiveDemand(demandId).Success);
 
         var checkpoint = session.CaptureExecutionCheckpoint();
+        var originalWorldId = session.GetWorldInstanceId();
         session.CreateOrReplaceWorld(Options());
+        Assert.NotEqual(originalWorldId, session.GetWorldInstanceId());
         session.RestoreExecutionCheckpoint(checkpoint);
+        Assert.Equal(originalWorldId, session.GetWorldInstanceId());
 
         var restored = session.GetWorldSnapshot();
         Assert.Single(restored.ActiveSessions);
