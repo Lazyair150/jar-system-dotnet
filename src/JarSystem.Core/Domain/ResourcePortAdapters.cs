@@ -220,6 +220,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
     private readonly ShipLiquidInventory _inventory;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal bool IsBoundTo(ShipLiquidInventory inventory) => ReferenceEquals(_inventory, inventory);
 
     public ShipLiquidInventoryPortAdapter(ShipLiquidInventory inventory, string shipIndividualId, string areaId)
     {
@@ -275,6 +276,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter
     private readonly WorkshopLiquidStaging _staging;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
     public WorkshopPrefillLiquidPortAdapter(
         WorkshopLiquidStaging staging, string workshopInstanceId, string areaId)
