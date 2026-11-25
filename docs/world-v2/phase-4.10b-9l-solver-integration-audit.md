@@ -2,7 +2,9 @@
 
 ## Status
 
-The concrete A/B solver path is integrated into the production JarOrderSpecificationSolver entry point. This document supersedes the earlier audit that described PartitionSearch as the active B-class path.
+The concrete A/B solver path was integrated into the production JarOrderSpecificationSolver entry point.
+
+> **Historical correction (2026-11-25):** This phase audit predates the current World-owned binary liquid mapping and mixed-role B-class assignment. Read the current order-funnel contract and ADR-0006 for authoritative semantics. The B-class path now evaluates requirements across both role profiles (Slave-first preference, Master fallback); neither role's Ban restricts Jar operations or physical Jar handoff. This document supersedes the earlier audit that described PartitionSearch as the active B-class path.
 
 The retained WorldOrderPartitionBClassOracle is differential-test-only. It is not authoritative for production feasibility and is not called by Solve().
 
@@ -62,7 +64,7 @@ A rule/Profile/specification change still invalidates the old plan. A resource-o
 
 ## Domain invariants enforced by the concrete path
 
-- Every B-class final requirement is solved under the Slave rule profile only.
+- B-class requirements may be assigned to either Master or Slave under that role's rule profile; the enumerator preserves Slave-first preference but searches Master alternatives.
 - The initial Slave must contain no Jar and no free liquid.
 - Every physical Jar originates in the initial Master inventory.
 - Each physical Jar identity is bound once and can be operated at most once per order, across both roles.
@@ -73,10 +75,10 @@ A rule/Profile/specification change still invalidates the old plan. A resource-o
 - Master and Slave staging accounts remain independent.
 - Each operation consumes before producing; output is accepted only by its owning staging policy and capacity.
 - Jar-internal liquid is not a staging balance. Full-Jar self-consumption is governed by the current workshop's Jar-operation rules.
-- A Master-banned free liquid cannot cross as staging liquid, while a full Jar's internal liquid is not reclassified during physical handoff.
+- A Master-banned free liquid cannot cross as staging liquid; a full Jar's internal liquid is not staging inventory and is unaffected by the Ban during operation or physical handoff.
 - A-class plans contain no Slave steps or transfer resources.
 - Opaque Master rules make only branches with actual Master rule-operation nodes Undetermined; a Slave-only B branch is not blocked by unrelated Master rules.
-- B-class Slave rules must be statically known because the Slave owns every final requirement operation.
+- Any role profile used for an assigned operation must be statically known; an opaque profile must not suppress a concrete feasible branch in the other role.
 
 ## Admission, execution, settlement, and recovery
 
@@ -114,7 +116,7 @@ The 9l test families cover:
 - A-class and B-class candidate enumeration and physical Jar multiplicity;
 - identical preparation Jars and distinct requirement identities;
 - one-operation-per-physical-Jar;
-- Master-banned full Jars crossing as JarState but not being operated on by Master;
+- Ban applies only to free-liquid staging and does not restrict full-Jar operations or Jar handoff;
 - Master/Slave ban and explicit reject behavior;
 - staging capacity, rejected output, and consume-before-produce order;
 - one-way handoff and empty initial Slave;
