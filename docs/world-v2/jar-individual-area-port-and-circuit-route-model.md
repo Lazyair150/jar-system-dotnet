@@ -216,6 +216,17 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 - 账本使用 `flow/liquid` 事实；`RecordBatchOnce` 在双账户补偿边界内执行，OperationId 随账本检查点保存。该路径不将 Warehouse 账户与 Workshop 账户合并。
 - 这是对既有批量 `Warehouse.FlowToMaster` 的精确端口事务入口，不代表旧批量路径已经全部迁移。当前不支持 Jar、部分转移、多液种批次或 Workshop Prefill/订单子账。
 
+### 3.9 第四条事务参与者：生产区仓库 Jar 到工作台 Jar 存储区
+
+`WarehouseWorkshopJarPortTransfer.Prepare` 将 Warehouse Jar Output 连接到 Workshop Jar Input：
+
+- Jar 作为离散个体资源，资源身份是规范化正整数 JarId，数量固定为 1；不允许把多个 Jar 的数量伪装成同一身份的批量转移。
+- 提交前核验两个 Adapter 与实际 Warehouse/Workshop 实例绑定，且两端账户版本令牌与 Prepare 时一致。
+- 物理提交从 Warehouse 按 JarId 取出原对象，再将同一个对象引用放入 Workshop；补偿时从 Workshop 移除同一对象并放回 Warehouse。不会克隆、重建或归还对象池。
+- Jar 内部液体不参与 Workshop 游离液体 Ban/容量判定。即使 Jar 内装有本 Workshop 禁用的液体，仍可作为 Jar 个体移动；Ban 只作用于游离液体暂存账户。
+- 账本写入一条 `flow/jar` 事实，Name 使用 Jar Shape，From/To 使用两个权威账户身份；账本发布位于所有权补偿边界内，失败时恢复原 Jar 实体归属。
+- 当前路径不处理 Jar 改形、倒液、标记状态或多 Jar 批次；它只改变两个存储区之间的所有权位置。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
