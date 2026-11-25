@@ -40,10 +40,19 @@ public class ResourceProvenanceTests
         world.Producers = [new ProducerOptions { Name = "陶工", Rates = new() { ["圆罐"] = 1.0 } }];
         var sys = new JarSystem.Core.JarSystem(randomSeed: 11, world: world);
 
-        sys.Tick();
+        sys.Tick(2);
 
         var produced = sys.ResourceLedger.For(ResourceCauses.Production);
-        Assert.Contains(produced, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐" && e.Amount == 1);
+        var jarFacts = produced.Where(e => e.Kind == ResourceKinds.Jar).ToArray();
+        Assert.Equal(2, jarFacts.Length);
+        Assert.All(jarFacts, e =>
+        {
+            Assert.Equal("圆罐", e.Name);
+            Assert.Equal(1, e.Amount);
+            Assert.True(int.TryParse(e.ResourceIdentity, out var jarId) && jarId > 0);
+            Assert.Equal("仓库", e.To);
+        });
+        Assert.Equal(2, jarFacts.Select(e => e.ResourceIdentity).Distinct(StringComparer.Ordinal).Count());
         Assert.All(produced, e => Assert.Equal("仓库", e.To));
         Assert.All(sys.ResourceLedger.Entries,
             e => Assert.Contains(e.Cause, ResourceCauses.All));
