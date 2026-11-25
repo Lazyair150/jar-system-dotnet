@@ -1,6 +1,6 @@
+using System.Text.Json;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
-using JarSystem.Core.World;
 using JarSystem.Core.World;
 using Xunit;
 
@@ -168,7 +168,7 @@ public sealed class ResourceLedgerSnapshotTests
                     "酒", 2, From: "workshop.source", To: "workshop.target")
             },
             receipt));
-        Assert.Equal(1, roundTripped.Entries.Count);
+        Assert.Single(roundTripped.Entries);
     }
 
     [Fact]
