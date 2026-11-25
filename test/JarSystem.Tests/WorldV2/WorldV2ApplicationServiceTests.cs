@@ -708,8 +708,14 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(1, result.DiscardedJarCount);
         Assert.Equal(Constants.WAREHOUSE_MAX_JARS, app.GetWorldSnapshot().ResourceJars.Count);
         var ledger = app.GetResourceLedger();
-        Assert.Contains(ledger.Events, item =>
-            item.Cause == "discard" && item.Kind == "jar" && item.Name == "圆罐" && item.Amount == 1);
+        var jarFacts = ledger.Events.Where(item => item.Kind == "jar").ToArray();
+        Assert.Equal(Constants.WAREHOUSE_MAX_JARS + 1, jarFacts.Length);
+        Assert.All(jarFacts, item => Assert.False(string.IsNullOrWhiteSpace(item.ResourceIdentity)));
+        Assert.Equal(Constants.WAREHOUSE_MAX_JARS + 1,
+            jarFacts.Select(item => item.ResourceIdentity).Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(jarFacts, item =>
+            item.Cause == "discard" && item.Name == "圆罐" && item.Amount == 1);
+        Assert.All(app.GetWorldSnapshot().ResourceJars, jar => Assert.True(jar.Id is > 0));
     }
 
     [Fact]
