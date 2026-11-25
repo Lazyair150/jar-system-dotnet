@@ -80,10 +80,17 @@ public sealed class PreparedWorkshopFreeLiquidPortTransfer
             {
                 [_request.ResourceIdentity] = _request.Amount
             };
+            ResourceTransferReceipt? committedReceipt = null;
             LegacyWorkshopLiquidTransfer.Execute(
                 _sourceWorkshop, _targetWorkshop, batch,
                 () =>
                 {
+                    var sourceAfter = _sourceAdapter.Preflight(
+                        _sourcePort, _request.ResourceIdentity, _request.Amount);
+                    var targetAfter = _targetAdapter.Preflight(
+                        _targetPort, _request.ResourceIdentity, _request.Amount);
+                    committedReceipt = ResourcePortTransferGuards.CreateCommittedReceipt(
+                        _request, source, target, sourceAfter, targetAfter);
                     if (_ledger is not null &&
                         !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
                         {
@@ -95,21 +102,8 @@ public sealed class PreparedWorkshopFreeLiquidPortTransfer
                             "The transfer OperationId was recorded while its physical commit was in progress.");
                 });
 
-            var sourceAfter = _sourceAdapter.Preflight(
-                _sourcePort, _request.ResourceIdentity, _request.Amount);
-            var targetAfter = _targetAdapter.Preflight(
-                _targetPort, _request.ResourceIdentity, _request.Amount);
-            _receipt = new ResourceTransferReceipt(
-                _request.OperationId, _request.ConnectionId,
-                _request.SourcePortId, _request.TargetPortId,
-                _request.ResourceKind, _request.ResourceIdentity,
-                _request.SourceAccount, _request.TargetAccount,
-                _request.Amount, _request.Amount, 0, 0,
-                ResourceTransferOutcome.Transferred,
-                source.ObservedVersionToken, sourceAfter.ObservedVersionToken,
-                target.ObservedVersionToken, targetAfter.ObservedVersionToken,
-                "allowed");
-            _receipt.Validate();
+            _receipt = committedReceipt
+                ?? throw new InvalidOperationException("Physical transfer completed without a prepared receipt.");
             return _receipt;
         }
         catch
