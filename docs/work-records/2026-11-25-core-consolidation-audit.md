@@ -723,3 +723,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 第四条路径测试覆盖精确对象身份、Ban 与 Jar 存储相互隔离、Jar 位容量、版本变化、账本 OperationId 检查点恢复去重、账本发布失败时恢复实体归属、Adapter 实例绑定错配。
 - 第四条路径及写入者清单相关提交：`4bbca356c67cb4a5e6e3ba1c9939b46f9f7090fc`、`89e5c4253ffe034aa0c38ecedb371c22f6ade69f`、`f4242e01841b0ba1abd6335106a259a06299de63`、`7e901367205e39832981eedd5d7e68ed5be3a82c`、`540996b51ccb304718005288c843e9f2518c8682`、`ca0095efbce0b1cec24d91db661e6b9eebe56890`、`0169e8d0cd8524f29bbd6981db04e03437856ad4`。
 - 第三条 Warehouse→Workshop 液体路径与第四条 Jar 路径的新 CI 尚待最终确认；不把旧的 906 项成功结果当作本轮最终验证。
+
+- 第四条 Jar 路径的早期 Run `45627839131` 在 Core Build 失败：`WarehouseWorkshopJarPortTransfer.cs` 误带测试专用 `using Xunit;`，导致 Core 项目找不到 Xunit namespace。已移除该引用，提交 `64c8999dc96a556207c5a1b7452bac5e3d5a3189`。这不是领域编译问题，但必须以当前提交重跑全验证。
