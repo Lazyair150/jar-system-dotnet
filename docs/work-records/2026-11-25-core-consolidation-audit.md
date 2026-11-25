@@ -587,3 +587,10 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 因此新 Transfer Request / Preflight / Receipt 使用不透明版本令牌字符串，而不伪造一个当前账户并不存在的整数版本计数器。
 - 令牌后续由账户 Adapter 根据权威账户纯值快照产生，并在提交前重新计算/比较；静态策略版本仍由 Port Definition 单独携带。
 - 已同步更新 `ResourcePortTransferContracts.cs` 与测试夹具；账户版本冲突的运行时处理仍待 Adapter/Coordinator 阶段实现。
+
+
+### 第十九轮端口约束补记
+- `CircuitPortDefinition` 增加可选 `MaxAmountPerTransfer` 与 `MaxAmountPerLogicalTimeMilli`，分别表达单次传输上限和逻辑时间吞吐上限；未配置表示不由该端口施加对应上限。
+- 负值配置在构造边界拒绝；零值可用于表达当前关闭的端口能力。
+- `CircuitTopologyTests` 增加端口吞吐契约测试。
+- 当前 Core 最新代码 HEAD：`476956eea99c96dc4fc567ed3073da703acf2d80`；精确 CI 正在执行，结果待补。
