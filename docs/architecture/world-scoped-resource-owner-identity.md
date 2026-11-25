@@ -1,7 +1,7 @@
 # World-scoped Resource Owner Identity
 
 Date: 2026-11-26  
-Status: Normative target model; WorldInstanceId host-lifecycle slice implemented, OwnerIdentity migration pending  
+Status: Normative target model; WorldInstanceId lifecycle and typed OwnerIdentity/AccountId v2 contracts implemented; runtime owner mapping pending  
 Related: ADR 0011, ADR 0010, Core conceptual model sections 20–22
 
 ## Purpose
@@ -52,6 +52,8 @@ LocalOwnerId must be stable for the lifetime of the owned individual. Account id
 (WorldInstanceId, OwnerKind, LocalOwnerId, AccountKind)
 
 Canonical serialization must be versioned and length-prefixed. DisplayName changes, role changes, localization, ordering, and object memory addresses must not change OwnerId or AccountId.
+
+The typed contract now exists as `OwnerIdentity(WorldInstanceId, ResourceOwnerKind, LocalOwnerId)` and `AccountIdentity(OwnerIdentity, AccountKind)`. Its canonical account form is `account:v2:` followed by four UTF-8 byte-length-prefixed fields: WorldInstanceId, stable OwnerKind token, LocalOwnerId and AccountKind. The parser rejects truncated, non-canonical, unknown-kind and trailing data. The two-argument `RuleResourceAccount(AccountKind, OwnerId)` remains the explicit v1 compatibility constructor; the typed-owner constructor emits v2. Transfer contracts reject cross-World v2 endpoints and mixed v1/v2 endpoints. Resource-port adapters now have typed-owner overloads; their legacy overloads remain for staged migration.
 
 The intended ownership mapping is:
 
