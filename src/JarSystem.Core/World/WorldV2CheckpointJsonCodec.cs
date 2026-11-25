@@ -46,9 +46,10 @@ public static class WorldV2CheckpointJsonCodec
         WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         var envelope = Decode<WorldV2ExecutionCheckpointWireDto>(json);
+        var ledgerEvents = envelope.Payload.ResourceLedger?.Events;
         if (envelope.SchemaVersion >= 8 &&
-            envelope.Payload.ResourceLedger.Events.Any(item =>
-                item.FromEndpoint == null || item.ToEndpoint == null))
+            (ledgerEvents == null || ledgerEvents.Any(item =>
+                item == null || item.FromEndpoint == null || item.ToEndpoint == null)))
             throw new JsonException("Schema 8+ resource ledger events must carry explicit tagged endpoints.");
         return envelope.Payload.ToCheckpoint(
             envelope.ConfigurationFingerprint, legacyMigrationWorldInstanceId);
