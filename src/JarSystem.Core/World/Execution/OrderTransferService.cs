@@ -234,7 +234,9 @@ internal sealed class OrderTransferService
                 ledgerMutations.Add(new ResourceLedgerMutation(
                     ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
                     From: master.Name, To: slave.Name,
-                    ResourceIdentity: id.ToString(CultureInfo.InvariantCulture)));
+                    ResourceIdentity: id.ToString(CultureInfo.InvariantCulture),
+                    FromAccountId: WorkshopAccountId(master, "workshop.jar-storage"),
+                    ToAccountId: WorkshopAccountId(slave, "workshop.jar-storage")));
         }
 
         if (masterScope == null)
@@ -245,7 +247,9 @@ internal sealed class OrderTransferService
                 foreach (var item in manifest.TransferLiquids.Where(item => item.Value > 0))
                     ledgerMutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
-                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key));
+                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
+                        FromAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"),
+                        ToAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging")));
             }
         }
         else
@@ -259,7 +263,9 @@ internal sealed class OrderTransferService
                 if (ledger != null)
                     ledgerMutations.Add(new ResourceLedgerMutation(
                         ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
-                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key));
+                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
+                        FromAccountId: WorkshopOrderAccountId(master, demandId),
+                        ToAccountId: WorkshopOrderAccountId(slave, demandId)));
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
 
@@ -295,6 +301,20 @@ internal sealed class OrderTransferService
         CommittedTransition = transferTransition;
         IsCommitted = true;
         return null;
+    }
+
+    private static string? WorkshopAccountId(Workshop workshop, string accountKind)
+    {
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId)) return null;
+        return new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId;
+    }
+
+    private static string? WorkshopOrderAccountId(Workshop workshop, int demandId)
+    {
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId)) return null;
+        var ownerId = workshop.OwnedInstanceId + ":order:" +
+            demandId.ToString(CultureInfo.InvariantCulture);
+        return new RuleResourceAccount("workshop.order-liquid-staging", ownerId).AccountId;
     }
 
     private static bool LiquidBalancesEqual(
