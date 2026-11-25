@@ -236,7 +236,9 @@ internal sealed class OrderTransferService
                     From: master.Name, To: slave.Name,
                     ResourceIdentity: id.ToString(CultureInfo.InvariantCulture),
                     FromAccountId: WorkshopAccountId(master, "workshop.jar-storage"),
-                    ToAccountId: WorkshopAccountId(slave, "workshop.jar-storage")));
+                    ToAccountId: WorkshopAccountId(slave, "workshop.jar-storage"),
+                    FromEndpoint: WorkshopAccountEndpoint(master, "workshop.jar-storage"),
+                    ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.jar-storage")));
         }
 
         if (masterScope == null)
@@ -249,7 +251,9 @@ internal sealed class OrderTransferService
                         ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
                         From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
                         FromAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"),
-                        ToAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging")));
+                        ToAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging"),
+                        FromEndpoint: WorkshopAccountEndpoint(master, "workshop.free-liquid-staging"),
+                        ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.free-liquid-staging")));
             }
         }
         else
@@ -265,7 +269,9 @@ internal sealed class OrderTransferService
                         ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
                         From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
                         FromAccountId: WorkshopOrderAccountId(master, demandId),
-                        ToAccountId: WorkshopOrderAccountId(slave, demandId)));
+                        ToAccountId: WorkshopOrderAccountId(slave, demandId),
+                        FromEndpoint: WorkshopOrderAccountEndpoint(master, demandId),
+                        ToEndpoint: WorkshopOrderAccountEndpoint(slave, demandId)));
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
 
@@ -305,16 +311,39 @@ internal sealed class OrderTransferService
 
     private static string? WorkshopAccountId(Workshop workshop, string accountKind)
     {
+        if (workshop.OwnerIdentity is { } owner)
+            return new RuleResourceAccount(owner, accountKind).AccountId;
         if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId)) return null;
         return new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId;
     }
 
+    private static ResourceEndpoint WorkshopAccountEndpoint(Workshop workshop, string accountKind)
+    {
+        var accountId = WorkshopAccountId(workshop, accountKind);
+        return accountId == null
+            ? ResourceEndpoint.LegacyUnknown
+            : ResourceEndpoint.ForAccount(accountId);
+    }
+
     private static string? WorkshopOrderAccountId(Workshop workshop, int demandId)
     {
+        if (workshop.OwnerIdentity is { } owner)
+        {
+            var orderOwner = ResourceOwnerIdentityGuard.ForOrderStaging(owner, demandId);
+            return new RuleResourceAccount(orderOwner, "workshop.order-liquid-staging").AccountId;
+        }
         if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId)) return null;
         var ownerId = workshop.OwnedInstanceId + ":order:" +
             demandId.ToString(CultureInfo.InvariantCulture);
         return new RuleResourceAccount("workshop.order-liquid-staging", ownerId).AccountId;
+    }
+
+    private static ResourceEndpoint WorkshopOrderAccountEndpoint(Workshop workshop, int demandId)
+    {
+        var accountId = WorkshopOrderAccountId(workshop, demandId);
+        return accountId == null
+            ? ResourceEndpoint.LegacyUnknown
+            : ResourceEndpoint.ForAccount(accountId);
     }
 
     private static bool LiquidBalancesEqual(
