@@ -612,8 +612,10 @@ public sealed class ResourceLedgerSnapshot
             To = item.To,
             FromAccountId = item.FromAccountId,
             ToAccountId = item.ToAccountId,
-            FromEndpoint = item.FromEndpoint,
-            ToEndpoint = item.ToEndpoint,
+            FromEndpoint = item.FromEndpoint.Kind == ResourceEndpointKind.LegacyUnknown && item.FromAccountId != null
+                ? ResourceEndpoint.ForAccount(item.FromAccountId) : item.FromEndpoint,
+            ToEndpoint = item.ToEndpoint.Kind == ResourceEndpointKind.LegacyUnknown && item.ToAccountId != null
+                ? ResourceEndpoint.ForAccount(item.ToAccountId) : item.ToEndpoint,
             Reason = item.Reason,
             ResourceIdentity = item.ResourceIdentity,
             OperationId = item.OperationId
