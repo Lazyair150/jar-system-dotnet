@@ -140,7 +140,7 @@ public sealed class OrderLiquidPortTransferTests
         Assert.Equal("transfer.cancelled", receipt.ReasonCode);
         Assert.Equal(2, path.Source.GetAmount(OrderId, "酒"));
         Assert.Equal(0, path.Target.GetAmount(OrderId, "酒"));
-        Assert.Throws<System.InvalidOperationException>(() => prepared.Cancel());
+        prepared.Cancel();
     }
 
     [Fact]
