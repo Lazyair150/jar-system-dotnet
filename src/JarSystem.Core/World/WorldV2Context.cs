@@ -116,6 +116,8 @@ public sealed class WorldV2Context : IDisposable
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
         if (master == null) throw new ArgumentNullException(nameof(master));
         if (solverRegistry == null) throw new ArgumentNullException(nameof(solverRegistry));
+        if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
+            throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
         if (logicalTimePerUnit <= 0)
             throw new ArgumentOutOfRangeException(nameof(logicalTimePerUnit));
         if (shipLiquidInventory != null && resources.ShipLiquidInventory != null &&
@@ -367,6 +369,8 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions,
         WorldInstanceId? worldInstanceId = null)
     {
+        if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
+            throw new ArgumentException("检查点 WorldInstanceId 无效。", nameof(worldInstanceId));
         WorldInstanceId = worldInstanceId;
         ResourceArea = resourceArea;
         DemandBoard = demandBoard;
