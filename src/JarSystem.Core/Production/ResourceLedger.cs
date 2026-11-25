@@ -196,7 +196,7 @@ public sealed class ResourceLedger
 
             _transferReceipts.Clear();
             foreach (var item in restored._transferReceipts)
-                _transferReceipts.Add(item.Key, item.Value with { });
+                _transferReceipts.Add(item.Key, item.Value);
         }
     }
 
