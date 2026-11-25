@@ -38,8 +38,6 @@ public class Requirement
     public string Shape { get; init; } = "";
     public string? Liquid { get; init; }
 
-    /// <summary>需求对应的 Jar 极性；空需求为 Neutral，满罐需求由液体身份派生。</summary>
-    public JarPolarity Polarity => JarPolarityResolver.Resolve(Liquid);
 }
 
 /// <summary>
