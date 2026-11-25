@@ -617,3 +617,12 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - Ban 继续通过各自账户既有规则执行；Jar 内部液体不经过这些 Adapter。
 - Ship Liquid Inventory 不套用 Workshop Ban。
 - 目前只完成只读预检，不执行跨账户扣款/收款，不得称为端到端转移已完成。
+
+
+### 第二十轮扩展：预置账户与离散 Jar Storage
+- 在 `ResourcePortAdapters.cs` 增加 `WorkshopPrefillLiquidPortAdapter`：预置余额有独立 AccountKind，不与订单子账余额合并；输入检查共享容量与 Ban，输出只检查预置余额。
+- 增加 `WorkshopJarStoragePortAdapter`：Jar 以正整数实例 ID 为资源身份，数量必须为 1；输入检查罐位与重复归属，输出检查该 Jar 是否确属当前 Workshop。
+- 明确 Jar Storage 不检查 Jar.Liquid 的 Workshop Ban；Ban 不会因 Jar 内部液体身份而阻止 Jar 本体迁移。
+- Jar 端口若声明逻辑时间吞吐限制，在 Scheduler Window 未接入前返回 Undetermined。
+- 版本令牌的多值字段改用长度前缀规范化编码，避免液体身份包含分隔符导致拼接歧义。
+- 扩展测试覆盖预置账户与订单子账隔离，以及含 Ban 液体的 Jar 仍可作为 Jar 资源被识别/迁移。
