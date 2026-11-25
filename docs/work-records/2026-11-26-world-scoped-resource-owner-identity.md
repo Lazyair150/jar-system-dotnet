@@ -83,3 +83,22 @@ This slice changes documentation only. It does not change production code, DTOs,
 8. Update Space's Core pin only after Core produces a verified integration SHA.
 
 PR #63 remains Draft/Open. PR #2 remains unchanged. No GUI acceptance or B-class compound atomicity is claimed.
+
+
+## GitHub write and verification follow-up
+
+The documentation changes were written to the existing integration branch in separate commits:
+
+- ADR 0011: commit 3f8510127036d6099fdf51b92764ba971e2c4436.
+- Normative architecture detail: commit d0651160e497b35ad4829c360084a7325d6e3dea.
+- This work record: commit 2beefbcb65be9df1ea199aa4aca70842a2a597ab.
+- Work-record index: commit 2f9cf04de4cd537dacae4a57a06afb01ca8e9786.
+
+The final index commit is the latest commit created in this documentation slice and includes the three preceding documentation commits.
+
+Workflow verification limitation:
+- The GitHub connector's fetch_commit_workflow_runs wrapper returns only pull-request-triggered runs. It returned no PR-associated run for 2f9cf04.
+- The combined commit-status endpoint returned an empty status list.
+- The repository workflow declares push, pull_request and workflow_dispatch triggers. Therefore an empty PR-run list is not evidence that no push run exists; this slice records CI as unconfirmed, not passed.
+
+No production source, tests, DTOs, checkpoint schema, or runtime behavior were changed in this documentation slice.
