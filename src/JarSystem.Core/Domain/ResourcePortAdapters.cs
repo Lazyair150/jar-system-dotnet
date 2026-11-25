@@ -42,6 +42,14 @@ internal static class ResourcePortVersionToken
 
 internal static class ResourcePortPreflightFactory
 {
+    public static void ValidateRequest(string resourceIdentity, int amount)
+    {
+        if (string.IsNullOrWhiteSpace(resourceIdentity))
+            throw new ArgumentException("Resource identity is required.", nameof(resourceIdentity));
+        if (amount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(amount), "Resource amount must be positive.");
+    }
+
     public static ResourcePortPreflight Evaluate(
         IResourcePortAdapter adapter,
         CircuitPortDefinition port,
@@ -108,6 +116,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
 
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
+        ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
         var token = ResourcePortVersionToken.Create(new[]
         {
             new KeyValuePair<string, string>("owner", Account.OwnerId),
