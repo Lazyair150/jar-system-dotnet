@@ -151,6 +151,32 @@ public sealed class Warehouse
     public int LiquidCount(string liquid) => _liquidWarehouse.GetValueOrDefault(liquid, 0);
 
     /// <summary>
+    /// Exact single-liquid withdrawal for a synchronous port transaction. Unlike ProduceLiquid,
+    /// this never accepts a partial amount and never records overflow as discarded.
+    /// </summary>
+    internal bool TryWithdrawLiquidExact(string liquid, int amount)
+    {
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: false);
+        if (!_liquidWarehouse.ContainsKey(liquid) || LiquidCount(liquid) < amount)
+            return false;
+        _liquidWarehouse[liquid] -= amount;
+        return true;
+    }
+
+    /// <summary>Restore one exact pre-transaction Warehouse balance during compensation.</summary>
+    internal void RestoreLiquidBalance(string liquid, int amount)
+    {
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
+        if (!_liquidWarehouse.ContainsKey(liquid))
+            throw new InvalidOperationException("Warehouse rollback references an unknown liquid: " + liquid);
+        if (amount > Constants.WAREHOUSE_MAX_LIQUIDS)
+            throw new InvalidOperationException("Warehouse rollback balance exceeds its per-liquid capacity.");
+        _liquidWarehouse[liquid] = amount;
+    }
+
+    /// <summary>
     /// 仓库 → 主台流入：罐子优先给"主台基础形状"（带主台容量检查），液体按主台的**容量**部分填充
     /// （被禁液体不会流入，仍完整留在中央仓库）。
     /// 返回本次实际流入的罐子与液体（与抽取前逐字一致）。
