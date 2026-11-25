@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JarSystem.Core.Config;
 using System.Linq;
 using JarSystem.Core.Domain;
 using JarSystem.Core.World;
@@ -250,5 +251,55 @@ public sealed class WorldSnapshotTests
         Assert.Equal(2, info.MaxLiquidCapacity);
         Assert.NotEqual(first.Version, second.Version);
     }
+
+
+    [Fact]
+    public void SnapshotCapturesCustomWorldShapeVocabularyInsteadOfDefaultContent()
+    {
+        var vocabulary = new Vocabulary(
+            new[] { "round-custom", "square-custom" },
+            new[] { "fuel", "coolant" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["fuel"] = LiquidPolarity.Anode,
+                ["coolant"] = LiquidPolarity.Cathode
+            });
+        var workshop = new Workshop(
+            "custom-master",
+            new List<string> { "round-custom" },
+            vocabulary: vocabulary);
+        var snapshot = WorldSnapshotFactory.Capture(
+            new WorkshopRoster(new[] { workshop }, workshop));
+
+        Assert.Equal(new[] { "round-custom", "square-custom" }, snapshot.Master!.Shapes);
+        Assert.DoesNotContain("圆罐", snapshot.Master.Shapes);
+    }
+
+    [Fact]
+    public void SnapshotRejectsWorkshopsWithDifferentShapeDirectories()
+    {
+        var firstVocabulary = new Vocabulary(
+            new[] { "round-custom", "square-custom" },
+            new[] { "fuel", "coolant" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["fuel"] = LiquidPolarity.Anode,
+                ["coolant"] = LiquidPolarity.Cathode
+            });
+        var secondVocabulary = new Vocabulary(
+            new[] { "round-custom", "triangle-custom" },
+            new[] { "fuel", "coolant" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["fuel"] = LiquidPolarity.Anode,
+                ["coolant"] = LiquidPolarity.Cathode
+            });
+        var master = new Workshop("master", vocabulary: firstVocabulary);
+        var slave = new Workshop("slave", vocabulary: secondVocabulary);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+
+        Assert.Throws<System.ArgumentException>(() => WorldSnapshotFactory.Capture(roster));
+    }
+
 
 }
