@@ -62,13 +62,26 @@ The latest code HEAD at the time this record was written is `2bd8524057c84a2a7e4
 - The first reset-source regression test incorrectly expected a producer tick after `ResetProducerModule()`, although that API intentionally creates a fresh, unconfigured producer module. The test was corrected to admit a Jar directly into the replacement Warehouse and assert the injected allocator's next ID. Production behavior was not weakened.
 - HEAD `e22113d` passed build, xUnit, and replay, but failed the contract snapshot because IDs intentionally changed. The generated diff was reviewed and the baseline updated; the subsequent exact HEAD CI passed.
 
-## Not yet complete
+## Remaining work and known boundary
 
-1. Stable `FromAccountId` / `ToAccountId` separate from display labels. B-class `OrderTransferService` still uses Workshop display names in its legacy `From` / `To` fields; do not claim ADR 0010 endpoint identity is fully implemented.
-2. `ResourceTransferBatchRequest/Receipt` and a multi-account prepare/commit/compensate coordinator.
-3. Migration of B-class Jar Storage + Order Liquid Staging transfer to one compound transaction with fault-injection coverage.
-4. Full audit of any remaining legacy/external uncorrelated events. Legacy records may remain identity-unknown; new physical Jar facts must not infer JarId from Shape.
-5. After Core reaches a verified integration SHA, update Space's pinned Core SHA and run the cross-repository workflow. Space remains unchanged in this slice.
+1. **Stable account endpoints are now implemented for the explicit account-transfer paths.**
+   - `ResourceEvent` / `ResourceLedgerMutation` carry `FromAccountId` and `ToAccountId` separately from the human-readable `From` / `To` labels.
+   - `RuleResourceAccount.AccountId` uses the versioned length-prefixed `account:v1` encoding.
+   - Single-resource port transfers derive and verify endpoint IDs from the immutable receipt accounts.
+   - B-class handoff records Jar Storage endpoints and either free-liquid-staging or order-liquid-staging endpoints from the exact `OwnedInstanceId`.
+   - Workshop migration and slave rollback also record account IDs when their Workshop instances are Board-owned.
+2. Some legacy or incompletely identified resource paths still legitimately produce null endpoint IDs: the legacy `JarSystem` ProductionService Warehouse events, World V2 initial ship-stock / ship-to-workshop funding, and settlement that merges multiple order sub-accounts before returning to the ship. These must not infer account identity from display labels. Completing them requires explicit Warehouse/Ship owner identity and, for multi-source settlement, preserving per-source allocation rather than inventing one aggregate owner.
+3. `ResourceLedgerMutation.Name` remains the compatibility/display-name field; a separately named `DisplayName` API alias is not yet introduced.
+4. `ResourceTransferBatchRequest/Receipt` and a multi-account prepare/commit/compensate coordinator are not implemented.
+5. B-class Jar Storage + Order Liquid Staging is now represented by stable endpoint IDs in the ledger facts, but its physical mutation still lacks one durable compound prepare/commit/compensate boundary and fault-injection proof. Do not claim whole-transfer atomicity.
+6. After Core reaches a verified integration SHA, update Space's pinned Core SHA and run the cross-repository workflow. Space remains unchanged in this slice.
+
+## Latest verification update
+
+- HEAD `2bd8524057c84a2a7e488cfc3335180fe9aeba6b`: runs `45653547924` and `45653563944` — Success. xUnit reported 958 passed, 0 failed; Session Replay and contract snapshot passed.
+- Current code HEAD when this update was recorded: `bb524358a795873ac540bb67ea5be9f150998524`.
+- Current HEAD runs `45655401604` and `45655380510` are In Progress; no pass is claimed yet.
+- PR #63 remains Open / Draft. Space's Core pin is unchanged.
 
 ## Repository state
 
