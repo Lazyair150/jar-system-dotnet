@@ -75,6 +75,21 @@ public sealed class WorldV2HostServiceTests
     }
 
     [Fact]
+    public void RuntimeOwnerIdsDoNotChangeWorldDefinitionFingerprint()
+    {
+        var first = ValidOptions();
+        var second = ValidOptions();
+        first.Producers[0].ProducerInstanceId = "producer-instance-a";
+        second.Producers[0].ProducerInstanceId = "producer-instance-b";
+        first.Workshops[0].OwnedInstanceId = "workshop-instance-a";
+        second.Workshops[0].OwnedInstanceId = "workshop-instance-b";
+
+        Assert.Equal(
+            WorldV2ConfigurationFingerprint.Compute(first),
+            WorldV2ConfigurationFingerprint.Compute(second));
+    }
+
+    [Fact]
     public void HostReplacementUsesNewIdentityUnlessTheHostSuppliesPersistedIdentity()
     {
         using var host = new WorldV2HostService();
