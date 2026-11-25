@@ -74,6 +74,13 @@ public sealed class WorldV2BridgeSession : IDisposable
         return _application.GetWorldInstanceId();
     }
 
+    /// <summary>捕获可持久化的世界配置快照，包含 Host 分配的 Producer / Workshop 实例身份。</summary>
+    public WorldV2Options CaptureWorldOptions()
+    {
+        ThrowIfDisposed();
+        return _application.CaptureWorldOptions();
+    }
+
     /// <summary>推进指定的世界时间毫秒数；逻辑时间换算由 Core 的 WorldClock 完成。</summary>
     public WorldV2AdvanceResultDto AdvanceWorld(long deltaWorldTimeMilli)
     {
