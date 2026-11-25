@@ -222,7 +222,7 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 
 - Jar 作为离散个体资源，资源身份是规范化正整数 JarId，数量固定为 1；不允许把多个 Jar 的数量伪装成同一身份的批量转移。
 - 提交前核验两个 Adapter 与实际 Warehouse/Workshop 实例绑定，且两端账户版本令牌与 Prepare 时一致。
-- 物理提交从 Warehouse 按 JarId 取出原对象，再将同一个对象引用放入 Workshop；补偿时从 Workshop 移除同一对象并放回 Warehouse。不会克隆、重建或归还对象池。
+- 物理提交从 Warehouse 按 JarId 取出原对象，再将同一个对象引用放入 Workshop；同时记录它在 Warehouse 中的原始索引。补偿时从 Workshop 移除同一对象并按原索引放回 Warehouse，保持后续有序取罐语义；不会克隆、重建或归还对象池。
 - Jar 内部液体不参与 Workshop 游离液体 Ban/容量判定。即使 Jar 内装有本 Workshop 禁用的液体，仍可作为 Jar 个体移动；Ban 只作用于游离液体暂存账户。
 - 账本写入一条 `flow/jar` 事实，Name 使用 Jar Shape，From/To 使用两个权威账户身份；账本发布位于所有权补偿边界内，失败时恢复原 Jar 实体归属。
 - 当前路径不处理 Jar 改形、倒液、标记状态或多 Jar 批次；它只改变两个存储区之间的所有权位置。
