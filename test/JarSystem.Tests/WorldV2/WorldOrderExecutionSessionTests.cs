@@ -837,8 +837,12 @@ public sealed class WorldOrderExecutionSessionTests
         });
 
         var leaseWire = OrderResourceLeaseWireDto.FromLease(lease);
-        leaseWire.Validate();
-        var restoredReceipt = leaseWire.ToReceipt();
+        var leaseBookWire = new WorldResourceReservationBookWireDto(new[] { leaseWire });
+        var encodedLeaseBook = WorldV2CheckpointJsonCodec.Encode(leaseBookWire, null);
+        var restoredLeaseBook = WorldV2CheckpointJsonCodec
+            .Decode<WorldResourceReservationBookWireDto>(encodedLeaseBook).Payload;
+        restoredLeaseBook.Validate();
+        var restoredReceipt = Assert.Single(restoredLeaseBook.Leases).ToReceipt();
         Assert.NotNull(restoredReceipt);
         Assert.Equal(2, restoredReceipt!.SourceAllocations.Count);
         Assert.Equal(
