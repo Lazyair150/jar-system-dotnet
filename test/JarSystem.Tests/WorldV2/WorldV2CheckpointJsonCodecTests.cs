@@ -60,6 +60,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
     [InlineData(5)]
     [InlineData(6)]
     [InlineData(7)]
+    [InlineData(8)]
     public void DecodeAcceptsLegacyCheckpointEnvelopes(int version)
     {
         var json = JsonSerializer.Serialize(new
@@ -81,7 +82,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
     {
         const string json = """
             {
-              "schemaVersion": 9,
+              "schemaVersion": 10,
               "kind": "world-v2-execution-checkpoint",
               "configurationFingerprint": null,
               "payload": {}
