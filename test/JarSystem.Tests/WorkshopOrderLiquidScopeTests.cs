@@ -107,6 +107,21 @@ public sealed class WorkshopOrderLiquidScopeTests
     }
 
     [Fact]
+    public void OrdinaryPourOutCommitsJarTransitionWhenStagingBanRejectsOutput()
+    {
+        var workshop = CreateWorkshop(ban: new[] { "酒" });
+        var jar = new Jar("圆罐", "酒");
+        Assert.True(workshop.AddJar(jar));
+
+        var result = workshop.PourOut(jar);
+
+        Assert.True(result.Success, result.Reason);
+        Assert.Equal("酒", result.Liquid);
+        Assert.Null(jar.Liquid);
+        Assert.Equal(0, workshop.LiquidStorage["酒"]);
+    }
+
+    [Fact]
     public void EmptyReshapeConsumesOnlyCurrentOrderLiquid()
     {
         var workshop = CreateWorkshop();
