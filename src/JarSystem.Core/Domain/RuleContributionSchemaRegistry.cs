@@ -44,7 +44,7 @@ public static class RuleContributionSchemaRegistry
                 ["windowFrom", "windowTo"])
         };
 
-    public static IReadOnlyCollection<RuleContributionEffectSchema> All => Schemas.Values;
+    public static IReadOnlyCollection<RuleContributionEffectSchema> All => Array.AsReadOnly(Schemas.Values.ToArray());
 
     public static RuleContributionEffectSchema Get(RuleContributionEffect effect) =>
         Schemas.TryGetValue(effect, out var schema)

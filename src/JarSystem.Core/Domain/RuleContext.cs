@@ -58,16 +58,16 @@ public sealed class RuleContext
                         modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Shape = contribution.Target });
                     break;
                 case RuleContributionEffect.SuppressOperation:
-                    modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason") });
+                    modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason") });
                     break;
                 case RuleContributionEffect.RequireCondition:
-                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Text = contribution.Target, Violation = null });
+                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Text = contribution.Target, Violation = null });
                     break;
                 case RuleContributionEffect.RetimeProcess:
-                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.Parse(Parameter(parameters, "ticksPerStep"), NumberStyles.None, CultureInfo.InvariantCulture) });
+                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.Parse(Parameter(parameters, "ticksPerStep"), NumberStyles.None, CultureInfo.InvariantCulture) });
                     break;
                 case RuleContributionEffect.ModifyIntensity:
-                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.Parse(Parameter(parameters, "factorPerMille"), NumberStyles.Integer, CultureInfo.InvariantCulture) });
+                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.Parse(Parameter(parameters, "factorPerMille"), NumberStyles.Integer, CultureInfo.InvariantCulture) });
                     break;
                 case RuleContributionEffect.ModifyCapacity:
                     // Preserved in the profile, but not yet projectable by the current solver.
