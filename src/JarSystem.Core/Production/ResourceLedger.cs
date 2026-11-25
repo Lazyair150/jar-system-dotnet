@@ -145,7 +145,7 @@ public sealed class ResourceLedger
             snapshot.OperationIds.Distinct(StringComparer.Ordinal).Count() != snapshot.OperationIds.Count ||
             snapshot.OperationFingerprints.Any(item => string.IsNullOrWhiteSpace(item.Key) ||
                 !snapshot.OperationIds.Contains(item.Key, StringComparer.Ordinal) ||
-                item.Value.Length != 64 || item.Value.Any(character => !Uri.IsHexDigit(character))))
+                item.Value == null || item.Value.Length != 64 || item.Value.Any(character => !Uri.IsHexDigit(character))))
             throw new DomainValidationException("资源账本快照的容量或游标无效。");
 
         long previousSeq = 0;
@@ -535,7 +535,8 @@ public sealed class ResourceLedgerSnapshot
             .OrderBy(item => item.OperationId, StringComparer.Ordinal)
             .Select(item => item with { }).ToArray());
         OperationFingerprints = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
-            new Dictionary<string, string>(operationFingerprints ?? new Dictionary<string, string>(), StringComparer.Ordinal));
+            (operationFingerprints ?? new Dictionary<string, string>())
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal));
     }
 
     public int Capacity { get; }
