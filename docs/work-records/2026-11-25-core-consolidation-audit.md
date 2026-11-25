@@ -798,3 +798,46 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 当前最新 HEAD 包含零资源结算兼容、回执冲突测试端点修正、提交后端点复核和 RestoreFrom 回执索引测试；最新 CI Run `45635278057` 正在执行，最终状态待确认。PR #63 继续 Open / Draft / 不合并。
 
 - 从 Run `45635042259` 的归档 `_verify_output.txt` 读取完整异常栈后，确认 10 项剩余失败的真正共同根因不是 `ResourceWorldRuntime`，而是 `OrderResourceSettlementService.SettleAndRelease` 在“Accepted 与 Discarded 都为空”时仍调用 `RecordBatchOnce`。该路径在订单失败终止/预留释放中被多个 WorldV2 测试覆盖。已将惰性枚举物化为数组，仅在长度大于 0 时发布账本批次；无资源变化仍继续执行 fault hook 与 `MarkSettlementLedgerRecorded`，保持 Settlement Lease 状态机不变。提交 `a9476c0372786901e221e08009764d5b2b47677c`。
+
+
+### 第二十五轮：Receipt Journal 保留边界与零资源结算状态机复核（2026-11-25）
+
+**起始代码状态**
+
+- 仓库：`Lazyair150/jar-system-dotnet`
+- 分支：`architecture/core-liquid-identity-consolidation`
+- 本轮起始 HEAD：`e788cd3bb687ab87f7075d27845da88ba7385dcf`
+- 本轮测试修复提交：`45494a9e652fdea90a425a420fce842f89f07c69`
+- PR #63：Open / Draft；本轮没有合并。
+
+**源码复核事实**
+
+1. `ResourceLedger` 将三种状态分开保存：有界事件窗口 `_entries`、OperationId tombstone 集合 `_operationIds`、成功转移回执索引 `_transferReceipts`。事件裁剪只修改 `_entries`；不会清理 OperationId 或 Receipt。
+2. `Capture/Restore`、`ResourceLedgerSnapshot`、`ResourceLedgerWireDto` 与 World V2 JSON checkpoint 保留 OperationId 和 TransferReceipt。Restore 验证每张 Receipt 都对应一个 OperationId、身份唯一且满足领域回执约束。
+3. `RecordTransferOnce` 要求非空正数量事实批次；校验资源种类、端点账户、数量合计与回执一致。Jar 资源进一步要求 canonical 正整数 JarId、请求数量 1、实际转移数量 1，不允许部分 Jar 转移。
+4. 零资源订单结算仍然是有效的生命周期状态变化：必须保存结算收据并推进 Lease 的 SettlementStage，但当 Accepted 与 Discarded 都没有正数量时，不应伪造 ResourceLedger 事件，也不应通过结算路径写入一个没有资源事实的转移 OperationId。
+5. 有实际返还或丢弃数量的结算，若 Lease 已标记 LedgerRecorded，则必须同时具备对应的账本 OperationId；零资源结算的 LedgerRecorded 状态只要求存在有效结算收据。两者是不同的恢复不变量。
+6. 账本锁只保护账本三类索引和事件，不是源/目标物理账户联合锁。当前物理转移仍依赖 World 单写者命令边界；多线程账户写入尚未被本轮证明安全。
+
+**CI 失败证据与修正**
+
+- Run `45636823273`（HEAD `22f36780`）：951 项 xUnit 中 2 项失败。失败分别为零资源结算重试测试取不到 Lease，以及恢复测试没有真正构造有资源事实的 SettlementReceipt。
+- Run `45637138692`（HEAD `e788cd3`）：951 项中仍有 1 项失败。日志显示 `ZeroResourceSettlementCanRetryAfterLedgerStageWithoutPhantomOperationId` 在 `FindLease` 得到 null。
+- 根因：测试用 `TryStartActiveDemand` 启动仅需直接 MATCH 的订单。该路径允许执行会话在调用返回前同步完成并释放 Lease；随后测试调用结算服务时，已没有活动 Lease。此前仅把断言类型从旧类型改成 `OrderResourceLease`，没有修正测试生命周期前提。
+- 修正：测试改为先调用 `RunSchedulingPass` 刷新主动订单的求解结果，再显式调用 `Admission.TryAdmit` 建立仍然活动的 Lease。这样测试专注于 SettlementService 的故障注入与重试，不再把“同步执行是否已结束”混入被测条件。提交：`45494a9e652fdea90a425a420fce842f89f07c69`。
+- 另一项恢复测试已在提交 `1a041a496c8561fbba0d2d1d5768c90b04d8c6aa` 修正：使用真实非空 Requested/Accepted 收据，先验证暂存账户未清空时拒绝恢复，再清空账户并标记 LedgerRecorded，最后验证缺少账本 OperationId 时拒绝结算。
+- 零资源恢复语义在提交 `5924d8479cbf5482bca4d750ec7315136ed80be4` 收敛；事件窗口裁剪后 Receipt/Tombstone 仍保留的测试在 `a412792f4958aae98bb10445e0a8031e734ae0ae`；Jar 单位与 canonical ID 校验在 `26aecf4464c711d38a4638e829b0f159769aebba`。
+
+**当前验证状态**
+
+- 最新 HEAD：`45494a9e652fdea90a425a420fce842f89f07c69`
+- Run `45638134486`、`45638118727`：本轮查询时均为 In Progress；不得记录为通过。
+- 前一 HEAD `7a94b1b704325144bf7315bf571653f592b5308c` 的 Runs `45637619130`、`45637605494` 为 Success，但它们不包含本轮测试夹具修正，不能替代最新 HEAD 的验证。
+- PR #63 保持 Open / Draft；没有进行合并。
+
+**本轮结论与未完成项**
+
+- Receipt Journal 的事件保留与幂等 tombstone 保留语义已经在代码中分离；事件有界不意味着幂等证据也可以被裁剪。
+- 零资源结算不等于没有结算：Receipt 与 Lease 阶段仍须持久化；但不得制造虚假的资源事件/转移记录。
+- OperationId 与 Receipt 当前随 World 检查点保存，长期运行的索引增长仍未解决。未来必须选择可证明安全的 epoch/水位压缩或独立持久索引；不能按事件窗口简单删除 tombstone。
+- 下一步先等待最新 HEAD 两条 CI 结束；若失败，读取归档日志逐项修复。通过后继续审查 Settlement Receipt 与 Resource Ledger 的恢复一致性、旧批量转移入口收敛，以及 World 单写者边界是否在所有宿主入口得到强制执行。
