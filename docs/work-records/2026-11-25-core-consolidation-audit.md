@@ -695,3 +695,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 第二条 Ship→Prefill 路径加入直接双账户 Rollback 测试后的 Run `45623056208`（提交 `7392edbead413d00561b11f8b3f59b0f054a3724`）通过：Build 成功；xUnit 902 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
 
 - ResourceLedger 集成首轮 Run `45623969688` 在 Build 阶段失败，原因不是领域代码编译错误，而是两条新增测试违反 xUnit Analyzer `xUnit2013`：使用 `Assert.Equal(1, collection.Count)` 检查集合长度。已按规范改为 `Assert.Single(collection)`，分别提交 `8367385281826e1408a179ec50815a771d09d18d`、`0e41f0bb0057198af96b92fe8fd885daae0b57db`。最新验证待完成。
+
+- 对持久账本检测到的重复 OperationId，Prepared 参与者进入终态 Duplicate；后续 Commit 与 Cancel 均拒绝，防止把重复执行状态伪装成普通可取消准备态。补充两条路径的终态测试；相关提交：`70f80a19c616dcb35599857a44635b60d95458a2`、`567ed788dd903c41897644092936b0451ab16e45`、`50a2510bf50477d75d2abf40bf7926bbbd1b0853`、`8cb6479f01e9a598e44e981343cd98b2084c7eab`。
