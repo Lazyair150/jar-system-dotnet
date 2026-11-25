@@ -183,7 +183,7 @@ public static class WorkshopRulebook
             return WorkshopRuleDecision.Reject("modifier.required-condition-failed", requiredViolation);
         if (jar.IsMarked)
             return WorkshopRuleDecision.Reject("jar.already-operated", "罐子已被操作");
-        if (!rules.CanOperateJar(jar.Polarity))
+        if (!rules.CanOperateJar(rules.ResolvePolarity(jar.Liquid)))
             return WorkshopRuleDecision.Reject("workshop.jar-polarity-incompatible",
                 "工作台当前极性不能操作该极性的 Jar");
         if (rules.SuppressionReason("MATCH", jar.Shape, jar.Liquid) is { } suppressed)
@@ -255,7 +255,7 @@ public static class WorkshopRulebook
 
         if (jar.IsMarked)
             return WorkshopRuleDecision.Reject("jar.already-operated", "罐子已被操作");
-        if (!rules.CanOperateJar(jar.Polarity))
+        if (!rules.CanOperateJar(rules.ResolvePolarity(jar.Liquid)))
             return WorkshopRuleDecision.Reject("workshop.jar-polarity-incompatible",
                 "工作台当前极性不能操作该极性的 Jar");
 
@@ -482,7 +482,7 @@ public static class WorkshopRulebook
         var pourOut = WorkshopOperation.PourOut();
         if (isAllowed(pourOut)) list.Add(pourOut);
 
-        foreach (var liquid in Config.Constants.LIQUIDS)
+        foreach (var liquid in rules.Liquids)
         {
             var pourIn = WorkshopOperation.PourIn(liquid);
             if (isAllowed(pourIn)) list.Add(pourIn);
@@ -490,7 +490,7 @@ public static class WorkshopRulebook
 
         foreach (var target in rules.GetPossibleTransforms(jar.Shape))
         {
-            foreach (var cost in Config.Constants.LIQUIDS)
+            foreach (var cost in rules.Liquids)
             {
                 var reshapeEmpty = WorkshopOperation.ReshapeEmpty(target, cost);
                 if (isAllowed(reshapeEmpty)) list.Add(reshapeEmpty);
