@@ -793,6 +793,26 @@ public sealed class ResourceLedgerSnapshotTests
 
 
 
+
+    [Fact]
+    public void ExplicitDisplayNameRequiresCanonicalResourceIdentity()
+    {
+        var ledger = new ResourceLedger();
+        Assert.Throws<DomainValidationException>(() =>
+            ledger.Record(1, ResourceCauses.Production, ResourceKinds.Liquid,
+                "酒", 1, displayName: "酒"));
+
+        Assert.Throws<DomainValidationException>(() =>
+            ledger.RecordBatchOnce("missing-canonical-resource-identity", 1,
+                new[]
+                {
+                    new ResourceLedgerMutation(
+                        ResourceCauses.Production, ResourceKinds.Liquid, "wine", 1,
+                        DisplayName: "酒")
+                }));
+        Assert.Empty(ledger.Entries);
+    }
+
     [Fact]
     public void DisplayNameAndLegacyNameChangesDoNotChangeOperationFingerprint()
     {
