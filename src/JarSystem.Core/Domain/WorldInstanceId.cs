@@ -7,6 +7,8 @@ namespace JarSystem.Core.Domain;
 public readonly record struct WorldInstanceId
 {
     public string Value { get; }
+    public bool IsValid => !string.IsNullOrWhiteSpace(Value) &&
+        string.Equals(Value, Value.Trim(), StringComparison.Ordinal);
 
     public WorldInstanceId(string value)
     {
