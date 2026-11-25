@@ -69,6 +69,8 @@ public sealed class ResourceEvent
     public string? FromAccountId { get; init; }
     /// <summary>Canonical target account identity; null denotes legacy/unknown provenance.</summary>
     public string? ToAccountId { get; init; }
+    public ResourceEndpoint FromEndpoint { get; init; } = ResourceEndpoint.LegacyUnknown;
+    public ResourceEndpoint ToEndpoint { get; init; } = ResourceEndpoint.LegacyUnknown;
     public string? Reason { get; init; }
 
     public override string ToString() =>
@@ -157,11 +159,17 @@ public sealed class ResourceLedger
         {
             if (item.Seq <= previousSeq || item.Seq > snapshot.LastSeq ||
                 item.Tick < 0 || item.Amount <= 0 ||
+                !item.FromEndpoint.IsValid || !item.ToEndpoint.IsValid ||
+                (item.FromAccountId != null && item.FromEndpoint != ResourceEndpoint.ForAccount(item.FromAccountId)) ||
+                (item.ToAccountId != null && item.ToEndpoint != ResourceEndpoint.ForAccount(item.ToAccountId)) ||
                 (item.OperationId != null && !snapshot.OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
                 (item.OperationId != null && !snapshot.OperationFingerprints.ContainsKey(item.OperationId)) ||
                 (item.OperationId != null && string.IsNullOrWhiteSpace(item.ResourceIdentity)) ||
                 (item.FromAccountId != null && string.IsNullOrWhiteSpace(item.FromAccountId)) ||
                 (item.ToAccountId != null && string.IsNullOrWhiteSpace(item.ToAccountId)) ||
+                !item.FromEndpoint!.Value.IsValid || !item.ToEndpoint!.Value.IsValid ||
+                (item.FromAccountId != null && item.FromEndpoint != ResourceEndpoint.ForAccount(item.FromAccountId)) ||
+                (item.ToAccountId != null && item.ToEndpoint != ResourceEndpoint.ForAccount(item.ToAccountId)) ||
                 (item.OperationId != null && item.Kind == ResourceKinds.Jar && !IsCanonicalJarId(item.ResourceIdentity)) ||
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
@@ -249,9 +257,16 @@ public sealed class ResourceLedger
     {
         // In the current World Vocabulary, a liquid's canonical identity is its vocabulary key.
         // Jar identities are never inferred from Shape/Name and must be supplied explicitly.
-        return item.ResourceIdentity == null && item.Kind == ResourceKinds.Liquid
+        var normalized = item.ResourceIdentity == null && item.Kind == ResourceKinds.Liquid
             ? item with { ResourceIdentity = item.Name }
             : item;
+        return normalized with
+        {
+            FromEndpoint = normalized.FromEndpoint ??
+                (normalized.FromAccountId == null ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(normalized.FromAccountId)),
+            ToEndpoint = normalized.ToEndpoint ??
+                (normalized.ToAccountId == null ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(normalized.ToAccountId))
+        };
     }
 
     private static bool IsCanonicalJarId(string? identity) =>
@@ -286,7 +301,9 @@ public sealed class ResourceLedger
         ToAccountId = item.ToAccountId,
         Reason = item.Reason,
         ResourceIdentity = item.ResourceIdentity,
-        OperationId = item.OperationId
+        OperationId = item.OperationId,
+        FromEndpoint = item.FromEndpoint,
+        ToEndpoint = item.ToEndpoint
     };
 
     /// <summary>
@@ -296,7 +313,8 @@ public sealed class ResourceLedger
     /// </summary>
     public ResourceEvent? Record(int tick, string cause, string kind, string name, int amount,
         string? from = null, string? to = null, string? reason = null,
-        string? resourceIdentity = null, string? fromAccountId = null, string? toAccountId = null)
+        string? resourceIdentity = null, string? fromAccountId = null, string? toAccountId = null,
+        ResourceEndpoint? fromEndpoint = null, ResourceEndpoint? toEndpoint = null)
     {
         if (amount <= 0) return null;
         lock (_gate)
@@ -307,8 +325,17 @@ public sealed class ResourceLedger
             {
                 Seq = nextSeq, Tick = tick, Cause = cause, Kind = kind, Name = name,
                 ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = to,
-                FromAccountId = fromAccountId, ToAccountId = toAccountId, Reason = reason
+                FromAccountId = fromAccountId, ToAccountId = toAccountId, Reason = reason,
+                FromEndpoint = fromEndpoint ?? (fromAccountId == null
+                    ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(fromAccountId)),
+                ToEndpoint = toEndpoint ?? (toAccountId == null
+                    ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(toAccountId))
             };
+            e.FromEndpoint.Validate();
+            e.ToEndpoint.Validate();
+            if ((fromAccountId != null && e.FromEndpoint != ResourceEndpoint.ForAccount(fromAccountId)) ||
+                (toAccountId != null && e.ToEndpoint != ResourceEndpoint.ForAccount(toAccountId)))
+                throw new DomainValidationException("Resource event account ID conflicts with its tagged endpoint.");
             _entries.Add(e);
             _seq = nextSeq;
             Trim();
@@ -378,6 +405,8 @@ public sealed class ResourceLedger
                 To = item.To,
                 FromAccountId = item.FromAccountId,
                 ToAccountId = item.ToAccountId,
+                FromEndpoint = item.FromEndpoint!.Value,
+                ToEndpoint = item.ToEndpoint!.Value,
                 Reason = item.Reason
             });
         }
@@ -559,6 +588,8 @@ public sealed class ResourceLedgerSnapshot
             To = item.To,
             FromAccountId = item.FromAccountId,
             ToAccountId = item.ToAccountId,
+            FromEndpoint = item.FromEndpoint,
+            ToEndpoint = item.ToEndpoint,
             Reason = item.Reason,
             ResourceIdentity = item.ResourceIdentity,
             OperationId = item.OperationId
@@ -589,4 +620,5 @@ public sealed record ResourceLedgerMutation(
     string Cause, string Kind, string Name, int Amount,
     string? From = null, string? To = null, string? Reason = null,
     string? ResourceIdentity = null,
-    string? FromAccountId = null, string? ToAccountId = null);
+    string? FromAccountId = null, string? ToAccountId = null,
+    ResourceEndpoint? FromEndpoint = null, ResourceEndpoint? ToEndpoint = null);
