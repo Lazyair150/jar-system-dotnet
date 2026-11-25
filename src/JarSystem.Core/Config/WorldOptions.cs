@@ -30,6 +30,7 @@ public sealed class WorldOptions
 
     /// <summary>世界显式定义的液体身份→极性映射；必须一一覆盖 Liquids。</summary>
     [JsonPropertyName("liquidPolarities")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } =
         new(StringComparer.Ordinal)
         {
