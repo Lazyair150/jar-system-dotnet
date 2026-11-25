@@ -60,9 +60,20 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         return wire;
     }
 
-    public WorldV2ExecutionResourceCheckpoint ToCheckpoint(string? configurationFingerprint)
+    public WorldV2ExecutionResourceCheckpoint ToCheckpoint(
+        string? configurationFingerprint,
+        WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         Validate();
+        if (legacyMigrationWorldInstanceId.HasValue && !legacyMigrationWorldInstanceId.Value.IsValid)
+            throw new ArgumentException("Legacy migration WorldInstanceId 无效。", nameof(legacyMigrationWorldInstanceId));
+        var persistedWorldInstanceId = WorldInstanceId == null
+            ? (WorldInstanceId?)null
+            : new JarSystem.Core.Domain.WorldInstanceId(WorldInstanceId);
+        if (persistedWorldInstanceId.HasValue && legacyMigrationWorldInstanceId.HasValue &&
+            persistedWorldInstanceId.Value != legacyMigrationWorldInstanceId.Value)
+            throw new InvalidOperationException("迁移身份不能覆盖检查点中已持久化的 WorldInstanceId。");
+        var effectiveWorldInstanceId = persistedWorldInstanceId ?? legacyMigrationWorldInstanceId;
         var vocabulary = new Vocabulary(Shapes, Liquids, LiquidPolarities);
         var resourceArea = ResourceArea.ToSnapshot(vocabulary);
         var demandBoard = DemandBoard.ToSnapshot();
@@ -80,7 +91,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
             resourceArea, demandBoard, configurationFingerprint, ship,
             master, slave, admission, reservations, leases, ledger, clock,
             RuntimeLedgerTick, Shapes, Liquids, LiquidPolarities, sessions,
-            WorldInstanceId == null ? null : new JarSystem.Core.Domain.WorldInstanceId(WorldInstanceId));
+            effectiveWorldInstanceId);
     }
 
     public void Validate()
