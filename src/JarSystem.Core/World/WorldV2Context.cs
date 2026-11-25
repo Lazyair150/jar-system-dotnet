@@ -121,6 +121,20 @@ public sealed class WorldV2Context : IDisposable
 
         // 先完成所有可能失败的基础对象校验与组装，再向调用方返回 Context。
         var roster = new WorkshopRoster(workshops, master, slave);
+        var worldLiquidIds = new HashSet<string>(master.Capability.Liquids, StringComparer.Ordinal);
+        var worldLiquidPolarities = master.Capability.LiquidPolarities;
+        foreach (var workshop in roster.Workshops)
+        {
+            var capability = workshop.Capability;
+            if (!worldLiquidIds.SetEquals(capability.Liquids) ||
+                capability.LiquidPolarities.Count != worldLiquidPolarities.Count ||
+                worldLiquidPolarities.Any(item =>
+                    !capability.LiquidPolarities.TryGetValue(item.Key, out var polarity) ||
+                    polarity != item.Value))
+                throw new ArgumentException(
+                    "同一 World v2 Context 的所有工作台必须共享完全一致的液体身份与极性映射。",
+                    nameof(workshops));
+        }
         var board = new OrderDemandBoard(passiveFulfillmentPolicy, activeFulfillmentPolicy);
         var demandIdGenerator = new SequentialIdGenerator();
         var solveBook = new WorldOrderSolveBook(board);
@@ -154,8 +168,9 @@ public sealed class WorldV2Context : IDisposable
         var liquids = (liquidVocabulary ?? resources.LiquidProduction.Rates.Keys)
             .Distinct(StringComparer.Ordinal).ToArray();
         if (shapes.Length == 0 || liquids.Length != 2 ||
-            shapes.Any(string.IsNullOrWhiteSpace) || liquids.Any(string.IsNullOrWhiteSpace))
-            throw new ArgumentException("World v2 Context 必须持有完整形状与液体词表");
+            shapes.Any(string.IsNullOrWhiteSpace) || liquids.Any(string.IsNullOrWhiteSpace) ||
+            !worldLiquidIds.SetEquals(liquids))
+            throw new ArgumentException("World v2 Context 必须持有与工作台共享的完整形状与液体词表");
 
         return new WorldV2Context(
             resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
