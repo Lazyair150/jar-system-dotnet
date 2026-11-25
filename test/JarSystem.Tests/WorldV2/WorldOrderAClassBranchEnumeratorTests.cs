@@ -120,7 +120,7 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
     }
 
     [Fact]
-    public void MasterPolarityRejectsOppositeFullJarAtSolverCandidateBoundary()
+    public void MasterBanDoesNotRejectFullJarOperationAtSolverCandidateBoundary()
     {
         var master = new Workshop("禁酒主台",
             new List<string> { "圆罐", "方罐" },
@@ -132,8 +132,8 @@ public sealed class WorldOrderAClassBranchEnumeratorTests
             new Requirement { Shape = "方罐" }
         });
 
-        Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Infeasible, result.Status);
-        Assert.Null(result.Assembly);
+        Assert.Equal(WorldOrderAClassBranchEnumerationStatus.Feasible, result.Status);
+        Assert.NotNull(result.Assembly);
     }
 
     [Fact]
