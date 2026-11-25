@@ -663,7 +663,7 @@ public sealed class WorldV2ContextTests
         var legacyCheckpointJson = checkpointJson
             .Replace("\"WorldInstanceId\":\"world-session-a\",", "", StringComparison.Ordinal)
             .Replace("\"OwnerIdentities\":null,", "", StringComparison.Ordinal)
-            .Replace("\"schemaVersion\":8", "\"schemaVersion\":5", StringComparison.Ordinal);
+            .Replace("\"schemaVersion\":9", "\"schemaVersion\":5", StringComparison.Ordinal);
         var migratedCheckpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(
             legacyCheckpointJson, new WorldInstanceId("stable-legacy-world-a"));
         Assert.Equal("stable-legacy-world-a", migratedCheckpoint.WorldInstanceId!.Value.Value);
