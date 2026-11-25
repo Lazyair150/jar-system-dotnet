@@ -493,10 +493,26 @@ public static class WorldV2Factory
                 nameof(options));
 
         var vocabulary = new Vocabulary(options.Shapes, options.Liquids, options.LiquidPolarities);
-        var producers = new ProducerModule(vocabulary);
+        var producers = new ProducerModule(
+            vocabulary, warehouseOwnerIdentity: ownerIdentities?.Warehouse);
 
         foreach (var producer in options.Producers)
-            producers.RegisterProducer(producer.Name, new Dictionary<string, double>(producer.Rates));
+        {
+            OwnerIdentity? producerOwner = null;
+            if (ownerIdentities != null)
+            {
+                if (string.IsNullOrWhiteSpace(producer.ProducerInstanceId))
+                    throw new ArgumentException(
+                        "带 OwnerIdentity 映射的 World 必须为每个 Producer 配置 ProducerInstanceId。",
+                        nameof(options));
+                producerOwner = ownerIdentities.GetProducer(producer.ProducerInstanceId);
+            }
+            producers.RegisterProducer(
+                producer.Name,
+                new Dictionary<string, double>(producer.Rates),
+                producer.ProducerInstanceId,
+                producerOwner);
+        }
 
         var liquidRates = vocabulary.Liquids.ToDictionary(
             liquid => liquid,
@@ -505,14 +521,15 @@ public static class WorldV2Factory
         var liquidProduction = new LiquidProduction(vocabulary, defaults: liquidRates);
 
         var shipLiquidInventory = new ShipLiquidInventory(
-            options.ShipLiquidCapacity, options.InitialLiquidStock);
+            options.ShipLiquidCapacity, options.InitialLiquidStock, ownerIdentities?.Ship);
 
         var resources = new ResourceArea(
             producers,
             liquidProduction,
             options.JarFlowRatePerLogicalTime,
             options.LiquidFlowRatePerLogicalTime,
-            shipLiquidInventory);
+            shipLiquidInventory,
+            ownerIdentities?.ProductionArea);
 
         var effectiveBoardProfile = options.BoardRuleProfile?.BuildEffectiveRuleProfile(options.BoardAssignmentSnapshot);
         var ownedWorkshopIdsBySlot = (options.BoardAssignmentSnapshot?.Assignments ??
@@ -528,10 +545,25 @@ public static class WorldV2Factory
                     "workshop",
                     workshop.BoardSlotId,
                     mutableStack: true);
-            var ownedInstanceId = workshop.BoardSlotId != null &&
-                ownedWorkshopIdsBySlot.TryGetValue(workshop.BoardSlotId, out var assignedInstanceId)
-                    ? assignedInstanceId
+            var assignedInstanceId = workshop.BoardSlotId != null &&
+                ownedWorkshopIdsBySlot.TryGetValue(workshop.BoardSlotId, out var boardOwnedInstanceId)
+                    ? boardOwnedInstanceId
                     : null;
+            if (assignedInstanceId != null && workshop.OwnedInstanceId != null &&
+                !string.Equals(assignedInstanceId, workshop.OwnedInstanceId, StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "Workshop OwnedInstanceId conflicts with the exact Board assignment identity: " + workshop.Name,
+                    nameof(options));
+            var ownedInstanceId = assignedInstanceId ?? workshop.OwnedInstanceId;
+            OwnerIdentity? workshopOwner = null;
+            if (ownerIdentities != null)
+            {
+                if (string.IsNullOrWhiteSpace(ownedInstanceId))
+                    throw new ArgumentException(
+                        "带 OwnerIdentity 映射的 World 必须为每个 Workshop 配置精确 OwnedInstanceId。",
+                        nameof(options));
+                workshopOwner = ownerIdentities.GetWorkshop(ownedInstanceId);
+            }
             return new Workshop(
                 workshop.Name,
                 new List<string>(workshop.BaseMarks),
@@ -542,7 +574,8 @@ public static class WorldV2Factory
                 vocabulary: vocabulary,
                 liquidStagingCapacity: workshop.LiquidStagingCapacity ?? workshop.MaxLiquids,
                 initialRules: initialRules,
-                ownedInstanceId: ownedInstanceId);
+                ownedInstanceId: ownedInstanceId,
+                ownerIdentity: workshopOwner);
         }).ToList();
 
         var master = workshops.Single(workshop =>
