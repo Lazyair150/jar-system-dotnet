@@ -841,3 +841,13 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 零资源结算不等于没有结算：Receipt 与 Lease 阶段仍须持久化；但不得制造虚假的资源事件/转移记录。
 - OperationId 与 Receipt 当前随 World 检查点保存，长期运行的索引增长仍未解决。未来必须选择可证明安全的 epoch/水位压缩或独立持久索引；不能按事件窗口简单删除 tombstone。
 - 下一步先等待最新 HEAD 两条 CI 结束；若失败，读取归档日志逐项修复。通过后继续审查 Settlement Receipt 与 Resource Ledger 的恢复一致性、旧批量转移入口收敛，以及 World 单写者边界是否在所有宿主入口得到强制执行。
+
+
+### 第二十五轮补充：测试夹具修正的二次审计（2026-11-25）
+
+- 第一次测试修改提交 `45494a9e652fdea90a425a420fce842f89f07c69` 没有正确定位目标方法：相同的启动代码片段首次出现在 `ExecutionResourceCheckpointCapturesDetachedLiquidScopesReservationsLedgerClockAndSessionProgress`，修改误落在该测试，导致它不再创建执行会话；并且目标零资源结算回归测试没有保留在提交后的文件中。
+- Run `45638134486` / `45638118727` 因此在 `ExecutionResourceCheckpointCapturesDetachedLiquidScopesReservationsLedgerClockAndSessionProgress` 失败（950 项中 1 项失败，`first.Sessions` 为空）。这是测试夹具修改错误，不是生产运行时回归。该提交不作为修复完成依据。
+- 已从明确的历史提交 `e788cd3bb687ab87f7075d27845da88ba7385dcf` 恢复该测试文件，再以目标方法名限定替换范围；只修改 `ZeroResourceSettlementCanRetryAfterLedgerStageWithoutPhantomOperationId`，并恢复 Execution Resource Checkpoint 测试原有的 `TryStartActiveDemand` 执行会话路径。
+- 修正提交：`5a578f3df20527ad94e8fd19ef45e27031fe5c7c`。随后读取该精确提交的文件，确认零资源结算测试仍存在且使用 RunSchedulingPass + Admission.TryAdmit；Execution Resource Checkpoint 测试保留原始同步启动代码。
+- 文档提交链：工作记录 `37a00e794f52f906461ddc0501c18c393411179c`；架构规范 `f070c9ec62375465edda8c849533682937049bc0`；工作记录索引 `0be6ddff332ea089b31a3a41d0a31383a32ca1d0`；ADR 0009 `d6d26d5e05e6c27d37a369d6db3630973b61fcb3`。
+- 当前最新代码 HEAD 已推进至 `5a578f3df20527ad94e8fd19ef45e27031fe5c7c`；针对该精确 HEAD 的 CI 尚待查询/完成。之前 HEAD 的失败和绿色结果均不替代本次验证。
