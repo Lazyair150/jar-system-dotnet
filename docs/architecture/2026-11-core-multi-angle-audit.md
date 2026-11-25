@@ -295,6 +295,6 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 
 新增 RuleContributionSchemaRegistry，将 Effect 参数契约集中管理；Profile 装配阶段拒绝未知 Effect、缺失参数、未知参数和非法数值。RuleContext 不再对缺失参数使用默认值，并将 GrantBaseMark/BanLiquid 明确作为 Capability 投影效果；ModifyCapacity 明确保持 Unsupported/Undetermined。
 
-本轮经历两类真实回归并已针对性修复：其一是 RuleContext switch 未显式处理已投影的 GrantBaseMark/BanLiquid；其二是旧测试 fixture 为 GrantAdditionalMark 重复提供未定义 shape 参数。当前精确代码 head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 的两个 CI runs 45595570171 / 45595555177 尚在执行，故本轮 schema 重构暂不标记通过。
+本轮经历两类真实回归并已针对性修复：其一是 RuleContext switch 未显式处理已投影的 GrantBaseMark/BanLiquid；其二是旧测试 fixture 为 GrantAdditionalMark 重复提供未定义 shape 参数。精确代码 head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 的两个 CI runs 45595570171 / 45595555177 均 SUCCESS：864/864 xUnit、0 errors、0 failures，资源样本 5,032 组 0 bugs，Core build 成功。Schema 重构第一轮验收通过。
 
 后续仍需将 schema/interpreter version 纳入指纹，并从固定候选操作枚举与 A/B 分支算法中抽出 RuleOperator Registry / OrderPolicy。
