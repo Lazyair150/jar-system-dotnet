@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using System.Globalization;
 
 namespace JarSystem.Core.Domain;
@@ -55,6 +57,16 @@ public sealed record RuleResourceAccount(
 {
     /// <summary>Present only for the new World-scoped identity contract; null preserves legacy v1.</summary>
     public AccountIdentity? WorldScopedIdentity { get; init; }
+
+    [JsonConstructor]
+    public RuleResourceAccount(
+        string accountKind,
+        string ownerId,
+        AccountIdentity? worldScopedIdentity)
+        : this(accountKind, ownerId)
+    {
+        WorldScopedIdentity = worldScopedIdentity;
+    }
 
     public RuleResourceAccount(OwnerIdentity owner, string accountKind)
         : this(accountKind, owner.LocalOwnerId)
