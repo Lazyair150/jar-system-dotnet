@@ -10,6 +10,8 @@ namespace JarSystem.Core.Production;
 public class Producer
 {
     public string Name { get; }
+    public string? ProducerInstanceId { get; }
+    public OwnerIdentity? OwnerIdentity { get; }
 
     // 私有字典 + 只读视图。Rates 会经 producerStatus.producers[].rates 进入对外契约；
     // 原先 external 拿到的是可变 Dictionary，能塞进"没有对应生产线"的垃圾键 ——
@@ -23,9 +25,25 @@ public class Producer
     /// <summary>各形状的产出速率（对外只读）。</summary>
     public IReadOnlyDictionary<string, double> Rates => _ratesView;
 
-    public Producer(string name, Dictionary<string, double> rates)
+    public Producer(
+        string name,
+        Dictionary<string, double> rates,
+        string? producerInstanceId = null,
+        OwnerIdentity? ownerIdentity = null)
     {
+        if (producerInstanceId != null && string.IsNullOrWhiteSpace(producerInstanceId))
+            throw new ArgumentException("ProducerInstanceId cannot be blank.", nameof(producerInstanceId));
+        if (ownerIdentity.HasValue &&
+            (!ownerIdentity.Value.IsValid ||
+             ownerIdentity.Value.OwnerKind != ResourceOwnerKind.Producer ||
+             !string.Equals(ownerIdentity.Value.LocalOwnerId, producerInstanceId, StringComparison.Ordinal)))
+            throw new ArgumentException("Producer OwnerIdentity must match its exact ProducerInstanceId.", nameof(ownerIdentity));
+        if (ownerIdentity.HasValue && producerInstanceId == null)
+            throw new ArgumentException("A Producer OwnerIdentity requires ProducerInstanceId.", nameof(ownerIdentity));
+
         Name = name;
+        ProducerInstanceId = producerInstanceId;
+        OwnerIdentity = ownerIdentity;
         _rates = new Dictionary<string, double>(rates);
         _ratesView = new ReadOnlyDictionary<string, double>(_rates);
     }
@@ -192,7 +210,12 @@ public class ProducerModule
     public IReadOnlyDictionary<string, int> LiquidWarehouse => Warehouse.LiquidWarehouse;
 
     /// <param name="vocabulary">词表（S2）；null 表示内置默认词表（行为与重构前一致）。</param>
-    public ProducerModule(Vocabulary? vocabulary = null, IIntensitySource? intensity = null, JarPool? pool = null, IIdGenerator? jarIds = null)
+    public ProducerModule(
+        Vocabulary? vocabulary = null,
+        IIntensitySource? intensity = null,
+        JarPool? pool = null,
+        IIdGenerator? jarIds = null,
+        OwnerIdentity? warehouseOwnerIdentity = null)
     {
         _vocabulary = vocabulary ?? Vocabulary.Default;
         _intensity = intensity;
@@ -203,7 +226,7 @@ public class ProducerModule
         _pool = pool;
         foreach (var s in _vocabulary.Shapes)
             _generators[s] = new ShapeProductionLine(s, _vocabulary, _intensity, _pool);
-        Warehouse = new Warehouse(_vocabulary, pool, jarIds);
+        Warehouse = new Warehouse(_vocabulary, pool, jarIds, warehouseOwnerIdentity);
     }
 
     /// <summary>
@@ -211,7 +234,11 @@ public class ProducerModule
     /// **再追加一条**同名的产出记录 ⇒ 该形状的速率静默翻倍（实测 0.4 → 0.8），而且会进
     /// <c>producerStatus.generators[].rate</c> 契约字段。改速率请用 <see cref="UpdateRate"/>。
     /// </summary>
-    public Producer RegisterProducer(string name, Dictionary<string, double> rates)
+    public Producer RegisterProducer(
+        string name,
+        Dictionary<string, double> rates,
+        string? producerInstanceId = null,
+        OwnerIdentity? ownerIdentity = null)
     {
         if (_producers.ContainsKey(name))
             throw new DomainValidationException("生产者已存在: " + name + "（改速率请用 UpdateRate）");
@@ -230,7 +257,7 @@ public class ProducerModule
                     $"速率必须是 0 到 {Constants.MAX_PRODUCER_RATE} 之间的有限数，收到: {kv.Value}");
         }
 
-        var p = new Producer(name, rates);
+        var p = new Producer(name, rates, producerInstanceId, ownerIdentity);
         _producers[name] = p;
         foreach (var s in rates.Keys)
             if (_generators.ContainsKey(s))
