@@ -59,7 +59,7 @@ A B-class plan may contain no Slave chemical operation when Master completes the
 
 - Execute every requirement operation assigned to Master before the handoff.
 - Master preparation resources may fund Master operations and may produce the exact free-liquid amount needed by later Slave operations.
-- Master staging Ban/capacity applies to its own free-liquid account; Jar-internal liquid operations still require Master-Jar polarity compatibility.
+- Master staging Ban/capacity applies only to its own free-liquid account. It does not restrict Jar operations or Jar-internal self-consumption.
 - The Master must retain the exact liquid balance required for the planned Slave transfer after its own operations.
 - Master-completed requirement Jars remain valid handoff resources; Slave does not repeat their operations.
 
@@ -75,7 +75,7 @@ A B-class plan may contain no Slave chemical operation when Master completes the
 
 - Execute only the requirements assigned to Slave, plus any selected Slave preparation operations.
 - A Master-completed requirement Jar is held/handed off but is not operated again by Slave.
-- Every actual Slave Jar operation checks Slave polarity compatibility at the operation boundary.
+- Slave Jar operations follow the shared Jar rule/precondition contract; Slave Ban does not derive an operation-polarity restriction.
 - Slave preparation can fund only Slave-side needs; Master preparation may fund Slave only through the explicit liquid handoff.
 - Slave staging peak and Jar capacity are validated against the exact concrete plan.
 
