@@ -780,3 +780,8 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 - Receipt Journal 第一轮验证 Run `45633568146` 在测试项目 Build 阶段失败：`ResourceLedgerSnapshotTests.cs` 的 using 列表重复引入 `JarSystem.Core.World`，同时遗漏 `System.Text.Json`，导致 CS0105/CS0103。当前分支已修正 using（文件头为 System.Text.Json、Domain、Production、World、Xunit），并继续验证后续提交；这不是账本逻辑失败。
 - 增加账本并发发布测试：多个线程对同一 OperationId 竞争 `RecordTransferOnce` 时，账本锁确保仅发布一份事件和回执；后续还需注意该保证只覆盖账本，不替代 World 对物理账户的单写者命令边界。
+
+- 持久化/构建复核补充：最新回执账本测试实际走两条恢复链：`ResourceLedger.Capture/Restore` 快照链，以及 `ResourceLedgerWireDto` + `WorldV2CheckpointJsonCodec.Encode/Decode` 的 JSON 检查点链；验证恢复后 OperationId、TransferReceipt 与 LastSeq 同时存在，旧 OperationId 重放不再新增事件。
+- 对应 CI 曾暴露测试文件自身的三个编译/分析问题：重复 `using JarSystem.Core.World`、缺少 `System.Text.Json`、集合计数使用 `Assert.Equal` 触发 xUnit2013。已在提交 `939c22ff1e52d9fc5c509a15e20f03c35f47f60c` 上修正为唯一 using、补齐 JSON 命名空间并改用 `Assert.Single`；之前失败 Run `45633556556` 不作为通过依据。
+- 当前 PR HEAD 已推进至 `939c22ff1e52d9fc5c509a15e20f03c35f47f60c`，PR #63 仍 Open / Draft / mergeable=true。针对该 HEAD 的 Run `45634097224` 与 `45634082317` 仍在执行，Build、xUnit、Solver、Security 与 Quality 最终状态尚未确认。不得用此前 HEAD 的验证结果替代。
+- 持久化结构复核：`ResourceLedgerWireDto.Validate` 校验事件容量、事件序号递增及 LastSeq 尾部一致性；OperationIds 非空且唯一；TransferReceipts 必须对应 OperationId 且不能重复；每张回执还必须通过 `ResourceTransferReceipt.Validate` 且为已提交结果。`ToSnapshot` 再交由 `ResourceLedger.Restore` 执行领域快照验证。
