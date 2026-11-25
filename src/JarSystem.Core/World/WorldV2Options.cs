@@ -28,7 +28,6 @@ public sealed class WorldV2Options
 
     /// <summary>World-owned explicit identity-to-polarity mapping; names and list order carry no polarity semantics.</summary>
     [JsonPropertyName("liquidPolarities")]
-    [JsonConverter(typeof(JsonStringEnumConverter))]
     public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } =
         new(StringComparer.Ordinal)
         {
