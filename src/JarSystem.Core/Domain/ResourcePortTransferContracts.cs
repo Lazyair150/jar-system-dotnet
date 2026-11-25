@@ -117,6 +117,10 @@ public sealed record ResourceTransferReceipt(
             SourcePortId == TargetPortId || SourceAccount == TargetAccount)
             throw new ArgumentException("Resource transfer receipt violates its identity, quantity or version contract.");
 
+        if (TransferredAmount > 0 &&
+            (SourceVersionAfter == SourceVersionBefore || TargetVersionAfter == TargetVersionBefore))
+            throw new ArgumentException("A committed transfer must change both authoritative account version tokens.");
+
         switch (Outcome)
         {
             case ResourceTransferOutcome.Transferred when
