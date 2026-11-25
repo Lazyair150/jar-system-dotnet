@@ -30,6 +30,7 @@ public sealed class WorldV2Context : IDisposable
     public bool IsDisposed => _disposed;
 
     public WorldInstanceId? WorldInstanceId { get; }
+    public WorldV2OwnerIdentityMap? OwnerIdentities { get; }
     public ResourceArea Resources { get; }
     public ShipLiquidInventory? ShipLiquidInventory { get; }
     public ResourceLedger ResourceLedger { get; }
@@ -53,6 +54,7 @@ public sealed class WorldV2Context : IDisposable
 
     private WorldV2Context(
         WorldInstanceId? worldInstanceId,
+        WorldV2OwnerIdentityMap? ownerIdentities,
         ResourceArea resources,
         ShipLiquidInventory? shipLiquidInventory,
         ResourceLedger resourceLedger,
@@ -71,6 +73,7 @@ public sealed class WorldV2Context : IDisposable
         OrderTemplateLibrary orderTemplates)
     {
         WorldInstanceId = worldInstanceId;
+        OwnerIdentities = ownerIdentities;
         Resources = resources;
         ShipLiquidInventory = shipLiquidInventory;
         ResourceLedger = resourceLedger;
@@ -110,7 +113,8 @@ public sealed class WorldV2Context : IDisposable
         IEnumerable<string>? shapeVocabulary = null,
         IEnumerable<string>? liquidVocabulary = null,
         OrderTemplateLibrary? orderTemplates = null,
-        WorldInstanceId? worldInstanceId = null)
+        WorldInstanceId? worldInstanceId = null,
+        WorldV2OwnerIdentityMap? ownerIdentities = null)
     {
         if (resources == null) throw new ArgumentNullException(nameof(resources));
         if (workshops == null) throw new ArgumentNullException(nameof(workshops));
@@ -118,6 +122,12 @@ public sealed class WorldV2Context : IDisposable
         if (solverRegistry == null) throw new ArgumentNullException(nameof(solverRegistry));
         if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
             throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
+        if (ownerIdentities != null)
+        {
+            if (!worldInstanceId.HasValue)
+                throw new ArgumentException("Owner identity map requires an explicit WorldInstanceId.", nameof(ownerIdentities));
+            ownerIdentities.ValidateForWorld(worldInstanceId.Value);
+        }
         if (logicalTimePerUnit <= 0)
             throw new ArgumentOutOfRangeException(nameof(logicalTimePerUnit));
         if (shipLiquidInventory != null && resources.ShipLiquidInventory != null &&
@@ -186,7 +196,7 @@ public sealed class WorldV2Context : IDisposable
             throw new ArgumentException("World v2 Context 必须使用工作台所属 World 的完整形状与液体词表");
 
         return new WorldV2Context(
-            worldInstanceId, resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
+            worldInstanceId, ownerIdentities, resources, shipLiquidInventory, resourceLedger, roster, board, demandIdGenerator,
             solveBook, reservations, admission, runtime, scheduler, configurationFingerprint,
             shapes, liquids, master.Capability.LiquidPolarities,
             orderTemplates ?? OrderTemplateLibrary.Empty);
@@ -224,7 +234,8 @@ public sealed class WorldV2Context : IDisposable
             Liquids,
             LiquidPolarities,
             Runtime.ActiveExecutionSessions.Select(session => session.CaptureProgress()),
-            WorldInstanceId);
+            WorldInstanceId,
+            OwnerIdentities);
     }
 
     /// <summary>
@@ -246,6 +257,9 @@ public sealed class WorldV2Context : IDisposable
         Resources.ValidateRuntimeStateSnapshot(checkpoint.ResourceArea);
         if (WorldInstanceId != checkpoint.WorldInstanceId)
             throw new InvalidOperationException("检查点 WorldInstanceId 与当前世界不一致，拒绝恢复。");
+        if ((OwnerIdentities == null) != (checkpoint.OwnerIdentities == null) ||
+            (OwnerIdentities != null && !OwnerIdentities.IsEquivalentTo(checkpoint.OwnerIdentities)))
+            throw new InvalidOperationException("检查点 OwnerIdentity 映射与当前世界不一致，拒绝恢复。");
         if (!string.Equals(ConfigurationFingerprint, checkpoint.ConfigurationFingerprint, StringComparison.Ordinal))
             throw new InvalidOperationException("检查点配置指纹与当前世界不一致，拒绝恢复。");
         if (!Shapes.SequenceEqual(checkpoint.Shapes, StringComparer.Ordinal) ||
@@ -367,11 +381,19 @@ public sealed class WorldV2ExecutionResourceCheckpoint
         IEnumerable<string> liquids,
         IReadOnlyDictionary<string, LiquidPolarity> liquidPolarities,
         IEnumerable<WorldOrderExecutionSessionProgressSnapshot> sessions,
-        WorldInstanceId? worldInstanceId = null)
+        WorldInstanceId? worldInstanceId = null,
+        WorldV2OwnerIdentityMap? ownerIdentities = null)
     {
         if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
             throw new ArgumentException("检查点 WorldInstanceId 无效。", nameof(worldInstanceId));
         WorldInstanceId = worldInstanceId;
+        if (ownerIdentities != null)
+        {
+            if (!worldInstanceId.HasValue)
+                throw new ArgumentException("Owner identity map requires an explicit WorldInstanceId.", nameof(ownerIdentities));
+            ownerIdentities.ValidateForWorld(worldInstanceId.Value);
+        }
+        OwnerIdentities = ownerIdentities;
         ResourceArea = resourceArea;
         DemandBoard = demandBoard;
         ConfigurationFingerprint = configurationFingerprint;
@@ -406,6 +428,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
     }
 
     public WorldInstanceId? WorldInstanceId { get; }
+    public WorldV2OwnerIdentityMap? OwnerIdentities { get; }
     public ResourceAreaRuntimeStateSnapshot ResourceArea { get; }
     public OrderDemandBoardSnapshot DemandBoard { get; }
     public string? ConfigurationFingerprint { get; }
