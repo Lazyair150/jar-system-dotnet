@@ -629,12 +629,14 @@ public sealed class ResourceLedgerSnapshotTests
             }, mismatchedReceipt));
     }
 
-    [Fact]
-    public void SchemaThreeLedgerWireKeepsLegacyResourceIdentityUnknown()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void LegacyLedgerWireKeepsResourceAndAccountIdentitiesUnknown(int schemaVersion)
     {
-        const string json = """
+        var json = $$"""
         {
-          "schemaVersion": 3,
+          "schemaVersion": {{schemaVersion}},
           "kind": "world-v2-execution-checkpoint",
           "configurationFingerprint": null,
           "payload": {
@@ -654,11 +656,15 @@ public sealed class ResourceLedgerSnapshotTests
         var wireEvent = Assert.Single(decoded.Payload.Events);
         Assert.Null(wireEvent.ResourceIdentity);
         Assert.Null(wireEvent.OperationId);
+        Assert.Null(wireEvent.FromAccountId);
+        Assert.Null(wireEvent.ToAccountId);
 
         var restored = ResourceLedger.Restore(decoded.Payload.ToSnapshot());
         var fact = Assert.Single(restored.Entries);
         Assert.Null(fact.ResourceIdentity);
         Assert.Null(fact.OperationId);
+        Assert.Null(fact.FromAccountId);
+        Assert.Null(fact.ToAccountId);
         Assert.Equal("酒", fact.Name);
     }
 
