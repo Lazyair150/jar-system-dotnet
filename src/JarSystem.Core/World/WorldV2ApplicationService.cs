@@ -350,8 +350,8 @@ public sealed class WorldV2ApplicationService
     }
 
     /// <summary>
-    /// 将检查点恢复到当前已装配的空世界。恢复在 Host 独占操作内执行，
-    /// 配置兼容性和所有快照预检由 Context 保证。
+    /// 使用最近一次成功装配的配置重建独立 Context，并复用检查点的 WorldInstanceId。
+    /// 恢复完成后才由 Host 原子替换当前世界；旧版无身份检查点必须使用显式迁移身份重载。
     /// </summary>
     public void RestoreExecutionResourceCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
     {
