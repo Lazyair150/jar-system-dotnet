@@ -27,6 +27,10 @@ public sealed class WorldV2ApplicationService
     private readonly WorldV2HostService _host;
     private readonly object _lifecycleSync = new();
     private WorldV2Options? _lastOptions;
+    private readonly Dictionary<string, WorldV2Options> _worldOptionsByInstanceId =
+        new(StringComparer.Ordinal);
+    private readonly List<string> _worldOptionsOrder = new();
+    private const int MaxRememberedWorldOptions = 8;
 
     public WorldV2ApplicationService(WorldV2HostService host)
     {
@@ -42,6 +46,7 @@ public sealed class WorldV2ApplicationService
             var snapshot = CloneOptions(options);
             _host.Replace(snapshot);
             _lastOptions = snapshot;
+            RememberWorldOptions(GetWorldInstanceId(), snapshot);
         }
     }
 
@@ -54,6 +59,7 @@ public sealed class WorldV2ApplicationService
             var snapshot = CloneOptions(options);
             _host.Replace(snapshot, worldInstanceId);
             _lastOptions = snapshot;
+            RememberWorldOptions(worldInstanceId, snapshot);
         }
     }
 
@@ -69,6 +75,7 @@ public sealed class WorldV2ApplicationService
             var snapshot = CloneOptions(options);
             _host.Replace(snapshot, worldInstanceId, ownerIdentities);
             _lastOptions = snapshot;
+            RememberWorldOptions(worldInstanceId, snapshot);
         }
     }
 
@@ -382,8 +389,12 @@ public sealed class WorldV2ApplicationService
         if (checkpoint == null) throw new ArgumentNullException(nameof(checkpoint));
         lock (_lifecycleSync)
         {
-            var options = _lastOptions
-                ?? throw new InvalidOperationException("恢复检查点前必须先通过 ApplicationService 装配过一个 World 配置。");
+            var worldInstanceId = checkpoint.WorldInstanceId
+                ?? throw new InvalidOperationException(
+                    "旧检查点缺少 WorldInstanceId；必须通过显式迁移身份重载恢复。");
+            if (!_worldOptionsByInstanceId.TryGetValue(worldInstanceId.Value, out var options))
+                throw new InvalidOperationException(
+                    "当前 ApplicationService 没有该 WorldInstanceId 对应的配置快照；恢复时必须提供与检查点配套的 WorldOptions。");
             RestoreExecutionResourceCheckpointCore(options, checkpoint, null);
         }
     }
@@ -428,6 +439,23 @@ public sealed class WorldV2ApplicationService
         _host.RestoreExecutionResourceCheckpoint(
             snapshot, checkpoint, legacyMigrationWorldInstanceId);
         _lastOptions = snapshot;
+        RememberWorldOptions(GetWorldInstanceId(), snapshot);
+    }
+
+    private void RememberWorldOptions(WorldInstanceId worldInstanceId, WorldV2Options options)
+    {
+        if (!worldInstanceId.IsValid)
+            throw new ArgumentException("不能保存无效 WorldInstanceId 的配置快照。", nameof(worldInstanceId));
+        var key = worldInstanceId.Value;
+        _worldOptionsByInstanceId[key] = CloneOptions(options);
+        _worldOptionsOrder.Remove(key);
+        _worldOptionsOrder.Add(key);
+        while (_worldOptionsOrder.Count > MaxRememberedWorldOptions)
+        {
+            var expired = _worldOptionsOrder[0];
+            _worldOptionsOrder.RemoveAt(0);
+            _worldOptionsByInstanceId.Remove(expired);
+        }
     }
 
     private static WorldV2Options CloneOptions(WorldV2Options options)
