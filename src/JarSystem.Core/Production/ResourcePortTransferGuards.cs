@@ -63,12 +63,4 @@ internal static class ResourcePortTransferGuards
             : target.ReasonCode;
         return noMutation(outcome, reason);
     }
-
-    public static int ResolveLedgerTick(ResourceLedger? ledger, Func<int>? tickProvider)
-    {
-        var tick = ledger is null ? 0 : tickProvider!();
-        if (tick < 0)
-            throw new InvalidOperationException("Resource ledger logical tick cannot be negative.");
-        return tick;
-    }
 }
