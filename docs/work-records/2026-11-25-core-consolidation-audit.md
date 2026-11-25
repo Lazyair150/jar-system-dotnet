@@ -725,3 +725,8 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 第三条 Warehouse→Workshop 液体路径与第四条 Jar 路径的新 CI 尚待最终确认；不把旧的 906 项成功结果当作本轮最终验证。
 
 - 第四条 Jar 路径的早期 Run `45627839131` 在 Core Build 失败：`WarehouseWorkshopJarPortTransfer.cs` 误带测试专用 `using Xunit;`，导致 Core 项目找不到 Xunit namespace。已移除该引用，提交 `64c8999dc96a556207c5a1b7452bac5e3d5a3189`。这不是领域编译问题，但必须以当前提交重跑全验证。
+
+- 第四条 Warehouse→Workshop Jar 路径在修复 Xunit 引用及写入者白名单后通过 Run `45628217156`（提交 `fd8359c7401627140fb1de33ec640297881eaee3`）：Build 成功；xUnit 919 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该 Run 已覆盖第三条 Warehouse→Workshop 游离液体路径、第四条 Jar 实体所有权路径及其测试。
+- 第五条路径开始：新增 `WorkshopFreeLiquidPortTransfer`，连接两个不同 Workshop 的游离液体账户。复用 `LegacyWorkshopLiquidTransfer` 的双工作台快照补偿，并把账本回调放入同一补偿边界；仅支持单液种精确全量转移，Ban/库存/容量仍由两个 Workshop Adapter 决定。
+- 第五条测试覆盖成功转移、目标 Ban、源库存不足、目标容量不足、Prepare 后版本变化、账本 OperationId 恢复去重、账本发布失败双侧恢复、Adapter 实例错配。文档已补充 3.10。
+- 第五条路径相关提交：`8f4da38c0356762f785e6778bcdb67c95aa7b14d`、`382ab676701fd6e572716ba16bf2084e40cf539d`、`6a9b230f21e480e8b8707f1afa9105df83df4c2c`、`6d33eb42b26a6968ec82560120b5fb88e43d1e4e`。其最新 CI Run `45628744479` 正在排队，测试结果待记录。
