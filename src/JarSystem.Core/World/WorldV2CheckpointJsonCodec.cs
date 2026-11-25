@@ -15,7 +15,7 @@ namespace JarSystem.Core.World;
 /// </summary>
 public static class WorldV2CheckpointJsonCodec
 {
-    public const int CurrentSchemaVersion = 8;
+    public const int CurrentSchemaVersion = 9;
     public const string CurrentKind = "world-v2-execution-checkpoint";
 
     private static readonly Regex FingerprintPattern =
@@ -52,6 +52,10 @@ public static class WorldV2CheckpointJsonCodec
             (ledgerEvents == null || ledgerEvents.Any(item =>
                 item == null || item.FromEndpoint == null || item.ToEndpoint == null)))
             throw new JsonException("Schema 8+ resource ledger events must carry explicit tagged endpoints.");
+        if (envelope.SchemaVersion >= 9 &&
+            (ledgerEvents == null || ledgerEvents.Any(item =>
+                item == null || string.IsNullOrWhiteSpace(item.DisplayName))))
+            throw new JsonException("Schema 9+ resource ledger events must carry an explicit DisplayName.");
         return envelope.Payload.ToCheckpoint(
             envelope.ConfigurationFingerprint, legacyMigrationWorldInstanceId);
     }
@@ -121,9 +125,10 @@ public static class WorldV2CheckpointJsonCodec
             versionElement.ValueKind != JsonValueKind.Number ||
             !versionElement.TryGetInt32(out var version))
             throw new JsonException("检查点缺少有效 schemaVersion。");
-        // Schemas 3-5 predate WorldInstanceId; schema 6 predates the owner map; schema 7 predates tagged ledger endpoints.
+        // Schemas 3-5 predate WorldInstanceId; schema 6 predates the owner map;
+        // schema 7 predates tagged endpoints; schema 8 predates DisplayName.
         // Missing identities/provenance remain explicitly unknown; never infer them from names or fingerprints.
-        if (version is not (3 or 4 or 5 or 6 or 7 or CurrentSchemaVersion))
+        if (version is not (3 or 4 or 5 or 6 or 7 or 8 or CurrentSchemaVersion))
             throw new NotSupportedException("不支持的检查点 schemaVersion: " + version);
 
         if (!root.TryGetProperty("kind", out var kindElement) ||
