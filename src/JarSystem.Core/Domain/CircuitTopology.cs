@@ -192,8 +192,9 @@ public sealed class CircuitTopology
                     throw new ArgumentException("Area parent hierarchy cannot contain cycles: " + area.AreaId);
                 if (cursor.ParentAreaId is null)
                     break;
-                if (!areas.TryGetValue(cursor.ParentAreaId, out cursor!))
+                if (!areas.TryGetValue(cursor.ParentAreaId, out var ancestor))
                     throw new ArgumentException("Area references an unknown ancestor: " + area.AreaId);
+                cursor = ancestor;
             }
         }
     }
