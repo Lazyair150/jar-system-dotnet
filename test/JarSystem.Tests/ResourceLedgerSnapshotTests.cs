@@ -94,6 +94,49 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void RestoreRejectsOperationEventsWithoutTheirPayloadFingerprint()
+    {
+        const string operationId = "operation.missing-fingerprint";
+        var snapshot = new ResourceLedgerSnapshot(
+            4, 1, 0,
+            new[]
+            {
+                new ResourceEvent
+                {
+                    Seq = 1, Tick = 1, Cause = ResourceCauses.Production,
+                    Kind = ResourceKinds.Liquid, Name = "酒", ResourceIdentity = "酒",
+                    OperationId = operationId, Amount = 1
+                }
+            },
+            new[] { operationId });
+
+        Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(snapshot));
+    }
+
+    [Fact]
+    public void CheckpointWireRejectsOperationEventsWithoutTheirPayloadFingerprint()
+    {
+        const string operationId = "operation.wire-missing-fingerprint";
+        var wire = new ResourceLedgerWireDto
+        {
+            Capacity = 4,
+            LastSeq = 1,
+            OperationIds = new List<string> { operationId },
+            Events = new List<ResourceEventWireDto>
+            {
+                new()
+                {
+                    Seq = 1, Tick = 1, Cause = ResourceCauses.Production,
+                    Kind = ResourceKinds.Liquid, Name = "酒", ResourceIdentity = "酒",
+                    OperationId = operationId, Amount = 1
+                }
+            }
+        };
+
+        Assert.Throws<System.InvalidOperationException>(() => wire.Validate());
+    }
+
+    [Fact]
     public void EntriesExposeReadOnlyViewInsteadOfMutableBackingList()
     {
         var ledger = new ResourceLedger();
