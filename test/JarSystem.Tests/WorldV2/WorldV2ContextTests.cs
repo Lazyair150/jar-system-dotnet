@@ -113,7 +113,7 @@ public sealed class WorldV2ContextTests
             failingService.SettleAndRelease(
                 demand.Id, world.Admission, world.ResourceLedger, settlementTick: 1));
 
-        var lease = Assert.IsType<WorldOrderResourceLease>(world.Admission.FindLease(demand.Id));
+        var lease = Assert.IsType<OrderResourceLease>(world.Admission.FindLease(demand.Id));
         var operationId = lease.SettlementOperationId;
         Assert.Equal(OrderResourceSettlementStage.LedgerRecorded, lease.SettlementStage);
         Assert.False(world.ResourceLedger.HasRecordedOperation(operationId));
