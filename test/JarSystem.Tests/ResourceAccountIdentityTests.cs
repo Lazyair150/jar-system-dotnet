@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 using Xunit;
 
 namespace JarSystem.Tests;
@@ -94,4 +96,61 @@ public sealed class ResourceAccountIdentityTests
         Assert.Equal(currentIdentity.ToCanonicalString(), currentAccount.AccountId);
         Assert.NotEqual(legacy.AccountId, currentAccount.AccountId);
     }
+
+    [Fact]
+    public void ResourcePortAdaptersCanUseWorldScopedOwnersWithoutChangingLegacyConstructors()
+    {
+        var worldA = new WorldInstanceId("world-a");
+        var worldB = new WorldInstanceId("world-b");
+        var shipA = new OwnerIdentity(worldA, ResourceOwnerKind.Ship, "ship-owned-1");
+        var shipB = new OwnerIdentity(worldB, ResourceOwnerKind.Ship, "ship-owned-1");
+        var shipAdapterA = new ShipLiquidInventoryPortAdapter(
+            new ShipLiquidInventory(20), shipA, "area.ship");
+        var shipAdapterB = new ShipLiquidInventoryPortAdapter(
+            new ShipLiquidInventory(20), shipB, "area.ship");
+        Assert.StartsWith("account:v2:", shipAdapterA.Account.AccountId);
+        Assert.NotEqual(shipAdapterA.Account.AccountId, shipAdapterB.Account.AccountId);
+
+        var workshop = new Workshop(
+            "Workshop display",
+            new List<string> { "圆罐" },
+            new List<string>(),
+            new List<string>(),
+            10,
+            10,
+            ownedInstanceId: "workshop-owned-1");
+        var workshopOwner = new OwnerIdentity(
+            worldA, ResourceOwnerKind.Workshop, "workshop-owned-1");
+        var freeLiquid = new WorkshopFreeLiquidPortAdapter(
+            workshop, "area.workshop", workshopOwner);
+        var jarStorage = new WorkshopJarStoragePortAdapter(
+            workshop, "area.workshop", workshopOwner);
+        Assert.StartsWith("account:v2:", freeLiquid.Account.AccountId);
+        Assert.StartsWith("account:v2:", jarStorage.Account.AccountId);
+
+        var stagingA = new WorkshopOrderLiquidPortAdapter(
+            new WorkshopLiquidStaging(20), workshopOwner, "area.workshop", 41);
+        var stagingB = new WorkshopOrderLiquidPortAdapter(
+            new WorkshopLiquidStaging(20), workshopOwner, "area.workshop", 42);
+        Assert.NotEqual(stagingA.Account.AccountId, stagingB.Account.AccountId);
+
+        var prefill = new WorkshopPrefillLiquidPortAdapter(
+            new WorkshopLiquidStaging(20), workshopOwner, "area.workshop");
+        Assert.StartsWith("account:v2:", prefill.Account.AccountId);
+
+        var productionOwner = new OwnerIdentity(
+            worldA, ResourceOwnerKind.ProductionArea, "production-area-owned-1");
+        var warehouse = new Warehouse();
+        var warehouseJars = new WarehouseJarStoragePortAdapter(
+            warehouse, productionOwner, "area.production");
+        var warehouseLiquids = new WarehouseLiquidStoragePortAdapter(
+            warehouse, productionOwner, "area.production");
+        Assert.StartsWith("account:v2:", warehouseJars.Account.AccountId);
+        Assert.StartsWith("account:v2:", warehouseLiquids.Account.AccountId);
+
+        Assert.Throws<System.ArgumentException>(() =>
+            new ShipLiquidInventoryPortAdapter(
+                new ShipLiquidInventory(20), workshopOwner, "area.ship"));
+    }
+
 }
