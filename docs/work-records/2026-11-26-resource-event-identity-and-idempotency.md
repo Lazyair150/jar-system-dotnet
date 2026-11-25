@@ -88,3 +88,35 @@ The latest code HEAD at the time this record was written is `2bd8524057c84a2a7e4
 - Core PR #63 remains Open / Draft and is not merged.
 - Space PR #2 and its pinned Core SHA were not modified.
 - No claim is made that GUI validation or compound B-class atomicity is complete.
+
+## Account endpoint and resource-fact implementation update
+
+- Added canonical `RuleResourceAccount.AccountId` using a versioned length-prefixed encoding of `AccountKind + OwnerId`; tests cover stability, account-kind separation, and ambiguous concatenation pairs.
+- Added `FromAccountId` / `ToAccountId` to `ResourceLedgerMutation` and `ResourceEvent`. The fields are copied through `ResourceLedgerSnapshot`, `Capture`, `Restore`, clone paths, and `ResourceEventWireDto` / `ResourceLedgerWireDto`.
+- `RecordTransferOnce` now derives missing endpoint IDs from the receipt's exact source/target accounts, then validates both endpoint IDs against those receipt accounts. Explicitly supplied but mismatched IDs are rejected. Since the fields participate in the mutation fingerprint, a replay with changed account endpoints conflicts.
+- B-class order handoff emits distinct account identities for Jar Storage, free-liquid staging, and order-liquid staging. Workshop migration and slave rollback also attach the relevant account identities where the workshop has an exact `OwnedInstanceId`.
+- The public `WorldV2ResourceEventDto` projection now exposes both endpoint identity fields, keeping them separate from the display-oriented `From` / `To` strings.
+- World V2 checkpoint schema is now version 5. Schemas 3 and 4 remain accepted; missing endpoint identities deserialize as null/unknown. No migration derives an account identity from `Workshop.Name`, and no JarId is inferred from Shape.
+- `ResourceAreaAdvanceResult` now preserves immutable per-Jar facts for production, overflow discard, and warehouse-to-workshop flow. `ResourceWorldRuntime` writes those facts individually with canonical JarId, Shape as display name, and amount=1. Liquid production/discard/flow facts retain the canonical World Vocabulary identity. Flow-to-workshop events include the target workshop account identity when `OwnedInstanceId` is present.
+- Regression coverage now includes canonical liquid production/discard identity, Jar production-to-flow identity continuity, overflow Jar identity after object pooling, B-class handoff/rollback endpoint identities, and single-resource transfer account IDs surviving snapshot + checkpoint Wire round trips.
+
+## Compatibility and API-contract review
+
+- The DTO field additions are an additive public projection change, but they alter the serialized checkpoint Wire shape. This is why the checkpoint envelope was explicitly bumped from schema 4 to schema 5 rather than treating the new fields as an unversioned implementation detail.
+- An intermediate CI run exposed stale test expectations: a bridge test still hard-coded schema 4, and an unsupported-version test treated schema 6 as unsupported while the intermediate codec version was 6. The contract was normalized to current schema 5 with explicit legacy support for 3 and 4; tests now use `CurrentSchemaVersion` and reject unsupported version 6.
+- Subsequent test-only failures were traced to the legacy-envelope test fixture itself: first its raw interpolated JSON delimiter was malformed, then the empty payload was compared to a non-nullable record's default-value expectation. The fixture now uses a `$$"""` raw interpolated string with explicit payload values. No production validation was relaxed.
+- Failed runs are retained as failure evidence, not hidden: `45654313983` (HEAD `ce2d1d7`) exposed stale schema-version expectations; `45655313024` (HEAD `7651f3f6`) exposed the raw-string compile error; `45656078754` (HEAD `c5869935`) and `45656243879` (HEAD `7baf8242`) exposed the empty legacy payload expectation. These do not validate the later corrected HEAD.
+
+## Remaining gaps after this slice
+
+1. The Warehouse / Producer / Ship accounts still lack explicit persisted owner identities. Consequently some production, initial-stock, ship-to-workshop funding, and aggregate settlement events correctly retain null `FromAccountId` / `ToAccountId`; display labels must not be used to fabricate these IDs.
+2. The legacy `JarSystem` ProductionService Warehouse events still need an explicit owner identity before stable endpoints can be populated.
+3. `ResourceLedgerMutation.Name` remains the display label for compatibility; a separately named `DisplayName` contract alias has not been introduced.
+4. `ResourceTransferBatchRequest/Receipt`, a multi-account prepare/commit/compensate coordinator, and B-class physical transaction fault-injection proof remain outstanding. Stable endpoint facts do not imply compound transfer atomicity.
+5. Space's Core pin remains unchanged until this Core slice reaches a verified integration SHA.
+
+## Latest exact-head status
+
+- Code HEAD: `b7c376c0c5f3c624b14b2132e2314f90b8cb5bad`.
+- Runs `45657100739` and `45657120041` are associated with this exact HEAD and were In Progress when recorded. No pass is claimed.
+- PR #63 remains Open / Draft and unmerged.
