@@ -97,8 +97,9 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
             step.Operation?.Type == "MATCH" &&
             step.Before![step.Operation.JarIndex!.Value].Id == 9131);
         Assert.Equal(new[] { 9131 }, plan.TransferJarIds);
-        var masterMatch = Assert.Single(plan.MasterSteps);
-        Assert.True(masterMatch.After![masterMatch.Operation!.JarIndex!.Value].IsMarked);
+        Assert.Empty(plan.MasterSteps);
+        var slaveMatch = Assert.Single(plan.SlaveSteps);
+        Assert.True(slaveMatch.After![slaveMatch.Operation!.JarIndex!.Value].IsMarked);
     }
 
     [Fact]
