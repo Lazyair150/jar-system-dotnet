@@ -143,7 +143,8 @@ public sealed class WarehouseWorkshopJarPortTransferTests
             path.SourceAdapter, path.TargetAdapter, path.Warehouse, path.Workshop,
             restoredLedger, () => 112);
 
-        Assert.Throws<System.InvalidOperationException>(() => replay.Commit());
+        Assert.Equal(receipt, replay.Commit());
+        Assert.True(replay.IsCommitted);
         Assert.Empty(path.Warehouse.Jars);
         Assert.Same(path.Jar, Assert.Single(path.Workshop.Jars));
     }
