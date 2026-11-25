@@ -130,3 +130,11 @@ The latest code HEAD at the time this record was written is `2bd8524057c84a2a7e4
 - Code HEAD at this record update: `e78abd388aeee0785933feef894e53292b955e60`. Runs `45658706720` and `45658719513` are associated with this exact HEAD and remain In Progress; the added tests are not yet claimed as passing.
 - The immediately preceding failed runs are classified: `45657100739` failed because Jar ledger tests were placed outside their test class; `45657633099` failed on the same brace placement; `45657765218` failed because the liquid-only assertion lacked the Production namespace import. These were test-source defects, not runtime behavior failures; subsequent commits corrected them.
 - PR #63 remains Open / Draft and unmerged. Space remains untouched.
+
+
+### Verification correction
+
+- The exact code HEAD `e78abd388aeee0785933feef894e53292b955e60` completed run `45658706720` with **Success** after the previous in-progress note was written.
+- Exact-run evidence: xUnit 965 passed / 0 failed; configuration contract matched; solver differential 4004/4004; modifier/rule differential 400 scenarios / 1600 checks; Session Replay 33 commands passed; dependency scan covered 6 projects with 0 vulnerable packages; `VERDICT=OK`.
+- Paired run `45658719513` for the same HEAD remained In Progress at this check. The additional endpoint fingerprint and schema 3/4 compatibility tests are included in the 965-test result.
+- The current branch subsequently contains documentation-only commit `f53a691a4b79c7b136443d62e35843d241a22203`; the successful run above validates its exact parent code HEAD, not this documentation commit.
