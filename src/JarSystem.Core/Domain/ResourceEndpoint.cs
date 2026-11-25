@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace JarSystem.Core.Domain;
 
@@ -25,11 +26,13 @@ public readonly record struct ResourceEndpoint
     public string? AccountId { get; }
     public string? ExternalIdentity { get; }
 
-    private ResourceEndpoint(ResourceEndpointKind kind, string? accountId, string? externalIdentity)
+    [JsonConstructor]
+    public ResourceEndpoint(ResourceEndpointKind kind, string? accountId, string? externalIdentity)
     {
         Kind = kind;
         AccountId = accountId;
         ExternalIdentity = externalIdentity;
+        Validate();
     }
 
     public static ResourceEndpoint LegacyUnknown => new(ResourceEndpointKind.LegacyUnknown, null, null);
