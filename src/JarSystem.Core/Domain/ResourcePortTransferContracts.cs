@@ -10,7 +10,7 @@ public sealed record ResourcePortPreflight(
     RuleResourceKind ResourceKind,
     string ResourceIdentity,
     int Amount,
-    long ObservedAreaVersion,
+    string ObservedVersionToken,
     string ReasonCode,
     string? Diagnostic = null)
 {
@@ -20,7 +20,7 @@ public sealed record ResourcePortPreflight(
         Account.Validate();
         CircuitAreaDefinition.RequireIdentity(ResourceIdentity, nameof(ResourceIdentity));
         if (!Enum.IsDefined(Decision) || !Enum.IsDefined(ResourceKind) ||
-            Amount <= 0 || ObservedAreaVersion < 0 ||
+            Amount <= 0 || string.IsNullOrWhiteSpace(ObservedVersionToken) ||
             string.IsNullOrWhiteSpace(ReasonCode))
             throw new ArgumentException("Port preflight contains an invalid decision or resource/version contract.");
 
@@ -45,8 +45,8 @@ public sealed record ResourceTransferRequest(
     int Amount,
     RuleResourceAccount SourceAccount,
     RuleResourceAccount TargetAccount,
-    long ExpectedSourceVersion,
-    long ExpectedTargetVersion)
+    string ExpectedSourceVersionToken,
+    string ExpectedTargetVersionToken)
 {
     public void Validate()
     {
@@ -58,7 +58,7 @@ public sealed record ResourceTransferRequest(
         SourceAccount.Validate();
         TargetAccount.Validate();
         if (!Enum.IsDefined(ResourceKind) || Amount <= 0 ||
-            ExpectedSourceVersion < 0 || ExpectedTargetVersion < 0)
+            string.IsNullOrWhiteSpace(ExpectedSourceVersionToken) || string.IsNullOrWhiteSpace(ExpectedTargetVersionToken))
             throw new ArgumentException("Resource transfer request contains an invalid kind, amount or expected version.");
         if (SourcePortId == TargetPortId || SourceAccount == TargetAccount)
             throw new ArgumentException("A transfer must cross distinct ports and authoritative accounts.");
@@ -91,10 +91,10 @@ public sealed record ResourceTransferReceipt(
     int RetainedAtSourceAmount,
     int DiscardedAmount,
     ResourceTransferOutcome Outcome,
-    long SourceVersionBefore,
-    long SourceVersionAfter,
-    long TargetVersionBefore,
-    long TargetVersionAfter,
+    string SourceVersionBefore,
+    string SourceVersionAfter,
+    string TargetVersionBefore,
+    string TargetVersionAfter,
     string ReasonCode)
 {
     public void Validate()
@@ -111,8 +111,8 @@ public sealed record ResourceTransferReceipt(
             RequestedAmount <= 0 || TransferredAmount < 0 ||
             RetainedAtSourceAmount < 0 || DiscardedAmount < 0 ||
             (long)TransferredAmount + RetainedAtSourceAmount + DiscardedAmount != RequestedAmount ||
-            SourceVersionBefore < 0 || SourceVersionAfter < SourceVersionBefore ||
-            TargetVersionBefore < 0 || TargetVersionAfter < TargetVersionBefore ||
+            string.IsNullOrWhiteSpace(SourceVersionBefore) || string.IsNullOrWhiteSpace(SourceVersionAfter) ||
+            string.IsNullOrWhiteSpace(TargetVersionBefore) || string.IsNullOrWhiteSpace(TargetVersionAfter) ||
             string.IsNullOrWhiteSpace(ReasonCode) ||
             SourcePortId == TargetPortId || SourceAccount == TargetAccount)
             throw new ArgumentException("Resource transfer receipt violates its identity, quantity or version contract.");
