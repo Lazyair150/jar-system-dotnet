@@ -93,7 +93,7 @@ public sealed class PreparedOrderLiquidPortTransfer
                 [_request.ResourceIdentity] = _request.Amount
             };
             if (!OrderLiquidTransfer.TryExecute(
-                _orderId, _sourceStaging, _targetStaging, batch, out var rejectionReason))
+                _orderId, _sourceStaging, _targetStaging, batch, out _))
             {
                 var sourceAfterFailure = _sourceAdapter.Preflight(
                     _sourcePort, _request.ResourceIdentity, _request.Amount);
@@ -104,8 +104,7 @@ public sealed class PreparedOrderLiquidPortTransfer
                 return _receipt = CreateNoMutationReceipt(
                     changed ? ResourceTransferOutcome.Undetermined : ResourceTransferOutcome.Rejected,
                     changed ? "account.version.changed" : "transfer.precondition.rejected",
-                    sourceAfterFailure, targetAfterFailure,
-                    rejectionReason);
+                    sourceAfterFailure, targetAfterFailure);
             }
 
             var sourceAfter = _sourceAdapter.Preflight(
@@ -148,8 +147,7 @@ public sealed class PreparedOrderLiquidPortTransfer
         ResourceTransferOutcome outcome,
         string reasonCode,
         ResourcePortPreflight source,
-        ResourcePortPreflight target,
-        string? diagnostic = null)
+        ResourcePortPreflight target)
     {
         var receipt = new ResourceTransferReceipt(
             _request.OperationId, _request.ConnectionId,
@@ -159,7 +157,7 @@ public sealed class PreparedOrderLiquidPortTransfer
             _request.Amount, 0, _request.Amount, 0, outcome,
             source.ObservedVersionToken, source.ObservedVersionToken,
             target.ObservedVersionToken, target.ObservedVersionToken,
-            reasonCode + (string.IsNullOrWhiteSpace(diagnostic) ? string.Empty : ":" + diagnostic));
+            reasonCode);
         receipt.Validate();
         return receipt;
     }
