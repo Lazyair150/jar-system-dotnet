@@ -424,22 +424,14 @@ public partial class JarSystem : Rules.IWorldFacts
             if (!worldInstanceId.HasValue)
                 throw new ArgumentException("OwnerIdentity map requires an explicit WorldInstanceId.", nameof(ownerIdentities));
             ownerIdentities.ValidateForWorld(worldInstanceId.Value);
-            var producerIds = _world.Producers
-                .Select(item => item.ProducerInstanceId)
-                .Where(item => !string.IsNullOrWhiteSpace(item))
-                .Select(item => item!)
-                .ToHashSet(StringComparer.Ordinal);
-            var workshopIds = _world.Workshops
-                .Select(item => item.OwnedInstanceId)
-                .Where(item => !string.IsNullOrWhiteSpace(item))
-                .Select(item => item!)
-                .ToHashSet(StringComparer.Ordinal);
-            if (_world.Producers.Any(item => string.IsNullOrWhiteSpace(item.ProducerInstanceId)) ||
-                !_world.Producers.Select(item => item.ProducerInstanceId).ToHashSet(StringComparer.Ordinal)
-                    .SetEquals(ownerIdentities.Producers.Keys) ||
-                _world.Workshops.Any(item => string.IsNullOrWhiteSpace(item.OwnedInstanceId)) ||
-                !_world.Workshops.Select(item => item.OwnedInstanceId).ToHashSet(StringComparer.Ordinal)
-                    .SetEquals(ownerIdentities.Workshops.Keys))
+            var producerIds = _world.Producers.Select(item => item.ProducerInstanceId).ToArray();
+            var workshopIds = _world.Workshops.Select(item => item.OwnedInstanceId).ToArray();
+            if (producerIds.Any(string.IsNullOrWhiteSpace) ||
+                producerIds.Distinct(StringComparer.Ordinal).Count() != producerIds.Length ||
+                !producerIds.ToHashSet(StringComparer.Ordinal).SetEquals(ownerIdentities.Producers.Keys) ||
+                workshopIds.Any(string.IsNullOrWhiteSpace) ||
+                workshopIds.Distinct(StringComparer.Ordinal).Count() != workshopIds.Length ||
+                !workshopIds.ToHashSet(StringComparer.Ordinal).SetEquals(ownerIdentities.Workshops.Keys))
                 throw new ArgumentException(
                     "OwnerIdentity map must exactly match every configured ProducerInstanceId and OwnedInstanceId.",
                     nameof(ownerIdentities));
