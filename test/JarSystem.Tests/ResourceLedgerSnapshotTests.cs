@@ -375,6 +375,33 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void RestoreRejectsNoncanonicalJarReceiptInCheckpoint()
+    {
+        var source = new RuleResourceAccount("workshop-jar-storage", "workshop.restore.source");
+        var target = new RuleResourceAccount("workshop-jar-storage", "workshop.restore.target");
+        var receipt = new ResourceTransferReceipt(
+            "operation.jar.restore.invalid", "connection.jar.restore",
+            "source.jar.out", "target.jar.in", RuleResourceKind.Jar, "jar-17",
+            source, target, 1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+        var snapshot = new ResourceLedgerSnapshot(
+            4, 1, 0,
+            new[]
+            {
+                new ResourceEvent
+                {
+                    Seq = 1, Tick = 1, Cause = ResourceCauses.Transfer,
+                    Kind = ResourceKinds.Jar, Name = "圆罐", Amount = 1,
+                    From = source.OwnerId, To = target.OwnerId
+                }
+            },
+            new[] { receipt.OperationId },
+            new[] { receipt });
+
+        Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(snapshot));
+    }
+
+    [Fact]
     public void TransferJournalRejectsEventsThatDoNotMatchReceiptEndpoints()
     {
         var ledger = new ResourceLedger();
