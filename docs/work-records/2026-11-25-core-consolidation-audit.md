@@ -1031,3 +1031,45 @@ ADR 0010 已冻结 Transfer Leg / Compound Transfer / ResourceIdentity / Operati
 3. 为旧 Warehouse Jar identity migration、跨账户 JarId allocator 共享约束和自定义 generator 恢复能力补充专门测试。
 4. 完成稳定 AccountId/OwnerId，不再让 B 类交接使用 Workshop.Name 作为机器端点。
 5. 建立完整 ResourceTransferBatchRequest/Receipt 与多账户联合 prepare/commit/compensate，再迁移 B 类交接。当前仍未声称 B 类复合事务已经实现。
+
+
+### 第二十九轮：Jar 出生身份覆盖、固定契约基线与回放门禁复核（2026-11-25）
+
+**起始基线与提交**
+
+- 起始 Core HEAD：`e22113dcf0268c0beb5ebb7e44c4e2bddf2b7491`。
+- 本轮固定样本基线更新提交：`f86397b9fea186d6fad2810191f2cdce36d2d82e`。
+- 随后补齐从台回滚、主台迁徙延迟账本事实身份的提交：`3106de8a`、`5163f1c5`、`640480c8`。
+- 当前 HEAD：`640480c84fd889634c3d54b1c70bfbcd540914ae`。
+- PR #63 保持 Open / Draft，未合并。
+
+**失败日志的准确分类**
+
+1. Run `45651466221`（HEAD `e22113d`）中，xUnit 已为 955 项全通过，Session Replay 输出 `REPLAY-OK (commands=33, stateBytes=4422, logBytes=8797, journalBytes=725)`。
+2. 同一日志随后出现的 `SNAPSHOT-MISMATCH` 来自 `verify.bat` 的固定契约快照比较：`重构报告/_contract/state_keys.baseline.txt` 与新生成的 `state_keys.txt` 中 JarId 值不同；它不是该次 Session Replay 失败。
+3. 差异是生产 Jar 在进入 Warehouse 时即获得身份后，固定场景中 Jar 身份分配时点发生变化：工作台 JarId 为 1/2，求解路径引用 3/1，仓库中的 Jar 获得 ID 4。形状、资源数量、配置与 schema 键集合未因此改变。
+4. 该变化符合“Jar 是独立个体，出生即有 JarId，Shape 仅是属性”的身份语义，因此通过提交 `f86397b` 明确更新契约基线，而不是关闭快照门禁或修改求解器行为。
+5. 此前一次较早提交出现的 Replay 状态差异，与本轮 e22113 日志里的契约快照差异是两个不同失败点；本轮以实际归档日志区分，不将两者混为一谈。
+
+**xUnit 空集合失败修复与身份事实补齐**
+
+- 早期 `ResourceProvenanceTests` 错误地假设生产 tick 后 Jar 仍留在 Warehouse；实际同一 tick 会按吞吐额度把 Jar 流入主台，因此对 Warehouse 使用 `Assert.Single` 会得到空集合。
+- 修复测试使其直接通过 `Warehouse.StoreJars` 测试身份分配器在模块替换与 World Reset 后是否连续，而不再把流入后的资源错误地当成仓库库存。
+- 后续补齐 `SlaveRollback` 的 Jar 回滚/丢弃事实，以及 `ResourceTransferrer` 主台迁徙的 Jar/Liquid 延迟账本事实的 ResourceIdentity；Jar 使用 canonical JarId，液体使用词表 identity。
+- 增加断言，确认迁徙与回滚事件不是只具有 Shape/液体显示名称，而是保留相应机器身份。
+
+**精确验证**
+
+- Run `45652270942`：HEAD `f86397b`，Success；xUnit 955/955，Replay 33 commands，契约快照与配置对照通过，Solver 4004/4004，ModDiff 400 scenarios / 1600 checks，依赖安全检查通过。
+- Run `45652439281`：HEAD `3106de8`，Success。
+- Run `45652473035`：HEAD `5163f1c5`，Success。
+- Run `45652648418`：HEAD `640480c8`，Success；xUnit 955/955，Replay `REPLAY-OK`，契约快照、配置对照、Solver、ModDiff、依赖安全检查全部通过；最终 `VERDICT=OK`。
+- 同一 HEAD 的重复 push/pull_request workflow `45652634833` 亦 Success。以上 run 的 head_sha 均按各自提交精确核对。
+
+**下一阶段仍未完成的 ADR 0010 项**
+
+- ResourceEvent / ResourceLedgerMutation 目前有 ResourceIdentity 与 OperationId，但 From/To 仍混合了展示名和部分 OwnerId，尚不是统一的稳定账户身份字段。
+- `RuleResourceAccount` 的真实账户身份由 `AccountKind + OwnerId` 共同构成；只记录 OwnerId 会混淆同一拥有者的 Jar Storage、Free Liquid Staging、Order Liquid Staging 等不同权威账户。
+- 下一切片应增加明确的 FromAccountId / ToAccountId（由 RuleResourceAccount 的 AccountKind 与 OwnerId 无歧义编码），贯通 Mutation、Event、fingerprint、Snapshot、Wire DTO 和 World V2 checkpoint schema；旧 Wire 的账户身份保持 Unknown，不得由 Workshop.Name 回填。
+- 然后迁移单资源 Receipt participants 与 B 类交接、主台迁徙、从台回滚等事件生产点，并增加账户种类/拥有者区分、重命名稳定性和旧 checkpoint 兼容测试。
+- 本轮没有声称复合批次回执或 B 类多账户联合事务已经完成；Space Core pin 仍未更新。
