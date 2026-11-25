@@ -38,6 +38,17 @@ public class ConfigAndCapabilityTests
             ["燃料"] = LiquidPolarity.Anode,
             ["冷却液"] = LiquidPolarity.Cathode
         };
+        renamed.Flow.LiquidRate = new Dictionary<string, double> { ["冷却液"] = 1, ["燃料"] = 1 };
+        renamed.InitialStock = new Dictionary<string, int> { ["冷却液"] = 20, ["燃料"] = 20 };
+        foreach (var workshop in renamed.Workshops)
+        {
+            for (var i = 0; i < workshop.Ban.Count; i++)
+                workshop.Ban[i] = workshop.Ban[i] == "酒" ? "冷却液" : "燃料";
+        }
+        foreach (var order in renamed.OrderTemplates)
+            foreach (var requirement in order.Requirements)
+                if (requirement.Liquid != null)
+                    requirement.Liquid = requirement.Liquid == "酒" ? "冷却液" : "燃料";
         Assert.True(renamed.Validate().IsValid, string.Join("; ", renamed.Validate().Errors));
 
         var extra = CloneDefault();
