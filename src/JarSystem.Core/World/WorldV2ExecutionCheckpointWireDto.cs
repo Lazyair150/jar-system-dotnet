@@ -39,7 +39,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         {
             Shapes = checkpoint.Shapes.ToList(),
             Liquids = checkpoint.Liquids.ToList(),
-            LiquidPolarities = new Dictionary<string, LiquidPolarity>(checkpoint.LiquidPolarities, StringComparer.Ordinal),
+            LiquidPolarities = checkpoint.LiquidPolarities.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
             ResourceArea = ResourceAreaWireDto.FromSnapshot(checkpoint.ResourceArea),
             DemandBoard = DemandBoardWireDto.FromSnapshot(checkpoint.DemandBoard),
             ShipLiquidInventory = ShipLiquidInventoryWireDto.FromSnapshot(checkpoint.ShipLiquidInventory),
