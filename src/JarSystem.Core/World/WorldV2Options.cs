@@ -139,6 +139,12 @@ public sealed class WorldV2Options
                     result.Errors.Add("生产者缺少 name");
                 else if (!producerNames.Add(producer.Name))
                     result.Errors.Add("生产者名重复: " + producer.Name);
+                if (producer.ProducerInstanceId != null &&
+                    (string.IsNullOrWhiteSpace(producer.ProducerInstanceId) ||
+                     !string.Equals(producer.ProducerInstanceId, producer.ProducerInstanceId.Trim(), StringComparison.Ordinal)))
+                    result.Errors.Add("生产者 ProducerInstanceId 无效: " + producer.Name);
+                else if (producer.ProducerInstanceId != null && !producerInstanceIds.Add(producer.ProducerInstanceId))
+                    result.Errors.Add("ProducerInstanceId 重复: " + producer.ProducerInstanceId);
 
                 if (producer.Rates == null)
                 {
@@ -202,6 +208,12 @@ public sealed class WorldV2Options
                     result.Errors.Add("工作台缺少 name");
                 else if (!workshopNames.Add(workshop.Name))
                     result.Errors.Add("工作台名重复: " + workshop.Name);
+                if (workshop.OwnedInstanceId != null &&
+                    (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId) ||
+                     !string.Equals(workshop.OwnedInstanceId, workshop.OwnedInstanceId.Trim(), StringComparison.Ordinal)))
+                    result.Errors.Add("工作台 OwnedInstanceId 无效: " + workshop.Name);
+                else if (workshop.OwnedInstanceId != null && !workshopInstanceIds.Add(workshop.OwnedInstanceId))
+                    result.Errors.Add("工作台 OwnedInstanceId 重复: " + workshop.OwnedInstanceId);
 
                 ValidateShapeList(workshop.BaseMarks, shapeSet,
                     "工作台 " + workshop.Name + " 的 baseMarks", result, requireNonEmpty: true);
@@ -423,6 +435,8 @@ public sealed class WorldV2Options
 public sealed class WorldV2ProducerOptions
 {
     public string Name { get; set; } = "";
+    [JsonPropertyName("producerInstanceId")]
+    public string? ProducerInstanceId { get; set; }
     public Dictionary<string, double> Rates { get; set; } = new();
 }
 
@@ -430,6 +444,8 @@ public sealed class WorldV2ProducerOptions
 public sealed class WorldV2WorkshopOptions
 {
     public string Name { get; set; } = "";
+    [JsonPropertyName("ownedInstanceId")]
+    public string? OwnedInstanceId { get; set; }
     [JsonPropertyName("boardSlotId")]
     public string BoardSlotId { get; set; } = "";
     public List<string> BaseMarks { get; set; } = new();
