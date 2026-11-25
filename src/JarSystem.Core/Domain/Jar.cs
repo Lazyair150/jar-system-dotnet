@@ -49,6 +49,8 @@ public class Jar
         _vocabulary = vocabulary ?? Vocabulary.Default;
         if (!_vocabulary.IsValidShape(shape))
             throw new ArgumentException($"无效形状: {shape}");
+        if (liquid != null && !_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
         _id = id;
         _shape = shape;
         _liquid = liquid;
@@ -72,7 +74,7 @@ public class Jar
     /// Derived polarity of the internal liquid. This is computed from the authoritative
     /// liquid identity and is never stored as a second mutable state.
     /// </summary>
-    public JarPolarity Polarity { get { ThrowIfRecycled(); return JarPolarityResolver.Resolve(_liquid); } }
+    public JarPolarity Polarity { get { ThrowIfRecycled(); return JarPolarityResolver.Resolve(_liquid, _vocabulary); } }
 
     public bool IsEmpty() { ThrowIfRecycled(); return _liquid is null; }
     public bool IsFull() { ThrowIfRecycled(); return _liquid is not null; }
@@ -118,6 +120,8 @@ public class Jar
         ThrowIfRecycled();
         if (!_vocabulary.IsValidShape(shape))
             throw new ArgumentException($"无效形状: {shape}", nameof(shape));
+        if (liquid != null && !_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
         _shape = shape;
         _liquid = liquid;
         _marked = isMarked;
@@ -131,6 +135,8 @@ public class Jar
     {
         ThrowIfRecycled();
         if (_liquid is not null) throw new InvalidOperationException("罐子不为空");
+        if (!_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
         _liquid = liquid;
     }
 
@@ -144,7 +150,13 @@ public class Jar
     }
 
     /// <summary>恢复罐内液体（撤销倒入/倒出时使用；null 表示恢复为空罐）。</summary>
-    internal void RestoreLiquid(string? liquid) { ThrowIfRecycled(); _liquid = liquid; }
+    internal void RestoreLiquid(string? liquid)
+    {
+        ThrowIfRecycled();
+        if (liquid != null && !_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
+        _liquid = liquid;
+    }
 
     /// <summary>改形（形状必须在**本罐子所属词表**内合法）。</summary>
     internal void Reshape(string newShape)
