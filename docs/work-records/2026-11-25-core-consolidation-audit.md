@@ -485,3 +485,52 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - SpaceHangarBoardDefinition 是结构蓝图；SpaceHangarBoardAssignment 是玩家的安装映射，校验 Owned Instance 唯一性、Definition 版本和 progression revision。
 - SpaceBoardRuntimeProfileSet 是按组件类别将冻结 assignment 路由给 Core Workshop、Space Parser、Space Skill 等消费者的 profile manifest；其源码明确不是规则解释器。
 - demo_board.tres 当前有 Master/Slave Workshop、Parser、Active/Passive Order slots；未配置 production_device slot。
+
+
+## 2026-11-25 第十八轮：区域层级裁决与最小拓扑契约
+
+### 用户确认
+- 用户明确认可：原石分解区属于生产区的功能子区域，保留独立身份，但不是第四个顶层区域。
+- Circuit Board 顶层区域固定为 Production / Workshop / Order。
+- 原石解析器与生产设备仍是不同组件类型、独立拥有实例和独立功能；层级归属不意味着合并其规则或库存。
+
+### GitHub 起始状态
+- Core PR #63：`architecture/core-liquid-identity-consolidation`，本轮读取时 HEAD 为 `a11f14d36ae2ca68d2f56a93e23600ed9e5e6c22`，Open / Draft。
+- Space PR #2：`world-v2/phase-4.10b-hangar-ui`，本轮读取时 HEAD 为 `8b70979d5f56f559f69f55842790b520236a5aa4`，Open / Draft。
+- 两个 PR 均未合并；本轮提交均直接进入各自现有工作分支。
+
+### Core 最小结构契约
+- 新增 `CircuitTopology.cs`：`CircuitAreaDefinition`、`CircuitPortDefinition`、`CircuitConnectionDefinition`、`CircuitTopology`。
+- Area 明确 AreaId、OwnerIndividualId、ParentAreaId、AreaKindId 与是否持有资源。
+- Port 明确方向、Jar/Liquid 资源类别、身份约束、策略身份与版本。
+- Connection 只允许 Output -> Input，校验资源类别一致，并在双方都有限定身份时要求身份集合存在交集。
+- CircuitTopology 校验 Area/Port/Connection 身份唯一、端口 Area 引用有效、嵌套 Area 父级存在且属于同一 Individual、父级无环。
+- 该模型是冻结结构元数据，不复制 Workshop、Jar、Warehouse、ShipLiquidInventory 的权威余额；Connection 不表示资源已经转移。
+- 新增 `CircuitTopologyTests.cs`，覆盖生产区包含分解子区、父级所有权、父级环、端口方向/资源类别、身份约束不相交。
+- 仍未实现运行时 Port Adapter、Transfer Coordinator 或账户原子提交；不能将结构契约误报为资源转移已端口化。
+
+### Space Board 层级迁移
+- `SpaceHangarBoardSlotDefinition.gd`：顶层 `area_id` 收敛为 workshop/orders/production，新增 `sub_area_id`（当前 none/decomposition）。
+- Parser 槽位改为 production/decomposition；Production Device 为 production/none。
+- `SpaceHangarBoardDefinition.gd` 的 slot index 与 frozen snapshot 同时保留 areaId/subAreaId。
+- `SpaceHangarBoardAssignment.gd` 将 areaId/subAreaId 纳入精确安装记录与验证，防止 assignment 与 Board 层级不一致。
+- `demo_board.tres` 的原石解析器迁移为生产区的分解子区域。
+- `SpaceHangarBoardDefinitionProbe.gd` 增加冻结快照层级、生产区槽位归属、错误 Area tampering 和多 Parser 子区域夹具检查。
+
+### 文档同步
+- 更新 `docs/world-v2/jar-individual-area-port-and-circuit-route-model.md`，删除“等待用户裁决”的旧文字，正式记录三层级裁决。
+- 更新 ADR 0008，补充顶层区域与功能子区域决策。
+- 更新 Core 概念模型，记录 Board Area 层级。
+- 本工作记录保留本轮起始精确 HEAD 与迁移范围。
+
+### 验证边界
+- 本轮代码/文档已写入 GitHub 分支。
+- 尚未取得本轮最新 Core/Space 提交的 CI 结果；不得把此前提交的绿色验证套用到本轮。
+- Space 侧还需确认所有运行时投影与展示消费者均读取新的 areaId/subAreaId；Probe 已更新但未执行。
+- Core 新拓扑契约需在精确新 HEAD 上完成 Release Build 与 xUnit；随后再开始 Workshop/Ship 的只读 Port Adapter 和差分测试。
+
+### 下一步
+1. 审查本轮 Space 修改的所有消费者，确保冻结 Board/Assignment 指纹包含 areaId/subAreaId，且旧 decomposition 顶层值不再进入生产投影。
+2. 在 Core 新 HEAD 上运行 CI，修复编译/测试问题。
+3. 为 Workshop Jar Storage、Workshop Liquid Resource Area、Ship Liquid Inventory 建只读 Port Adapter；每个 Adapter 仅调用现有权威领域方法做预检，不直接暴露容器。
+4. 明确 Transfer Request / Preflight / Receipt 的纯值契约，再实现事务协调器；不在本轮把独立 TryReceive/TryWithdraw 伪装成原子跨区转移。
