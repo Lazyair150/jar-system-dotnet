@@ -260,7 +260,8 @@ public sealed class WorldV2ApplicationService
             var ledger = context.ResourceLedger;
             var events = ledger.Since(afterSeq).Select(item => new WorldV2ResourceEventDto(
                 item.Seq, item.Tick, item.Cause, item.Kind, item.Name, item.Amount,
-                item.From, item.To, item.Reason, item.ResourceIdentity, item.OperationId)).ToArray();
+                item.From, item.To, item.Reason, item.ResourceIdentity, item.OperationId,
+                item.FromAccountId, item.ToAccountId)).ToArray();
             result = new WorldV2ResourceLedgerDto(
                 ledger.LastSeq, ledger.Dropped, ledger.Retained, CopyList(events));
         });
@@ -647,7 +648,8 @@ public sealed record WorldV2ShipLiquidInventoryDto(
 public sealed record WorldV2ResourceEventDto(
     long Seq, int Tick, string Cause, string Kind, string Name, int Amount,
     string? From, string? To, string? Reason,
-    string? ResourceIdentity = null, string? OperationId = null);
+    string? ResourceIdentity = null, string? OperationId = null,
+    string? FromAccountId = null, string? ToAccountId = null);
 public sealed record WorldV2ResourceLedgerDto(
     long LastSeq, int Dropped, int Retained,
     IReadOnlyList<WorldV2ResourceEventDto> Events);
