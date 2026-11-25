@@ -505,8 +505,17 @@ public sealed class ResourceLedgerSnapshotTests
 
         Assert.Equal(new[] { operationId, operationId }, ledger.Entries.Select(item => item.OperationId));
         Assert.Equal(new[] { "酒", "蜜" }, ledger.Entries.Select(item => item.ResourceIdentity));
-        var restored = ResourceLedger.Restore(ledger.Capture());
+        var wire = ResourceLedgerWireDto.FromSnapshot(ledger.Capture());
+        var encoded = WorldV2CheckpointJsonCodec.Encode(wire, null);
+        var decoded = WorldV2CheckpointJsonCodec.Decode<ResourceLedgerWireDto>(encoded).Payload;
+        var restored = ResourceLedger.Restore(decoded.ToSnapshot());
         Assert.Equal(new[] { operationId, operationId }, restored.Entries.Select(item => item.OperationId));
+        Assert.False(restored.RecordBatchOnce(operationId, 10, batch));
+        Assert.Throws<System.InvalidOperationException>(() => restored.RecordBatchOnce(
+            operationId, 10, new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 99)
+            }));
     }
 
     [Fact]
