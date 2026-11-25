@@ -198,7 +198,7 @@ public sealed class WorldV2BridgeSession : IDisposable
         return _application.CaptureExecutionResourceCheckpoint();
     }
 
-    /// <summary>将执行检查点恢复到已创建的兼容世界（旧兼容入口）。</summary>
+    /// <summary>使用最近一次装配配置和检查点原身份重建世界；旧版检查点需使用显式迁移身份重载。</summary>
     public void RestoreExecutionCheckpoint(WorldV2ExecutionResourceCheckpoint checkpoint)
     {
         ThrowIfDisposed();
