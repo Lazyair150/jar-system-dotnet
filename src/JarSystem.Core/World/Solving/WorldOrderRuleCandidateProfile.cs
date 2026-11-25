@@ -276,7 +276,7 @@ public static class WorldOrderRuleCandidateCatalog
     {
         // MATCH candidates also consume the Jar's single order-level operation allowance.
         // Candidate generation therefore starts only from an unmarked Jar.
-        var facts = new JarFacts(sourceShape, sourceLiquid, false);
+        var facts = new JarFacts(sourceShape, sourceLiquid, false, rules.ResolvePolarity(sourceLiquid));
         var evaluation = WorkshopRulebook.EvaluateMatchTransition(rules, facts);
         if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
         var transition = evaluation.Transition.Value;
