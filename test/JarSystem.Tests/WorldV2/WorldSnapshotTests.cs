@@ -346,4 +346,44 @@ public sealed class WorldSnapshotTests
     }
 
 
+
+    [Fact]
+    public void CandidateProviderRegistryRejectsDuplicateProviderIds()
+    {
+        var registry = WorldOrderRuleCandidateProviderRegistry.Default;
+        var duplicate = new TestCandidateProvider("jar.match", 1, 999);
+
+        Assert.Throws<System.ArgumentException>(() =>
+            new WorldOrderRuleCandidateProviderRegistry(registry.Providers.Append(duplicate)));
+    }
+
+    [Fact]
+    public void CandidateSpecificationFingerprintIncludesProviderRegistryVersionAndOrder()
+    {
+        var vocabulary = new Vocabulary(
+            new[] { "round-custom" },
+            new[] { "fuel", "coolant" });
+        var specification = new JarOrderSpecification(
+            new[] { new Requirement { Shape = "round-custom" } },
+            vocabulary: vocabulary);
+        var defaultRegistry = WorldOrderRuleCandidateProviderRegistry.Default;
+        var extendedRegistry = new WorldOrderRuleCandidateProviderRegistry(
+            defaultRegistry.Providers.Append(new TestCandidateProvider("test.noop", 1, 999)));
+
+        Assert.NotEqual(
+            WorldOrderRuleCandidateCatalog.Fingerprint(specification, defaultRegistry),
+            WorldOrderRuleCandidateCatalog.Fingerprint(specification, extendedRegistry));
+    }
+
+    private sealed class TestCandidateProvider(string providerId, int version, int order)
+        : IWorldOrderRuleCandidateProvider
+    {
+        public string ProviderId => providerId;
+        public int Version => version;
+        public int Order => order;
+        public IEnumerable<WorldOrderRuleCandidate> Enumerate(WorldOrderRuleCandidateRequest request) =>
+            System.Array.Empty<WorldOrderRuleCandidate>();
+    }
+
+
 }

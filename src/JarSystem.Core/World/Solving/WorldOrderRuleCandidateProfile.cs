@@ -106,13 +106,20 @@ public sealed class WorldOrderRuleCandidateProfile
 /// </summary>
 public static class WorldOrderRuleCandidateCatalog
 {
-    public static string Fingerprint(JarOrderSpecification specification)
+    public static string Fingerprint(JarOrderSpecification specification) =>
+        Fingerprint(specification, WorldOrderRuleCandidateProviderRegistry.Default);
+
+    public static string Fingerprint(
+        JarOrderSpecification specification,
+        WorldOrderRuleCandidateProviderRegistry providerRegistry)
     {
         if (specification == null) throw new ArgumentNullException(nameof(specification));
+        if (providerRegistry == null) throw new ArgumentNullException(nameof(providerRegistry));
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
-            writer.Write("JarSystem.JarOrderSpecification.v1");
+            writer.Write("JarSystem.JarOrderSpecification.v2");
+            writer.Write(providerRegistry.Fingerprint);
             writer.Write(specification.Type);
             writer.Write(specification.Requirements.Count);
             foreach (var requirement in specification.Requirements)
@@ -129,14 +136,16 @@ public static class WorldOrderRuleCandidateCatalog
         WorldSnapshot world,
         WorkshopSolveSnapshot workshop,
         string role,
-        JarOrderSpecification specification)
+        JarOrderSpecification specification,
+        WorldOrderRuleCandidateProviderRegistry? providerRegistry = null)
     {
         if (world == null) throw new ArgumentNullException(nameof(world));
         if (workshop == null) throw new ArgumentNullException(nameof(workshop));
         if (string.IsNullOrWhiteSpace(role)) throw new ArgumentException("岗位名称不能为空", nameof(role));
         if (specification == null) throw new ArgumentNullException(nameof(specification));
+        var registry = providerRegistry ?? WorldOrderRuleCandidateProviderRegistry.Default;
+        var specificationVersion = Fingerprint(specification, registry);
 
-        var specificationVersion = Fingerprint(specification);
         if (workshop.HasOpaqueSolverRules)
             return new WorldOrderRuleCandidateProfile(
                 workshop.Name, role, world.RuleSetVersion, world.WorkshopProfileVersion,
@@ -149,6 +158,7 @@ public static class WorldOrderRuleCandidateCatalog
                 workshop.Name, role, world.RuleSetVersion, world.WorkshopProfileVersion,
                 specificationVersion, Array.Empty<WorldOrderRequirementCandidates>(),
                 isUndetermined: true, reason: "有效规则 Profile 含有当前求解器无法解释的贡献");
+
         var sourceShapes = new SortedSet<string>(workshop.Shapes, StringComparer.Ordinal);
         sourceShapes.UnionWith(rules.Capability.BaseMarks);
         sourceShapes.UnionWith(rules.Capability.AdditionalMarks);
@@ -156,15 +166,30 @@ public static class WorldOrderRuleCandidateCatalog
         foreach (var requirement in specification.Requirements)
             sourceShapes.Add(requirement.Shape);
 
-        var preparatoryOperations = BuildPreparatoryOperations(
-            rules, workshop.LiquidStagingCapacity, workshop.Capability.Ban, sourceShapes);
+        var factory = new WorldOrderRuleCandidateFactory(
+            rules, workshop.LiquidStagingCapacity, workshop.Capability.Ban);
+        var preparatoryOperations = new List<WorldOrderRuleCandidate>();
+        foreach (var sourceShape in sourceShapes)
+        {
+            var request = new WorldOrderRuleCandidateRequest(
+                rules, new[] { sourceShape }, -1, sourceShape, null, true, factory);
+            foreach (var provider in registry.Providers)
+                preparatoryOperations.AddRange(provider.Enumerate(request));
+        }
+
         var results = new List<WorldOrderRequirementCandidates>(specification.Requirements.Count);
         for (var requirementIndex = 0; requirementIndex < specification.Requirements.Count; requirementIndex++)
         {
             var requirement = specification.Requirements[requirementIndex];
-            var candidates = BuildRequirementCandidates(
-                rules, workshop.LiquidStagingCapacity, workshop.Capability.Ban,
-                sourceShapes, requirementIndex, requirement.Shape, requirement.Liquid);
+            var candidates = new List<WorldOrderRuleCandidate>();
+            foreach (var sourceShape in sourceShapes)
+            {
+                var request = new WorldOrderRuleCandidateRequest(
+                    rules, new[] { sourceShape }, requirementIndex,
+                    requirement.Shape, requirement.Liquid, false, factory);
+                foreach (var provider in registry.Providers)
+                    candidates.AddRange(provider.Enumerate(request));
+            }
             results.Add(new WorldOrderRequirementCandidates(
                 requirementIndex, requirement.Shape, requirement.Liquid, candidates));
         }
@@ -172,173 +197,6 @@ public static class WorldOrderRuleCandidateCatalog
         return new WorldOrderRuleCandidateProfile(
             workshop.Name, role, world.RuleSetVersion, world.WorkshopProfileVersion,
             specificationVersion, results, preparatoryOperations);
-    }
-
-    private static List<WorldOrderRuleCandidate> BuildPreparatoryOperations(
-        RuleContext rules,
-        int stagingCapacity,
-        IReadOnlyCollection<string> bannedLiquids,
-        IEnumerable<string> sourceShapes)
-    {
-        var operations = new List<WorldOrderRuleCandidate>();
-        foreach (var sourceShape in sourceShapes)
-        {
-            foreach (var sourceLiquid in rules.Liquids)
-            {
-                AddTransition(rules, operations, -1,
-                    sourceShape, sourceLiquid, sourceShape, null,
-                    WorkshopOperation.PourOut(), "PREPARE_POUR_OUT",
-                    new Dictionary<string, int>(StringComparer.Ordinal),
-                    stagingCapacity, bannedLiquids);
-            }
-        }
-        return operations;
-    }
-
-    private static List<WorldOrderRuleCandidate> BuildRequirementCandidates(
-        RuleContext rules,
-        int stagingCapacity,
-        IReadOnlyCollection<string> bannedLiquids,
-        IEnumerable<string> sourceShapes,
-        int requirementIndex,
-        string targetShape,
-        string? targetLiquid)
-    {
-        var candidates = new List<WorldOrderRuleCandidate>();
-        foreach (var sourceShape in sourceShapes)
-        {
-            // Direct match is a lifecycle/allocation rule, not a Jar chemistry transform.
-            if (sourceShape == targetShape)
-            {
-                if (targetLiquid == null)
-                    AddMatch(rules, candidates, requirementIndex, sourceShape, null, targetShape, null);
-                else
-                    AddMatch(rules, candidates, requirementIndex, sourceShape, targetLiquid, targetShape, targetLiquid);
-
-                // Full target can also be made by pouring into an empty Jar of the target shape.
-                if (targetLiquid != null)
-                {
-                    var syntheticSupply = new Dictionary<string, int>(StringComparer.Ordinal)
-                    {
-                        [targetLiquid] = 1
-                    };
-                    AddTransition(rules, candidates, requirementIndex,
-                        sourceShape, null, targetShape, targetLiquid,
-                        WorkshopOperation.PourIn(targetLiquid), "POUR_IN",
-                        syntheticSupply, stagingCapacity, bannedLiquids);
-                }
-
-                // Empty target can be made by pouring out any usable liquid from a same-shape Jar.
-                if (targetLiquid == null)
-                {
-                    foreach (var sourceLiquid in rules.Liquids)
-                        AddTransition(rules, candidates, requirementIndex,
-                            sourceShape, sourceLiquid, targetShape, null,
-                            WorkshopOperation.PourOut(), "POUR_OUT",
-                            new Dictionary<string, int>(StringComparer.Ordinal), stagingCapacity, bannedLiquids);
-                }
-            }
-
-            if (targetLiquid != null) continue;
-
-            // Empty-jar reshape consumes one unit from a free-liquid account.
-            foreach (var costLiquid in rules.Liquids)
-            {
-                var syntheticSupply = new Dictionary<string, int>(StringComparer.Ordinal)
-                {
-                    [costLiquid] = 1
-                };
-                AddTransition(rules, candidates, requirementIndex,
-                    sourceShape, null, targetShape, null,
-                    WorkshopOperation.ReshapeEmpty(targetShape, costLiquid),
-                    "RESHAPE_EMPTY", syntheticSupply, stagingCapacity, bannedLiquids);
-            }
-
-            // Full-jar reshape self-consumes its internal liquid; it never creates free liquid.
-            foreach (var sourceLiquid in rules.Liquids)
-                AddTransition(rules, candidates, requirementIndex,
-                    sourceShape, sourceLiquid, targetShape, null,
-                    WorkshopOperation.ReshapeFull(targetShape),
-                    "RESHAPE_FULL", new Dictionary<string, int>(StringComparer.Ordinal), stagingCapacity, bannedLiquids);
-        }
-
-        return candidates;
-    }
-
-    private static void AddMatch(
-        RuleContext rules,
-        List<WorldOrderRuleCandidate> candidates,
-        int requirementIndex,
-        string sourceShape,
-        string? sourceLiquid,
-        string targetShape,
-        string? targetLiquid)
-    {
-        // MATCH candidates also consume the Jar's single order-level operation allowance.
-        // Candidate generation therefore starts only from an unmarked Jar.
-        var facts = new JarFacts(sourceShape, sourceLiquid, false, rules.ResolvePolarity(sourceLiquid));
-        var evaluation = WorkshopRulebook.EvaluateMatchTransition(rules, facts);
-        if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
-        var transition = evaluation.Transition.Value;
-        candidates.Add(new WorldOrderRuleCandidate(
-            requirementIndex, sourceShape, sourceLiquid, "MATCH",
-            transition.RuleId, transition.RuleVersion,
-            transition.After.Shape, transition.After.Liquid,
-            null, null, null, null));
-    }
-
-    private static void AddTransition(
-        RuleContext rules,
-        List<WorldOrderRuleCandidate> candidates,
-        int requirementIndex,
-        string sourceShape,
-        string? sourceLiquid,
-        string targetShape,
-        string? targetLiquid,
-        WorkshopOperation operation,
-        string operatorName,
-        IReadOnlyDictionary<string, int> syntheticSupply,
-        int stagingCapacity,
-        IReadOnlyCollection<string> bannedLiquids)
-    {
-        // 使用 World V2 的订单暂存作用域来评估规则，而不是旧版每液种 MaxLiquids。
-        // 这里只建立“至少具备一次该操作所需条件”的合成作用域，不代表真实订单已预留容量。
-        var staging = new WorkshopLiquidStaging(stagingCapacity, bannedLiquids);
-        var scope = new OrderLiquidScope(1, staging);
-        foreach (var item in syntheticSupply)
-        {
-            var receipt = staging.Receive(1, item.Key, item.Value);
-            if (receipt.AcceptedAmount != item.Value) return;
-        }
-
-        // Candidate generation is limited to an unmarked initial Jar. The symbolic
-        // program records the resulting mark and prevents any second operation.
-        var evaluation = WorkshopRulebook.EvaluateTransition(
-            rules, scope, new JarFacts(sourceShape, sourceLiquid, false, rules.ResolvePolarity(sourceLiquid)), operation);
-        if (!evaluation.Decision.IsAllowed || evaluation.Transition == null) return;
-        var transition = evaluation.Transition.Value;
-        // A preparatory PourOut is selected specifically to supply later free-liquid
-        // operations, so its output must actually be admitted. A requirement-level
-        // PourOut may still complete and discard its output when staging is full/banned.
-        if (operatorName == "PREPARE_POUR_OUT" &&
-            transition.ProducedFreeLiquid is { } produced)
-        {
-            var admission = staging.Receive(1, produced, 1);
-            if (admission.AcceptedAmount != 1) return;
-        }
-        candidates.Add(new WorldOrderRuleCandidate(
-            requirementIndex,
-            sourceShape,
-            sourceLiquid,
-            operatorName,
-            transition.RuleId,
-            transition.RuleVersion,
-            targetShape,
-            targetLiquid,
-            operation.CostLiquid,
-            transition.ConsumedFreeLiquid,
-            transition.ProducedFreeLiquid,
-            transition.ConsumedJarLiquid));
     }
 }
 
@@ -352,6 +210,12 @@ public sealed class WorldOrderRuleCandidateBook
     private readonly Dictionary<CacheKey, WorldOrderRuleCandidateProfile> _profiles = new();
     private readonly Dictionary<SolutionCacheKey, WorldOrderSymbolicSolutionSet> _solutions = new();
     private const int MaxEntries = 512;
+    private readonly WorldOrderRuleCandidateProviderRegistry _providerRegistry;
+
+    public WorldOrderRuleCandidateBook(WorldOrderRuleCandidateProviderRegistry? providerRegistry = null)
+    {
+        _providerRegistry = providerRegistry ?? WorldOrderRuleCandidateProviderRegistry.Default;
+    }
 
     public int CacheHits { get; private set; }
     public int CacheMisses { get; private set; }
@@ -368,7 +232,7 @@ public sealed class WorldOrderRuleCandidateBook
         if (workshop == null) throw new ArgumentNullException(nameof(workshop));
         if (string.IsNullOrWhiteSpace(role)) throw new ArgumentException("岗位名称不能为空", nameof(role));
         if (specification == null) throw new ArgumentNullException(nameof(specification));
-        var specificationVersion = WorldOrderRuleCandidateCatalog.Fingerprint(specification);
+        var specificationVersion = WorldOrderRuleCandidateCatalog.Fingerprint(specification, _providerRegistry);
         var key = new CacheKey(
             role,
             world.RuleSetVersion,
@@ -385,7 +249,7 @@ public sealed class WorldOrderRuleCandidateBook
             }
 
             CacheMisses++;
-            var built = WorldOrderRuleCandidateCatalog.Build(world, workshop, role, specification);
+            var built = WorldOrderRuleCandidateCatalog.Build(world, workshop, role, specification, _providerRegistry);
             if (_profiles.Count >= MaxEntries) _profiles.Clear();
             _profiles[key] = built;
             return built;
