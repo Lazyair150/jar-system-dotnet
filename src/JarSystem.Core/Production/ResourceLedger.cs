@@ -160,6 +160,8 @@ public sealed class ResourceLedger
                 (item.OperationId != null && !snapshot.OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
                 (item.OperationId != null && !snapshot.OperationFingerprints.ContainsKey(item.OperationId)) ||
                 (item.OperationId != null && string.IsNullOrWhiteSpace(item.ResourceIdentity)) ||
+                (item.FromAccountId != null && string.IsNullOrWhiteSpace(item.FromAccountId)) ||
+                (item.ToAccountId != null && string.IsNullOrWhiteSpace(item.ToAccountId)) ||
                 (item.OperationId != null && item.Kind == ResourceKinds.Jar && !IsCanonicalJarId(item.ResourceIdentity)) ||
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
