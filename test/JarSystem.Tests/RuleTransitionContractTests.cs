@@ -11,6 +11,23 @@ public sealed class RuleTransitionContractTests
         new(shape, liquid, isMarked, JarPolarityResolver.Resolve(liquid, JarSystem.Core.Config.Vocabulary.Default));
 
     [Fact]
+    public void ResourceAccountIdentityIsStableAndSeparatesAccountKindFromOwner()
+    {
+        var jarStorage = new RuleResourceAccount("workshop.jar-storage", "owned:master");
+        var freeLiquid = new RuleResourceAccount("workshop.free-liquid-staging", "owned:master");
+        var orderLiquid = new RuleResourceAccount("workshop.order-liquid-staging", "owned:master");
+
+        Assert.Equal(jarStorage.AccountId,
+            new RuleResourceAccount("workshop.jar-storage", "owned:master").AccountId);
+        Assert.NotEqual(jarStorage.AccountId, freeLiquid.AccountId);
+        Assert.NotEqual(freeLiquid.AccountId, orderLiquid.AccountId);
+        Assert.NotEqual(jarStorage.AccountId, orderLiquid.AccountId);
+        Assert.NotEqual(
+            new RuleResourceAccount("ab", "c").AccountId,
+            new RuleResourceAccount("a", "bc").AccountId);
+    }
+
+    [Fact]
     public void JarPolarityResolvesThroughWorldVocabularyAndSnapshotsEnforceThreeStates()
     {
         Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
