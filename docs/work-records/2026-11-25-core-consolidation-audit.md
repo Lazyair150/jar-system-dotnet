@@ -691,3 +691,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 重复 OperationId 不伪造“源端仍保留全部数量”的拒绝回执，而是抛出明确的重复提交异常，要求调用方依据账本与权威状态对账；ResourceLedger 当前不缓存完整 TransferReceipt。若未提供 ResourceLedger，则仍只有 Prepared 实例内幂等。
 - 订单参与者账本集成提交：`f95b1a4258fe944786cea428c938f684d8453521`、`07a821295a8af4b0c3a70e2bad433bd6f984dccd`、`24d376a5f2e9baae9a0f9a69a15b7895c10de51e`。Ship→Prefill 账本集成提交：`d15ac685c5bbe7ccd3fe84328ff4b75fcd56198e`、`270ac44845a6a47a1463b488aac2f1cc0b8d86b1`。文档提交：`87924e189d3a789cae9e17197395dff2062cad73`。
 - 包含 Rollback 测试的旧快照 Run `45623056208` 与账本集成后的最新验证尚待完成；当前不能声称这批新代码已通过 CI。
+
+- 第二条 Ship→Prefill 路径加入直接双账户 Rollback 测试后的 Run `45623056208`（提交 `7392edbead413d00561b11f8b3f59b0f054a3724`）通过：Build 成功；xUnit 902 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
