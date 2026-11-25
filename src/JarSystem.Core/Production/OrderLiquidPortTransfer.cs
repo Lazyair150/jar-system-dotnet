@@ -20,6 +20,8 @@ public sealed class PreparedOrderLiquidPortTransfer
     private readonly WorkshopOrderLiquidPortAdapter _targetAdapter;
     private readonly CircuitPortDefinition _sourcePort;
     private readonly CircuitPortDefinition _targetPort;
+    private readonly ResourceLedger? _ledger;
+    private readonly Func<int>? _ledgerTickProvider;
     private ResourceTransferReceipt? _receipt;
     private bool _cancelled;
     private bool _faulted;
@@ -32,7 +34,9 @@ public sealed class PreparedOrderLiquidPortTransfer
         WorkshopOrderLiquidPortAdapter sourceAdapter,
         WorkshopOrderLiquidPortAdapter targetAdapter,
         CircuitPortDefinition sourcePort,
-        CircuitPortDefinition targetPort)
+        CircuitPortDefinition targetPort,
+        ResourceLedger? ledger,
+        Func<int>? ledgerTickProvider)
     {
         _request = request;
         _orderId = orderId;
@@ -42,6 +46,8 @@ public sealed class PreparedOrderLiquidPortTransfer
         _targetAdapter = targetAdapter;
         _sourcePort = sourcePort;
         _targetPort = targetPort;
+        _ledger = ledger;
+        _ledgerTickProvider = ledgerTickProvider;
     }
 
     public string OperationId => _request.OperationId;
@@ -68,6 +74,10 @@ public sealed class PreparedOrderLiquidPortTransfer
         source.Validate();
         target.Validate();
 
+        if (_ledger?.HasRecordedOperation(_request.OperationId) == true)
+            return _receipt = CreateNoMutationReceipt(
+                ResourceTransferOutcome.Rejected, "operation.already-recorded", source, target);
+
         if (source.ObservedVersionToken != _request.ExpectedSourceVersionToken ||
             target.ObservedVersionToken != _request.ExpectedTargetVersionToken)
             return _receipt = CreateNoMutationReceipt(
@@ -85,6 +95,11 @@ public sealed class PreparedOrderLiquidPortTransfer
                 : target.ReasonCode;
             return _receipt = CreateNoMutationReceipt(decision, reason, source, target);
         }
+
+        var ledgerTick = _ledger is null ? 0 : _ledgerTickProvider!();
+        if (ledgerTick < 0)
+            return _receipt = CreateNoMutationReceipt(
+                ResourceTransferOutcome.Rejected, "ledger.tick.invalid", source, target);
 
         try
         {
@@ -111,6 +126,14 @@ public sealed class PreparedOrderLiquidPortTransfer
                 _sourcePort, _request.ResourceIdentity, _request.Amount);
             var targetAfter = _targetAdapter.Preflight(
                 _targetPort, _request.ResourceIdentity, _request.Amount);
+            if (_ledger is not null &&
+                !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
+                {
+                    new ResourceLedgerMutation(
+                        ResourceCauses.Transfer, ResourceKinds.Liquid, _request.ResourceIdentity,
+                        _request.Amount, From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId)
+                }))
+                throw new InvalidOperationException("The transfer OperationId was recorded while its physical commit was in progress.");
             _receipt = new ResourceTransferReceipt(
                 _request.OperationId, _request.ConnectionId,
                 _request.SourcePortId, _request.TargetPortId,
@@ -178,7 +201,9 @@ public static class OrderLiquidPortTransfer
         WorkshopOrderLiquidPortAdapter sourceAdapter,
         WorkshopOrderLiquidPortAdapter targetAdapter,
         WorkshopLiquidStaging sourceStaging,
-        WorkshopLiquidStaging targetStaging)
+        WorkshopLiquidStaging targetStaging,
+        ResourceLedger? ledger = null,
+        Func<int>? ledgerTickProvider = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(connection);
@@ -189,6 +214,8 @@ public static class OrderLiquidPortTransfer
         ArgumentNullException.ThrowIfNull(sourceStaging);
         ArgumentNullException.ThrowIfNull(targetStaging);
         request.Validate();
+        if ((ledger is null) != (ledgerTickProvider is null))
+            throw new ArgumentException("ResourceLedger and its logical tick provider must be supplied together.");
 
         if (orderId <= 0) throw new ArgumentOutOfRangeException(nameof(orderId));
         if (ReferenceEquals(sourceStaging, targetStaging))
@@ -224,6 +251,7 @@ public static class OrderLiquidPortTransfer
 
         return new PreparedOrderLiquidPortTransfer(
             request, orderId, sourceStaging, targetStaging,
-            sourceAdapter, targetAdapter, sourcePort, targetPort);
+            sourceAdapter, targetAdapter, sourcePort, targetPort,
+            ledger, ledgerTickProvider);
     }
 }
