@@ -97,6 +97,29 @@ public sealed class WorkshopFreeLiquidPortTransferTests
     }
 
     [Fact]
+    public void SourceWorkshopBanRejectsExtractionEvenIfLegacyBalanceExists()
+    {
+        var path = CreatePath(sourceBan: new[] { Liquid }, sourceAmount: 0);
+        var legacyBalance = new Dictionary<string, int>(path.Source.LiquidStorage)
+        {
+            [Liquid] = 3
+        };
+        path.Source.RestoreLiquidStorageSnapshot(legacyBalance);
+        var request = Request(path.SourceAdapter, path.TargetAdapter,
+            path.SourcePort, path.TargetPort, 2);
+        var prepared = WorkshopFreeLiquidPortTransfer.Prepare(
+            request, path.Connection, path.SourcePort, path.TargetPort,
+            path.SourceAdapter, path.TargetAdapter, path.Source, path.Target);
+
+        var receipt = prepared.Commit();
+
+        Assert.Equal(ResourceTransferOutcome.Rejected, receipt.Outcome);
+        Assert.Equal("banned", receipt.ReasonCode);
+        Assert.Equal(3, path.Source.LiquidStorage[Liquid]);
+        Assert.Equal(0, path.Target.LiquidStorage[Liquid]);
+    }
+
+    [Fact]
     public void InsufficientSourceBalanceRejectsWholeTransfer()
     {
         var path = CreatePath(sourceAmount: 1);
