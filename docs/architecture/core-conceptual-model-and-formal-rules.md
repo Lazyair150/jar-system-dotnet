@@ -263,13 +263,13 @@ Core 只暴露稳定领域契约；Space 只提供身份映射、Board Assignmen
 ## 16. 实施状态快照（2026-11-25）
 
 ### Phase 0 — 规范与现状映射
-<badge>完成</badge>
+**状态：完成**
 
 - 概念本体、规则契约、算法边界、失败语义、指纹与验证矩阵已正式化。
 - ADR 0007 已记录规则系统正式化与 Solver 解耦决策。
 
 ### Phase 1 — 世界身份与输入目录去硬编码
-<badge>部分完成</badge>
+**状态：部分完成**
 
 - World-owned shape directory 已进入 WorkshopSolveSnapshot，并参与 WorkshopProfile fingerprint。
 - Candidate catalog 使用快照的 Shapes，不再从 Constants.SHAPES 读取默认形状。
