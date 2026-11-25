@@ -339,3 +339,15 @@ This append reconciles this work record with the later implementation status rec
 6. Keep Space's Core pin unchanged until a verified Core integration SHA exists; then perform the cross-repository build and the previously outstanding GUI acceptance.
 
 No PR was merged, no Space code was changed, and no GUI acceptance is claimed in this follow-up.
+
+## CI root-cause correction — stale ResourceEndpoint test property (2026-11-26)
+
+- The verification run for checkpoint codec fix 8b5f0cbbe5531a63aef3721ccd82c75aafcfaede completed and failed at the first Release build gate.
+- The only compiler errors were in test/JarSystem.Tests/ResourceProvenanceTests.cs lines 102 and 134: the tests referenced ResourceEndpoint.ExternalEndpointId, but the current tagged endpoint contract exposes ExternalIdentity.
+- Core, Web, WorldV2Bridge, and test executable projects compiled before the test-project compile errors were reported. Both legacy Godot host builds passed. The remaining xUnit summary failure was downstream of the test-project build failure.
+- Contract snapshot, schema, World config match, protocol guard, solver differential (4004/4004), modifier differential (400/1600), session replay (33 commands), dependency scan (6 projects / 0 vulnerable packages), and secret scan (623 files) completed successfully in the same run.
+- Corrected exactly the two stale test property references; no production behavior or endpoint schema was changed.
+- Fix commit: 0202ec59341b538709114c6b70b9b9940d7cbd4d.
+- Re-read the updated test file: zero ExternalEndpointId references remain and both assertions now use ExternalIdentity.
+- The connector has not yet returned a PR-triggered workflow run for this fix commit. Its verification result is unconfirmed; do not treat the previous failed run as passing.
+- The remaining LegacyUnknown boundary is still the legacy ProductionService path: its old JarSystem host constructs ProductionService(this) without WorldInstanceId/OwnerIdentity injection. This is a real host-boundary gap, not a missing property fix. The legacy initial-stock source and discard sink are already explicit external endpoints; their destination/source account ownership remains unknown until the legacy host supplies stable identity.
