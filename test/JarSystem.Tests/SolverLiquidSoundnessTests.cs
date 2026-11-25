@@ -116,7 +116,7 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
-    public void AJarWithOppositePolarityCannotBeSelfConsumedByThisWorkshop()
+    public void BannedJarLiquidCanBeSelfConsumedWithoutStagingAccess()
     {
         // Bench bans 酒 and therefore focuses Anode; a Cathode Jar cannot be operated,
         // even though full reshape would consume its own internal liquid rather than staging stock.
