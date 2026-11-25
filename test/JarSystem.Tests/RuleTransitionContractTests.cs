@@ -17,9 +17,9 @@ public sealed class RuleTransitionContractTests
         Assert.Equal(JarPolarity.Neutral, new Jar("圆罐").Polarity);
         Assert.Equal(JarPolarity.Cathode, new Jar("圆罐", "酒").Polarity);
         Assert.Equal(JarPolarity.Anode, new Jar("圆罐", "蜜").Polarity);
-        Assert.Equal(JarPolarity.Neutral, new JarFacts("圆罐", null, false).Polarity);
-        Assert.Equal(JarPolarity.Cathode, new JarFacts("圆罐", "酒", false).Polarity);
-        Assert.Equal(JarPolarity.Anode, new JarFacts("圆罐", "蜜", false).Polarity);
+        Assert.Equal(JarPolarity.Neutral, new JarFacts("圆罐", null, false, JarPolarity.Neutral).Polarity);
+        Assert.Equal(JarPolarity.Cathode, new JarFacts("圆罐", "酒", false, JarPolarity.Cathode).Polarity);
+        Assert.Equal(JarPolarity.Anode, new JarFacts("圆罐", "蜜", false, JarPolarity.Anode).Polarity);
         Assert.Throws<System.ArgumentException>(() => JarPolarityResolver.Resolve("未知液体", Vocabulary.Default));
         Assert.Throws<System.ArgumentException>(() => new RuleStateSnapshot(new[]
         {
