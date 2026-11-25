@@ -51,6 +51,10 @@ public class ResourceProvenanceTests
             Assert.Equal(1, e.Amount);
             Assert.True(int.TryParse(e.ResourceIdentity, out var jarId) && jarId > 0);
             Assert.Equal("仓库", e.To);
+            Assert.Equal(ResourceEndpointKind.ExternalSource, e.FromEndpoint.Kind);
+            Assert.Equal("world.production.jar-output", e.FromEndpoint.ExternalIdentity);
+            // Legacy JarSystem does not yet inject a stable Warehouse OwnerIdentity.
+            Assert.Equal(ResourceEndpointKind.LegacyUnknown, e.ToEndpoint.Kind);
         });
         Assert.Equal(2, jarFacts.Select(e => e.ResourceIdentity).Distinct(StringComparer.Ordinal).Count());
         Assert.All(produced, e => Assert.Equal("仓库", e.To));
@@ -129,6 +133,7 @@ public class ResourceProvenanceTests
         Assert.Equal(1, discardedHoney);      // 但仓库满了，1 份进丢弃账目
         var discard = Assert.Single(sys.ResourceLedger.For(ResourceCauses.Discard),
             e => e.Name == "蜜" && e.Reason == "仓库该液体已满");
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, discard.FromEndpoint.Kind);
         Assert.Equal(ResourceEndpointKind.LegacyUnknown, discard.FromEndpoint.Kind);
         Assert.Equal(ResourceEndpointKind.ExternalSink, discard.ToEndpoint.Kind);
         Assert.Equal("warehouse.liquid-capacity-overflow", discard.ToEndpoint.ExternalIdentity);
