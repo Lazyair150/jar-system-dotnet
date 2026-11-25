@@ -256,6 +256,8 @@ public sealed class LiquidBatchReceipt
     public void ValidateSourceAllocations()
     {
         if (SourceAllocations.Count == 0) return; // Legacy receipts have no per-source provenance.
+        if (SourceAllocations.Select(item => item.SourceEndpoint).Distinct().Count() != SourceAllocations.Count)
+            throw new ArgumentException("A settlement receipt cannot contain duplicate source account allocations.");
         var requested = new Dictionary<string, int>(StringComparer.Ordinal);
         var accepted = new Dictionary<string, int>(StringComparer.Ordinal);
         var discarded = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -313,6 +315,18 @@ public sealed class LiquidBatchSourceAllocation
     {
         SourceEndpoint.Validate();
         TargetEndpoint.Validate();
+        if (SourceEndpoint.Kind == ResourceEndpointKind.Account &&
+            TargetEndpoint.Kind == ResourceEndpointKind.Account)
+        {
+            var sourceIsV2 = SourceEndpoint.AccountId!.StartsWith("account:v2:", StringComparison.Ordinal);
+            var targetIsV2 = TargetEndpoint.AccountId!.StartsWith("account:v2:", StringComparison.Ordinal);
+            if (sourceIsV2 != targetIsV2)
+                throw new ArgumentException("Settlement cannot mix legacy and World-scoped AccountId versions.");
+            if (sourceIsV2 &&
+                AccountIdentity.ParseV2(SourceEndpoint.AccountId!).Owner.WorldInstanceId !=
+                AccountIdentity.ParseV2(TargetEndpoint.AccountId!).Owner.WorldInstanceId)
+                throw new ArgumentException("Settlement source and target accounts belong to different Worlds.");
+        }
         ShipLiquidInventory.ValidateAmounts(Requested);
         ShipLiquidInventory.ValidateAmounts(Accepted);
         ShipLiquidInventory.ValidateAmounts(Discarded);
