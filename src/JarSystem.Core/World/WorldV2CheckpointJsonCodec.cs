@@ -41,10 +41,13 @@ public static class WorldV2CheckpointJsonCodec
     }
 
     /// <summary>解码根级 World V2 检查点，并恢复为经过 wire 校验的领域快照对象图。</summary>
-    public static WorldV2ExecutionResourceCheckpoint DecodeExecutionResourceCheckpoint(string json)
+    public static WorldV2ExecutionResourceCheckpoint DecodeExecutionResourceCheckpoint(
+        string json,
+        WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         var envelope = Decode<WorldV2ExecutionCheckpointWireDto>(json);
-        return envelope.Payload.ToCheckpoint(envelope.ConfigurationFingerprint);
+        return envelope.Payload.ToCheckpoint(
+            envelope.ConfigurationFingerprint, legacyMigrationWorldInstanceId);
     }
 
     /// <summary>Encode a wire payload into a versioned checkpoint envelope.</summary>
