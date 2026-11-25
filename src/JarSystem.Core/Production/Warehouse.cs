@@ -24,6 +24,7 @@ public sealed class Warehouse
     private readonly List<Jar> _jars = new();
     private readonly JarPool? _pool;
     private readonly Vocabulary _vocabulary;
+    private readonly IIdGenerator _ids;
     private readonly Dictionary<string, int> _liquidWarehouse = new();
     private readonly Dictionary<string, int> _discardedLiquids = new();
 
@@ -48,10 +49,11 @@ public sealed class Warehouse
     public int DiscardedJars { get; private set; }
 
     /// <param name="vocabulary">词表（S2）：液体账目按它的名字与**顺序**建键 —— 契约快照里 `liquids` 的键序依赖它。</param>
-    public Warehouse(Vocabulary? vocabulary = null, JarPool? pool = null)
+    public Warehouse(Vocabulary? vocabulary = null, JarPool? pool = null, IIdGenerator? ids = null)
     {
         _vocabulary = vocabulary ?? Vocabulary.Default;
         _pool = pool;
+        _ids = ids ?? DefaultIdGenerators.Jars;
         // 只读包装最先建立（活视图）——构造期间若有代码读公开视图也不会拿到 null
         _jarsView = _jars.AsReadOnly();
         _liquidWarehouseView = new ReadOnlyDictionary<string, int>(_liquidWarehouse);
@@ -103,6 +105,8 @@ public sealed class Warehouse
     {
         ValidateRuntimeStateSnapshot(snapshot);
         var jars = snapshot.Jars.Select(jar => jar.DeepClone()).ToArray();
+        foreach (var jar in jars)
+            if (jar.Id == null) jar.Id = _ids.Next(); // Legacy checkpoints had no Warehouse Jar identity.
         _jars.Clear();
         _jars.AddRange(jars);
         foreach (var key in _liquidWarehouse.Keys.ToArray())
@@ -113,10 +117,23 @@ public sealed class Warehouse
     }
 
     /// <summary>收货：超过仓库上限的部分丢弃并计数（避免长跑无限膨胀）。</summary>
+    internal int AllocateJarId() => _ids.Next();
+
+    internal void RestoreJarIdGeneratorAtLeast(int value)
+    {
+        if (value < 0) throw new ArgumentOutOfRangeException(nameof(value));
+        if (_ids is not IRestorableIdGenerator restorable)
+            throw new InvalidOperationException("Checkpoint restore requires a restorable Warehouse Jar ID generator.");
+        restorable.RestoreAtLeast(value);
+    }
+
     public void StoreJars(IEnumerable<Jar> jars)
     {
         foreach (var jar in jars)
         {
+            if (jar.Id == null) jar.Id = _ids.Next();
+            if (jar.Id is not > 0 || _jars.Any(existing => existing.Id == jar.Id))
+                throw new DomainValidationException("Warehouse cannot accept a Jar with an invalid or duplicate identity.");
             if (_jars.Count < Constants.WAREHOUSE_MAX_JARS)
             {
                 _jars.Add(jar);
