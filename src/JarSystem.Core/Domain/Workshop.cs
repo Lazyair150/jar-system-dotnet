@@ -383,6 +383,9 @@ public class Workshop
     // 罐子
     // ============================================================
 
+    /// <summary>为当前 World 的新 Jar 实体分配全局身份；在进入任何权威账户前调用。</summary>
+    internal int AllocateJarId() => _ids.Next();
+
     public bool AddJar(Jar j)
     {
         if (!HasJarCapacity()) return false;
