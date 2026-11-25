@@ -132,3 +132,19 @@ The first production-code slice is now on the integration branch:
 - The latest queried commit had no combined status entries and no PR-associated run returned by the connector. CI for the current branch head is therefore **unconfirmed**; no local build/test has been claimed.
 - OwnerIdentity, AccountId v2, concrete owner injection, tagged endpoints and compound transfer atomicity remain unimplemented. Space integration and GUI acceptance remain untouched.
 
+
+
+### CI failure diagnosis and correction
+
+The observed run `45661528175` has now completed with **failure**, not merely in-progress. Its uploaded `verify-log` artifact was inspected. The first blocking error was:
+
+- `WorldV2ExecutionCheckpointWireDto.cs(83,60): CS0426` — the fully-qualified `JarSystem.Core.Domain.WorldInstanceId` expression was resolved through the repository's `JarSystem` type rather than the global namespace.
+- All later build/test/contract stages were consequently blocked; their missing evidence markers are cascading effects, not independent regressions.
+- Corrected the reference to `global::JarSystem.Core.Domain.WorldInstanceId` in commit `f643e71ca547f05890096f61e8cb6119ba75cc20`.
+
+Further hardening after that correction:
+- Exposed the explicit migration identity through `WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(...)`, not only the lower-level DTO conversion.
+- Added a schema-5 payload migration test that removes the new field and supplies a fixed migration identity.
+- Corrected the JSON property escaping in that test.
+
+The current branch head has advanced beyond the failed run. The connector has not returned a new PR-associated run or combined status for the newer commits; current-head CI remains unconfirmed. The earlier failure is retained as evidence and is not represented as passed.
