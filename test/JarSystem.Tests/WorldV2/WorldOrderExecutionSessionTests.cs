@@ -830,8 +830,6 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(1, receipt.Accepted["酒"]);
         Assert.Equal(1, receipt.Discarded["酒"]);
         Assert.Equal(2, receipt.SourceAllocations.Count);
-        Assert.Equal(1, setup.Ledger.For(ResourceCauses.Return).Count);
-        Assert.Equal(1, setup.Ledger.For(ResourceCauses.Discard).Count);
         var returned = Assert.Single(setup.Ledger.For(ResourceCauses.Return));
         var discarded = Assert.Single(setup.Ledger.For(ResourceCauses.Discard));
         Assert.StartsWith("account:v2:", returned.FromAccountId);
