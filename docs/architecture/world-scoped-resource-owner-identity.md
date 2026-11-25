@@ -132,3 +132,17 @@ This is still a staged migration:
 - ResourceEvent.Name has not yet been fully separated into DisplayName.
 - The durable cross-account physical transaction coordinator remains unimplemented.
 - Code has been written to the feature branch. GitHub Actions push run #5132 passed at code/test head `7329b7fa77488b616a222e6c00f14a34583de639`: 994 xUnit tests passed (0 failures), solver differential 4004/4004, modifier differential 400/1600, session replay 33 commands, config-world match, and security scan 6 projects / 0 vulnerable packages. No local build/test run is claimed.
+
+
+## 9. Ledger endpoint migration of World V2 runtime paths
+
+World V2 stock, production, warehouse flow, prefill, rollback and retired-prefill facts now use explicit tagged endpoints whenever the corresponding runtime object has an OwnerIdentity:
+
+- Initial stock is an `ExternalSource` entering the Ship account.
+- Aggregate Jar production is attributed to the ProductionArea account and enters the Warehouse account. ShapeProductionLine currently aggregates multiple Producer rates and carries one shared fractional accumulator; assigning produced whole Jars to individual Producer accounts would invent attribution or change production semantics. Do not do that until production itself exposes deterministic per-Producer output facts.
+- Warehouse overflow and ship-return overflow target explicit `ExternalSink` identities.
+- Warehouse-to-Workshop flow uses exact Workshop OwnerIdentity, with account:v1 only as a compatibility fallback when a legacy exact OwnedInstanceId exists.
+- Resource-port transfer participants now publish explicit source and target Account endpoints and retain the matching AccountId compatibility projections.
+- ResourceLedger rejects account-to-account facts that mix account:v1 with account:v2 or cross WorldInstanceId.
+
+The old `ProductionService` path remains an intentional LegacyUnknown migration boundary because it does not yet receive a stable World/Owner identity map. Display strings and producer names must not be used to fabricate ownership. This legacy path should be migrated only when its host assembly supplies stable identities.
