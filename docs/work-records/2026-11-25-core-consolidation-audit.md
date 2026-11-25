@@ -786,3 +786,6 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 当前 PR HEAD 已推进至 `939c22ff1e52d9fc5c509a15e20f03c35f47f60c`，PR #63 仍 Open / Draft / mergeable=true。针对该 HEAD 的 Run `45634097224` 与 `45634082317` 仍在执行，Build、xUnit、Solver、Security 与 Quality 最终状态尚未确认。不得用此前 HEAD 的验证结果替代。
 - 持久化结构复核：`ResourceLedgerWireDto.Validate` 校验事件容量、事件序号递增及 LastSeq 尾部一致性；OperationIds 非空且唯一；TransferReceipts 必须对应 OperationId 且不能重复；每张回执还必须通过 `ResourceTransferReceipt.Validate` 且为已提交结果。`ToSnapshot` 再交由 `ResourceLedger.Restore` 执行领域快照验证。
 - Receipt Journal 初次接入的 Run `45631671624` Build 成功，但 xUnit 938 项中 14 项 WorldV2 checkpoint/JSON restore 测试失败。复核发现新增的 `ResourceLedgerSnapshot.TransferReceipts` 在构造函数中没有初始化，导致旧的 checkpoint capture/restore 路径拿到空回执集合；已补齐只读回执快照、Restore/RestoreFrom 复制和 Wire DTO round-trip，并增加专门测试。后续最新 HEAD CI 正在重新验证该修复。
+
+- Receipt Journal 第二轮 Run `45634212889`（提交 `605316dafa6cf7b7910ce2f43f73b74016e4867b`）Build 成功，xUnit 945 项中 15 项失败。失败分成两类：14 项 WorldV2/WorkshopReplacement checkpoint 测试来自 `ResourceWorldRuntime` 在“退休主台没有任何可返还/丢弃液体”时仍调用 `RecordBatchOnce` 发布空批次；账本现明确拒绝空批次，故调用方应跳过无资源变化的操作。已修正为仅在 `mutations.Count > 0` 时记账。另 1 项账本回执冲突测试没有填写 From/To，违反新加的回执账户端点一致性校验；测试数据已补齐来源/目标账户 ID。
+- 对应修复提交：`00a9d3004acb673d9af34652c82343d6353192e9`；测试端点补齐由并行提交 `f0584f4e0aad1333bae5cb47b01c010a2110fb78` 完成。最新 HEAD Run `45634966051` 正在执行，待确认上述 15 项回归是否清零。
