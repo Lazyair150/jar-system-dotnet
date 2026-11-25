@@ -616,10 +616,13 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.True(app.StartActiveDemand(demandId).Success);
 
         var checkpoint = app.CaptureExecutionResourceCheckpoint();
+        var originalWorldId = app.GetWorldInstanceId();
         app.CreateOrReplaceWorld(Options());
+        Assert.NotEqual(originalWorldId, app.GetWorldInstanceId());
         Assert.Empty(app.GetWorldSnapshot().ActiveSessions);
 
         app.RestoreExecutionResourceCheckpoint(checkpoint);
+        Assert.Equal(originalWorldId, app.GetWorldInstanceId());
 
         var restored = app.GetWorldSnapshot();
         Assert.Single(restored.ActiveSessions);
