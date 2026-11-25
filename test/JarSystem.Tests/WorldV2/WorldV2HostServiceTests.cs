@@ -72,6 +72,20 @@ public sealed class WorldV2HostServiceTests
         host.ExecuteExclusive(context => worldId = context.WorldInstanceId);
         Assert.True(worldId.HasValue);
         Assert.True(worldId.Value.IsValid);
+        host.ExecuteExclusive(context =>
+        {
+            Assert.NotNull(context.OwnerIdentities);
+            Assert.Equal(options.Producers[0].ProducerInstanceId,
+                context.Resources.Producers.Producers["陶工"].ProducerInstanceId);
+            Assert.Equal(options.Workshops[0].OwnedInstanceId,
+                context.Roster.Master!.OwnedInstanceId);
+            Assert.Equal(context.OwnerIdentities!.GetProducer(options.Producers[0].ProducerInstanceId!),
+                context.Resources.Producers.Producers["陶工"].OwnerIdentity);
+            Assert.Equal(context.OwnerIdentities.GetWorkshop(options.Workshops[0].OwnedInstanceId!),
+                context.Roster.Master.OwnerIdentity);
+            Assert.Equal(context.OwnerIdentities.Warehouse,
+                context.Resources.Producers.Warehouse.OwnerIdentity);
+        });
     }
 
     [Fact]
@@ -138,7 +152,7 @@ public sealed class WorldV2HostServiceTests
         WorldV2Context? previous = null;
         host.ExecuteExclusive(context => previous = context);
 
-        application.RestoreExecutionResourceCheckpoint(ValidOptions(), checkpoint);
+        application.RestoreExecutionResourceCheckpoint(options, checkpoint);
 
         WorldV2Context? restored = null;
         host.ExecuteExclusive(context => restored = context);
@@ -160,6 +174,8 @@ public sealed class WorldV2HostServiceTests
             application.RestoreExecutionResourceCheckpoint(ValidOptions(), tamperedVocabulary));
 
         var incompatible = ValidOptions();
+        incompatible.Producers[0].ProducerInstanceId = options.Producers[0].ProducerInstanceId;
+        incompatible.Workshops[0].OwnedInstanceId = options.Workshops[0].OwnedInstanceId;
         incompatible.InitialLiquidStock = new Dictionary<string, int> { ["酒"] = 4 };
         Assert.Throws<InvalidOperationException>(() =>
             application.RestoreExecutionResourceCheckpoint(incompatible, checkpoint));
@@ -212,6 +228,7 @@ public sealed class WorldV2HostServiceTests
 
         var legacyWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(currentCheckpoint);
         legacyWire.WorldInstanceId = null;
+        legacyWire.OwnerIdentities = null;
         var legacyCheckpoint = legacyWire.ToCheckpoint(currentCheckpoint.ConfigurationFingerprint);
         Assert.Null(legacyCheckpoint.WorldInstanceId);
 
