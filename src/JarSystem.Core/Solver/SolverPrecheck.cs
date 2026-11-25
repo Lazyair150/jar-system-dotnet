@@ -248,7 +248,6 @@ public static class SolverPrecheck
         Func<string, bool> canObtainLiquid, bool anyCostLiquid)
     {
         var cap = info.Capability;
-        if (!cap.CanOperateJar(cap.ResolvePolarity(jar.Liquid))) return false;
 
         if (req.Liquid != null)
         {
