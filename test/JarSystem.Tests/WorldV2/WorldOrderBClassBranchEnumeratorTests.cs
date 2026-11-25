@@ -572,15 +572,15 @@ public sealed class WorldOrderBClassBranchEnumeratorTests
 
 
     [Fact]
-    public void WorkshopBanDerivesTheExpectedOperatingPolarityMode()
+    public void WorkshopBanNeverDerivesJarOperatingPolarityMode()
     {
         Assert.Equal(WorkshopPolarityMode.Unrestricted,
             new WorkshopCapability().PolarityMode);
-        Assert.Equal(WorkshopPolarityMode.Anode,
+        Assert.Equal(WorkshopPolarityMode.Unrestricted,
             new WorkshopCapability(ban: new[] { "酒" }).PolarityMode);
-        Assert.Equal(WorkshopPolarityMode.Cathode,
+        Assert.Equal(WorkshopPolarityMode.Unrestricted,
             new WorkshopCapability(ban: new[] { "蜜" }).PolarityMode);
-        Assert.Equal(WorkshopPolarityMode.NeutralOnly,
+        Assert.Equal(WorkshopPolarityMode.Unrestricted,
             new WorkshopCapability(ban: new[] { "酒", "蜜" }).PolarityMode);
     }
 
