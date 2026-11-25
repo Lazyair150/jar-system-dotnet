@@ -83,7 +83,7 @@ public sealed class WorldV2Context : IDisposable
         Shapes = Array.AsReadOnly(shapes.ToArray());
         Liquids = Array.AsReadOnly(liquids.ToArray());
         LiquidPolarities = new ReadOnlyDictionary<string, LiquidPolarity>(
-            new Dictionary<string, LiquidPolarity>(liquidPolarities, StringComparer.Ordinal));
+            liquidPolarities.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal));
         OrderTemplates = orderTemplates ?? throw new ArgumentNullException(nameof(orderTemplates));
     }
 
@@ -359,7 +359,7 @@ public sealed class WorldV2ExecutionResourceCheckpoint
             liquidPolarities.Values.Count(value => value == LiquidPolarity.Anode) != 1)
             throw new ArgumentException("检查点液体极性映射必须完整且恰好包含一个 Cathode 和一个 Anode");
         LiquidPolarities = new ReadOnlyDictionary<string, LiquidPolarity>(
-            new Dictionary<string, LiquidPolarity>(liquidPolarities, StringComparer.Ordinal));
+            liquidPolarities.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal));
         Sessions = Array.AsReadOnly(sessions.OrderBy(item => item.DemandId).ToArray());
     }
 
