@@ -504,4 +504,32 @@ public sealed class WorldV2ContextTests
                 passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
                 activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot));
     }
+    [Fact]
+    public void ContextRejectsWorkshopsWithDifferentWorldLiquidPolarityMappings()
+    {
+        var swappedVocabulary = new Vocabulary(
+            new[] { "圆罐", "方罐" },
+            new[] { "酒", "蜜" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["酒"] = LiquidPolarity.Anode,
+                ["蜜"] = LiquidPolarity.Cathode
+            });
+        var master = CreateMaster();
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: swappedVocabulary);
+
+        var error = Assert.Throws<ArgumentException>(() => WorldV2Context.Create(
+            CreateResources(),
+            new[] { master, slave },
+            master,
+            slave,
+            CreateSolverRegistry(),
+            logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous));
+
+        Assert.Contains("共享完全一致的液体身份与极性映射", error.Message);
+    }
+
 }
