@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using JarSystem.Core.World;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
 using JarSystem.Core.World.Demands;
 using JarSystem.Core.World.Execution;
@@ -67,6 +68,28 @@ public sealed class WorldV2HostServiceTests
 
         Assert.True(host.HasWorld);
         Assert.Equal("主台", masterName);
+        WorldInstanceId? worldId = null;
+        host.ExecuteExclusive(context => worldId = context.WorldInstanceId);
+        Assert.True(worldId.HasValue);
+        Assert.True(worldId.Value.IsValid);
+    }
+
+    [Fact]
+    public void HostReplacementUsesNewIdentityUnlessTheHostSuppliesPersistedIdentity()
+    {
+        using var host = new WorldV2HostService();
+        var stableIdentity = new WorldInstanceId("save-slot-world-17");
+
+        host.Replace(ValidOptions(), stableIdentity);
+        WorldInstanceId? first = null;
+        host.ExecuteExclusive(context => first = context.WorldInstanceId);
+        Assert.Equal(stableIdentity, first);
+
+        host.Replace(ValidOptions());
+        WorldInstanceId? second = null;
+        host.ExecuteExclusive(context => second = context.WorldInstanceId);
+        Assert.True(second.HasValue);
+        Assert.NotEqual(first, second);
     }
 
     [Fact]
@@ -109,6 +132,7 @@ public sealed class WorldV2HostServiceTests
         Assert.True(previous!.IsDisposed);
         Assert.False(restored!.IsDisposed);
         Assert.Equal("主台", restored.Roster.Master!.Name);
+        Assert.Equal(checkpoint.WorldInstanceId, restored.WorldInstanceId);
 
         var tamperedVocabulary = new WorldV2ExecutionResourceCheckpoint(
             checkpoint.ResourceArea, checkpoint.DemandBoard, checkpoint.ConfigurationFingerprint,
@@ -128,6 +152,34 @@ public sealed class WorldV2HostServiceTests
         host.ExecuteExclusive(context => afterFailure = context);
         Assert.Same(restored, afterFailure);
         Assert.False(restored.IsDisposed);
+    }
+
+    [Fact]
+    public void LegacyCheckpointRestoreRequiresAndPersistsExplicitMigrationIdentity()
+    {
+        using var host = new WorldV2HostService();
+        var options = ValidOptions();
+        host.Replace(options, new WorldInstanceId("source-world"));
+        var application = new WorldV2ApplicationService(host);
+        var currentCheckpoint = application.CaptureExecutionResourceCheckpoint();
+
+        var legacyWire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(currentCheckpoint);
+        legacyWire.WorldInstanceId = null;
+        var legacyCheckpoint = legacyWire.ToCheckpoint(currentCheckpoint.ConfigurationFingerprint);
+        Assert.Null(legacyCheckpoint.WorldInstanceId);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            application.RestoreExecutionResourceCheckpoint(options, legacyCheckpoint));
+
+        var migrationIdentity = new WorldInstanceId("migrated-legacy-world");
+        application.RestoreExecutionResourceCheckpoint(
+            options, legacyCheckpoint, migrationIdentity);
+
+        WorldInstanceId? restoredIdentity = null;
+        host.ExecuteExclusive(context => restoredIdentity = context.WorldInstanceId);
+        Assert.Equal(migrationIdentity, restoredIdentity);
+        Assert.Equal(migrationIdentity,
+            application.CaptureExecutionResourceCheckpoint().WorldInstanceId);
     }
 
     [Fact]
