@@ -48,12 +48,12 @@ public sealed class WorldV2OwnerIdentityMap
         if (!worldInstanceId.IsValid || WorldInstanceId != worldInstanceId)
             throw new ArgumentException("Owner identity map belongs to a different WorldInstanceId.", nameof(worldInstanceId));
 
-        ValidateOwner(Ship, ResourceOwnerKind.Ship);
-        ValidateOwner(CircuitBoard, ResourceOwnerKind.CircuitBoard);
-        ValidateOwner(ProductionArea, ResourceOwnerKind.ProductionArea);
-        ValidateOwner(Warehouse, ResourceOwnerKind.Warehouse);
-        foreach (var owner in Producers.Values) ValidateOwner(owner, ResourceOwnerKind.Producer);
-        foreach (var owner in Workshops.Values) ValidateOwner(owner, ResourceOwnerKind.Workshop);
+        ValidateOwner(Ship, ResourceOwnerKind.Ship, WorldInstanceId);
+        ValidateOwner(CircuitBoard, ResourceOwnerKind.CircuitBoard, WorldInstanceId);
+        ValidateOwner(ProductionArea, ResourceOwnerKind.ProductionArea, WorldInstanceId);
+        ValidateOwner(Warehouse, ResourceOwnerKind.Warehouse, WorldInstanceId);
+        foreach (var owner in Producers.Values) ValidateOwner(owner, ResourceOwnerKind.Producer, WorldInstanceId);
+        foreach (var owner in Workshops.Values) ValidateOwner(owner, ResourceOwnerKind.Workshop, WorldInstanceId);
     }
 
     public bool IsEquivalentTo(WorldV2OwnerIdentityMap? other) =>
@@ -98,9 +98,10 @@ public sealed class WorldV2OwnerIdentityMap
         return new ReadOnlyDictionary<string, OwnerIdentity>(owners);
     }
 
-    private static void ValidateOwner(OwnerIdentity owner, ResourceOwnerKind expectedKind)
+    private static void ValidateOwner(
+        OwnerIdentity owner, ResourceOwnerKind expectedKind, WorldInstanceId expectedWorldInstanceId)
     {
-        if (!owner.IsValid || owner.WorldInstanceId != WorldInstanceId || owner.OwnerKind != expectedKind)
+        if (!owner.IsValid || owner.WorldInstanceId != expectedWorldInstanceId || owner.OwnerKind != expectedKind)
             throw new InvalidOperationException("Owner identity map contains an invalid or cross-World owner.");
     }
 }
