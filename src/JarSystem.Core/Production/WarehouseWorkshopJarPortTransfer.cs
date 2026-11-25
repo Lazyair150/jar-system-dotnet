@@ -143,7 +143,11 @@ public sealed class PreparedWarehouseWorkshopJarPortTransfer
                             new ResourceLedgerMutation(
                             ResourceCauses.Flow, ResourceKinds.Jar, jar.Shape, 1,
                             From: _request.SourceAccount.OwnerId, To: _request.TargetAccount.OwnerId,
-                            ResourceIdentity: _request.ResourceIdentity)
+                            ResourceIdentity: _request.ResourceIdentity,
+                            FromAccountId: _request.SourceAccount.AccountId,
+                            ToAccountId: _request.TargetAccount.AccountId,
+                            FromEndpoint: ResourceEndpoint.ForAccount(_request.SourceAccount.AccountId),
+                            ToEndpoint: ResourceEndpoint.ForAccount(_request.TargetAccount.AccountId))
                         });
                 }))
             {
