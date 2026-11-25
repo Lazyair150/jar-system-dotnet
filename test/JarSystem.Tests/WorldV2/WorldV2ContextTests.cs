@@ -150,8 +150,13 @@ public sealed class WorldV2ContextTests
                 Constants.OrderType.A, Words),
             0, new SequentialIdGenerator());
         world.DemandBoard.AddDemand(demand, DemandAreaKind.Active);
-        var started = world.Scheduler.TryStartActiveDemand(demand.Id);
-        Assert.True(started.Success, started.Reason);
+        // This test targets the settlement lease protocol, not synchronous execution.
+        // A direct MATCH may complete and release its lease inside TryStartActiveDemand;
+        // solve and admit explicitly so the settlement fault boundary owns a live lease.
+        world.Scheduler.RunSchedulingPass();
+        Assert.Equal(WorldOrderSolveState.Current, world.SolveBook.Find(demand.Id)!.State);
+        var admitted = world.Admission.TryAdmit(demand.Id);
+        Assert.True(admitted.Success, admitted.Reason);
 
         var first = world.CaptureExecutionResourceCheckpoint();
         Assert.Equal(0, first.ShipLiquidInventory.Balances.Values.Sum());
