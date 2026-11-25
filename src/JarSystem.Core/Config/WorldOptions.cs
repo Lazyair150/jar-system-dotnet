@@ -23,8 +23,17 @@ public sealed class WorldOptions
     /// <summary>形状目录（**唯一权威**；顺序会影响契约快照里相关键的出现顺序）。</summary>
     [JsonPropertyName("shapes")] public List<string> Shapes { get; set; } = new();
 
-    /// <summary>液体目录（**必须恰好两个**——这是玩法语义；此处只承载它们的名字与顺序）。</summary>
+    /// <summary>液体身份目录（恰好两个；顺序只用于稳定投影，不代表极性）。</summary>
     [JsonPropertyName("liquids")] public List<string> Liquids { get; set; } = new();
+
+    /// <summary>世界显式定义的液体身份→极性映射；必须一一覆盖 Liquids。</summary>
+    [JsonPropertyName("liquidPolarities")]
+    public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } =
+        new(StringComparer.Ordinal)
+        {
+            [Constants.LIQUIDS[0]] = LiquidPolarity.Cathode,
+            [Constants.LIQUIDS[1]] = LiquidPolarity.Anode
+        };
 
     /// <summary>工作台默认罐位上限（未在工作台条目里指定时使用）。</summary>
     [JsonPropertyName("defaultMaxJars")] public int DefaultMaxJars { get; set; } = Constants.DEFAULT_MAX_JARS;
@@ -97,7 +106,7 @@ public sealed class WorldOptions
     }
 
     /// <summary>由本配置构造词表（形状/液体目录的唯一权威由此产生）。</summary>
-    public Vocabulary BuildVocabulary() => new(Shapes, Liquids);
+    public Vocabulary BuildVocabulary() => new(Shapes, Liquids, LiquidPolarities);
 
     /// <summary>
     /// 深拷贝配置。世界装配时用它隔离调用方持有的可变 POCO；对外读取 <c>JarSystem.World</c> 时
@@ -107,6 +116,7 @@ public sealed class WorldOptions
     {
         Shapes = new List<string>(Shapes),
         Liquids = new List<string>(Liquids),
+        LiquidPolarities = new Dictionary<string, LiquidPolarity>(LiquidPolarities, StringComparer.Ordinal),
         DefaultMaxJars = DefaultMaxJars,
         DefaultMaxLiquids = DefaultMaxLiquids,
         Flow = new FlowOptions
@@ -172,18 +182,21 @@ public sealed class WorldOptions
         foreach (var s in Shapes) if (IsBadName(s)) r.Errors.Add("shapes 含非法名称（空/空白或含控制字符）: " + Describe(s));
         foreach (var l in Liquids) if (IsBadName(l)) r.Errors.Add("liquids 含非法名称（空/空白或含控制字符）: " + Describe(l));
 
-        // ⚠️ 已知边界（有意为之，不是遗漏）：**液体名字目前不可改**。
-        // 求解器/执行器/切换/可行性里仍有 10 处按内置液体名遍历（且遍历顺序会影响选出的路径），
-        // 因此这里**显式拒绝**与内置不一致的液体名，避免"配置改了但没人理它"这种静默不一致。
-        // 将来要支持改名，得先把词表穿到那 10 处，并保持顺序 —— 见 13_全局审视 §7。
-        for (int i = 0; i < Liquids.Count && i < Constants.LIQUIDS.Count; i++)
+        // 极性是世界结构数据，不从液体名称或数组顺序推断。
+        if (LiquidPolarities == null || LiquidPolarities.Count != 2)
+            r.Errors.Add("liquidPolarities 必须为两种液体分别指定极性");
+        else
         {
-            if (Liquids[i] != Constants.LIQUIDS[i])
-            {
-                r.Errors.Add("liquids 目前不支持改名/改序（求解与执行仍按内置液体名与顺序工作），"
-                    + "请保持与内置一致: " + string.Join(", ", Constants.LIQUIDS));
-                break;
-            }
+            foreach (var liquid in Liquids)
+                if (!LiquidPolarities.ContainsKey(liquid))
+                    r.Errors.Add("liquidPolarities 缺少液体身份: " + liquid);
+            foreach (var liquid in LiquidPolarities.Keys)
+                if (!Liquids.Contains(liquid))
+                    r.Errors.Add("liquidPolarities 含世界词表之外的身份: " + liquid);
+            var cathodeCount = LiquidPolarities.Values.Count(x => x == LiquidPolarity.Cathode);
+            var anodeCount = LiquidPolarities.Values.Count(x => x == LiquidPolarity.Anode);
+            if (cathodeCount != 1 || anodeCount != 1)
+                r.Errors.Add("liquidPolarities 必须恰好包含一个 Cathode 和一个 Anode");
         }
 
         // ---- 容量与流入 ----
