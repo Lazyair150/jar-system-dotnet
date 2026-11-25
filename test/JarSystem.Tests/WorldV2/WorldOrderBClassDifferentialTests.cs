@@ -78,7 +78,7 @@ public sealed class WorldOrderBClassDifferentialTests
             WorkshopPolarityMode.NeutralOnly => new List<string> { "酒", "蜜" },
             _ => throw new System.ArgumentOutOfRangeException(nameof(mode))
         };
-        var polarity = JarPolarityResolver.Resolve(liquid);
+        var polarity = JarPolarityResolver.Resolve(liquid, Vocabulary.Default);
         Assert.Equal(expected, WorkshopCapability.CanOperateJar(mode, polarity));
 
         var masterA = new Workshop("A主台", new List<string> { "圆罐", "方罐" }, ban: bans);
