@@ -53,6 +53,10 @@ public sealed class RuleContext
             var parameters = contribution.Parameters.ToDictionary(x => x.Name, x => x.Value, StringComparer.Ordinal);
             switch (contribution.Effect)
             {
+                case RuleContributionEffect.GrantBaseMark:
+                case RuleContributionEffect.BanLiquid:
+                    // These effects were projected into the immutable capability above.
+                    break;
                 case RuleContributionEffect.GrantAdditionalMark:
                     if (contribution.Source.SourceKind == "temporary-modifier")
                         modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Shape = contribution.Target });
