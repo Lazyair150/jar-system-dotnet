@@ -210,6 +210,15 @@ public sealed class ResourceLedger
         }
     }
 
+    private static ResourceLedgerMutation NormalizeMutationIdentity(ResourceLedgerMutation item)
+    {
+        // In the current World Vocabulary, a liquid's canonical identity is its vocabulary key.
+        // Jar identities are never inferred from Shape/Name and must be supplied explicitly.
+        return item.ResourceIdentity == null && item.Kind == ResourceKinds.Liquid
+            ? item with { ResourceIdentity = item.Name }
+            : item;
+    }
+
     private static bool IsCanonicalJarId(string? identity) =>
         int.TryParse(identity, System.Globalization.NumberStyles.None,
             System.Globalization.CultureInfo.InvariantCulture, out var jarId) && jarId > 0 &&
@@ -284,7 +293,8 @@ public sealed class ResourceLedger
         {
         if (_operationIds.Contains(operationId)) return false;
 
-        var batch = mutations.Where(item => item.Amount > 0).ToArray();
+        var batch = mutations.Where(item => item.Amount > 0)
+            .Select(NormalizeMutationIdentity).ToArray();
         foreach (var item in batch)
         {
             if (string.IsNullOrWhiteSpace(item.Cause) ||
@@ -361,7 +371,7 @@ public sealed class ResourceLedger
                 return false;
             }
 
-            var batch = mutations.ToArray();
+            var batch = mutations.Select(NormalizeMutationIdentity).ToArray();
             var expectedKind = receipt.ResourceKind == RuleResourceKind.Jar
                 ? ResourceKinds.Jar
                 : ResourceKinds.Liquid;
