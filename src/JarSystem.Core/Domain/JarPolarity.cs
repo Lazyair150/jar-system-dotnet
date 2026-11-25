@@ -54,14 +54,8 @@ public static class JarPolarityResolver
         return false;
     }
 
-    /// <summary>Compatibility resolver for the legacy default World only.</summary>
-    public static bool TryFromLiquid(string? liquid, out JarPolarity polarity) =>
-        TryFromLiquid(liquid, Vocabulary.Default, out polarity);
-
     public static JarPolarity Resolve(string? liquid, Vocabulary vocabulary) =>
         TryFromLiquid(liquid, vocabulary, out var polarity)
             ? polarity
             : throw new ArgumentException("Liquid identity has no polarity in this World: " + liquid, nameof(liquid));
-
-    public static JarPolarity Resolve(string? liquid) => Resolve(liquid, Vocabulary.Default);
 }
