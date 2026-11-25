@@ -38,7 +38,12 @@ public class ProducerSlotTests
 
     private static ProducerModule Module(int slots)
     {
-        var module = new ProducerModule(new Vocabulary(new[] { "圆罐", "方罐", "高罐" }, new[] { "酒" }))
+        var module = new ProducerModule(new Vocabulary(new[] { "圆罐", "方罐", "高罐" }, new[] { "酒", "蜜" },
+            new Dictionary<string, LiquidPolarity>
+            {
+                ["酒"] = LiquidPolarity.Cathode,
+                ["蜜"] = LiquidPolarity.Anode
+            }))
         {
             ProducerSlots = slots
         };
