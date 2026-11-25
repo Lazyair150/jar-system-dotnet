@@ -207,4 +207,55 @@ public sealed class ResourcePortAdapterTests
         Assert.Equal("workshop.jar-storage", existingBannedLiquidJar.Account.AccountKind);
     }
 
+    [Fact]
+    public void ProductionWarehouseJarAdapterChecksDiscreteIdentityAndStorageCapacity()
+    {
+        var warehouse = new JarSystem.Core.Production.Warehouse();
+        warehouse.StoreJars(new[] { new Jar("圆罐", "蜜", id: 501) });
+        var adapter = new WarehouseJarStoragePortAdapter(warehouse, "ship.individual.01", "area.production");
+        var output = new CircuitPortDefinition("warehouse.jar.out", "area.production",
+            ResourcePortDirection.Output, RuleResourceKind.Jar, null,
+            WarehouseJarStoragePortAdapter.SupportedPolicyId, 1);
+        var input = new CircuitPortDefinition("warehouse.jar.in", "area.production",
+            ResourcePortDirection.Input, RuleResourceKind.Jar, null,
+            WarehouseJarStoragePortAdapter.SupportedPolicyId, 1);
+
+        var owned = adapter.Preflight(output, "501", 1);
+        var newJar = adapter.Preflight(input, "502", 1);
+        var duplicate = adapter.Preflight(input, "501", 1);
+        var nonCanonical = adapter.Preflight(output, "0501", 1);
+
+        Assert.Equal(RuleDecisionKind.Allowed, owned.Decision);
+        Assert.Equal(RuleDecisionKind.Allowed, newJar.Decision);
+        Assert.Equal(RuleDecisionKind.Rejected, duplicate.Decision);
+        Assert.Equal(RuleDecisionKind.Rejected, nonCanonical.Decision);
+        Assert.Equal("jar.identity.invalid", nonCanonical.ReasonCode);
+        Assert.Equal("production.warehouse.jar-storage", owned.Account.AccountKind);
+    }
+
+    [Fact]
+    public void ProductionWarehouseLiquidAdapterUsesItsOwnCapacityWithoutWorkshopBan()
+    {
+        var warehouse = new JarSystem.Core.Production.Warehouse();
+        warehouse.ProduceLiquid("酒", JarSystem.Core.Config.Constants.WAREHOUSE_MAX_LIQUIDS - 1);
+        var adapter = new WarehouseLiquidStoragePortAdapter(warehouse, "ship.individual.02", "area.production");
+        var input = Port("warehouse.liquid.in", "area.production", ResourcePortDirection.Input,
+            WarehouseLiquidStoragePortAdapter.SupportedPolicyId);
+        var output = Port("warehouse.liquid.out", "area.production", ResourcePortDirection.Output,
+            WarehouseLiquidStoragePortAdapter.SupportedPolicyId);
+
+        var oneMore = adapter.Preflight(input, "酒", 1);
+        var overflow = adapter.Preflight(input, "酒", 2);
+        var available = adapter.Preflight(output, "酒", 1);
+        var unknown = adapter.Preflight(output, "not-in-vocabulary", 1);
+
+        Assert.Equal(RuleDecisionKind.Allowed, oneMore.Decision);
+        Assert.Equal(RuleDecisionKind.Rejected, overflow.Decision);
+        Assert.Equal("over-capacity", overflow.ReasonCode);
+        Assert.Equal(RuleDecisionKind.Allowed, available.Decision);
+        Assert.Equal(RuleDecisionKind.Undetermined, unknown.Decision);
+        Assert.Equal("resource.identity.unknown", unknown.ReasonCode);
+        Assert.Equal("production.warehouse.liquid-storage", available.Account.AccountKind);
+    }
+
 }
