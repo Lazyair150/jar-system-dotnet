@@ -37,6 +37,21 @@ public sealed class WorldV2ApplicationService
     public void CreateOrReplaceWorld(WorldV2Options options, WorldInstanceId worldInstanceId) =>
         _host.Replace(options, worldInstanceId);
 
+    /// <summary>使用完整 World/Owner 身份映射创建世界，供宿主保存和确定性重建。</summary>
+    public void CreateOrReplaceWorld(
+        WorldV2Options options,
+        WorldInstanceId worldInstanceId,
+        WorldV2OwnerIdentityMap ownerIdentities) =>
+        _host.Replace(options, worldInstanceId, ownerIdentities);
+
+    /// <summary>读取当前世界已注入的稳定 Owner 身份映射。</summary>
+    public WorldV2OwnerIdentityMap? GetOwnerIdentityMap()
+    {
+        WorldV2OwnerIdentityMap? identities = null;
+        _host.ExecuteExclusive(context => identities = context.OwnerIdentities);
+        return identities;
+    }
+
     /// <summary>读取当前世界的稳定实例身份。</summary>
     public WorldInstanceId GetWorldInstanceId()
     {
