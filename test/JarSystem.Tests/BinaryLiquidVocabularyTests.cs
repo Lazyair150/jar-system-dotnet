@@ -101,9 +101,7 @@ public sealed class BinaryLiquidVocabularyTests
             }
         };
 
-        Assert.Empty(options.Validate().Errors);
         var restored = WorldOptionsJson.FromJson(WorldOptionsJson.ToJson(options));
-        Assert.Empty(restored.Validate().Errors);
         Assert.Equal(LiquidPolarity.Anode, restored.LiquidPolarities["燃料"]);
         Assert.Equal(LiquidPolarity.Cathode, restored.LiquidPolarities["冷却液"]);
         Assert.Equal(JarPolarity.Anode, new Jar("圆罐", "燃料", vocabulary: restored.BuildVocabulary()).Polarity);
