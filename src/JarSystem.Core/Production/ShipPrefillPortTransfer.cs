@@ -51,8 +51,9 @@ public sealed class PreparedShipPrefillPortTransfer
     public bool IsCommitted => _receipt?.Outcome == ResourceTransferOutcome.Transferred;
 
     /// <summary>
-    /// Commit is idempotent for this prepared instance. Cross-instance/process replay
-    /// still requires the caller's durable OperationId receipt journal.
+    /// Commit is idempotent for this prepared instance. When a ResourceLedger is supplied,
+    /// its persisted OperationIds also prevent cross-instance/process replay; without it,
+    /// the caller must provide a durable operation journal.
     /// </summary>
     public ResourceTransferReceipt Commit()
     {
@@ -155,6 +156,8 @@ public sealed class PreparedShipPrefillPortTransfer
         }
         catch
         {
+            // If the physical prefill transaction has already committed, a later ledger or
+            // receipt failure is ambiguous. Preserve the fault and require reconciliation.
             _faulted = true;
             throw;
         }
