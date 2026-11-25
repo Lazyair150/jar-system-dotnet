@@ -72,6 +72,49 @@ public sealed class BinaryLiquidVocabularyTests
     }
 
     [Fact]
+    public void RenamingLiquidIdentitiesPreservesWorldPolarityStructure()
+    {
+        var original = CreateSpaceVocabulary();
+        var renamed = new Vocabulary(
+            new[] { "圆罐", "方罐" },
+            new[] { "fuel", "coolant" },
+            new Dictionary<string, LiquidPolarity>(StringComparer.Ordinal)
+            {
+                ["fuel"] = LiquidPolarity.Anode,
+                ["coolant"] = LiquidPolarity.Cathode
+            });
+
+        Assert.Equal(
+            new Jar("圆罐", "燃料", vocabulary: original).Polarity,
+            new Jar("圆罐", "fuel", vocabulary: renamed).Polarity);
+        Assert.Equal(
+            new Jar("方罐", "冷却液", vocabulary: original).Polarity,
+            new Jar("方罐", "coolant", vocabulary: renamed).Polarity);
+        Assert.Equal(
+            original.ResolveLiquidPolarity("燃料"),
+            renamed.ResolveLiquidPolarity("fuel"));
+        Assert.Equal(
+            original.ResolveLiquidPolarity("冷却液"),
+            renamed.ResolveLiquidPolarity("coolant"));
+    }
+
+    [Fact]
+    public void SwappingExplicitMappingSwapsPolarityWithoutRenamingLiquids()
+    {
+        var swapped = new Vocabulary(
+            new[] { "圆罐" },
+            new[] { "燃料", "冷却液" },
+            new Dictionary<string, LiquidPolarity>(StringComparer.Ordinal)
+            {
+                ["燃料"] = LiquidPolarity.Cathode,
+                ["冷却液"] = LiquidPolarity.Anode
+            });
+
+        Assert.Equal(JarPolarity.Cathode, new Jar("圆罐", "燃料", vocabulary: swapped).Polarity);
+        Assert.Equal(JarPolarity.Anode, new Jar("圆罐", "冷却液", vocabulary: swapped).Polarity);
+    }
+
+    [Fact]
     public void StagingBanDoesNotBecomeJarPolarityRestriction()
     {
         var vocabulary = CreateSpaceVocabulary();
