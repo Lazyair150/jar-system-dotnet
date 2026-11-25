@@ -900,3 +900,26 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 5. 验证同一批次中的 JarId/液体身份、数量守恒、端点 OwnerId、事件 OperationId 与回执 Legs 完全一致。
 
 本轮只完成源码审计和规范决策，没有声称复合转移实现已经完成，也没有改变 B 类运行行为。
+
+### 第二十六轮补充：跨仓库基线与最新文档验证状态（2026-11-25）
+
+**Core 当前提交链**
+
+- 第二十六轮工作记录：20d41b58894ffee40f2f1e97c5ef32b02b13e8ab
+- Core 架构规范第 22 节：112e4da641dd821209062dd712a61cd3f8457886
+- 工作记录索引：232596c5ccceb330cef928afa0754833f012658b
+- ADR 0010：c26c7b2e51c31f86521106892b12a2ef8e15bc77
+- 当前 Core PR #63 HEAD：c26c7b2e51c31f86521106892b12a2ef8e15bc77
+- 当前 HEAD 对应 Run 45640405208、45640395128 查询时均为 In Progress；此前 19297beb 的两条 CI（45639075910、45639062873）均 Success。不得把旧 HEAD 的成功结果冒充新文档 HEAD 的验证结果。
+
+**Space 跨仓库基线复核**
+
+- Space PR #2 HEAD：8ad262ab8e42801af1e782c29becb59b5ce65bc6，Open / Draft。
+- 当前 Space workflow `.github/workflows/world-v2-cross-repo.yml` 精确固定 Core SHA：18a0b26407ee51c6df722f093165c3b3770c31a7。
+- Space Run 45613042211 成功，但它验证的是上述旧 Core SHA，不是当前 Core PR #63 的 c26c7b2。
+- 因 Core PR #63 尚未合并，当前不提前把 Space workflow 改指向一个未合并、尚未完成最终验收的 Core HEAD。Core 完成并确定集成基线后，再更新 Space 的 CORE_EXPECTED_SHA 并执行完整跨仓库验证。
+- 真实 Godot GUI 试玩仍未完成；Headless/CI 成功不能代替启动、机库交互、进入战斗、暂停、返回主菜单与连续开战验收。
+
+**本轮阶段边界**
+
+ADR 0010 已冻结 Transfer Leg / Compound Transfer / ResourceIdentity / OperationId event correlation 的目标契约；本轮没有实现这些新字段或迁移 B 类交接。下一轮先完成当前精确 Core HEAD CI，再按 ADR 0010 顺序实现账本事件身份与操作关联、Wire/checkpoint 兼容迁移、复合批次回执，最后迁移 OrderTransferService 并更新 Space 精确 Core pin。
