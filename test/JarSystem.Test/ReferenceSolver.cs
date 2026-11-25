@@ -94,7 +94,7 @@ internal sealed class ReferenceSolver : ISolver
         if (req.Liquid != null)
         {
             // 满罐需求：现成满罐，或"同形空罐 + 倒入液体"
-            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == req.Liquid && !j.IsMarked && cap.CanOperateJar(j.Polarity));
+            int match = s.Jars.FindIndex(j => j.Shape == req.Shape && j.Liquid == req.Liquid && !j.IsMarked && cap.CanOperateJar(cap.ResolvePolarity(j.Liquid)));
             if (match >= 0)
                 yield return new SolverOperation { Type = "MATCH", JarIndex = match, Consumed = new() };
 
@@ -131,7 +131,7 @@ internal sealed class ReferenceSolver : ISolver
             // 满罐改形消耗 Jar 自有内部液体；操作许可仍由工作台极性判定，不读取 staging 余额。
             for (int i = 0; i < s.Jars.Count; i++)
                 if (s.Jars[i].Liquid != null && !s.Jars[i].IsMarked
-                    && cap.CanOperateJar(JarPolarityResolver.Resolve(s.Jars[i].Liquid))
+                    && cap.CanOperateJar(cap.ResolvePolarity(s.Jars[i].Liquid))
                     && cap.CanTransform(s.Jars[i].Shape, req.Shape))
                     yield return new SolverOperation
                     {
@@ -145,7 +145,7 @@ internal sealed class ReferenceSolver : ISolver
         {
             var liquid = s.Jars[i].Liquid;
             if (liquid == null || s.Jars[i].IsMarked ||
-                !cap.CanOperateJar(JarPolarityResolver.Resolve(liquid))) continue;
+                !cap.CanOperateJar(cap.ResolvePolarity(liquid))) continue;
             yield return new SolverOperation { Type = "POUR_OUT", JarIndex = i, Consumed = new() };
         }
     }
