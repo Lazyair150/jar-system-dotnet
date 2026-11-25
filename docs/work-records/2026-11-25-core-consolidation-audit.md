@@ -736,3 +736,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 新增测试覆盖同一实体引用转移、Jar 内蜜不受游离 Ban 约束、目标 Jar 容量拒绝、Prepare 后版本变化、账本持久去重、账本发布失败双快照恢复、Adapter 实例错配；并将新写入主体登记进 `WorkshopWritersTests.AllowedWriters`。
 - 第六条相关提交：`829e44a1f442151fe671870fb31f3bf7c600ffb9`、`262c0460ea4849f504a7da04c93fc319fd7d25e9`、`ce84c070e1f8bba96c2c79e623551853d44d5642`、`c55cc6211e253f13436dc194c7349d2414c5a960`。
 - 第五条 Workshop→Workshop 游离液体路径 Run `45628744479` / `45628759676` 仍在执行；第六条新增代码当前 CI 尚未完成。后续以最新 HEAD 的验证结果为准。
+
+- Jar 回滚复审发现一个非数量型状态：Warehouse 的 Jar 列表顺序会影响后续 `FlowToMaster` 选罐顺序。最初补偿只把 Jar 追加回仓库，虽恢复了所有权和实体引用，却可能改变列表位置。现 `TryTakeJarExact` 返回原始索引，`RestoreJarExact` 按该索引插回；新增失败注入测试验证多罐仓库在回滚后逐项保持同一引用与原顺序。提交：`ff78355892a22cb1d4a4b5b2bc7d575426490f41`、`54cdc8df776fbff776709cb72dc903ec38f68eda`、`66ae69e59fa7aee0293ea37cfe0359b818be0edb`、`ac6c9e08e752f2c6a0b68fc0edf2de2da6a28823`。
