@@ -719,7 +719,12 @@ public sealed class ResourceEventWireDto
             Seq = Seq, Tick = Tick, Cause = Cause, Kind = Kind, Name = Name,
             ResourceIdentity = ResourceIdentity, OperationId = OperationId,
             Amount = Amount, From = From, To = To,
-            FromAccountId = FromAccountId, ToAccountId = ToAccountId, Reason = Reason
+            FromAccountId = FromAccountId, ToAccountId = ToAccountId,
+            FromEndpoint = FromEndpoint?.ToEndpoint() ??
+                (FromAccountId == null ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(FromAccountId)),
+            ToEndpoint = ToEndpoint?.ToEndpoint() ??
+                (ToAccountId == null ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(ToAccountId)),
+            Reason = Reason
         };
     }
 }
