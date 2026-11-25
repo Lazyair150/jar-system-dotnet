@@ -33,6 +33,10 @@ internal static class ResourcePortTransferCommitCoordinator
 
         var sourceAfter = readSourceAfter();
         var targetAfter = readTargetAfter();
+        ValidateFinalEndpoint(sourceAfter, request.SourcePortId, request.SourceAccount,
+            request.ResourceKind, request.ResourceIdentity, request.Amount);
+        ValidateFinalEndpoint(targetAfter, request.TargetPortId, request.TargetAccount,
+            request.ResourceKind, request.ResourceIdentity, request.Amount);
         var receipt = ResourcePortTransferGuards.CreateCommittedReceipt(
             request, sourceBefore, targetBefore, sourceAfter, targetAfter);
 
@@ -43,5 +47,22 @@ internal static class ResourcePortTransferCommitCoordinator
             throw new InvalidOperationException(ResourcePortTransferGuards.DuplicateOperationMessage);
 
         return receipt;
+    }
+
+    private static void ValidateFinalEndpoint(
+        ResourcePortPreflight preflight,
+        string portId,
+        RuleResourceAccount account,
+        RuleResourceKind resourceKind,
+        string resourceIdentity,
+        int amount)
+    {
+        preflight.Validate();
+        if (preflight.PortId != portId || preflight.Account != account ||
+            preflight.ResourceKind != resourceKind ||
+            preflight.ResourceIdentity != resourceIdentity ||
+            preflight.Amount != amount)
+            throw new DomainValidationException(
+                "Final resource-port preflight no longer identifies the prepared endpoint and resource.");
     }
 }
