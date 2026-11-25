@@ -6,6 +6,9 @@ namespace JarSystem.Tests;
 
 public sealed class WorkshopOrderLiquidScopeTests
 {
+    private static JarFacts DefaultFacts(string shape, string? liquid, bool isMarked) =>
+        new(shape, liquid, isMarked, JarPolarityResolver.Resolve(liquid, JarSystem.Core.Config.Vocabulary.Default));
+
     private static Workshop CreateWorkshop(
         IEnumerable<string>? baseMarks = null,
         IEnumerable<string>? additionalMarks = null,
@@ -163,22 +166,22 @@ public sealed class WorkshopOrderLiquidScopeTests
     public void OrdinaryAndOrderScopesProduceIdenticalJarRuleTransitions()
     {
         AssertTransitionParity(
-            new JarFacts("圆罐", null, false),
+            DefaultFacts("圆罐", null, false),
             WorkshopOperation.PourIn("酒"),
             new Dictionary<string, int> { ["酒"] = 1 },
             staging => staging.Receive(101, "酒", 1));
         AssertTransitionParity(
-            new JarFacts("圆罐", "酒", false),
+            DefaultFacts("圆罐", "酒", false),
             WorkshopOperation.PourOut(),
             new Dictionary<string, int>(),
             _ => { });
         AssertTransitionParity(
-            new JarFacts("圆罐", null, false),
+            DefaultFacts("圆罐", null, false),
             WorkshopOperation.ReshapeEmpty("尖罐", "酒"),
             new Dictionary<string, int> { ["酒"] = 1 },
             staging => staging.Receive(101, "酒", 1));
         AssertTransitionParity(
-            new JarFacts("圆罐", "酒", false),
+            DefaultFacts("圆罐", "酒", false),
             WorkshopOperation.ReshapeFull("尖罐"),
             new Dictionary<string, int>(),
             _ => { });
