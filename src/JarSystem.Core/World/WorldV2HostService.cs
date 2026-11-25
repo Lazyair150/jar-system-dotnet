@@ -58,8 +58,11 @@ public sealed class WorldV2HostService : IDisposable
         ArgumentNullException.ThrowIfNull(options);
         if (!worldInstanceId.IsValid)
             throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
-        if (options.Producers == null || options.Workshops == null)
-            throw new ArgumentException("World V2 Producers / Workshops 不能为 null。", nameof(options));
+        var validation = options.Validate();
+        if (!validation.IsValid)
+            throw new ArgumentException(
+                "World v2 配置无效：" + string.Join("；", validation.Errors),
+                nameof(options));
 
         foreach (var producer in options.Producers)
             if (producer.ProducerInstanceId == null)
