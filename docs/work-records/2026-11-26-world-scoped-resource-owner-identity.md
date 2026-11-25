@@ -191,3 +191,42 @@ The WorldInstanceId slice has now been carried through the actual Host/Applicati
 ### Next implementation slice
 
 Introduce OwnerIdentity as a typed, World-scoped value and AccountId v2 as a canonical, versioned encoding. Then thread stable local owner identities into Ship, Board/Production Area, Warehouse, Producer, Workshop and order staging. Do not use display names or Master/Slave roles as local owner IDs. Keep AccountId v1 as an explicit legacy read path and do not reinterpret nullable legacy endpoints until tagged endpoint semantics are implemented.
+
+
+## Typed OwnerIdentity and AccountId v2 contract slice
+
+After completing the Host lifecycle boundary, the next implementation slice adds the typed identity contract without yet assigning invented identities to Core objects:
+
+- Added `ResourceOwnerKind` with stable tokens for Ship, CircuitBoard, ProductionArea, Warehouse, Producer and Workshop.
+- Added `OwnerIdentity(WorldInstanceId, ResourceOwnerKind, LocalOwnerId)`. It rejects invalid World IDs, undefined owner kinds, blank/padded/control-containing local IDs and invalid UTF-8.
+- Added `AccountIdentity(OwnerIdentity, AccountKind)`. Canonical output is `account:v2:` plus four UTF-8 byte-length-prefixed fields in fixed order: WorldInstanceId, OwnerKind token, LocalOwnerId, AccountKind. This is byte-counted rather than UTF-16 char-counted, so non-ASCII and embedded separators remain unambiguous.
+- Added strict `AccountIdentity.ParseV2`; it rejects malformed lengths, leading-zero lengths, truncation, unknown OwnerKind tokens, invalid UTF-8, trailing bytes and non-canonical encodings.
+- Extended `RuleResourceAccount` with an explicit typed-owner constructor that emits AccountId v2. Its existing two-string constructor remains the explicit v1 compatibility path; v1 strings are not silently parsed or rewritten as v2.
+- Added typed-owner overloads to Ship liquid inventory, Workshop free-liquid, order staging, prefill, Jar storage, and Warehouse Jar/Liquid port adapters. Order staging derives a scoped local owner ID from the exact Workshop owner plus exact order ID; Master/Slave role and display name are not used.
+- Resource port optimistic version tokens now include canonical AccountId rather than only local OwnerId, so two same-named local owners in different Worlds cannot share a version token.
+- Resource transfer request and receipt validation now reject v2 endpoints from different WorldInstanceIds and reject mixed v1/v2 endpoints. Legacy-to-legacy transfers remain compatible.
+- Added identity tests for same-tuple determinism, cross-World separation, owner/account-kind separation, Unicode byte-length encoding, parser strictness, v1/v2 separation, adapter construction, per-order staging separation, and cross-World transfer rejection.
+
+### Changed files
+
+- `src/JarSystem.Core/Domain/ResourceAccountIdentity.cs`
+- `src/JarSystem.Core/Domain/RuleTransitionContract.cs`
+- `src/JarSystem.Core/Domain/ResourcePortTransferContracts.cs`
+- `src/JarSystem.Core/Domain/ResourcePortAdapters.cs`
+- `test/JarSystem.Tests/ResourceAccountIdentityTests.cs`
+- `docs/architecture/world-scoped-resource-owner-identity.md`
+- `docs/decisions/0011-world-scoped-resource-owner-and-account-identity.md`
+
+### Explicitly not completed
+
+- Existing legacy adapter constructors still emit account:v1; production account creation sites have not all been migrated.
+- Ship/Board/ProductionArea/Warehouse/Producer/Workshop stable local owner IDs have not yet been injected from the authoritative host/owned-instance boundary.
+- Owner identity mapping is not yet part of the checkpoint wire payload.
+- Resource ledger snapshots do not yet validate every v2 account endpoint against the restored WorldInstanceId.
+- Tagged ExternalSource/ExternalSink/LegacyUnknown endpoint algebra, DisplayName migration, per-source settlement and compound B-class atomicity remain later stages.
+
+### Validation boundary
+
+- GitHub branch reads confirmed the new type, parser, adapter overloads, transfer guards and tests are present.
+- No local .NET build/test execution is available in this environment.
+- The latest queried commit status/workflow endpoints returned no PR-associated run. The connector's workflow-run wrapper filters to PR-triggered runs, so this is not proof that no push workflow ran. Current-head CI remains **unconfirmed**.
