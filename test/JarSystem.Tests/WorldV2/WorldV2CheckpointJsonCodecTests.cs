@@ -37,6 +37,22 @@ public sealed class WorldV2CheckpointJsonCodecTests
     }
 
     [Fact]
+    public void DecodeRejectsV2CheckpointWithoutExplicitLiquidPolarityMapping()
+    {
+        const string json = """
+            {
+              "schemaVersion": 2,
+              "kind": "world-v2-execution-checkpoint",
+              "configurationFingerprint": null,
+              "payload": {}
+            }
+            """;
+
+        Assert.Throws<NotSupportedException>(
+            () => WorldV2CheckpointJsonCodec.Decode<Payload>(json));
+    }
+
+    [Fact]
     public void DecodeRejectsUnsupportedSchemaVersion()
     {
         const string json = """
