@@ -103,7 +103,7 @@ public class WorkshopReshapeTests
     }
 
     [Fact]
-    public void FullJarSelfConsumeRequiresMatchingWorkshopPolarity()
+    public void FullJarSelfConsumeUsesJarOwnedLiquidWithoutStagingBan
     {
         var w = Xuanwu();
         var jar = new Jar("圆罐", "蜜", null, Vocab());
@@ -121,7 +121,7 @@ public class WorkshopReshapeTests
     }
 
     [Fact]
-    public void OppositePolarityJarCannotBeReshapedEvenWhenItsInternalLiquidCouldBeSelfConsumed()
+    public void BannedLiquidJarCanBeReshapedByConsumingItsInternalLiquid()
     {
         var w = Xuanwu(); // Ban 酒 => Anode focus
         var jar = new Jar("圆罐", "酒", null, Vocab()); // Cathode
@@ -129,13 +129,12 @@ public class WorkshopReshapeTests
 
         var grant = w.CanReshapeTo(jar, "方罐");
 
-        Assert.False(grant.Granted);
-        Assert.Equal("polarity-incompatible", grant.Code);
-        var (success, _) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
-        Assert.False(success);
-        Assert.Equal("圆罐", jar.Shape);
-        Assert.Equal("酒", jar.Liquid);
-        Assert.False(jar.IsMarked);
+        Assert.True(grant.Granted);
+        var (success, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
+        Assert.True(success, reason);
+        Assert.Equal("方罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
     }
 
     [Fact]
