@@ -47,7 +47,9 @@ internal sealed class PreparedWorldV2Restore : IDisposable
         }
 
         var context = WorldV2Factory.Create(
-            options, worldInstanceId: targetWorldInstanceId.Value);
+            options,
+            worldInstanceId: targetWorldInstanceId.Value,
+            ownerIdentities: restoreCheckpoint.OwnerIdentities);
         try
         {
             context.RestoreExecutionResourceCheckpoint(restoreCheckpoint);
