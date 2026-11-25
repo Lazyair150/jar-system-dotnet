@@ -365,3 +365,66 @@ RecordBatchOnce 的通用接口仍保留空事实批次的去重语义，供明�
 ### 21.4 并发边界
 
 ResourceLedger 的内部锁只保证账本 Event/OperationId/Receipt 三者一致，不会自动锁住源、目标物理账户。当前六条参与者仍以 World 单写者命令序列为物理账户一致性前提。任何未来并发化必须以稳定账户身份排序获取双账户锁，并覆盖版本复核、物理提交、Receipt 构造、账本发布和补偿窗口；仅增加账本锁不构成联合原子性。
+
+
+## 22. Transfer Leg、Compound Transfer 与资源事实身份（2026-11-25）
+
+### 22.1 资源身份与展示属性分离
+
+资源身份用于规则、所有权、账本和幂等校验；展示属性只用于 UI/日志解释。二者不可互换：
+
+- Jar 的资源身份是 canonical positive JarId；Shape 是 Jar 的属性，不是个体身份。
+- Liquid 的资源身份来自 World Vocabulary；显示文案不得承担极性或规则语义。
+- Workshop/Ship/Area/Account 的稳定 OwnerId/AccountId 是端点身份；Workshop.Name 等可变名称只用于展示。
+
+Resource Ledger 必须将 ResourceIdentity 与 DisplayName/Name 分开保存。不能通过 Shape 或显示名称反推某只 Jar，也不能通过工作台名称作为资源账户身份。
+
+### 22.2 Transfer Leg 与 Compound Transfer
+
+**Transfer Leg** 是一条资源变化：
+
+Source Account + Output Port -> Target Account + Input Port + ResourceKind + ResourceIdentity + Amount
+
+每条 Leg 必须具有端点身份、资源身份、数量、预期版本和提交后版本。
+
+**Compound Transfer** 是多个 Transfer Leg 共享一个 OperationId 与最终提交边界的事务。它不是把多个单资源 Commit 顺序调用后就自然得到的批量操作。其要求是：
+
+- 所有 Leg 预检完成后才能进入提交；
+- 所有 Leg 作为同一事务执行；
+- 任意 Leg 失败时，所有已发生的物理变化都必须在账本最终发布前精确补偿；
+- 完整 Receipt 与事件批次在一个最终发布点一起提交；
+- 重放同一 OperationId + 同一批次请求返回原始批次 Receipt；同 ID 不同 Legs/端点/数量/版本必须拒绝。
+
+单资源 ResourceTransferReceipt 可以作为单 Leg 操作的便利形式；复合交接必须使用多 Leg 批次回执，不得挑一只 Jar 或一种液体冒充整个事务。
+
+### 22.3 B 类主从交接是复合转移
+
+现有 B 类交接包含至少两类不同账户路径：
+
+- 主台 Jar Storage -> 从台 Jar Storage：移动原 Jar 实体引用，JarId 唯一，数量按只计；
+- 主台订单 Liquid Staging -> 从台订单 Liquid Staging：按液体身份与数量转移，遵守两侧暂存区 Ban 和容量。
+
+两类资源共享同一 B 类交接阶段，但不是同一账户，也不能抹平各自规则。现有 OrderTransferService 仍负责此流程，并通过 RecordBatchOnce 写混合事件批次；它尚未接入复合 Transfer Receipt Journal。迁移必须保留从台为空、Jar 实体身份、Ban 作用域、精确回滚与主从执行阶段语义。
+
+### 22.4 账本事件必须可追溯到操作和资源身份
+
+当前 ResourceLedgerMutation 的 Name 字段同时承担资源名称/展示内容；ResourceEvent 没有 OperationId；Jar 端口 Receipt 使用 JarId，而事件 Name 使用 Jar.Shape。由此事件无法直接携带机器资源身份，也不能直接回指其所属提交操作。
+
+目标契约必须显式包含：
+
+- OperationId：事件所属的幂等提交操作；
+- ResourceKind + ResourceIdentity：机器资源身份；
+- DisplayName/Attributes：可变展示信息，例如 Jar Shape；
+- FromAccountId / ToAccountId：稳定账户端点身份；
+- Amount / Cause / Reason：变化数量及原因。
+
+同一 Compound Transfer 的多个事件共享 OperationId；事件序号仍负责排序，OperationId 负责事务归属。事件窗口裁剪不能删除独立的 OperationId/Receipt 幂等索引。
+
+Wire DTO 与 checkpoint 必须同步版本化迁移；旧历史事件缺少 ResourceIdentity/OperationId 时必须有明确兼容语义，不能从显示名称猜测并伪造身份。
+
+### 22.5 当前状态与迁移限制
+
+- 六条单资源参与者和单资源 Receipt Journal 已实现并通过精确 HEAD CI。
+- B 类复合交接、稳定账户端点迁移、事件 OperationId/ResourceIdentity 字段尚未实现。
+- 当前物理账户一致性仍依赖 World 单写者命令序列；未来并发化必须覆盖全部参与账户并采用稳定 AccountId 排序的锁策略。
+- 不得将 B 类交接拆成若干独立已提交转移；不得以 Jar Shape 代替 JarId；不得以 Workshop.Name 代替 Account OwnerId。
