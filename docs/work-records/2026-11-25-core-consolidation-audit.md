@@ -325,3 +325,33 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 2. 将规则候选的固定操作列表从 WorldOrderRuleCandidateCatalog 拆成有稳定身份/版本的内建 Rule Operator Provider Registry。
 3. 将 A/B 与 Master/Slave 交接差异抽为 OrderPolicy / WorldTransferPolicy，保留原行为并对拍。
 4. 将 StructuralSolution 与 ResourceBinding/Readiness/Admission 的 fingerprint 依赖完整分离。
+
+
+## 2026-11-25 第十四轮：RuleContribution Schema Registry 与 fail-closed 规则投影
+
+### 当前代码源
+- Code head：0989a2bf28ae1e2d106629ade44aef78f6f2cf93
+- PR #63：Open / Draft / unmerged。
+- 精确 head runs：45595570171、45595555177；本次记录时均 in_progress，尚不能宣称绿色。
+- 最近已完整绿色的 Vocabulary head：b11d9a51f7e8a18df3bb0ff3545d1af949dffa12，runs 45592984647 / 45592974637，861/861。
+
+### 代码变更
+- 新增 RuleContributionSchemaRegistry 与 RuleContributionEffectSchema，集中定义各 Effect 的 required/optional parameter、静态求解支持能力和参数格式验证。
+- RuleContribution.Validate 在 Profile 装配时调用 schema registry；未知 Effect、未知参数、缺失必填参数、非法 ticksPerStep/factorPerMille、错误时间窗口均 fail-closed。
+- RuleContext 删除对应参数默认值回退；已验证参数缺失时不再静默替换成默认语义。
+- RuleContext 对 GrantBaseMark / BanLiquid 明确标记为已投影进 WorkshopCapability 的 Effect；ModifyCapacity 保留但声明为当前静态 Solver 不支持，返回 Undetermined；未知 Effect 有显式异常保护。
+- HasUnresolvableRequirements 根据 Effect Schema 的 SupportsStaticSolverProjection 判断，而不是在 Solver 中硬编码单个 Effect 名称。
+- 更新 EffectiveRuleProfileTests 的旧 fixture：GrantAdditionalMark 的目标形状属于 Target，不应重复塞入未定义的 shape 参数；SourceRevision 测试只改变 revision，不伪造不符合 Effect schema 的 strength 参数。
+- 新增未知 Effect、Retime 缺参/非法数值、Intensity 负值测试。
+
+### 验证失败与修复
+- head 320b50eb17ea246ed2cb0911c5dcf16a1eedf352：两条 verify runs 45594046566 / 45594033707 失败。最初实现漏掉了 GrantBaseMark / BanLiquid 已投影到 Capability 的显式 switch case，造成 174 项测试失败；在 dad8488997c640c46e2f96875165db1abd03c31c 增加显式 no-op projection case。
+- head dad8488997c640c46e2f96875165db1abd03c31c：两条 runs 45594961966 / 45594975018 失败，主要集中在 EffectiveRuleProfileTests 的 6 项 fixture 不符合新 schema；随后移除 helper 中冗余 shape 参数，并让 SourceRevision 测试只改变 revision。
+- head 3c3b68a3e9c2c0b096b164da3b3905d1eb30f13c 还修复了 schema collection 返回类型与残留 Parameter fallback 调用；对应 runs 45594448093 / 45594458923 仍失败，原因见前述规则投影/fixture问题。
+- head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 是当前修复后代码源；两条精确 head CI 正在执行。不得用旧绿色 head 替代。
+
+### 尚未完成
+- RuleContributionSchemaRegistry 的 schema/interpreter version 尚需纳入 EffectiveRuleProfile 与 World RuleSet fingerprint。
+- RuleId/version 尚未形成统一 RuleDefinition Registry；Effect schema 只是参数契约，不等于完整规则目录。
+- WorkshopRulebook 固定操作 switch、WorldOrderRuleCandidateCatalog 固定候选操作集合、A/B Branch Enumerator 的岗位/流程耦合仍待拆分。
+- 下一步先等待 0989 精确 CI，修复所有失败；随后完成 schema version fingerprint，再建立 RuleOperator Provider Registry 与 OrderPolicy。

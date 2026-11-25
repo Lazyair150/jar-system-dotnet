@@ -278,3 +278,12 @@ Core 只暴露稳定领域契约；Space 只提供身份映射、Board Assignmen
 - 精确 Core head b11d9a51f7e8a18df3bb0ff3545d1af949dffa12 两条 CI 通过：861/861 tests，资源样本 0 bugs。
 
 尚未完成所有生产代码、配置、迁移、序列化、展示和测试中的默认身份引用全量扫描；Phase 1 不得标记为完成。
+
+
+## 17. RuleContribution Schema 实施状态（2026-11-25）
+
+- 已新增集中式 RuleContributionSchemaRegistry，统一定义 Effect 参数 required/optional、数值约束和静态求解支持声明。
+- 未知 Effect / 非法参数在 Profile 装配时拒绝；当前静态求解不支持的 Effect 必须产生 Undetermined，不得静默忽略。
+- RuleContext 已移除相关参数默认值回退，已投影至 Capability 的 GrantBaseMark / BanLiquid 采用显式处理。
+- 当前代码 head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 的精确 CI 尚未完成；在两条 runs 45595570171 / 45595555177 成功前，本节状态为待验证。
+- Schema/interpreter version fingerprint、RuleDefinition Registry、RuleOperator Provider Registry、OrderPolicy 解耦仍未完成。
