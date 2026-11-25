@@ -500,7 +500,10 @@ public sealed class ResourceLedger
                     Seq = nextSeq, Tick = tick, Cause = item.Cause, Kind = item.Kind,
                     Name = item.Name, ResourceIdentity = item.ResourceIdentity, OperationId = operationId,
                     Amount = item.Amount, From = item.From, To = item.To,
-                    FromAccountId = item.FromAccountId, ToAccountId = item.ToAccountId, Reason = item.Reason
+                    FromAccountId = item.FromAccountId, ToAccountId = item.ToAccountId,
+                    FromEndpoint = item.FromEndpoint!.Value,
+                    ToEndpoint = item.ToEndpoint!.Value,
+                    Reason = item.Reason
                 });
             }
 
