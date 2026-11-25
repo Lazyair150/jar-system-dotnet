@@ -1176,7 +1176,7 @@ public sealed class WorkshopReplacementTests
             }
 
             Assert.All(discarded, jar => Assert.True(jar.IsRecycled));
-            Assert.Empty(newMaster.LiquidStorage.Where(item => item.Value > 0));
+            Assert.DoesNotContain(newMaster.LiquidStorage, item => item.Value > 0);
             Assert.False(runtime.IsFaulted);
         }
     }
