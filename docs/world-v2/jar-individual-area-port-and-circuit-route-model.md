@@ -192,6 +192,19 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 
 该实现是第一个具体事务参与者，不是通用协调器。后续账户接入必须复用相同的 Prepare/版本复核/提交/补偿/回执原则，并明确各账户自身的领域语义。
 
+### 3.7 第二条事务参与者：自机液库到工作台预置账户
+
+`ShipPrefillPortTransfer.Prepare` 将自机液体库存 Output 连接到某个 Workshop 的 Prefill Input：
+
+- Prepare 只检查 Connection、端口方向、液体类型、账户身份、适配器实例绑定和两端预检，不扣减 Ship 库存，也不占用 Workshop 预置账户。
+- Commit 重新验证 Ship 与 Prefill 两端版本令牌；版本变化时返回 Undetermined，Ban/库存/容量拒绝时返回 Rejected。
+- 实际提交调用 `WorkshopLiquidStaging.BeginPrefillTransferFromShip`，仅允许一个液种与精确数量的全量转移；Ship 先扣款并预留等量回库容量，Workshop 再写入独立 Prefill 余额。
+- 事务返回既有 `WorkshopPrefillTransaction`。Commit 释放 Ship 的回滚容量预留；Rollback 从 Prefill 账户移除本次写入并将原数量退回 Ship。准备阶段发生异常时，也会补偿已经应用的预置余额与 Ship 预留。
+- 该路径使用 Workshop 的 Ban 与总暂存容量规则，但绝不写入订单子账或游离液体账户；Ship 与 Workshop 账户始终分离。
+- 当前同样只保证同一 Prepared 实例内的重复 Commit 回执稳定；跨实例/进程 OperationId 去重仍需持久化 Receipt Journal。同步提交必须运行在权威 World 串行命令边界内。
+
+该路径复用现有 Ship 预留与 WorkshopPrefillTransaction，不是通用账户转移 API；不支持部分转移、多液种批次、Jar 或 Warehouse。
+
 ## 4. 自机电路：固定拓扑、动态状态
 
 电路板应被编译为有向、多类型的资源转换图（Directed Typed Resource Transition Graph），而不是一条预写死的算法流程。
