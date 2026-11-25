@@ -190,3 +190,19 @@ ExternalSource / ExternalSink 与 Account 之间的资源边仍允许，因为�
 - 传统 `ResourceTransferrer`（主台切换）现按 Workshop.OwnerIdentity 生成 account:v2 端点；没有新身份但有精确 OwnedInstanceId 时保留 account:v1；缺少身份时明确写 LegacyUnknown。容量丢弃和 Ban 拒收分别落到不同 ExternalSink。暂存记录同时保留旧 AccountId 投影与 tagged endpoint，提交时一次性写入。
 - 旧版 `ProductionService` 尚未由 World V2 Host 装配，故其生产/流入端点显式标为 LegacyUnknown，不以“生产者”“仓库”等显示名称伪造账户身份；其容量溢出目标使用明确 ExternalSink。待旧宿主注入 WorldInstanceId/OwnerIdentity 后再迁移为 account:v2。
 - 增加主台切换溢出端点测试：来源必须是原工作台 account:v2，去向必须是指定 Jar 容量 ExternalSink。
+
+
+### 订单与传统切换的剩余写入点补齐
+
+本轮继续对 Core 生产/订单/切换代码中的直接账本写入点做了扫描，补齐此前遗漏的三类事实：
+
+1. `ResourceTransferrer`（旧主台切换）现在将 Jar/游离液体的迁移写成明确的 Workshop account endpoints；拒收分别写入 `workshop.jar-storage.capacity-overflow`、`workshop.free-liquid-staging.capacity-overflow` 和 `workshop.free-liquid-staging.ban-rejection` 三个不同 ExternalSink。待提交账本记录同时缓存 endpoint 和旧 AccountId 投影，CommitEffects 才执行实际 Record，保持原来的延迟副作用/回滚语义。
+2. `WorldOrderExecutionSession.TryStart` 中新自机液库路径的订单初始补液此前遗漏 tagged endpoints。现在来源是 Ship 的 account:v2（若旧 Ship 无 OwnerIdentity 则 LegacyUnknown），目标是主台 Workshop account:v2 / 精确 account:v1，缺失身份才 LegacyUnknown。
+3. 旧 `ProductionService` 仍未接入 World 身份装配，生产和仓库流入的端点明确写 LegacyUnknown；仓库溢出则使用显式 ExternalSink。这里不以“生产者/仓库/液体产能”等显示字符串冒充账户身份。
+
+新增/强化测试：
+- 主台切换 Jar 溢出验证来源是原 Workshop account:v2，去向是准确的容量 ExternalSink。
+- B 类订单新自机液库准入与结算测试注入同一 World 的 Ship/Master/Slave 身份，验证初始资金流的 Ship→Master endpoint 和返还目标 Ship endpoint。
+- 已修复 B 类订单恢复失败回滚测试的身份 fixture：World/Workshop/Ship 身份声明现在位于正确测试方法内，且主从工作台与 Ship 属于同一 World。
+
+当前代码扫描仍需保留一条迁移原则：所有旧宿主写入只有在获得稳定 OwnerIdentity 注入时才升级为 account:v2；不具备身份的旧路径必须显式 LegacyUnknown，而不能从名称推断身份。
