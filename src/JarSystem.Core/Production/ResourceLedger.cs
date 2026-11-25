@@ -296,6 +296,24 @@ public sealed class ResourceLedger
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 
+    private static void ValidateAccountEndpointWorldScope(
+        ResourceEndpoint source,
+        ResourceEndpoint target)
+    {
+        if (source.Kind != ResourceEndpointKind.Account ||
+            target.Kind != ResourceEndpointKind.Account)
+            return;
+
+        var sourceIsV2 = source.AccountId!.StartsWith("account:v2:", StringComparison.Ordinal);
+        var targetIsV2 = target.AccountId!.StartsWith("account:v2:", StringComparison.Ordinal);
+        if (sourceIsV2 != targetIsV2)
+            throw new DomainValidationException("Resource ledger cannot connect legacy and World-scoped account identities.");
+        if (sourceIsV2 &&
+            AccountIdentity.ParseV2(source.AccountId!).Owner.WorldInstanceId !=
+            AccountIdentity.ParseV2(target.AccountId!).Owner.WorldInstanceId)
+            throw new DomainValidationException("Resource ledger cannot connect accounts from different Worlds.");
+    }
+
     private static ResourceLedgerMutation NormalizeMutationIdentity(ResourceLedgerMutation item)
     {
         // In the current World Vocabulary, a liquid's canonical identity is its vocabulary key.
@@ -383,6 +401,7 @@ public sealed class ResourceLedger
             if ((fromAccountId != null && e.FromEndpoint != ResourceEndpoint.ForAccount(fromAccountId)) ||
                 (toAccountId != null && e.ToEndpoint != ResourceEndpoint.ForAccount(toAccountId)))
                 throw new DomainValidationException("Resource event account ID conflicts with its tagged endpoint.");
+            ValidateAccountEndpointWorldScope(e.FromEndpoint, e.ToEndpoint);
             _entries.Add(e);
             _seq = nextSeq;
             Trim();
@@ -435,6 +454,7 @@ public sealed class ResourceLedger
                 (item.Kind == ResourceKinds.Jar &&
                     (item.Amount != 1 || !IsCanonicalJarId(item.ResourceIdentity))))
                 throw new DomainValidationException("账本批次包含无效资源事实。");
+            ValidateAccountEndpointWorldScope(item.FromEndpoint!.Value, item.ToEndpoint!.Value);
         }
 
         // 先构造全部事件，只有整批成功构造后才推进游标并发布。
