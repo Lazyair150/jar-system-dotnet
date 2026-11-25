@@ -287,3 +287,8 @@ Core 只暴露稳定领域契约；Space 只提供身份映射、Board Assignmen
 - RuleContext 已移除相关参数默认值回退，已投影至 Capability 的 GrantBaseMark / BanLiquid 采用显式处理。
 - 精确代码 head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 的 runs 45595570171 / 45595555177 已 SUCCESS：864/864 xUnit、0 errors、0 failures；资源样本 5,032 组 0 bugs。
 - Schema/interpreter version fingerprint、RuleDefinition Registry、RuleOperator Provider Registry、OrderPolicy 解耦仍未完成。
+
+
+## 18. Rule Schema 版本与指纹依赖
+
+RuleContributionSchemaRegistry.CurrentVersion 是 Effect 参数校验与投影语义的版本。它必须进入 EffectiveRuleProfile fingerprint 和 WorldSnapshot RuleSetVersion；当 schema、参数合法性或投影语义发生变化时，必须递增，以使 Profile、候选缓存和结构解缓存正确失效。未知 Effect 仍在 Profile 装配阶段拒绝；已知但不支持静态求解的 Effect 必须保留为 Undetermined。

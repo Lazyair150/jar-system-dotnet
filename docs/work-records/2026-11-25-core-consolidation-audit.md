@@ -361,3 +361,14 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 精确代码 head 已由 runs 45595570171 与 45595555177 双绿验证。
 - xUnit 864/864；资源守恒样本 5,032 组无错误；Core build 成功。
 - 本次记录提交只更新工作记录/架构审查/规范状态，不改变生产代码。后续精确验证以该代码 head 为依据。
+
+
+## 2026-11-25 第十五轮：规则 Schema 版本进入语义指纹
+
+- 代码 head：d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed。
+- RuleContributionSchemaRegistry 新增 CurrentVersion；该版本表示 Effect 参数 schema 与投影语义契约版本，任何兼容性/解释语义变更必须递增。
+- EffectiveRuleProfile fingerprint 同时纳入 Profile schema version 与 RuleContributionSchemaRegistry.CurrentVersion。
+- WorldSnapshot RuleSetVersion 纳入 RuleContributionSchemaRegistry.CurrentVersion，确保 schema/interpreter 语义变化使结构候选缓存失效。
+- 新增测试：所有 RuleContributionEffect 必须有 schema；ModifyCapacity 明确不支持静态 Solver 投影；该 Effect 必须保留为 unresolvable，而不是被静默忽略。
+- 精确 head runs 45596511987 / 45596522515 在本记录时仍 in_progress；未宣称通过。
+- 下一步：将固定 Jar 候选操作从 Catalog 中抽为版本化 RuleOperator Provider Registry，再将 A/B 与岗位交接流程迁移为 OrderPolicy。

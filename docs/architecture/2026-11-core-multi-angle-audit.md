@@ -298,3 +298,8 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 本轮经历两类真实回归并已针对性修复：其一是 RuleContext switch 未显式处理已投影的 GrantBaseMark/BanLiquid；其二是旧测试 fixture 为 GrantAdditionalMark 重复提供未定义 shape 参数。精确代码 head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 的两个 CI runs 45595570171 / 45595555177 均 SUCCESS：864/864 xUnit、0 errors、0 failures，资源样本 5,032 组 0 bugs，Core build 成功。Schema 重构第一轮验收通过。
 
 后续仍需将 schema/interpreter version 纳入指纹，并从固定候选操作枚举与 A/B 分支算法中抽出 RuleOperator Registry / OrderPolicy。
+
+
+## 2026-11-25 第十五轮：Rule Schema 版本化与缓存失效
+
+RuleContributionSchemaRegistry.CurrentVersion 已进入 EffectiveRuleProfile fingerprint 与 WorldSnapshot RuleSetVersion，避免规则参数 schema / 投影语义变化后错误复用旧 Profile 或结构候选缓存。新增 effect schema 完整性与 ModifyCapacity 静态不可求解测试。代码 head d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed 的精确 runs 45596511987 / 45596522515 尚在执行，待其完成后验收。后续工作重点转向 RuleOperator Provider Registry 与 OrderPolicy，继续从候选算法中移除固定操作列表和 A/B 岗位流程。
