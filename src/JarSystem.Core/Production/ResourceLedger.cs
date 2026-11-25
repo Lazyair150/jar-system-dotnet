@@ -82,6 +82,7 @@ public sealed class ResourceLedger
     public const int DefaultCapacity = 512;
 
     private readonly List<ResourceEvent> _entries = new();
+    private readonly IReadOnlyList<ResourceEvent> _entriesView;
     private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
     private long _seq;
 
@@ -90,6 +91,7 @@ public sealed class ResourceLedger
         if (capacity < 1)
             throw new DomainValidationException("资源账本容量必须是正整数: " + capacity);
         Capacity = capacity;
+        _entriesView = _entries.AsReadOnly();
     }
 
     /// <summary>容量（条）。</summary>
@@ -105,7 +107,7 @@ public sealed class ResourceLedger
     public long LastSeq => _seq;
 
     /// <summary>保留的事件（按发生顺序，最旧在前）。只读视图。</summary>
-    public IReadOnlyList<ResourceEvent> Entries => _entries;
+    public IReadOnlyList<ResourceEvent> Entries => _entriesView;
 
     /// <summary>捕获完整账本游标、裁剪计数和当前保留事件。</summary>
     public ResourceLedgerSnapshot Capture() => new(
@@ -155,8 +157,10 @@ public sealed class ResourceLedger
         var restored = Restore(snapshot);
         if (restored.Capacity != Capacity)
             throw new DomainValidationException("资源账本快照容量与当前账本不一致。");
+        _entries.EnsureCapacity(restored._entries.Count);
+        _operationIds.EnsureCapacity(restored._operationIds.Count);
         _entries.Clear();
-        _entries.AddRange(restored._entries.Select(Clone));
+        _entries.AddRange(restored._entries);
         _seq = restored._seq;
         Dropped = restored.Dropped;
         _operationIds.Clear();
@@ -187,9 +191,11 @@ public sealed class ResourceLedger
     {
         if (amount <= 0) return null;
 
+        var nextSeq = checked(_seq + 1);
+        _entries.EnsureCapacity(checked(_entries.Count + 1));
         var e = new ResourceEvent
         {
-            Seq = ++_seq,
+            Seq = nextSeq,
             Tick = tick,
             Cause = cause,
             Kind = kind,
@@ -200,6 +206,7 @@ public sealed class ResourceLedger
             Reason = reason
         };
         _entries.Add(e);
+        _seq = nextSeq;
         Trim();
         return e;
     }
@@ -218,6 +225,8 @@ public sealed class ResourceLedger
         if (_operationIds.Contains(operationId)) return false;
 
         var batch = mutations.Where(item => item.Amount > 0).ToArray();
+        if (batch.Length == 0)
+            throw new DomainValidationException("账本批次至少必须包含一条正数量资源事实。");
         foreach (var item in batch)
         {
             if (string.IsNullOrWhiteSpace(item.Cause) ||
@@ -305,7 +314,7 @@ public sealed class ResourceLedgerSnapshot
             Reason = item.Reason
         }).ToArray());
         OperationIds = Array.AsReadOnly((operationIds ?? Array.Empty<string>())
-            .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray());
+            .OrderBy(item => item, StringComparer.Ordinal).ToArray());
     }
 
     public int Capacity { get; }
