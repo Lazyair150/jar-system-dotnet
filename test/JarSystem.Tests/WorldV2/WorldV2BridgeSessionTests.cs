@@ -186,7 +186,7 @@ public sealed class WorldV2BridgeSessionTests
         session.AdvanceWorld(2_000);
         Assert.Equal(3_000, session.GetWorldSnapshot().WorldTimeMilli);
 
-        session.RestoreExecutionCheckpointJson(options, json);
+        session.RestoreExecutionCheckpointJson(session.CaptureWorldOptions(), json);
         var restored = session.GetWorldSnapshot();
         Assert.Equal(1_000, restored.WorldTimeMilli);
         Assert.Equal(1_000, restored.LogicalTimeMilli);
