@@ -63,10 +63,15 @@ public sealed class OrderResourceSettlementService
             throw new InvalidOperationException("结算前必须取得资源账本逻辑 tick。");
 
         LiquidBatchReceipt? receipt = lease?.SettlementReceipt;
+        var settlementHasLedgerFacts = receipt != null &&
+            (receipt.Accepted.Values.Any(value => value > 0) ||
+             receipt.Discarded.Values.Any(value => value > 0));
         if (lease?.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
-            (ledger == null || !ledger.HasRecordedOperation(lease.SettlementOperationId)))
+            (receipt == null ||
+             (settlementHasLedgerFacts &&
+                (ledger == null || !ledger.HasRecordedOperation(lease.SettlementOperationId)))))
             throw new InvalidOperationException(
-                "订单结算阶段报告账本已提交，但当前缺少对应的 ResourceLedger 或 Settlement operation receipt。");
+                "订单结算阶段报告账本已提交，但当前缺少结算收据或对应的 ResourceLedger operation receipt。");
 
         if (receipt == null && scopes.HasValue && admission.ShipLiquidInventory != null)
         {
