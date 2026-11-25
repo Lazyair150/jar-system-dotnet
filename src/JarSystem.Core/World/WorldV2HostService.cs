@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.World;
 
