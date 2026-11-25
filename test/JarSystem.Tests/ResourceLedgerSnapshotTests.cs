@@ -668,4 +668,64 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.Equal("酒", fact.Name);
     }
 
+
+    [Fact]
+    public void TaggedLedgerEndpointsDistinguishAccountsExternalBoundariesAndLegacyUnknown()
+    {
+        var world = new WorldInstanceId("world-ledger-endpoints");
+        var ship = new RuleResourceAccount(
+            new OwnerIdentity(world, ResourceOwnerKind.Ship, "ship-1"), "ship.liquid-inventory");
+        var warehouse = new RuleResourceAccount(
+            new OwnerIdentity(world, ResourceOwnerKind.Warehouse, "warehouse-1"), "warehouse.liquid-storage");
+        var ledger = new ResourceLedger();
+
+        Assert.True(ledger.RecordBatchOnce("operation.tagged.endpoints", 2, new[]
+        {
+            new ResourceLedgerMutation(
+                ResourceCauses.Stock, ResourceKinds.Liquid, "酒", 3,
+                ResourceIdentity: "酒",
+                FromEndpoint: ResourceEndpoint.ExternalSource("world.initialization"),
+                ToEndpoint: ResourceEndpoint.ForAccount(ship.AccountId)),
+            new ResourceLedgerMutation(
+                ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 2,
+                ResourceIdentity: "酒",
+                FromEndpoint: ResourceEndpoint.ForAccount(ship.AccountId),
+                ToEndpoint: ResourceEndpoint.ForAccount(warehouse.AccountId)),
+            new ResourceLedgerMutation(
+                ResourceCauses.Discard, ResourceKinds.Liquid, "酒", 1,
+                ResourceIdentity: "酒",
+                FromEndpoint: ResourceEndpoint.ForAccount(warehouse.AccountId),
+                ToEndpoint: ResourceEndpoint.ExternalSink("warehouse.capacity-overflow"))
+        }));
+
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.Equal(ResourceEndpointKind.ExternalSource, restored.Entries[0].FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, restored.Entries[0].ToEndpoint.Kind);
+        Assert.Equal(ship.AccountId, restored.Entries[0].ToEndpoint.AccountId);
+        Assert.Equal(warehouse.AccountId, restored.Entries[1].ToEndpoint.AccountId);
+        Assert.Equal(ResourceEndpointKind.ExternalSink, restored.Entries[2].ToEndpoint.Kind);
+
+        var legacyLedger = new ResourceLedger();
+        legacyLedger.Record(3, ResourceCauses.Production, ResourceKinds.Liquid, "蜜", 1);
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, Assert.Single(legacyLedger.Entries).FromEndpoint.Kind);
+    }
+
+    [Fact]
+    public void TaggedLedgerEndpointMustAgreeWithLegacyAccountProjection()
+    {
+        var ledger = new ResourceLedger();
+        var account = new RuleResourceAccount("warehouse.liquid-storage", "warehouse-1");
+        Assert.Throws<DomainValidationException>(() => ledger.RecordBatchOnce("operation.endpoint.mismatch", 1,
+            new[]
+            {
+                new ResourceLedgerMutation(
+                    ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 1,
+                    FromAccountId: account.AccountId,
+                    FromEndpoint: ResourceEndpoint.ExternalSource("wrong-source"))
+            }));
+        Assert.False(ledger.HasRecordedOperation("operation.endpoint.mismatch"));
+        Assert.Empty(ledger.Entries);
+    }
+
+
 }
