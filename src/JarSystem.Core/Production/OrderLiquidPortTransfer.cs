@@ -212,10 +212,10 @@ public static class OrderLiquidPortTransfer
             request.TargetAccount != targetAdapter.Account)
             throw new ArgumentException("Transfer request resource kind or authoritative account identity does not match its adapters.");
 
-        var expectedOrderSuffix = ":order:" + orderId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (!sourceAdapter.Account.OwnerId.EndsWith(expectedOrderSuffix, StringComparison.Ordinal) ||
-            !targetAdapter.Account.OwnerId.EndsWith(expectedOrderSuffix, StringComparison.Ordinal))
-            throw new ArgumentException("Both order-liquid adapters must represent the requested order ID.");
+        if (sourceAdapter.OrderId != orderId || targetAdapter.OrderId != orderId ||
+            !sourceAdapter.IsBoundTo(sourceStaging) || !targetAdapter.IsBoundTo(targetStaging))
+            throw new ArgumentException(
+                "Each order-liquid adapter must be bound to the exact supplied staging instance and order ID.");
 
         var source = sourceAdapter.Preflight(sourcePort, request.ResourceIdentity, request.Amount);
         var target = targetAdapter.Preflight(targetPort, request.ResourceIdentity, request.Amount);
