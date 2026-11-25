@@ -16,6 +16,8 @@ namespace JarSystem.Core.World;
 /// </summary>
 public sealed class WorldV2ExecutionCheckpointWireDto
 {
+    /// <summary>Optional for legacy checkpoints; new host-created worlds should always populate it.</summary>
+    public string? WorldInstanceId { get; set; }
     public List<string> Shapes { get; set; } = new();
     public List<string> Liquids { get; set; } = new();
     public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } = new(StringComparer.Ordinal);
@@ -37,6 +39,7 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         ArgumentNullException.ThrowIfNull(checkpoint);
         var wire = new WorldV2ExecutionCheckpointWireDto
         {
+            WorldInstanceId = checkpoint.WorldInstanceId?.Value,
             Shapes = checkpoint.Shapes.ToList(),
             Liquids = checkpoint.Liquids.ToList(),
             LiquidPolarities = checkpoint.LiquidPolarities.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
@@ -76,11 +79,15 @@ public sealed class WorldV2ExecutionCheckpointWireDto
         return new WorldV2ExecutionResourceCheckpoint(
             resourceArea, demandBoard, configurationFingerprint, ship,
             master, slave, admission, reservations, leases, ledger, clock,
-            RuntimeLedgerTick, Shapes, Liquids, LiquidPolarities, sessions);
+            RuntimeLedgerTick, Shapes, Liquids, LiquidPolarities, sessions,
+            WorldInstanceId == null ? null : new WorldInstanceId(WorldInstanceId));
     }
 
     public void Validate()
     {
+        if (WorldInstanceId != null && (string.IsNullOrWhiteSpace(WorldInstanceId) ||
+            !string.Equals(WorldInstanceId, WorldInstanceId.Trim(), StringComparison.Ordinal)))
+            throw new InvalidOperationException("根级检查点 WorldInstanceId 无效。");
         if (Shapes == null || Liquids == null ||
             Shapes.Count == 0 || Liquids.Count != 2 ||
             Shapes.Any(string.IsNullOrWhiteSpace) || Liquids.Any(string.IsNullOrWhiteSpace) ||
