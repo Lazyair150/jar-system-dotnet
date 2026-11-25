@@ -61,7 +61,10 @@ public sealed class ResourceEvent
     public string? ResourceIdentity { get; init; }
     /// <summary>产生该事实的幂等操作；普通历史记录与旧事件可为 null。</summary>
     public string? OperationId { get; init; }
+    /// <summary>Legacy display alias; consumers should prefer DisplayName.</summary>
     public string Name { get; init; } = "";
+    /// <summary>Localized presentation text; never participates in resource identity or operation fingerprints.</summary>
+    public string? DisplayName { get; init; }
     public int Amount { get; init; }
     public string? From { get; init; }
     public string? To { get; init; }
@@ -74,7 +77,7 @@ public sealed class ResourceEvent
     public string? Reason { get; init; }
 
     public override string ToString() =>
-        $"#{Seq}@{Tick} {Cause} {Kind} {Name}×{Amount}{(From == null ? "" : " " + From + "→" + To)}" +
+        $"#{Seq}@{Tick} {Cause} {Kind} {DisplayName ?? Name}×{Amount}{(From == null ? "" : " " + From + "→" + To)}" +
         (Reason == null ? "" : " (" + Reason + ")");
 }
 
@@ -242,16 +245,40 @@ public sealed class ResourceLedger
         IReadOnlyList<ResourceLedgerMutation> mutations,
         ResourceTransferReceipt? receipt)
     {
+        // ResourceIdentity is the stable machine key. Name/DisplayName are presentation-only.
+        var canonicalMutations = mutations.Select(item => new
+        {
+            item.Cause, item.Kind, item.ResourceIdentity, item.Amount, item.From, item.To,
+            item.Reason, item.FromAccountId, item.ToAccountId, item.FromEndpoint, item.ToEndpoint
+        }).ToArray();
         var payload = JsonSerializer.Serialize(new
         {
-            Mutations = mutations,
+            Mutations = canonicalMutations,
             Receipt = receipt
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 
-    // Schema 3-7 operation fingerprints predate tagged endpoints. Preserve their exact
-    // payload shape for replay compatibility; new writes bind the tagged endpoint fields.
+    // Schema 8 fingerprints included the legacy Name field and tagged endpoints, but not DisplayName.
+    private static string ComputeSchema8OperationFingerprint(
+        IReadOnlyList<ResourceLedgerMutation> mutations,
+        ResourceTransferReceipt? receipt)
+    {
+        var schema8Mutations = mutations.Select(item => new
+        {
+            item.Cause, item.Kind, item.Name, item.Amount, item.From, item.To,
+            item.Reason, item.ResourceIdentity, item.FromAccountId, item.ToAccountId,
+            item.FromEndpoint, item.ToEndpoint
+        }).ToArray();
+        var payload = JsonSerializer.Serialize(new
+        {
+            Mutations = schema8Mutations,
+            Receipt = receipt
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    // Schema 3-7 fingerprints predate tagged endpoints. Preserve their exact payload shape.
     private static string ComputeLegacyOperationFingerprint(
         IReadOnlyList<ResourceLedgerMutation> mutations,
         ResourceTransferReceipt? receipt)
@@ -278,6 +305,7 @@ public sealed class ResourceLedger
             : item;
         return normalized with
         {
+            DisplayName = normalized.DisplayName ?? normalized.Name,
             FromEndpoint = normalized.FromEndpoint ??
                 (normalized.FromAccountId == null ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(normalized.FromAccountId)),
             ToEndpoint = normalized.ToEndpoint ??
@@ -310,6 +338,7 @@ public sealed class ResourceLedger
         Cause = item.Cause,
         Kind = item.Kind,
         Name = item.Name,
+        DisplayName = item.DisplayName ?? item.Name,
         Amount = item.Amount,
         From = item.From,
         To = item.To,
@@ -330,7 +359,8 @@ public sealed class ResourceLedger
     public ResourceEvent? Record(int tick, string cause, string kind, string name, int amount,
         string? from = null, string? to = null, string? reason = null,
         string? resourceIdentity = null, string? fromAccountId = null, string? toAccountId = null,
-        ResourceEndpoint? fromEndpoint = null, ResourceEndpoint? toEndpoint = null)
+        ResourceEndpoint? fromEndpoint = null, ResourceEndpoint? toEndpoint = null,
+        string? displayName = null)
     {
         if (amount <= 0) return null;
         lock (_gate)
@@ -339,8 +369,9 @@ public sealed class ResourceLedger
             _entries.EnsureCapacity(checked(_entries.Count + 1));
             var e = new ResourceEvent
             {
-                Seq = nextSeq, Tick = tick, Cause = cause, Kind = kind, Name = name,
-                ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = to,
+                Seq = nextSeq, Tick = tick, Cause = cause, Kind = kind,
+                Name = displayName ?? name, DisplayName = displayName ?? name,
+                ResourceIdentity = resourceIdentity, Amount = amount, From = from, To = from == null ? to : to,
                 FromAccountId = fromAccountId, ToAccountId = toAccountId, Reason = reason,
                 FromEndpoint = fromEndpoint ?? (fromAccountId == null
                     ? ResourceEndpoint.LegacyUnknown : ResourceEndpoint.ForAccount(fromAccountId)),
@@ -379,6 +410,7 @@ public sealed class ResourceLedger
         {
             if (_operationFingerprints.TryGetValue(operationId, out var priorFingerprint) &&
                 !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal) &&
+                !string.Equals(priorFingerprint, ComputeSchema8OperationFingerprint(batch, receipt: null), StringComparison.Ordinal) &&
                 !string.Equals(priorFingerprint, ComputeLegacyOperationFingerprint(batch, receipt: null), StringComparison.Ordinal))
                 throw new InvalidOperationException("OperationId is already bound to a different ledger batch payload.");
             return false; // Legacy tombstones have no fingerprint and remain non-replayable no-ops.
@@ -417,7 +449,8 @@ public sealed class ResourceLedger
                 Tick = tick,
                 Cause = item.Cause,
                 Kind = item.Kind,
-                Name = item.Name,
+                Name = item.DisplayName ?? item.Name,
+                DisplayName = item.DisplayName ?? item.Name,
                 ResourceIdentity = item.ResourceIdentity,
                 OperationId = operationId,
                 Amount = item.Amount,
@@ -504,6 +537,7 @@ public sealed class ResourceLedger
                     throw new InvalidOperationException("OperationId is already bound to a different transfer receipt.");
                 if (_operationFingerprints.TryGetValue(operationId, out var priorFingerprint) &&
                     !string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal) &&
+                    !string.Equals(priorFingerprint, ComputeSchema8OperationFingerprint(batch, receipt), StringComparison.Ordinal) &&
                     !string.Equals(priorFingerprint, ComputeLegacyOperationFingerprint(batch, receipt), StringComparison.Ordinal))
                     throw new InvalidOperationException("OperationId is already bound to a different transfer payload.");
                 return false;
@@ -519,7 +553,9 @@ public sealed class ResourceLedger
                 events.Add(new ResourceEvent
                 {
                     Seq = nextSeq, Tick = tick, Cause = item.Cause, Kind = item.Kind,
-                    Name = item.Name, ResourceIdentity = item.ResourceIdentity, OperationId = operationId,
+                    Name = item.DisplayName ?? item.Name,
+                    DisplayName = item.DisplayName ?? item.Name,
+                    ResourceIdentity = item.ResourceIdentity, OperationId = operationId,
                     Amount = item.Amount, From = item.From, To = item.To,
                     FromAccountId = item.FromAccountId, ToAccountId = item.ToAccountId,
                     FromEndpoint = item.FromEndpoint!.Value,
@@ -606,7 +642,8 @@ public sealed class ResourceLedgerSnapshot
             Tick = item.Tick,
             Cause = item.Cause,
             Kind = item.Kind,
-            Name = item.Name,
+            Name = item.DisplayName ?? item.Name,
+            DisplayName = item.DisplayName ?? item.Name,
             Amount = item.Amount,
             From = item.From,
             To = item.To,
@@ -647,4 +684,5 @@ public sealed record ResourceLedgerMutation(
     string? From = null, string? To = null, string? Reason = null,
     string? ResourceIdentity = null,
     string? FromAccountId = null, string? ToAccountId = null,
-    ResourceEndpoint? FromEndpoint = null, ResourceEndpoint? ToEndpoint = null);
+    ResourceEndpoint? FromEndpoint = null, ResourceEndpoint? ToEndpoint = null,
+    string? DisplayName = null);
