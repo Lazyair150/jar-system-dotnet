@@ -3,8 +3,8 @@
 - 日期：2026-11-25
 - 审查分支基线：`3c38a3fab85cf7fde8cf943a3e9ea592a7117f5d`（World V2 phase-6 runtime switch-event conservation）
 - 当前工作分支：`architecture/core-liquid-identity-consolidation`
-- 关联 Space：`Lazyair150/space-demo`，PR #2，head `5a03c259f733eb1ef9f06439ff8f0a805d8e42c0`
-- Space 当前声明的 Core integration pin：`b342259fe04363386085dc9a4ca995112954ed43`
+- 关联 Space：`Lazyair150/space-demo`，PR #2，当前分支 head `a8daee73df55bf30125960a9a6231ea93e706d4f`
+- Space cross-repo workflow 当前仍固定 checkout 旧 Core SHA：`b342259fe04363386085dc9a4ca995112954ed43`；待本 PR 精确 head CI 通过后更新。
 - 证据原则：源码与测试优先；文档描述设计意图，不替代实际实现与运行证据。
 
 ## 1. 审查目标与边界
