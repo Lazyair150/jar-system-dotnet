@@ -89,6 +89,20 @@ public sealed class WorldV2ApplicationService
             "当前世界未配置 WorldInstanceId；该兼容工厂路径不能用于持久化身份。");
     }
 
+    /// <summary>
+    /// 捕获当前世界的完整配置快照，包括 Host 分配的 ProducerInstanceId / OwnedInstanceId。
+    /// 必须与执行检查点一起持久化；仅保存定义配置不足以重建稳定 OwnerIdentity。
+    /// </summary>
+    public WorldV2Options CaptureWorldOptions()
+    {
+        lock (_lifecycleSync)
+        {
+            var options = _lastOptions
+                ?? throw new InvalidOperationException("当前 ApplicationService 尚未装配 World 配置。");
+            return CloneOptions(options);
+        }
+    }
+
     /// <summary>设置世界流速倍率；1000 表示 1 倍，0 表示逻辑时间停止增长。</summary>
     public void SetWorldSpeedRatio(double ratio)
     {
