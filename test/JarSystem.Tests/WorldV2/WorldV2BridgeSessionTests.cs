@@ -177,6 +177,7 @@ public sealed class WorldV2BridgeSessionTests
         using var session = new WorldV2BridgeSession();
         var options = Options();
         session.CreateOrReplaceWorld(options);
+        var originalWorldId = session.GetWorldInstanceId();
         session.AdvanceWorld(1_000);
 
         var json = session.CaptureExecutionCheckpointJson();
@@ -191,6 +192,7 @@ public sealed class WorldV2BridgeSessionTests
         Assert.Equal(1_000, restored.LogicalTimeMilli);
         Assert.Equal("主台", restored.Master!.Name);
         Assert.Equal("从台", restored.Slave!.Name);
+        Assert.Equal(originalWorldId, session.GetWorldInstanceId());
     }
 
     [Fact]
