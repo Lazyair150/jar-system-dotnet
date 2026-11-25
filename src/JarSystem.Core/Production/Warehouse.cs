@@ -25,6 +25,7 @@ public sealed class Warehouse
     private readonly JarPool? _pool;
     private readonly Vocabulary _vocabulary;
     private readonly IIdGenerator _ids;
+    public OwnerIdentity? OwnerIdentity { get; }
     private readonly Dictionary<string, int> _liquidWarehouse = new();
     private readonly Dictionary<string, int> _discardedLiquids = new();
 
@@ -51,8 +52,16 @@ public sealed class Warehouse
     public int DiscardedJars { get; private set; }
 
     /// <param name="vocabulary">词表（S2）：液体账目按它的名字与**顺序**建键 —— 契约快照里 `liquids` 的键序依赖它。</param>
-    public Warehouse(Vocabulary? vocabulary = null, JarPool? pool = null, IIdGenerator? ids = null)
+    public Warehouse(
+        Vocabulary? vocabulary = null,
+        JarPool? pool = null,
+        IIdGenerator? ids = null,
+        OwnerIdentity? ownerIdentity = null)
     {
+        if (ownerIdentity.HasValue &&
+            (!ownerIdentity.Value.IsValid || ownerIdentity.Value.OwnerKind != ResourceOwnerKind.Warehouse))
+            throw new ArgumentException("Warehouse requires a Warehouse OwnerIdentity.", nameof(ownerIdentity));
+        OwnerIdentity = ownerIdentity;
         _vocabulary = vocabulary ?? Vocabulary.Default;
         _pool = pool;
         _ids = ids ?? DefaultIdGenerators.Jars;
