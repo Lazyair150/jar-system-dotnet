@@ -93,7 +93,7 @@ public sealed class WorkshopOrderLiquidScopeTests
         var workshop = CreateWorkshop(ban: new[] { "酒" });
         var jar = new Jar("圆罐", "酒");
         Assert.True(workshop.AddJar(jar));
-        var staging = new WorkshopLiquidStaging(4);
+        var staging = new WorkshopLiquidStaging(4, new[] { "酒" });
         var scope = new OrderLiquidScope(101, staging);
 
         var result = workshop.PourOutWithSettlement(jar, scope);
