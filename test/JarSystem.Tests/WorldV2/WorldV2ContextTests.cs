@@ -651,6 +651,9 @@ public sealed class WorldV2ContextTests
 
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
         Assert.Equal("world-session-a", checkpoint.WorldInstanceId!.Value.Value);
+        var wireCheckpoint = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(checkpoint);
+        Assert.Throws<InvalidOperationException>(() => wireCheckpoint.ToCheckpoint(
+            checkpoint.ConfigurationFingerprint, new WorldInstanceId("attempted-identity-rewrite")));
 
         var checkpointJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(checkpoint);
         var decodedCheckpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(checkpointJson);
