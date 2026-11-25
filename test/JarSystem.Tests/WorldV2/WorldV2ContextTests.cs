@@ -652,6 +652,10 @@ public sealed class WorldV2ContextTests
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
         Assert.Equal("world-session-a", checkpoint.WorldInstanceId!.Value.Value);
 
+        var checkpointJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(checkpoint);
+        var decodedCheckpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(checkpointJson);
+        Assert.Equal(checkpoint.WorldInstanceId, decodedCheckpoint.WorldInstanceId);
+
         var secondMaster = CreateMaster();
         using var secondWorld = WorldV2Context.Create(
             CreateResources(), new[] { secondMaster }, secondMaster, null,
