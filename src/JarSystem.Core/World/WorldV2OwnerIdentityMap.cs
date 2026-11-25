@@ -56,6 +56,22 @@ public sealed class WorldV2OwnerIdentityMap
         foreach (var owner in Workshops.Values) ValidateOwner(owner, ResourceOwnerKind.Workshop);
     }
 
+    public bool IsEquivalentTo(WorldV2OwnerIdentityMap? other) =>
+        other != null &&
+        WorldInstanceId == other.WorldInstanceId &&
+        Ship == other.Ship &&
+        CircuitBoard == other.CircuitBoard &&
+        ProductionArea == other.ProductionArea &&
+        Warehouse == other.Warehouse &&
+        DictionaryEquals(Producers, other.Producers) &&
+        DictionaryEquals(Workshops, other.Workshops);
+
+    private static bool DictionaryEquals(
+        IReadOnlyDictionary<string, OwnerIdentity> left,
+        IReadOnlyDictionary<string, OwnerIdentity> right) =>
+        left.Count == right.Count &&
+        left.All(item => right.TryGetValue(item.Key, out var owner) && owner == item.Value);
+
     public OwnerIdentity GetProducer(string producerInstanceId) =>
         Producers.TryGetValue(producerInstanceId, out var owner)
             ? owner
