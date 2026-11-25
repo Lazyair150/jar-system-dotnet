@@ -95,7 +95,7 @@ internal sealed class GreedyPlanBuilder
         var sr = FindJar(w.Jars, j => j.IsEmpty() && !j.IsMarked && w.CanTransform(j.Shape, s));
         if (sr != null)
         {
-            var cl = Constants.LIQUIDS.FirstOrDefault(l => w.Liquid.CanPay(l, 1, w.LiquidStorage.GetValueOrDefault(l)).Granted);
+            var cl = w.LiquidStorage.Keys.FirstOrDefault(l => w.Liquid.CanPay(l, 1, w.LiquidStorage.GetValueOrDefault(l)).Granted);
             if (cl != null)
             {
                 var cr = ev.ExecuteCommand(new ReshapeEmptyCommand(sr, s, cl), w);
@@ -137,7 +137,7 @@ internal sealed class GreedyPlanBuilder
     }
 
     /// <summary>工作台是否有可用（未禁且有库存）的游离液体。</summary>
-    private static bool HasFreeLiquid(Workshop w) => Constants.LIQUIDS.Any(w.HasUsableLiquid);
+    private static bool HasFreeLiquid(Workshop w) => w.LiquidStorage.Keys.Any(w.HasUsableLiquid);
 
     private Jar? FindJar(IReadOnlyList<Jar> jars, Func<Jar, bool> pred) => _selector.Select(jars, pred);
 }
