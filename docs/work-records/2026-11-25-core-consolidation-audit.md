@@ -753,3 +753,8 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 文档与 ResourceCauses 词表说明更新后的完整 Run `45630249477`（提交 `6df684df084f6237cbfa566a13b750ec511d1a3d`）通过：Build 成功；xUnit 934 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该结果覆盖六条参与者、账本批次预分配、Jar 顺序补偿和 3.12 共同边界文档。
 
 - 再核对 JSON 持久化链：`WorldV2ExecutionCheckpointWireDto.ResourceLedger` 使用 `ResourceLedgerWireDto`，其 `OperationIds` 字段由 `FromSnapshot` 复制、在 `Validate` 中校验非空/唯一，并由 `ToSnapshot` 还原。因此去重标记不仅存在于内存检查点，也进入版本化 JSON checkpoint wire payload。
+
+- 继续事务最终提交审查：Run `45630266343` 对提交 `6df684df084f6237cbfa566a13b750ec511d1a3d` 验证通过：Build 成功；xUnit 934 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+- 源码复核发现 `src/JarSystem.Core/Production/WarehouseWorkshopJarPortTransfer.cs` 的 namespace 错误地写成 `JarSystem.Tests`，使生产转移实现泄漏到测试命名空间。已修正为 `JarSystem.Core.Production`，并删除无意义的同命名空间 using。提交：`a54ac39c346572323621c2c4f53cef8ebf99865b`。该修正后的 CI 尚待确认。
+- 事务一致性审查结论：当前参与者在领域补偿回调内写入 `RecordBatchOnce`，但成功回执是在回调返回、物理事务完成后才构造。需要把“构造并验证成功回执 + 账本 OperationId/事件提交”移入领域补偿边界；否则提交后的回执构造异常会形成已变更资源/已写账本、调用方却没有确定回执的窗口。
+- 当前账本 `RecordBatchOnce` 已先验证并构造整批事件，再 EnsureCapacity，最后写入 OperationId 与事件；但只保存 OperationId，不保存成功 TransferReceipt，因此跨实例重复请求只能被拒绝，不能返回同一历史回执。下一步应把成功回执并入账本提交和检查点 Wire DTO，形成 OperationId → Receipt 的可恢复映射；旧的纯事件批次接口继续用于非端口结算，不能伪造回执。
