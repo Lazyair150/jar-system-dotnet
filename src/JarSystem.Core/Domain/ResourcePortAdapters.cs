@@ -333,6 +333,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
     private readonly Workshop _workshop;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal bool IsBoundTo(Workshop workshop) => ReferenceEquals(_workshop, workshop);
 
     public WorkshopJarStoragePortAdapter(Workshop workshop, string areaId)
     {
@@ -413,6 +414,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
     private readonly Warehouse _warehouse;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal bool IsBoundTo(Warehouse warehouse) => ReferenceEquals(_warehouse, warehouse);
 
     public WarehouseJarStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
     {
