@@ -57,6 +57,7 @@ public sealed record ResourceTransferRequest(
         CircuitAreaDefinition.RequireIdentity(ResourceIdentity, nameof(ResourceIdentity));
         SourceAccount.Validate();
         TargetAccount.Validate();
+        RuleResourceAccount.ValidateTransferScope(SourceAccount, TargetAccount);
         if (!Enum.IsDefined(ResourceKind) || Amount <= 0 ||
             string.IsNullOrWhiteSpace(ExpectedSourceVersionToken) || string.IsNullOrWhiteSpace(ExpectedTargetVersionToken))
             throw new ArgumentException("Resource transfer request contains an invalid kind, amount or expected version.");
@@ -106,6 +107,7 @@ public sealed record ResourceTransferReceipt(
         CircuitAreaDefinition.RequireIdentity(ResourceIdentity, nameof(ResourceIdentity));
         SourceAccount.Validate();
         TargetAccount.Validate();
+        RuleResourceAccount.ValidateTransferScope(SourceAccount, TargetAccount);
 
         if (!Enum.IsDefined(ResourceKind) || !Enum.IsDefined(Outcome) ||
             RequestedAmount <= 0 || TransferredAmount < 0 ||
