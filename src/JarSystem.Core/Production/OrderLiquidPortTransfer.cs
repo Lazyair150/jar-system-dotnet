@@ -25,6 +25,7 @@ public sealed class PreparedOrderLiquidPortTransfer
     private ResourceTransferReceipt? _receipt;
     private bool _cancelled;
     private bool _faulted;
+    private bool _duplicateOperation;
 
     internal PreparedOrderLiquidPortTransfer(
         ResourceTransferRequest request,
@@ -51,7 +52,7 @@ public sealed class PreparedOrderLiquidPortTransfer
     }
 
     public string OperationId => _request.OperationId;
-    public bool IsCompleted => _receipt is not null || _cancelled || _faulted;
+    public bool IsCompleted => _receipt is not null || _cancelled || _faulted || _duplicateOperation;
     public bool IsCommitted => _receipt?.Outcome == ResourceTransferOutcome.Transferred;
 
     /// <summary>
@@ -63,6 +64,8 @@ public sealed class PreparedOrderLiquidPortTransfer
         if (_receipt is not null) return _receipt;
         if (_faulted)
             throw new InvalidOperationException("This transfer participant faulted during commit and cannot be retried.");
+        if (_duplicateOperation)
+            throw new InvalidOperationException("This OperationId was already committed; reconcile from the authoritative ledger instead of replaying.");
         if (_cancelled)
             return _receipt = CreateNoMutationReceipt(
                 ResourceTransferOutcome.Rejected, "transfer.cancelled",
@@ -75,8 +78,11 @@ public sealed class PreparedOrderLiquidPortTransfer
         target.Validate();
 
         if (_ledger?.HasRecordedOperation(_request.OperationId) == true)
-            return _receipt = CreateNoMutationReceipt(
-                ResourceTransferOutcome.Rejected, "operation.already-recorded", source, target);
+        {
+            _duplicateOperation = true;
+            throw new InvalidOperationException(
+                "This OperationId was already committed; reconcile from the authoritative ledger instead of replaying.");
+        }
 
         if (source.ObservedVersionToken != _request.ExpectedSourceVersionToken ||
             target.ObservedVersionToken != _request.ExpectedTargetVersionToken)
