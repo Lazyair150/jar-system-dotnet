@@ -1,4 +1,5 @@
 using System;
+using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Domain;
 
@@ -29,23 +30,23 @@ public enum WorkshopPolarityMode
 /// </summary>
 public static class JarPolarityResolver
 {
-    public static bool TryFromLiquid(string? liquid, out JarPolarity polarity)
+    public static bool TryFromLiquid(
+        string? liquid,
+        Vocabulary vocabulary,
+        out JarPolarity polarity)
     {
+        ArgumentNullException.ThrowIfNull(vocabulary);
         if (liquid is null)
         {
             polarity = JarPolarity.Neutral;
             return true;
         }
 
-        if (string.Equals(liquid, "酒", StringComparison.Ordinal))
+        if (vocabulary.TryGetLiquidPolarity(liquid, out var configured))
         {
-            polarity = JarPolarity.Cathode;
-            return true;
-        }
-
-        if (string.Equals(liquid, "蜜", StringComparison.Ordinal))
-        {
-            polarity = JarPolarity.Anode;
+            polarity = configured == LiquidPolarity.Cathode
+                ? JarPolarity.Cathode
+                : JarPolarity.Anode;
             return true;
         }
 
@@ -53,8 +54,14 @@ public static class JarPolarityResolver
         return false;
     }
 
-    public static JarPolarity Resolve(string? liquid) =>
-        TryFromLiquid(liquid, out var polarity)
+    /// <summary>Compatibility resolver for the legacy default World only.</summary>
+    public static bool TryFromLiquid(string? liquid, out JarPolarity polarity) =>
+        TryFromLiquid(liquid, Vocabulary.Default, out polarity);
+
+    public static JarPolarity Resolve(string? liquid, Vocabulary vocabulary) =>
+        TryFromLiquid(liquid, vocabulary, out var polarity)
             ? polarity
-            : throw new ArgumentException("Liquid has no registered Jar polarity: " + liquid, nameof(liquid));
+            : throw new ArgumentException("Liquid identity has no polarity in this World: " + liquid, nameof(liquid));
+
+    public static JarPolarity Resolve(string? liquid) => Resolve(liquid, Vocabulary.Default);
 }
