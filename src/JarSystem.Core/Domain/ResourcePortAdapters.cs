@@ -162,6 +162,8 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
     private readonly string _areaId;
     private readonly int _orderId;
     public RuleResourceAccount Account { get; }
+    public int OrderId => _orderId;
+    internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
     public WorkshopOrderLiquidPortAdapter(
         WorkshopLiquidStaging staging, string workshopInstanceId, string areaId, int orderId)
