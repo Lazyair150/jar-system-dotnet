@@ -218,10 +218,12 @@ public sealed class ResourceWorldRuntime
         var combinedInterruption = new RuntimeOrderInterruptionPort(_executionSessions, interruptionPort);
         Func<Workshop, WorkshopPrefillTransaction>? prefillBeforeMigration = null;
         Action<WorkshopPrefillTransaction>? rollbackPrefill = null;
+        Workshop? prefillTargetWorkshop = null;
         if (role == WorkshopRole.Master && _masterPrefill != null)
         {
             prefillBeforeMigration = targetWorkshop =>
             {
+                prefillTargetWorkshop = targetWorkshop;
                 // 先取得 tick，再移动库存；tick provider 异常不能发生在资源扣款之后。
                 var tick = _resourceLedger == null ? 0 : _resourceLedgerTick!();
                 WorkshopPrefillTransaction transaction;
@@ -276,7 +278,9 @@ public sealed class ResourceWorldRuntime
                 {
                     foreach (var item in transaction.Receipt.Accepted)
                     {
-                        var source = WorkshopAccountEndpoint(targetWorkshop, "workshop.prefill-liquid-staging");
+                        var rollbackWorkshop = prefillTargetWorkshop
+                            ?? throw new InvalidOperationException("主台预置回滚缺少原始目标工作台身份。");
+                        var source = WorkshopAccountEndpoint(rollbackWorkshop, "workshop.prefill-liquid-staging");
                         var target = OwnerAccountEndpoint(Resources.ShipLiquidInventory?.OwnerIdentity, "ship.liquid-inventory");
                         _resourceLedger.Record(tick, ResourceCauses.Return, ResourceKinds.Liquid,
                             item.Key, item.Value, from: "主台预置", to: "自机液库",
