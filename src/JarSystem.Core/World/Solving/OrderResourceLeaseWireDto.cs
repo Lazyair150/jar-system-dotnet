@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
+using JarSystem.Core.World;
 
 namespace JarSystem.Core.World.Solving;
 
@@ -25,6 +26,7 @@ public sealed class OrderResourceLeaseWireDto
     public Dictionary<string, int>? SettlementRequested { get; set; }
     public Dictionary<string, int>? SettlementAccepted { get; set; }
     public Dictionary<string, int>? SettlementDiscarded { get; set; }
+    public List<LiquidBatchSourceAllocationWireDto>? SettlementSourceAllocations { get; set; }
 
     public static OrderResourceLeaseWireDto FromLease(OrderResourceLease lease)
     {
@@ -45,7 +47,9 @@ public sealed class OrderResourceLeaseWireDto
             SettlementOperationId = lease.SettlementOperationId,
             SettlementRequested = receipt == null ? null : Copy(receipt.Requested),
             SettlementAccepted = receipt == null ? null : Copy(receipt.Accepted),
-            SettlementDiscarded = receipt == null ? null : Copy(receipt.Discarded)
+            SettlementDiscarded = receipt == null ? null : Copy(receipt.Discarded),
+            SettlementSourceAllocations = receipt == null ? null :
+                receipt.SourceAllocations.Select(LiquidBatchSourceAllocationWireDto.FromAllocation).ToList()
         };
     }
 
@@ -65,7 +69,8 @@ public sealed class OrderResourceLeaseWireDto
         SettlementOperationId = SettlementOperationId,
         SettlementRequested = SettlementRequested == null ? null : Copy(SettlementRequested),
         SettlementAccepted = SettlementAccepted == null ? null : Copy(SettlementAccepted),
-        SettlementDiscarded = SettlementDiscarded == null ? null : Copy(SettlementDiscarded)
+        SettlementDiscarded = SettlementDiscarded == null ? null : Copy(SettlementDiscarded),
+        SettlementSourceAllocations = SettlementSourceAllocations?.Select(item => item.DeepCopy()).ToList()
     };
 
     internal WorldResourceReservation ToReservation()
@@ -83,7 +88,8 @@ public sealed class OrderResourceLeaseWireDto
         if (SettlementStage == OrderResourceSettlementStage.NotStarted)
             return null;
         return new LiquidBatchReceipt(
-            SettlementRequested!, SettlementAccepted!, SettlementDiscarded!);
+            SettlementRequested!, SettlementAccepted!, SettlementDiscarded!,
+            SettlementSourceAllocations?.Select(item => item.ToAllocation()));
     }
 
     public void Validate()
@@ -122,7 +128,8 @@ public sealed class OrderResourceLeaseWireDto
             throw new InvalidOperationException("Wire 租约结算 OperationId 与订单身份不匹配。");
 
         var hasReceipt = SettlementRequested != null ||
-            SettlementAccepted != null || SettlementDiscarded != null;
+            SettlementAccepted != null || SettlementDiscarded != null ||
+            SettlementSourceAllocations != null;
         if (SettlementStage == OrderResourceSettlementStage.NotStarted)
         {
             if (hasReceipt)
@@ -141,6 +148,14 @@ public sealed class OrderResourceLeaseWireDto
             if (SettlementRequested.GetValueOrDefault(key) != checked(
                 SettlementAccepted.GetValueOrDefault(key) + SettlementDiscarded.GetValueOrDefault(key)))
                 throw new InvalidOperationException("Wire 租约结算收据数量不守恒。");
+        }
+        if (SettlementSourceAllocations != null)
+        {
+            foreach (var allocation in SettlementSourceAllocations)
+                allocation.Validate();
+            _ = new LiquidBatchReceipt(
+                SettlementRequested, SettlementAccepted, SettlementDiscarded,
+                SettlementSourceAllocations.Select(item => item.ToAllocation()));
         }
     }
 
@@ -191,3 +206,69 @@ public sealed class WorldResourceReservationBookWireDto
             throw new InvalidOperationException("Wire 预留簿中的罐子被多个订单同时锁定。");
     }
 }
+
+/// <summary>Wire DTO for the exact contribution of one source account to a multi-account settlement.</summary>
+public sealed class LiquidBatchSourceAllocationWireDto
+{
+    public ResourceEndpointWireDto SourceEndpoint { get; set; } = new();
+    public ResourceEndpointWireDto TargetEndpoint { get; set; } = new();
+    public Dictionary<string, int> Requested { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, int> Accepted { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, int> Discarded { get; set; } = new(StringComparer.Ordinal);
+
+    public static LiquidBatchSourceAllocationWireDto FromAllocation(LiquidBatchSourceAllocation value) => new()
+    {
+        SourceEndpoint = ResourceEndpointWireDto.FromEndpoint(value.SourceEndpoint),
+        TargetEndpoint = ResourceEndpointWireDto.FromEndpoint(value.TargetEndpoint),
+        Requested = Copy(value.Requested),
+        Accepted = Copy(value.Accepted),
+        Discarded = Copy(value.Discarded)
+    };
+
+    public LiquidBatchSourceAllocationWireDto DeepCopy() => new()
+    {
+        SourceEndpoint = new ResourceEndpointWireDto
+        {
+            Kind = SourceEndpoint.Kind,
+            AccountId = SourceEndpoint.AccountId,
+            ExternalIdentity = SourceEndpoint.ExternalIdentity
+        },
+        TargetEndpoint = new ResourceEndpointWireDto
+        {
+            Kind = TargetEndpoint.Kind,
+            AccountId = TargetEndpoint.AccountId,
+            ExternalIdentity = TargetEndpoint.ExternalIdentity
+        },
+        Requested = Copy(Requested),
+        Accepted = Copy(Accepted),
+        Discarded = Copy(Discarded)
+    };
+
+    public void Validate()
+    {
+        if (SourceEndpoint == null || TargetEndpoint == null ||
+            !SourceEndpoint.IsValid || !TargetEndpoint.IsValid ||
+            Requested == null || Accepted == null || Discarded == null)
+            throw new InvalidOperationException("Per-source settlement Wire allocation is invalid.");
+        _ = ToAllocation();
+    }
+
+    public LiquidBatchSourceAllocation ToAllocation()
+    {
+        ValidateEndpoints();
+        return new LiquidBatchSourceAllocation(
+            SourceEndpoint.ToEndpoint(), TargetEndpoint.ToEndpoint(),
+            Requested, Accepted, Discarded);
+    }
+
+    private void ValidateEndpoints()
+    {
+        if (SourceEndpoint == null || TargetEndpoint == null ||
+            !SourceEndpoint.IsValid || !TargetEndpoint.IsValid)
+            throw new InvalidOperationException("Per-source settlement endpoint is invalid.");
+    }
+
+    private static Dictionary<string, int> Copy(IReadOnlyDictionary<string, int> source) =>
+        source.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+}
+
