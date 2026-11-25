@@ -457,11 +457,18 @@ public static class WorldV2Factory
         WorldV2Options options,
         WorldClock? clock = null,
         IEnumerable<IWorldOrderSpecificationSolver>? additionalSolvers = null,
-        WorldInstanceId? worldInstanceId = null)
+        WorldInstanceId? worldInstanceId = null,
+        WorldV2OwnerIdentityMap? ownerIdentities = null)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
             throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
+        if (ownerIdentities != null)
+        {
+            if (!worldInstanceId.HasValue)
+                throw new ArgumentException("Owner identity map requires an explicit WorldInstanceId.", nameof(ownerIdentities));
+            ownerIdentities.ValidateForWorld(worldInstanceId.Value);
+        }
 
         var validation = options.Validate();
         if (!validation.IsValid)
@@ -550,6 +557,7 @@ public static class WorldV2Factory
             options.Shapes,
             options.Liquids,
             OrderTemplateLibrary.FromOptions(options.OrderTemplates, options.Shapes, options.Liquids),
-            worldInstanceId);
+            worldInstanceId,
+            ownerIdentities);
     }
 }
