@@ -163,6 +163,28 @@ public sealed class WarehouseWorkshopJarPortTransferTests
     }
 
     [Fact]
+    public void LedgerFailureRestoresJarToItsExactOriginalWarehousePosition()
+    {
+        var warehouse = new Warehouse();
+        var first = new Jar("圆罐", id: 501);
+        var moved = new Jar("方罐", id: 502);
+        var last = new Jar("圆罐", id: 503);
+        warehouse.StoreJars(new[] { first, moved, last });
+        var workshop = new Workshop("master", ownedInstanceId: "workshop.master.01");
+        var before = new List<Jar>(warehouse.Jars);
+
+        Assert.Throws<System.InvalidOperationException>(() =>
+            WarehouseWorkshopJarTransfer.TryExecute(
+                warehouse, workshop, moved.Id!.Value, out _,
+                () => throw new System.InvalidOperationException("injected ledger publication failure")));
+
+        Assert.Equal(before.Count, warehouse.Jars.Count);
+        for (var i = 0; i < before.Count; i++)
+            Assert.Same(before[i], warehouse.Jars[i]);
+        Assert.Empty(workshop.Jars);
+    }
+
+    [Fact]
     public void PrepareRejectsAdaptersBoundToDifferentStorageInstances()
     {
         var path = CreatePath();
