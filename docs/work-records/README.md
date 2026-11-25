@@ -28,3 +28,6 @@
 `architecture/core-liquid-identity-consolidation`
 
 不要把 Draft PR 当作已合并主线；不要把 Headless 验证当作 GUI 验收。
+
+- [ADR 0009：资源回执日志保留与零资源结算语义](../decisions/0009-resource-receipt-journal-and-zero-resource-settlement.md)
+- [第二十五轮：Receipt Journal 与零资源结算复核](2026-11-25-core-consolidation-audit.md)
