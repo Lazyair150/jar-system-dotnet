@@ -513,12 +513,12 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
     }
 
     public WarehouseJarStoragePortAdapter(
-        Warehouse warehouse, OwnerIdentity productionAreaOwner, string areaId)
+        Warehouse warehouse, OwnerIdentity warehouseOwner, string areaId)
     {
         _warehouse = warehouse ?? throw new ArgumentNullException(nameof(warehouse));
         _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
-        ResourceOwnerIdentityGuard.Require(productionAreaOwner, ResourceOwnerKind.ProductionArea);
-        Account = new RuleResourceAccount(productionAreaOwner, "production.warehouse.jar-storage");
+        ResourceOwnerIdentityGuard.Require(warehouseOwner, ResourceOwnerKind.Warehouse);
+        Account = new RuleResourceAccount(warehouseOwner, "production.warehouse.jar-storage");
         Account.Validate();
     }
 
@@ -606,12 +606,12 @@ public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter
     }
 
     public WarehouseLiquidStoragePortAdapter(
-        Warehouse warehouse, OwnerIdentity productionAreaOwner, string areaId)
+        Warehouse warehouse, OwnerIdentity warehouseOwner, string areaId)
     {
         _warehouse = warehouse ?? throw new ArgumentNullException(nameof(warehouse));
         _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
-        ResourceOwnerIdentityGuard.Require(productionAreaOwner, ResourceOwnerKind.ProductionArea);
-        Account = new RuleResourceAccount(productionAreaOwner, "production.warehouse.liquid-storage");
+        ResourceOwnerIdentityGuard.Require(warehouseOwner, ResourceOwnerKind.Warehouse);
+        Account = new RuleResourceAccount(warehouseOwner, "production.warehouse.liquid-storage");
         Account.Validate();
     }
 
