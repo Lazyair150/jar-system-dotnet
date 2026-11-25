@@ -102,3 +102,28 @@ Space 相关提交：`851a0c9d20374a99c90bdfcb801dd83181c08813`、`c74c29b96c46b
 ### 当前状态
 
 Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI 和 Space 跨仓库 CI 尚待最终结果。PR #63 保持 Draft。旧堆叠 PR 和远端分支暂不删除，直到 #63 合并并确认其内容完整覆盖。
+
+
+## 2026-11-25 第三轮：主线基线与固定 Seed 分支收敛
+
+### 已执行的 Git 图谱整合
+
+- 比较 main 与整合分支时发现整合分支落后 main 2 个提交，且有 2 个只存在于 main 的资源模拟文档/测试文件。
+- 将这两个文件按 main 当前内容同步到整合分支，并创建双父 merge commit：69cafecd7f6c5c421a73f7028c91d81b4020ca80。第一父提交 59e20847eb90e44055974d4d060db8574c469629；第二父提交 40e578e6e32472549d647ed903ef98cc98028bb6（main）。
+- 再比较后，整合分支相对 main 为 ahead 2124 / behind 0，状态 ahead。最新 main 的两个提交已进入整合分支历史。
+- PR #61 固定 Seed 扩展包含 2 个提交；已同步新增文档和更新后的 WorldOrderSymbolicResourceSimulatorTests.cs，并创建双父 merge commit 92597214bb0d2019acf9d018d0fc821c849994e2，第二父提交 9d45a9cc618186e3fbf60adb83beea35cc0b0caa。
+- PR #62 head 3c38a3fab85cf7fde8cf943a3e9ea592a7117f5d 已是整合分支祖先。PR #60 仍有文档与 ignore 独有差异，暂不关闭，待单独核对。
+
+### 本轮编译反馈与修正
+
+- JarFacts 不再提供 context-free 默认极性推导；构造时必须提供 JarPolarity。
+- CI 定位到 StateSpaceSolver 和 WorldOrderRuleCandidateProfile 两处漏传 polarity，现已修正：74f933ea7b16d968d46152c13819f2d0d58bf4d5、449903b1b8779931963eff3fd83856afa8fb03c4。
+- 测试中的 JarFacts 断言改为显式提供默认世界 Neutral/Cathode/Anode：81958bb42503184d5703f9efb21092a2f02b4f3a。
+- ReferenceSolver 的空罐匹配与操作入口改为使用所属 Workshop capability 的 World polarity：ce899bd17f82ea747a99eec494f672b6e55fdc0d。
+- 修正后的 Core CI run 45577267527（head 81958bb42503184d5703f9efb21092a2f02b4f3a）尚在执行；后续提交的 run 也仍在执行，不能宣布 Core 全套通过。
+
+### 当前分支基线
+
+- 整合分支与 main 对齐，behind 0。
+- 当前仍是 PR #63 Draft，不合并 main。
+- PR #60/#61/#62 保持开放；#61 内容已作为 merge parent 纳入整合分支，但待整合 PR 验证完成后再关闭旧 PR，避免过早丢失审计入口。
