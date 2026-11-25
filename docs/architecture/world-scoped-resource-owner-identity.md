@@ -118,3 +118,17 @@ When settlement drains multiple order-scoped accounts, each source allocation mu
 8. Only then implement the multi-account compound transfer coordinator.
 
 The migration must preserve current resource behavior, Jar entity identity, Ban scope, deterministic replay, and old checkpoint readability.
+
+
+## 8. Implementation status (2026-11-26)
+
+The implementation now includes the tagged endpoint algebra `Account | ExternalSource | ExternalSink | LegacyUnknown` on ResourceEvent, ResourceLedgerMutation, snapshots and schema-8 checkpoint wire DTOs. Schema 3–7 remain readable; missing tags map from explicit legacy AccountId when present, otherwise to LegacyUnknown. WorldV2Context validates every tagged Account v2 endpoint against the restored WorldInstanceId.
+
+B-class Workshop handoff now emits World-scoped account endpoints whenever exact Workshop OwnerIdentity is available. Order settlement captures the per-source balance before draining and stores per-source Requested/Accepted/Discarded allocations in the lease receipt/checkpoint. Ledger facts are emitted as separate source-account legs; accepted return targets the Ship Account, and discarded quantity targets an ExternalSink. A deterministic master-then-slave allocation policy is currently used for same-liquid fungible quantities.
+
+This is still a staged migration:
+- Traditional ProductionService stock/production/warehouse flow/discard Record sites have not all been given explicit owner endpoints.
+- LegacyUnknown remains allowed for old and not-yet-migrated write paths.
+- ResourceEvent.Name has not yet been fully separated into DisplayName.
+- The durable cross-account physical transaction coordinator remains unimplemented.
+- Code has been written to the feature branch; no local build/test pass is claimed by this work record.
