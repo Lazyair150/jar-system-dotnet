@@ -86,10 +86,18 @@ public sealed class PreparedShipPrefillPortTransfer
         {
             var transaction = _staging.BeginPrefillTransferFromShip(
                 _ship, _request.ResourceIdentity, _request.Amount);
+            ResourceTransferReceipt? committedReceipt = null;
             try
             {
                 transaction.Commit(() =>
                 {
+                    var sourceAfterCommit = _sourceAdapter.Preflight(
+                        _sourcePort, _request.ResourceIdentity, _request.Amount);
+                    var targetAfterCommit = _targetAdapter.Preflight(
+                        _targetPort, _request.ResourceIdentity, _request.Amount);
+                    committedReceipt = ResourcePortTransferGuards.CreateCommittedReceipt(
+                        _request, source, target, sourceAfterCommit, targetAfterCommit);
+
                     if (_ledger is not null &&
                         !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
                         {
@@ -119,21 +127,8 @@ public sealed class PreparedShipPrefillPortTransfer
                 throw;
             }
 
-            var sourceAfter = _sourceAdapter.Preflight(
-                _sourcePort, _request.ResourceIdentity, _request.Amount);
-            var targetAfter = _targetAdapter.Preflight(
-                _targetPort, _request.ResourceIdentity, _request.Amount);
-            _receipt = new ResourceTransferReceipt(
-                _request.OperationId, _request.ConnectionId,
-                _request.SourcePortId, _request.TargetPortId,
-                _request.ResourceKind, _request.ResourceIdentity,
-                _request.SourceAccount, _request.TargetAccount,
-                _request.Amount, _request.Amount, 0, 0,
-                ResourceTransferOutcome.Transferred,
-                source.ObservedVersionToken, sourceAfter.ObservedVersionToken,
-                target.ObservedVersionToken, targetAfter.ObservedVersionToken,
-                "allowed");
-            _receipt.Validate();
+            _receipt = committedReceipt
+                ?? throw new InvalidOperationException("Ship-to-prefill transfer completed without a validated receipt.");
             return _receipt;
         }
         catch
