@@ -1004,13 +1004,28 @@ internal static class LegacyWorkshopLiquidTransfer
         Workshop master,
         Workshop slave,
         IReadOnlyDictionary<string, int> amounts) =>
-        Execute(master, slave, amounts, DefaultPort);
+        Execute(master, slave, amounts, DefaultPort, null);
 
     internal static void Execute(
         Workshop master,
         Workshop slave,
         IReadOnlyDictionary<string, int> amounts,
-        ILegacyWorkshopLiquidTransferPort mutationPort)
+        Action? beforeFinalize) =>
+        Execute(master, slave, amounts, DefaultPort, beforeFinalize);
+
+    internal static void Execute(
+        Workshop master,
+        Workshop slave,
+        IReadOnlyDictionary<string, int> amounts,
+        ILegacyWorkshopLiquidTransferPort mutationPort) =>
+        Execute(master, slave, amounts, mutationPort, null);
+
+    internal static void Execute(
+        Workshop master,
+        Workshop slave,
+        IReadOnlyDictionary<string, int> amounts,
+        ILegacyWorkshopLiquidTransferPort mutationPort,
+        Action? beforeFinalize)
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(slave);
@@ -1031,6 +1046,8 @@ internal static class LegacyWorkshopLiquidTransfer
                 if (!mutationPort.RemoveFromSource(master, item.Key, item.Value))
                     throw new InvalidOperationException("主台游离液体在交接提交期间违反预检结果：" + item.Key);
             }
+            // Ledger publication remains inside the two-Workshop snapshot compensation boundary.
+            beforeFinalize?.Invoke();
         }
         catch (Exception transferError)
         {
