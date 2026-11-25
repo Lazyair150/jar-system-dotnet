@@ -101,17 +101,20 @@ public sealed class ResourceLedger
     public int Dropped { get; private set; }
 
     /// <summary>当前保留的条数（≤ <see cref="Capacity"/>）。</summary>
-    public int Retained => _entries.Count;
+    public int Retained { get { lock (_gate) return _entries.Count; } }
 
     /// <summary>最后一条的序号；空账本为 0。读者用它判断"我是不是漏看了"。</summary>
-    public long LastSeq => _seq;
+    public long LastSeq { get { lock (_gate) return _seq; } }
 
     /// <summary>保留的事件（按发生顺序，最旧在前）。只读视图。</summary>
     public IReadOnlyList<ResourceEvent> Entries => _entriesView;
 
     /// <summary>捕获完整账本游标、裁剪计数和当前保留事件。</summary>
-    public ResourceLedgerSnapshot Capture() => new(
-        Capacity, _seq, Dropped, _entries, _operationIds);
+    public ResourceLedgerSnapshot Capture()
+    {
+        lock (_gate)
+            return new ResourceLedgerSnapshot(Capacity, _seq, Dropped, _entries, _operationIds, _transferReceipts.Values);
+    }
 
     /// <summary>
     /// 从快照恢复账本。保留原始 Seq/Dropped，不重新编号历史事件，
@@ -148,6 +151,8 @@ public sealed class ResourceLedger
         ledger._entries.AddRange(snapshot.Entries.Select(Clone));
         foreach (var operationId in snapshot.OperationIds)
             ledger._operationIds.Add(operationId);
+        foreach (var receipt in snapshot.TransferReceipts)
+            ledger._transferReceipts.Add(receipt.OperationId, receipt with { });
         return ledger;
     }
 
@@ -296,7 +301,8 @@ public sealed class ResourceLedgerSnapshot
 {
     public ResourceLedgerSnapshot(
         int capacity, long lastSeq, int dropped, IEnumerable<ResourceEvent> entries,
-        IEnumerable<string>? operationIds = null)
+        IEnumerable<string>? operationIds = null,
+        IEnumerable<ResourceTransferReceipt>? transferReceipts = null)
     {
         Capacity = capacity;
         LastSeq = lastSeq;
@@ -322,6 +328,7 @@ public sealed class ResourceLedgerSnapshot
     public int Dropped { get; }
     public IReadOnlyList<ResourceEvent> Entries { get; }
     public IReadOnlyList<string> OperationIds { get; }
+    public IReadOnlyList<ResourceTransferReceipt> TransferReceipts { get; }
     public int Retained => Entries.Count;
 }
 
