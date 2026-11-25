@@ -70,7 +70,7 @@ ResourceLedger 的新操作指纹包含 tagged endpoint。为避免旧 checkpoin
 - `src/JarSystem.Core/World/Solving/OrderLiquidAllocationService.cs`
 - `src/JarSystem.Core/World/Solving/WorldOrderExecutionAdmission.cs`
 - `test/JarSystem.Tests/ResourceLedgerSnapshotTests.cs`
-- `test/JarSystem.Tests/World2/WorldV2CheckpointJsonCodecTests.cs`
+- `test/JarSystem.Tests/WorldV2/WorldV2CheckpointJsonCodecTests.cs`
 - `test/JarSystem.Tests/WorldV2/WorldOrderExecutionSessionTests.cs`
 
 ## 新增/更新验证用例
