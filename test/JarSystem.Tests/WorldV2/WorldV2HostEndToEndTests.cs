@@ -157,11 +157,11 @@ public sealed class WorldV2HostEndToEndTests
                 AccountIdentity.ParseV2(productionJar.ToEndpoint.AccountId!).Owner.OwnerKind);
         });
 
-        var flowedJars = resourceEvents
+        var flowedJarEvents = resourceEvents
             .Where(item => item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Jar)
             .ToArray();
-        Assert.NotEmpty(flowedJars);
-        Assert.All(flowedJars, flowedJar =>
+        Assert.NotEmpty(flowedJarEvents);
+        Assert.All(flowedJarEvents, flowedJar =>
         {
             Assert.Equal("warehouse-e2e",
                 AccountIdentity.ParseV2(flowedJar.FromEndpoint.AccountId!).Owner.LocalOwnerId);
