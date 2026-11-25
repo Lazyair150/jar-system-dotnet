@@ -109,3 +109,33 @@ ResourceLedger 的新操作指纹包含 tagged endpoint。为避免旧 checkpoin
 - 此后 Actions 已为提交 `60831839...` 启动 push 与 PR 两个验证运行；截至本补记时它们仍在运行。提交 `a0126ab...` 的专属运行尚未在 Actions 列表中确认。故当前最新 HEAD 的完整验证仍为 **unconfirmed**，不得标记通过。
 
 后续复核必须查看覆盖 `a0126ab...` 的最新 run，确认 Release build、JarSystem.Tests、Godot host build、契约/schema 与固定 Seed 验证全部结束；如有新失败，按首个真实失败步骤定位，不把下游缺少摘要误判成额外根因。
+
+
+## CI-driven corrections and verified result
+
+The first verification attempts surfaced real integration issues; they were fixed rather than waived:
+
+1. Checkpoint codec lacked the Domain namespace import for `WorldInstanceId`; added the explicit import.
+2. Endpoint validation was initially applied to non-nullable restored `ResourceEvent` values using nullable `.Value`; moved the nullable validation to normalized `ResourceLedgerMutation` inputs and kept restored-event validation on the value itself.
+3. The schema-7 migration test lacked Domain/Production imports; added them.
+4. xUnit analyzer rejected collection-size `Assert.Equal(..., collection.Count)`; replaced with `Assert.Single` / `Assert.Collection`.
+5. Runtime tests exposed:
+   - `RuleResourceAccount` had two parameterized constructors and no JSON constructor; added an explicit `[JsonConstructor]` preserving both v1 and v2 fields.
+   - a World identity checkpoint test used the legacy Context factory without ShipLiquidInventory; changed the test to construct the full liquid-resource Context.
+   - ApplicationService/Bridge no-options restore reused a newly created World identity and correctly failed the Context identity guard. ApplicationService now retains a defensive JSON snapshot of the last successfully assembled options and rebuilds a prepared Context with the checkpoint's persisted WorldInstanceId. Lifecycle updates are serialized under an ApplicationService lock. Legacy checkpoints still require the explicit migration-identity overload.
+   - `ResourceEndpoint` received an explicit JSON constructor so direct ResourceLedgerSnapshot JSON round-trips preserve tagged endpoints.
+
+### Verified CI
+
+- Code/test head: `7329b7fa77488b616a222e6c00f14a34583de639`
+- GitHub Actions push run **#5132**: **success**.
+- xUnit: **994 total, 0 errors, 0 failed, 0 skipped**.
+- World config contract: `CONFIG-WORLD-MATCH`.
+- Solver differential: **4004 / 4004 agreement**.
+- Modifier differential: **400 scenarios / 1600 checks**.
+- Session replay: **33 commands**, successful.
+- Dependency security: **6 projects, 0 vulnerable packages**.
+- Secret scan: **623 files, 8 patterns**, successful.
+- The matching PR-triggered run #5133 was still in progress when this record was updated; the successful push run above is the confirmed result.
+
+This is GitHub CI evidence, not a claim that `dotnet test` was run locally. PR #63 remains open and unmerged.
