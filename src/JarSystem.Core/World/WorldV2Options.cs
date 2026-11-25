@@ -26,6 +26,16 @@ public sealed class WorldV2Options
     [JsonPropertyName("liquids")]
     public List<string> Liquids { get; set; } = new() { "酒", "蜜" };
 
+    /// <summary>World-owned explicit identity-to-polarity mapping; names and list order carry no polarity semantics.</summary>
+    [JsonPropertyName("liquidPolarities")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } =
+        new(StringComparer.Ordinal)
+        {
+            ["酒"] = LiquidPolarity.Cathode,
+            ["蜜"] = LiquidPolarity.Anode
+        };
+
     [JsonPropertyName("producers")]
     public List<WorldV2ProducerOptions> Producers { get; set; } = new();
     [JsonPropertyName("liquidProductionRates")]
@@ -90,6 +100,24 @@ public sealed class WorldV2Options
             result.Errors.Add("liquids 必须恰好包含两种液体");
         else
             ValidateNames(Liquids, "liquids", result);
+
+        if (LiquidPolarities == null || LiquidPolarities.Count != 2)
+        {
+            result.Errors.Add("liquidPolarities 必须为两种液体分别显式指定极性");
+        }
+        else if (Liquids != null && Liquids.Count == 2)
+        {
+            foreach (var liquid in Liquids)
+                if (!LiquidPolarities.ContainsKey(liquid))
+                    result.Errors.Add("liquidPolarities 缺少液体身份: " + liquid);
+            foreach (var liquid in LiquidPolarities.Keys)
+                if (!Liquids.Contains(liquid, StringComparer.Ordinal))
+                    result.Errors.Add("liquidPolarities 包含未知液体身份: " + liquid);
+            var cathodeCount = LiquidPolarities.Values.Count(value => value == LiquidPolarity.Cathode);
+            var anodeCount = LiquidPolarities.Values.Count(value => value == LiquidPolarity.Anode);
+            if (cathodeCount != 1 || anodeCount != 1)
+                result.Errors.Add("liquidPolarities 必须恰好分配一个 Cathode 和一个 Anode");
+        }
 
         var shapeSet = new HashSet<string>(Shapes ?? new List<string>(), StringComparer.Ordinal);
         var liquidSet = new HashSet<string>(Liquids ?? new List<string>(), StringComparer.Ordinal);
@@ -439,7 +467,7 @@ public static class WorldV2Factory
                 "World v2 配置无效：" + string.Join("；", validation.Errors),
                 nameof(options));
 
-        var vocabulary = new Vocabulary(options.Shapes, options.Liquids);
+        var vocabulary = new Vocabulary(options.Shapes, options.Liquids, options.LiquidPolarities);
         var producers = new ProducerModule(vocabulary);
 
         foreach (var producer in options.Producers)
