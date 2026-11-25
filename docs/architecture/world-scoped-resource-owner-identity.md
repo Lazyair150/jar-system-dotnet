@@ -55,6 +55,15 @@ Canonical serialization must be versioned and length-prefixed. DisplayName chang
 
 The typed contract now exists as `OwnerIdentity(WorldInstanceId, ResourceOwnerKind, LocalOwnerId)` and `AccountIdentity(OwnerIdentity, AccountKind)`. Its canonical account form is `account:v2:` followed by four UTF-8 byte-length-prefixed fields: WorldInstanceId, stable OwnerKind token, LocalOwnerId and AccountKind. The parser rejects truncated, non-canonical, unknown-kind and trailing data. The two-argument `RuleResourceAccount(AccountKind, OwnerId)` remains the explicit v1 compatibility constructor; the typed-owner constructor emits v2. Transfer contracts reject cross-World v2 endpoints and mixed v1/v2 endpoints. Resource-port adapters now have typed-owner overloads; their legacy overloads remain for staged migration.
 
+The host-supplied `WorldV2OwnerIdentityMap` is now part of the runtime object graph and schema-7 checkpoint:
+- It carries exact Ship, CircuitBoard, ProductionArea and Warehouse local IDs plus dictionaries keyed by exact ProducerInstanceId and Workshop OwnedInstanceId.
+- Factory creation binds the map to ShipLiquidInventory, ResourceArea, Warehouse, Producer and Workshop objects. If a map is supplied, every live Producer and Workshop must have an exact configured instance ID and the map must contain exactly those IDs; duplicate IDs are rejected.
+- Warehouse port adapters use the exact Warehouse owner; Workshop order staging derives a scoped local owner ID from the exact Workshop owner and order ID.
+- The map is captured and restored with the checkpoint. Restore compares the full map before mutating the live context.
+- Runtime `ProducerInstanceId` and `OwnedInstanceId` fields are excluded from the World definition fingerprint; the identity map is persisted independently. This keeps instance identity separate from definition/configuration identity.
+- Ledger checkpoint restore validates every account:v2 endpoint against the current WorldInstanceId. Legacy account:v1 values remain readable without an inferred World.
+
+
 The intended ownership mapping is:
 
 - Ship -> exact Ship OwnedInstanceId.
