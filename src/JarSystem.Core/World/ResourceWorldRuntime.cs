@@ -396,7 +396,7 @@ public sealed class ResourceWorldRuntime
         var effectiveMaster = replacementBlocksWorld ? null : requestedMaster;
 
         var resources = Resources.Advance(logicalDelta, effectiveMaster);
-        RecordLiquidProduction(resources);
+        RecordResourceFacts(resources, effectiveMaster);
 
         // 执行会话与生产、CD 共用同一个逻辑时间增量。先推进本片段的生产，
         // 再推进已预留资源上的订单步骤；会话自身仍按步骤时长控制实际操作时点。
@@ -419,17 +419,44 @@ public sealed class ResourceWorldRuntime
         return new ResourceWorldStep(logicalDelta, resources);
     }
 
-    private void RecordLiquidProduction(ResourceAreaAdvanceResult result)
+    private void RecordResourceFacts(ResourceAreaAdvanceResult result, Workshop? master)
     {
-        if (_resourceLedger == null || result.LiquidProductionReceipts.Count == 0)
+        if (_resourceLedger == null)
             return;
 
+        var hasFacts = result.ProducedJarFacts.Count > 0 ||
+            result.DiscardedJarFacts.Count > 0 ||
+            result.LiquidProductionReceipts.Count > 0 ||
+            result.FlowedJarFacts.Count > 0 ||
+            result.FlowedLiquids.Any(item => item.Value > 0);
+        if (!hasFacts)
+            return;
+
+        // Every fact produced by one ResourceArea.Advance belongs to the same logical tick.
         var tick = _resourceLedgerTick!();
+
+        foreach (var jar in result.ProducedJarFacts)
+        {
+            if (jar.JarId <= 0)
+                throw new DomainValidationException("Jar 生产账本事实缺少 canonical JarId。");
+            _resourceLedger.Record(tick, ResourceCauses.Production, ResourceKinds.Jar,
+                jar.Shape, 1, from: "生产器", to: "仓库",
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        foreach (var jar in result.DiscardedJarFacts)
+        {
+            if (jar.JarId <= 0)
+                throw new DomainValidationException("Jar 溢出丢弃账本事实缺少 canonical JarId。");
+            _resourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Jar,
+                jar.Shape, 1, from: "仓库", reason: "仓库罐位已满",
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         var destination = Resources.ShipLiquidInventory == null ? "中央仓库" : "自机液库";
         foreach (var receipt in result.LiquidProductionReceipts)
         {
-            // 生产事件只记录真正进入库存的数量；未接收部分单独记 discard。
-            // 两者之和等于 ProducedAmount，避免同一份液体被重复计量。
+            // Accepted + Discarded equals ProducedAmount; identity remains the canonical vocabulary key.
             _resourceLedger.Record(tick, ResourceCauses.Production, ResourceKinds.Liquid,
                 receipt.Liquid, receipt.AcceptedAmount,
                 from: "液体生产区", to: destination, resourceIdentity: receipt.Liquid);
@@ -438,6 +465,32 @@ public sealed class ResourceWorldRuntime
                 from: "液体生产区", to: null,
                 reason: "自机液库或资源库存容量不足", resourceIdentity: receipt.Liquid);
         }
+
+        if (master == null)
+            return;
+
+        foreach (var jar in result.FlowedJarFacts)
+        {
+            if (jar.JarId <= 0)
+                throw new DomainValidationException("Jar 流入账本事实缺少 canonical JarId。");
+            _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Jar,
+                jar.Shape, 1, from: "仓库", to: master.Name,
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                toAccountId: WorkshopAccountId(master, "workshop.jar-storage"));
+        }
+
+        foreach (var item in result.FlowedLiquids.Where(item => item.Value > 0))
+            _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
+                item.Key, item.Value, from: "仓库", to: master.Name,
+                resourceIdentity: item.Key,
+                toAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"));
+    }
+
+    private static string? WorkshopAccountId(Workshop workshop, string accountKind)
+    {
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
+            return null;
+        return new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId;
     }
 
     private void ThrowIfFaulted()
