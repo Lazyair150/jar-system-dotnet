@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using JarSystem.Core.Config;
 
@@ -28,6 +29,7 @@ public sealed class WorkshopCapability
     private readonly List<string> _baseMarks;
     private readonly List<string> _additionalMarks;
     private readonly List<string> _ban;
+    private readonly Vocabulary _vocabulary;
 
     private readonly IReadOnlyList<string> _baseMarksView;
     private readonly IReadOnlyList<string> _additionalMarksView;
@@ -45,8 +47,10 @@ public sealed class WorkshopCapability
     public WorkshopCapability(
         IEnumerable<string>? baseMarks = null,
         IEnumerable<string>? additionalMarks = null,
-        IEnumerable<string>? ban = null)
+        IEnumerable<string>? ban = null,
+        Vocabulary? vocabulary = null)
     {
+        _vocabulary = vocabulary ?? Vocabulary.Default;
         _baseMarks = new List<string>(baseMarks ?? []);
         _additionalMarks = new List<string>(additionalMarks ?? []);
         _ban = NormalizeBan(ban);
@@ -66,16 +70,31 @@ public sealed class WorkshopCapability
     /// banning Cathode liquid (酒) focuses it on Anode Jars (蜜), and vice versa.
     /// No bans preserve unrestricted legacy operation; banning both leaves Neutral Jars only.
     /// </summary>
+    public IReadOnlyList<string> Liquids => _vocabulary.Liquids;
+
+    public JarPolarity ResolvePolarity(string? liquid)
+    {
+        if (liquid is null) return JarPolarity.Neutral;
+        return _vocabulary.ResolveLiquidPolarity(liquid) == LiquidPolarity.Cathode
+            ? JarPolarity.Cathode
+            : JarPolarity.Anode;
+    }
+
     public WorkshopPolarityMode PolarityMode
     {
         get
         {
-            var cathodeBlocked = IsBanned("酒");
-            var anodeBlocked = IsBanned("蜜");
-            if (cathodeBlocked && anodeBlocked) return WorkshopPolarityMode.NeutralOnly;
-            if (cathodeBlocked) return WorkshopPolarityMode.Anode;
-            if (anodeBlocked) return WorkshopPolarityMode.Cathode;
-            return WorkshopPolarityMode.Unrestricted;
+            var firstLiquid = _vocabulary.Liquids[0];
+            var secondLiquid = _vocabulary.Liquids[1];
+            var firstBlocked = IsBanned(firstLiquid);
+            var secondBlocked = IsBanned(secondLiquid);
+            if (firstBlocked && secondBlocked) return WorkshopPolarityMode.NeutralOnly;
+            if (!firstBlocked && !secondBlocked) return WorkshopPolarityMode.Unrestricted;
+
+            var allowedPolarity = _vocabulary.ResolveLiquidPolarity(firstBlocked ? secondLiquid : firstLiquid);
+            return allowedPolarity == LiquidPolarity.Cathode
+                ? WorkshopPolarityMode.Cathode
+                : WorkshopPolarityMode.Anode;
         }
     }
 
