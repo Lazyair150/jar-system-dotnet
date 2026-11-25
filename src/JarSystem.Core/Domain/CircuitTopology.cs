@@ -88,8 +88,10 @@ public sealed class CircuitPortDefinition
         if (policyVersion <= 0)
             throw new ArgumentOutOfRangeException(nameof(policyVersion));
         PolicyVersion = policyVersion;
-        if (maxAmountPerTransfer < 0 || maxAmountPerLogicalTimeMilli < 0)
-            throw new ArgumentOutOfRangeException(nameof(maxAmountPerTransfer), "Port transfer limits cannot be negative.");
+        if (maxAmountPerTransfer is < 0)
+            throw new ArgumentOutOfRangeException(nameof(maxAmountPerTransfer), "Port transfer limit cannot be negative.");
+        if (maxAmountPerLogicalTimeMilli is < 0)
+            throw new ArgumentOutOfRangeException(nameof(maxAmountPerLogicalTimeMilli), "Port throughput limit cannot be negative.");
         MaxAmountPerTransfer = maxAmountPerTransfer;
         MaxAmountPerLogicalTimeMilli = maxAmountPerLogicalTimeMilli;
 
