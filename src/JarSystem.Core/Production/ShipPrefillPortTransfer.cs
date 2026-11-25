@@ -1,0 +1,217 @@
+using System;
+using JarSystem.Core.Domain;
+
+namespace JarSystem.Core.Production;
+
+/// <summary>
+/// One-shot participant for an exact Ship Liquid Inventory -> Workshop prefill transfer.
+/// It reuses the existing Ship return-capacity reservation and WorkshopPrefillTransaction;
+/// it never routes through the Workshop order-liquid or free-liquid accounts.
+/// </summary>
+public sealed class PreparedShipPrefillPortTransfer
+{
+    private readonly ResourceTransferRequest _request;
+    private readonly ShipLiquidInventory _ship;
+    private readonly WorkshopLiquidStaging _staging;
+    private readonly ShipLiquidInventoryPortAdapter _sourceAdapter;
+    private readonly WorkshopPrefillLiquidPortAdapter _targetAdapter;
+    private readonly CircuitPortDefinition _sourcePort;
+    private readonly CircuitPortDefinition _targetPort;
+    private ResourceTransferReceipt? _receipt;
+    private bool _cancelled;
+    private bool _faulted;
+
+    internal PreparedShipPrefillPortTransfer(
+        ResourceTransferRequest request,
+        ShipLiquidInventory ship,
+        WorkshopLiquidStaging staging,
+        ShipLiquidInventoryPortAdapter sourceAdapter,
+        WorkshopPrefillLiquidPortAdapter targetAdapter,
+        CircuitPortDefinition sourcePort,
+        CircuitPortDefinition targetPort)
+    {
+        _request = request;
+        _ship = ship;
+        _staging = staging;
+        _sourceAdapter = sourceAdapter;
+        _targetAdapter = targetAdapter;
+        _sourcePort = sourcePort;
+        _targetPort = targetPort;
+    }
+
+    public string OperationId => _request.OperationId;
+    public bool IsCompleted => _receipt is not null || _cancelled || _faulted;
+    public bool IsCommitted => _receipt?.Outcome == ResourceTransferOutcome.Transferred;
+
+    /// <summary>
+    /// Commit is idempotent for this prepared instance. Cross-instance/process replay
+    /// still requires the caller's durable OperationId receipt journal.
+    /// </summary>
+    public ResourceTransferReceipt Commit()
+    {
+        if (_receipt is not null) return _receipt;
+        if (_faulted)
+            throw new InvalidOperationException("This transfer participant faulted during commit and cannot be retried.");
+        if (_cancelled)
+            return _receipt = NoMutation(
+                ResourceTransferOutcome.Rejected, "transfer.cancelled",
+                _sourceAdapter.Preflight(_sourcePort, _request.ResourceIdentity, _request.Amount),
+                _targetAdapter.Preflight(_targetPort, _request.ResourceIdentity, _request.Amount));
+
+        var source = _sourceAdapter.Preflight(_sourcePort, _request.ResourceIdentity, _request.Amount);
+        var target = _targetAdapter.Preflight(_targetPort, _request.ResourceIdentity, _request.Amount);
+        source.Validate();
+        target.Validate();
+
+        if (source.ObservedVersionToken != _request.ExpectedSourceVersionToken ||
+            target.ObservedVersionToken != _request.ExpectedTargetVersionToken)
+            return _receipt = NoMutation(
+                ResourceTransferOutcome.Undetermined, "account.version.changed", source, target);
+
+        if (source.Decision != RuleDecisionKind.Allowed ||
+            target.Decision != RuleDecisionKind.Allowed)
+        {
+            var outcome = source.Decision == RuleDecisionKind.Undetermined ||
+                target.Decision == RuleDecisionKind.Undetermined
+                ? ResourceTransferOutcome.Undetermined
+                : ResourceTransferOutcome.Rejected;
+            var reason = source.Decision != RuleDecisionKind.Allowed
+                ? source.ReasonCode
+                : target.ReasonCode;
+            return _receipt = NoMutation(outcome, reason, source, target);
+        }
+
+        try
+        {
+            var transaction = _staging.BeginPrefillTransferFromShip(
+                _ship, _request.ResourceIdentity, _request.Amount);
+            try
+            {
+                transaction.Commit();
+            }
+            catch (Exception commitError)
+            {
+                if (!transaction.IsCompleted)
+                {
+                    try
+                    {
+                        transaction.Rollback();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        throw new AggregateException(
+                            "Ship-to-prefill commit failed and its compensation also failed.",
+                            commitError, rollbackError);
+                    }
+                }
+                throw;
+            }
+
+            var sourceAfter = _sourceAdapter.Preflight(
+                _sourcePort, _request.ResourceIdentity, _request.Amount);
+            var targetAfter = _targetAdapter.Preflight(
+                _targetPort, _request.ResourceIdentity, _request.Amount);
+            _receipt = new ResourceTransferReceipt(
+                _request.OperationId, _request.ConnectionId,
+                _request.SourcePortId, _request.TargetPortId,
+                _request.ResourceKind, _request.ResourceIdentity,
+                _request.SourceAccount, _request.TargetAccount,
+                _request.Amount, _request.Amount, 0, 0,
+                ResourceTransferOutcome.Transferred,
+                source.ObservedVersionToken, sourceAfter.ObservedVersionToken,
+                target.ObservedVersionToken, targetAfter.ObservedVersionToken,
+                "allowed");
+            _receipt.Validate();
+            return _receipt;
+        }
+        catch
+        {
+            _faulted = true;
+            throw;
+        }
+    }
+
+    public void Cancel()
+    {
+        if (_receipt is not null)
+            throw new InvalidOperationException("A completed transfer participant cannot be cancelled.");
+        if (_faulted)
+            throw new InvalidOperationException("A faulted transfer participant cannot be cancelled.");
+        if (_cancelled) return;
+        _cancelled = true;
+    }
+
+    private ResourceTransferReceipt NoMutation(
+        ResourceTransferOutcome outcome,
+        string reasonCode,
+        ResourcePortPreflight source,
+        ResourcePortPreflight target)
+    {
+        var receipt = new ResourceTransferReceipt(
+            _request.OperationId, _request.ConnectionId,
+            _request.SourcePortId, _request.TargetPortId,
+            _request.ResourceKind, _request.ResourceIdentity,
+            _request.SourceAccount, _request.TargetAccount,
+            _request.Amount, 0, _request.Amount, 0, outcome,
+            source.ObservedVersionToken, source.ObservedVersionToken,
+            target.ObservedVersionToken, target.ObservedVersionToken,
+            reasonCode);
+        receipt.Validate();
+        return receipt;
+    }
+}
+
+/// <summary>Prepare an exact Ship inventory Output -> Workshop prefill Input transfer.</summary>
+public static class ShipPrefillPortTransfer
+{
+    public static PreparedShipPrefillPortTransfer Prepare(
+        ResourceTransferRequest request,
+        CircuitConnectionDefinition connection,
+        CircuitPortDefinition sourcePort,
+        CircuitPortDefinition targetPort,
+        ShipLiquidInventoryPortAdapter sourceAdapter,
+        WorkshopPrefillLiquidPortAdapter targetAdapter,
+        ShipLiquidInventory ship,
+        WorkshopLiquidStaging staging)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(sourcePort);
+        ArgumentNullException.ThrowIfNull(targetPort);
+        ArgumentNullException.ThrowIfNull(sourceAdapter);
+        ArgumentNullException.ThrowIfNull(targetAdapter);
+        ArgumentNullException.ThrowIfNull(ship);
+        ArgumentNullException.ThrowIfNull(staging);
+        request.Validate();
+
+        if (ReferenceEquals(ship, null) || ReferenceEquals(staging, null))
+            throw new ArgumentNullException("Transfer accounts are required.");
+        if (connection.ConnectionId != request.ConnectionId ||
+            connection.SourcePortId != request.SourcePortId ||
+            connection.TargetPortId != request.TargetPortId)
+            throw new ArgumentException("Transfer request does not match the supplied Connection.");
+        if (sourcePort.PortId != connection.SourcePortId ||
+            targetPort.PortId != connection.TargetPortId ||
+            sourcePort.Direction != ResourcePortDirection.Output ||
+            targetPort.Direction != ResourcePortDirection.Input ||
+            sourcePort.ResourceKind != RuleResourceKind.Liquid ||
+            targetPort.ResourceKind != RuleResourceKind.Liquid)
+            throw new ArgumentException("Ship-to-prefill transfer requires Liquid Output -> Input ports.");
+        if (request.ResourceKind != RuleResourceKind.Liquid ||
+            request.SourceAccount != sourceAdapter.Account ||
+            request.TargetAccount != targetAdapter.Account)
+            throw new ArgumentException("Transfer request account identities do not match the supplied adapters.");
+        if (!sourceAdapter.IsBoundTo(ship) || !targetAdapter.IsBoundTo(staging))
+            throw new ArgumentException("Adapters must be bound to the exact supplied Ship and Workshop staging instances.");
+
+        var source = sourceAdapter.Preflight(sourcePort, request.ResourceIdentity, request.Amount);
+        var target = targetAdapter.Preflight(targetPort, request.ResourceIdentity, request.Amount);
+        source.Validate();
+        target.Validate();
+        if (source.Account != request.SourceAccount || target.Account != request.TargetAccount)
+            throw new ArgumentException("Port preflight returned an unexpected authoritative account.");
+
+        return new PreparedShipPrefillPortTransfer(
+            request, ship, staging, sourceAdapter, targetAdapter, sourcePort, targetPort);
+    }
+}
