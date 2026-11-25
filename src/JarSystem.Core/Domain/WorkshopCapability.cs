@@ -59,6 +59,9 @@ public sealed class WorkshopCapability
         _banView = _ban.AsReadOnly();
     }
 
+    public WorkshopCapability WithVocabulary(Vocabulary vocabulary) =>
+        new(_baseMarks, _additionalMarks, _ban, vocabulary);
+
     public bool IsBaseMarked(string shape) => BaseMarks.Contains(shape);
 
     public bool IsAdditionalMarked(string shape) => AdditionalMarks.Contains(shape);
