@@ -134,13 +134,13 @@ public sealed class OrderLiquidPortTransferTests
             path.SourceAdapter, path.TargetAdapter, path.Source, path.Target);
 
         prepared.Cancel();
+        prepared.Cancel();
         var receipt = prepared.Commit();
 
         Assert.Equal(ResourceTransferOutcome.Rejected, receipt.Outcome);
         Assert.Equal("transfer.cancelled", receipt.ReasonCode);
         Assert.Equal(2, path.Source.GetAmount(OrderId, "酒"));
         Assert.Equal(0, path.Target.GetAmount(OrderId, "酒"));
-        prepared.Cancel();
     }
 
     [Fact]
