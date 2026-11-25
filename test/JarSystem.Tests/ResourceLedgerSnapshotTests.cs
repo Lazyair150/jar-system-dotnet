@@ -186,11 +186,13 @@ public sealed class ResourceLedgerSnapshotTests
 
         Assert.True(ledger.RecordTransferOnce(
             receipt.OperationId, 1,
-            new[] { new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 1) },
+            new[] { new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 1,
+                From: receipt.SourceAccount.OwnerId, To: receipt.TargetAccount.OwnerId) },
             receipt));
         Assert.Throws<System.InvalidOperationException>(() => ledger.RecordTransferOnce(
             receipt.OperationId, 2,
-            new[] { new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 2) },
+            new[] { new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 2,
+                From: receipt.SourceAccount.OwnerId, To: receipt.TargetAccount.OwnerId) },
             different));
         Assert.Equal(1, ledger.LastSeq);
         Assert.True(ledger.TryGetTransferReceipt(receipt.OperationId, out var stored));
