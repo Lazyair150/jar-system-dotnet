@@ -64,18 +64,23 @@ public readonly struct WorkshopOperation
 /// <summary>罐子的规则相关状态（不含身份与词表：规则不看这些）。</summary>
 public readonly struct JarFacts
 {
-    public JarFacts(string shape, string? liquid, bool isMarked)
+    public JarFacts(string shape, string? liquid, bool isMarked, JarPolarity? polarity = null)
     {
         Shape = shape;
         Liquid = liquid;
         IsMarked = isMarked;
+        Polarity = polarity ?? JarPolarityResolver.Resolve(liquid, Vocabulary.Default);
+        if ((liquid == null) != (Polarity == JarPolarity.Neutral))
+            throw new ArgumentException("Jar facts must pair empty liquid with Neutral and non-empty liquid with a liquid polarity.");
     }
 
     public string Shape { get; }
     public string? Liquid { get; }
     public bool IsMarked { get; }
+    /// <summary>Explicit polarity projected from the owning World vocabulary.</summary>
+    public JarPolarity Polarity { get; }
 
-    public static JarFacts Of(Jar jar) => new(jar.Shape, jar.Liquid, jar.IsMarked);
+    public static JarFacts Of(Jar jar) => new(jar.Shape, jar.Liquid, jar.IsMarked, jar.Polarity);
 }
 
 /// <summary>
@@ -370,7 +375,7 @@ public static class WorkshopRulebook
         var decision = Evaluate(rules, maxLiquids, jar, op, liquids);
         return new WorkshopOperationEvaluation(
             decision,
-            decision.IsAllowed ? CreateTransitionCore(jar, op, rules.PolarityMode) : null);
+            decision.IsAllowed ? CreateTransitionCore(jar, op, rules) : null);
     }
 
     public static WorkshopOperationTransition? CreateTransition(
@@ -379,17 +384,17 @@ public static class WorkshopRulebook
         EvaluateTransition(rules, maxLiquids, jar, op, liquids).Transition;
 
     private static WorkshopOperationTransition? CreateTransitionCore(
-        in JarFacts jar, in WorkshopOperation op, WorkshopPolarityMode polarityMode) =>
+        in JarFacts jar, in WorkshopOperation op, RuleContext rules) =>
         op.Kind switch
         {
             WorkshopOperationKind.PourIn => Transition(WorkshopOperationKind.PourIn,
-                new JarFacts(jar.Shape, op.TargetLiquid, true), op.TargetLiquid, null, null, polarityMode),
+                new JarFacts(jar.Shape, op.TargetLiquid, true, rules.ResolvePolarity(op.TargetLiquid)), op.TargetLiquid, null, null, WorkshopPolarityMode.Unrestricted),
             WorkshopOperationKind.PourOut => Transition(WorkshopOperationKind.PourOut,
-                new JarFacts(jar.Shape, null, true), null, jar.Liquid, null, polarityMode),
+                new JarFacts(jar.Shape, null, true, JarPolarity.Neutral), null, jar.Liquid, null, WorkshopPolarityMode.Unrestricted),
             WorkshopOperationKind.ReshapeEmpty => Transition(WorkshopOperationKind.ReshapeEmpty,
-                new JarFacts(op.TargetShape!, null, true), op.CostLiquid, null, null, polarityMode),
+                new JarFacts(op.TargetShape!, null, true, JarPolarity.Neutral), op.CostLiquid, null, null, WorkshopPolarityMode.Unrestricted),
             WorkshopOperationKind.ReshapeFull => Transition(WorkshopOperationKind.ReshapeFull,
-                new JarFacts(op.TargetShape!, null, true), null, null, jar.Liquid, polarityMode),
+                new JarFacts(op.TargetShape!, null, true, JarPolarity.Neutral), null, null, jar.Liquid, WorkshopPolarityMode.Unrestricted),
             _ => null
         };
 
