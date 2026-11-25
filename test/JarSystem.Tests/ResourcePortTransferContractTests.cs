@@ -61,9 +61,7 @@ public sealed class ResourcePortTransferContractTests
             "酒", 2, "target-before", "allowed");
         var sourceAfter = sourceBefore with
         {
-            ObservedVersionToken = "source-after",
-            Decision = RuleDecisionKind.Insufficient,
-            ReasonCode = "insufficient"
+            ObservedVersionToken = "source-after"
         };
         var targetAfter = targetBefore with
         {
