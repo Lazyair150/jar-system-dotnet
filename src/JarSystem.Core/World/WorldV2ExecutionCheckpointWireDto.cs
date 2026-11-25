@@ -577,22 +577,26 @@ public sealed class ResourceLedgerWireDto
     public List<ResourceEventWireDto> Events { get; set; } = new();
     public List<string> OperationIds { get; set; } = new();
     public List<ResourceTransferReceipt> TransferReceipts { get; set; } = new();
+    public Dictionary<string, string> OperationFingerprints { get; set; } = new(StringComparer.Ordinal);
 
     public static ResourceLedgerWireDto FromSnapshot(ResourceLedgerSnapshot value) => new()
     {
         Capacity = value.Capacity, LastSeq = value.LastSeq, Dropped = value.Dropped,
         Events = value.Entries.Select(ResourceEventWireDto.FromEvent).ToList(),
         OperationIds = value.OperationIds.ToList(),
-        TransferReceipts = value.TransferReceipts.Select(item => item with { }).ToList()
+        TransferReceipts = value.TransferReceipts.Select(item => item with { }).ToList(),
+        OperationFingerprints = value.OperationFingerprints.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)
     };
 
     public void Validate()
     {
         if (Capacity < 1 || LastSeq < 0 || Dropped < 0 || Events == null || OperationIds == null ||
-            TransferReceipts == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
+            TransferReceipts == null || OperationFingerprints == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
             OperationIds.Distinct(StringComparer.Ordinal).Count() != OperationIds.Count ||
             TransferReceipts.Any(item => item == null || !OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
-            TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != TransferReceipts.Count)
+            TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != TransferReceipts.Count ||
+            OperationFingerprints.Any(item => string.IsNullOrWhiteSpace(item.Key) ||
+                !OperationIds.Contains(item.Key, StringComparer.Ordinal) || item.Value == null || item.Value.Length != 64))
             throw new InvalidOperationException("资源账本 Wire DTO 无效。");
         long previous = 0;
         foreach (var item in Events)
@@ -618,7 +622,7 @@ public sealed class ResourceLedgerWireDto
     {
         Validate();
         return new ResourceLedgerSnapshot(Capacity, LastSeq, Dropped,
-            Events.Select(item => item.ToEvent()), OperationIds, TransferReceipts);
+            Events.Select(item => item.ToEvent()), OperationIds, TransferReceipts, OperationFingerprints);
     }
 }
 
