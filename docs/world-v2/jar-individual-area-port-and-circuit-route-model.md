@@ -250,12 +250,12 @@ Rejected / Undetermined 必须保留全部源资源，且两端账户版本不�
 
 ### 3.12 当前参与者的共同边界与未完成项
 
-- 六条已落地路径复用 `ResourcePortTransferGuards` 的版本令牌复核、策略判定和 OperationId 去重；账户物理提交仍由各自领域事务负责，未把 Workshop、Warehouse、Ship、订单子账和 Prefill 合并为一个通用余额容器。最终 `ResourceTransferReceipt` 在账本发布之前构造并执行 `Validate()`，因此回执校验失败仍处于物理事务的补偿窗口。
-- `ResourceLedger` 是内存权威账本，其 `ResourceLedgerSnapshot` 将 OperationIds 纳入 World 执行检查点；它不是外部数据库事务。只有在 World 串行命令边界中执行，并在检查点边界持久化/恢复，才能获得当前实现承诺的跨检查点去重。
-- 账本不保存完整 `ResourceTransferReceipt`。同一 OperationId 重放会被拒绝，调用方必须根据账本事实和权威账户状态对账；目前不会自动返回历史成功回执。
-- OperationId 集合不随有界事件列表裁剪而清除，避免旧操作在事件滚动后被重放；代价是去重集合随世界生命周期增长。要做安全压缩，必须先定义可验证的 OperationId epoch/序列水位或独立持久化去重索引，不能简单按事件保留窗口删除。
+- 六条已落地路径复用 `ResourcePortTransferGuards` 做 Prepare/Commit 版本令牌复核与策略判定，并统一进入 `ResourcePortTransferCommitCoordinator.Finalize`。账户物理变更仍由各自领域事务负责，未把 Workshop、Warehouse、Ship、订单子账和 Prefill 合并为一个通用余额容器。协调器在领域补偿边界内读取提交后版本、构造并 Validate 最终 `ResourceTransferReceipt`，再调用账本最终提交；任一步失败都由领域事务恢复物理快照。
+- `ResourceLedger` 是带互斥提交门的内存权威账本。`RecordTransferOnce` 在同一临界区内预构造事件、预分配事件/OperationId/回执容器，然后一起发布事件批次、OperationId 与最终回执；普通事件批次仍走 `RecordBatchOnce`。它不是外部数据库事务。World 仍须在串行命令边界调用，并在检查点边界持久化/恢复。
+- 成功转移的 `ResourceTransferReceipt` 与 OperationId 一起保存在 `ResourceLedgerSnapshot` 和 `ResourceLedgerWireDto`。相同 OperationId、相同连接/端口/账户/资源/数量/Prepare 版本的重放返回原始回执，不再二次扣减；同 ID 不同请求，或旧 OperationId 只有事件标记没有回执时，均 fail-closed 拒绝。
+- OperationId 集合与成功回执索引不随有界事件列表裁剪而清除，避免旧操作在事件滚动后被重放；代价是二者随世界生命周期增长。要做安全压缩，必须先定义可验证的 OperationId epoch/序列水位或独立持久化去重索引，不能简单按事件保留窗口删除。
 - `ResourceLedger` 与 Tick Provider 在 Prepare 时仍是可选参数，以兼容不需要持久去重的隔离测试/调用场景；正式 World 执行入口必须传入 World 自己持有的账本与逻辑 Tick，不能在生产路径省略。
-- 尚未完成统一调度器、跨线程账户锁/隔离、完整 Receipt Journal、OperationId 集合压缩，以及所有旧批量路径向端口参与者的迁移。当前六条路径不等于所有资源转移入口已统一。
+- 尚未完成跨账户物理资源锁/隔离、OperationId/回执索引安全压缩，以及所有旧批量路径向端口参与者的迁移。账本自身已串行化写入，但这不替代多个账户对象的世界级命令串行化。当前六条路径不等于所有资源转移入口已统一。
 
 ### 3.13 统一提交协调器与最终回执账本
 
