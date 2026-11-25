@@ -234,19 +234,96 @@ public sealed class LiquidBatchReceipt
     public LiquidBatchReceipt(
         IReadOnlyDictionary<string, int> requested,
         IReadOnlyDictionary<string, int> accepted,
-        IReadOnlyDictionary<string, int> discarded)
+        IReadOnlyDictionary<string, int> discarded,
+        IEnumerable<LiquidBatchSourceAllocation>? sourceAllocations = null)
     {
         Requested = Freeze(requested);
         Accepted = Freeze(accepted);
         Discarded = Freeze(discarded);
+        SourceAllocations = Array.AsReadOnly((sourceAllocations ?? Array.Empty<LiquidBatchSourceAllocation>())
+            .Select(item => item.DeepCopy()).ToArray());
+        ValidateSourceAllocations();
     }
 
     public IReadOnlyDictionary<string, int> Requested { get; }
     public IReadOnlyDictionary<string, int> Accepted { get; }
     public IReadOnlyDictionary<string, int> Discarded { get; }
+    public IReadOnlyList<LiquidBatchSourceAllocation> SourceAllocations { get; }
     public int RequestedTotal => ShipLiquidInventory.TotalAmount(Requested);
     public int AcceptedTotal => ShipLiquidInventory.TotalAmount(Accepted);
     public int DiscardedTotal => ShipLiquidInventory.TotalAmount(Discarded);
+
+    public void ValidateSourceAllocations()
+    {
+        if (SourceAllocations.Count == 0) return; // Legacy receipts have no per-source provenance.
+        var requested = new Dictionary<string, int>(StringComparer.Ordinal);
+        var accepted = new Dictionary<string, int>(StringComparer.Ordinal);
+        var discarded = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var source in SourceAllocations)
+        {
+            source.Validate();
+            Merge(requested, source.Requested);
+            Merge(accepted, source.Accepted);
+            Merge(discarded, source.Discarded);
+        }
+        if (!BalancesEqual(requested, Requested) ||
+            !BalancesEqual(accepted, Accepted) ||
+            !BalancesEqual(discarded, Discarded))
+            throw new ArgumentException("Per-source settlement allocations do not sum to the aggregate receipt.");
+    }
+
+    private static void Merge(Dictionary<string, int> target, IReadOnlyDictionary<string, int> source)
+    {
+        foreach (var item in source)
+            target[item.Key] = checked(target.GetValueOrDefault(item.Key) + item.Value);
+    }
+
+    private static bool BalancesEqual(IReadOnlyDictionary<string, int> left, IReadOnlyDictionary<string, int> right) =>
+        left.Count == right.Count && left.All(item => right.TryGetValue(item.Key, out var value) && value == item.Value);
+
+    private static IReadOnlyDictionary<string, int> Freeze(IReadOnlyDictionary<string, int> source) =>
+        new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(source, StringComparer.Ordinal));
+}
+
+/// <summary>Exact per-source allocation of a multi-account settlement back to the Ship account.</summary>
+public sealed class LiquidBatchSourceAllocation
+{
+    public LiquidBatchSourceAllocation(
+        ResourceEndpoint sourceEndpoint,
+        ResourceEndpoint targetEndpoint,
+        IReadOnlyDictionary<string, int> requested,
+        IReadOnlyDictionary<string, int> accepted,
+        IReadOnlyDictionary<string, int> discarded)
+    {
+        SourceEndpoint = sourceEndpoint;
+        TargetEndpoint = targetEndpoint;
+        Requested = Freeze(requested);
+        Accepted = Freeze(accepted);
+        Discarded = Freeze(discarded);
+        Validate();
+    }
+
+    public ResourceEndpoint SourceEndpoint { get; }
+    public ResourceEndpoint TargetEndpoint { get; }
+    public IReadOnlyDictionary<string, int> Requested { get; }
+    public IReadOnlyDictionary<string, int> Accepted { get; }
+    public IReadOnlyDictionary<string, int> Discarded { get; }
+
+    public void Validate()
+    {
+        SourceEndpoint.Validate();
+        TargetEndpoint.Validate();
+        ShipLiquidInventory.ValidateAmounts(Requested);
+        ShipLiquidInventory.ValidateAmounts(Accepted);
+        ShipLiquidInventory.ValidateAmounts(Discarded);
+        var keys = Requested.Keys.Concat(Accepted.Keys).Concat(Discarded.Keys).Distinct(StringComparer.Ordinal);
+        foreach (var key in keys)
+            if (Requested.GetValueOrDefault(key) != checked(Accepted.GetValueOrDefault(key) + Discarded.GetValueOrDefault(key)))
+                throw new ArgumentException("Per-source settlement allocation violates resource conservation.");
+    }
+
+    internal LiquidBatchSourceAllocation DeepCopy() =>
+        new(SourceEndpoint, TargetEndpoint, Requested, Accepted, Discarded);
 
     private static IReadOnlyDictionary<string, int> Freeze(IReadOnlyDictionary<string, int> source) =>
         new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(source, StringComparer.Ordinal));
