@@ -169,6 +169,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
 
     public ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount)
     {
+        ResourcePortPreflightFactory.ValidateRequest(resourceIdentity, amount);
         var balances = _staging.GetBalance(_orderId);
         var token = ResourcePortVersionToken.Create(new[]
         {
