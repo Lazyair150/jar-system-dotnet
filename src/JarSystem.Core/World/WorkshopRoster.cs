@@ -28,6 +28,12 @@ public sealed class WorkshopRoster
             throw new ArgumentException("同一个工作台对象不能重复登记", nameof(workshops));
         if (_workshops.Select(w => w.Name).Distinct(StringComparer.Ordinal).Count() != _workshops.Count)
             throw new ArgumentException("工作台名称必须唯一", nameof(workshops));
+        var ownedInstanceIds = _workshops
+            .Where(workshop => workshop.OwnedInstanceId != null)
+            .Select(workshop => workshop.OwnedInstanceId!)
+            .ToArray();
+        if (ownedInstanceIds.Distinct(StringComparer.Ordinal).Count() != ownedInstanceIds.Length)
+            throw new ArgumentException("Workshop OwnedInstanceId 必须唯一", nameof(workshops));
 
         _workshopsView = _workshops.AsReadOnly();
         ValidateMember(master, nameof(master));
