@@ -53,16 +53,26 @@ public sealed record RuleResourceAccount(
     string AccountKind,
     string OwnerId)
 {
+    /// <summary>Present only for the new World-scoped identity contract; null preserves legacy v1.</summary>
+    public AccountIdentity? WorldScopedIdentity { get; init; }
+
+    public RuleResourceAccount(OwnerIdentity owner, string accountKind)
+        : this(accountKind, owner.LocalOwnerId)
+    {
+        WorldScopedIdentity = new AccountIdentity(owner, accountKind);
+    }
+
     /// <summary>
-    /// Canonical account identity. Length-prefixing both components prevents collisions
-    /// between different account kinds and owner IDs without relying on display names.
+    /// Canonical account identity. New accounts use account:v2; the two-argument constructor
+    /// remains an explicit legacy v1 compatibility path and is never silently upgraded.
     /// </summary>
     public string AccountId
     {
         get
         {
             Validate();
-            return "account:v1:" +
+            return WorldScopedIdentity?.ToCanonicalString() ??
+                "account:v1:" +
                 AccountKind.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
                 AccountKind +
                 OwnerId.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
@@ -74,6 +84,11 @@ public sealed record RuleResourceAccount(
     {
         if (string.IsNullOrWhiteSpace(AccountKind) || string.IsNullOrWhiteSpace(OwnerId))
             throw new ArgumentException("Resource account requires exact kind and owner identity.");
+        if (WorldScopedIdentity is { } identity &&
+            (!identity.IsValid ||
+             !string.Equals(identity.AccountKind, AccountKind, StringComparison.Ordinal) ||
+             !string.Equals(identity.Owner.LocalOwnerId, OwnerId, StringComparison.Ordinal)))
+            throw new ArgumentException("World-scoped account identity does not match its legacy projection fields.");
     }
 }
 
