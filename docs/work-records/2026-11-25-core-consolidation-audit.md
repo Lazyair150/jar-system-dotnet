@@ -699,3 +699,13 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 对持久账本检测到的重复 OperationId，Prepared 参与者进入终态 Duplicate；后续 Commit 与 Cancel 均拒绝，防止把重复执行状态伪装成普通可取消准备态。补充两条路径的终态测试；相关提交：`70f80a19c616dcb35599857a44635b60d95458a2`、`567ed788dd903c41897644092936b0451ab16e45`、`50a2510bf50477d75d2abf40bf7926bbbd1b0853`、`8cb6479f01e9a598e44e981343cd98b2084c7eab`。
 
 - 持久去重依据已核实：`WorldV2Context.CaptureExecutionResourceCheckpoint` 捕获 `ResourceLedger.Capture()`；恢复路径先 `ResourceLedger.Restore(checkpoint.ResourceLedger)` 校验，再 `ResourceLedger.RestoreFrom` 装载；`ResourceLedgerSnapshot` 包含 OperationIds。因此传入 World 持有的同一 ResourceLedger 时，操作去重标记确实进入执行检查点，而非仅存在于临时对象内。
+
+### 第二十四轮：收敛事务预检与账本发布原子边界
+
+- 对两条已实现参与者进行失败窗口复审，发现此前两者都在物理账户提交完成后才调用 `ResourceLedger.RecordBatchOnce`。若账本发布因重复 ID 或其他异常失败，物理资源可能已经移动，参与者只能标记 Faulted，不能自动恢复；这不满足本阶段要求的失败原子性。
+- 修正订单液体转移：`OrderLiquidTransfer.TryExecute` 增加提交前置回调，回调在双账户快照保护的 try/catch 内执行。账本发布失败时，源/目标订单子账恢复到精确快照；账本成功后不再执行可能失败的领域操作。
+- 修正 Ship→Prefill：`WorkshopPrefillTransaction.Commit(Action)` 在提交前验证 Ship 回滚容量预留和 Workshop pending 标志，再调用账本发布回调；回调失败时事务仍未完成，Prepared 参与者会调用 Rollback，恢复 Prefill 与 Ship 两端。预留释放和 pending 清除只在回调成功后执行。
+- 新增失败注入测试：订单账本发布失败必须恢复双订单账户；Prefill 账本发布失败必须保持事务可回滚，回滚后 Ship 原余额、预留容量和 Prefill 账户全部恢复。
+- 两条参与者的版本令牌复核、Ban/容量判定和重复 OperationId 检查收敛至 `ResourcePortTransferGuards.EvaluateCommitPreflight`；Prepare 的账本与 Tick Provider 配对校验也收敛至同一 helper。账户各自保留领域提交方法，不把不同账户语义抹平。
+- 关键提交：`e32a4c271c83f952c6e7358651ace4842718f26a`（领域事务回调及预留验证）、`5a6f27610b53d4fed2290c35f78703285413085e`、`49f6c9876f8073ce54a2ae463873a2e419516d70`（两条参与者接入原子回调）、`7b9e8907ce24ba20920a9d3c5c7d9b07c388aeda`、`e18164d747dc2420f7911edaaac38b36063ec8e3`（失败注入测试）、`45c73ad5640a2d1f6adf463cc3376bfc9fcad072`、`eebf435e6d213e60b3e5008df30c0673b888a145`、`a43a975f7e743cee833914fcd4149548f3e9d740`、`f7d7cbf9fe27cf5f6cb8d8dacce8f828cfe56a67`（共享预检与幂等守卫）、`9fa18da74480faf46cf17db4062f90143898557a`（架构文档）。
+- 本轮新代码尚未获得当前 HEAD 的完整 CI 结果；必须在最新 Run 结束后记录 Build、xUnit、Solver Differential、安全扫描和质量门禁结果。PR #63 仍保持 Draft，不合并。
