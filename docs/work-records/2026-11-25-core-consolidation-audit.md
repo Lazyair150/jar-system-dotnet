@@ -534,3 +534,29 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 2. 在 Core 新 HEAD 上运行 CI，修复编译/测试问题。
 3. 为 Workshop Jar Storage、Workshop Liquid Resource Area、Ship Liquid Inventory 建只读 Port Adapter；每个 Adapter 仅调用现有权威领域方法做预检，不直接暴露容器。
 4. 明确 Transfer Request / Preflight / Receipt 的纯值契约，再实现事务协调器；不在本轮把独立 TryReceive/TryWithdraw 伪装成原子跨区转移。
+
+
+### 第十八轮精确验证补记
+
+#### Core
+- 最终代码/文档 HEAD：`8df3de5e8ba06012cadaa2c6288a4b7f3941d8a3`。
+- GitHub Actions run `45612299720`：SUCCESS。
+- Release/验证构建：Build succeeded，0 Error(s)。
+- xUnit：873 total / 0 errors / 0 failed / 0 skipped。
+- 本轮新增的 CircuitTopology 测试已包含在该精确 HEAD 的 873 项测试中。
+
+#### Space
+- 本轮最终 Space HEAD：`8ad262ab8e42801af1e782c29becb59b5ce65bc6`。
+- GitHub Actions cross-repository integration run `45613042211`：SUCCESS。
+- Core Bridge 与 Space .NET 构建、Godot 4.7.1 项目导入/GDScript 解析、集成 Probe 均通过。
+- SpaceHangarBoardDefinitionProbe 通过：区域投影、多重性、默认装配、Board Assignment、冻结快照、Owned Assembly、篡改拒绝、Parser 规则隔离、Profile 路由。
+- 失败修复留痕：
+  1. run `45612522311` 发现 OwnedLoadoutAssembler 仍只接受 Board Assignment schema v1；已升级为同时验证 v1 兼容与 v2 层级契约。
+  2. run `45612793454` 发现 GDScript 第二个循环作用域错误引用前一循环的 area_id/sub_area_id；改为从当前冻结 Slot 读取后修复。
+  3. run `45613042211` 对最终精确 HEAD 完整通过。
+- 日志中出现的若干预期 ERROR 来自负向/拒绝路径 Probe（例如无效资源、篡改快照、缺失场景等），工作流结论为 SUCCESS，不能将这些测试日志误报为 CI 失败。
+
+#### 本轮完成边界更新
+- 顶层区域/子区域层级已进入 Core 结构契约和 Space 冻结 Board/Assignment/Runtime Profile 路由。
+- Area/Port/Connection 是 Core 的结构元数据契约；尚未建立资源账户运行时 Adapter，也尚未建立跨账户原子 Transfer Coordinator。
+- 通过的自动化验证不等于真实 GUI 试玩验收；Space PR #2 仍为 Draft/Open，Core PR #63 仍为 Draft/Open，均未合并。
