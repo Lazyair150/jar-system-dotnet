@@ -50,7 +50,7 @@ internal class SolverState
                 _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid))).Decision.IsAllowed;
         return WorkshopRulebook.IsAllowed(
             _rules, _perLiquidCapacity,
-            new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked),
+            new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid)),
             ToWorkshopOperation(operation), Liquids);
     }
 
@@ -62,7 +62,7 @@ internal class SolverState
 
     public WorkshopRulebook.WorkshopOperationTransition? CreateMatchTransition(JarState jar) =>
         WorkshopRulebook.EvaluateMatchTransition(
-            _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked)).Transition;
+            _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid))).Transition;
 
     private static WorkshopOperation ToWorkshopOperation(SolverOperation operation) =>
         operation.Type switch
