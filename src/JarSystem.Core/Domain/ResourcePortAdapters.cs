@@ -52,9 +52,9 @@ internal static class ResourcePortPreflightFactory
     {
         ArgumentNullException.ThrowIfNull(port);
         if (string.IsNullOrWhiteSpace(resourceIdentity))
-            return Result(RuleDecisionKind.Undetermined, "resource.identity.missing", "Resource identity is required.");
+            throw new ArgumentException("Resource identity is required.", nameof(resourceIdentity));
         if (amount <= 0)
-            return Result(RuleDecisionKind.Rejected, "resource.amount.invalid", "Resource amount must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(amount), "Resource amount must be positive.");
         if (port.ResourceKind != RuleResourceKind.Liquid)
             return Result(RuleDecisionKind.Undetermined, "port.resource-kind.unsupported", "This adapter only supports liquid resources.");
         if (port.Direction is not (ResourcePortDirection.Input or ResourcePortDirection.Output))
@@ -68,10 +68,17 @@ internal static class ResourcePortPreflightFactory
         if (string.IsNullOrWhiteSpace(versionToken))
             return Result(RuleDecisionKind.Undetermined, "account.version.unavailable", "Authoritative account version is unavailable.");
 
-        var grant = evaluate();
-        return grant.Granted
-            ? Result(RuleDecisionKind.Allowed, "allowed", null)
-            : Result(RuleDecisionKind.Rejected, grant.Code ?? "account.policy.rejected", grant.Reason);
+        try
+        {
+            var grant = evaluate();
+            return grant.Granted
+                ? Result(RuleDecisionKind.Allowed, "allowed", null)
+                : Result(RuleDecisionKind.Rejected, grant.Code ?? "account.policy.rejected", grant.Reason);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Result(RuleDecisionKind.Undetermined, "account.busy-or-unavailable", exception.Message);
+        }
 
         ResourcePortPreflight Result(RuleDecisionKind decision, string reasonCode, string? diagnostic) =>
             new(decision, port.PortId, adapter.Account, RuleResourceKind.Liquid,
