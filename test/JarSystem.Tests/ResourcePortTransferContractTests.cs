@@ -14,7 +14,7 @@ public sealed class ResourcePortTransferContractTests
     {
         var request = new ResourceTransferRequest(
             "op.1", "connection.1", "ship.liquid.out", "workshop.liquid.in",
-            RuleResourceKind.Liquid, "fuel", 3, Source, Target, 4, 9);
+            RuleResourceKind.Liquid, "fuel", 3, Source, Target, "src-v4", "dst-v9");
         request.Validate();
 
         Assert.Throws<ArgumentException>(() => (request with { TargetAccount = Source }).Validate());
@@ -27,7 +27,7 @@ public sealed class ResourcePortTransferContractTests
             "op.2", "connection.1", "ship.liquid.out", "workshop.liquid.in",
             RuleResourceKind.Liquid, "fuel", Source, Target,
             5, 0, 5, 0, ResourceTransferOutcome.Rejected,
-            7, 7, 11, 11, "target.banned");
+            "src-v7", "src-v7", "dst-v11", "dst-v11", "target.banned");
         receipt.Validate();
     }
 
@@ -38,7 +38,7 @@ public sealed class ResourcePortTransferContractTests
             "op.3", "connection.1", "ship.liquid.out", "workshop.liquid.in",
             RuleResourceKind.Liquid, "fuel", Source, Target,
             5, 2, 2, 1, ResourceTransferOutcome.PartiallyTransferred,
-            7, 8, 11, 12, "target.partial-capacity");
+            "src-v7", "src-v8", "dst-v11", "dst-v12", "target.partial-capacity");
         receipt.Validate();
 
         Assert.Throws<ArgumentException>(() => (receipt with { RetainedAtSourceAmount = 1 }).Validate());
@@ -50,7 +50,7 @@ public sealed class ResourcePortTransferContractTests
         var preflight = new ResourcePortPreflight(
             RuleDecisionKind.Undetermined, "workshop.jar.in",
             new RuleResourceAccount("workshop-jar-storage", "workshop.01"),
-            RuleResourceKind.Jar, "圆罐", 1, 3, "policy.unsupported");
+            RuleResourceKind.Jar, "圆罐", 1, "area-v3", "policy.unsupported");
         preflight.Validate();
 
         Assert.Throws<ArgumentException>(() => (preflight with { ReasonCode = "allowed" }).Validate());
