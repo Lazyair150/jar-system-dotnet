@@ -292,3 +292,15 @@ Core 只暴露稳定领域契约；Space 只提供身份映射、Board Assignmen
 ## 18. Rule Schema 版本与指纹依赖
 
 RuleContributionSchemaRegistry.CurrentVersion 是 Effect 参数校验与投影语义的版本。它必须进入 EffectiveRuleProfile fingerprint 和 WorldSnapshot RuleSetVersion；当 schema、参数合法性或投影语义发生变化时，必须递增，以使 Profile、候选缓存和结构解缓存正确失效。未知 Effect 仍在 Profile 装配阶段拒绝；已知但不支持静态求解的 Effect 必须保留为 Undetermined。
+
+
+## 19. 候选生成策略与 Rule Operator Provider
+
+候选生成算法不得直接硬编码操作清单。它消费版本化的 IWorldOrderRuleCandidateProvider Registry：
+- 每个 Provider 有稳定 ProviderId、Version 与 Order；三者进入 Registry fingerprint。
+- Catalog 只负责把 World Snapshot、需求与 Provider Registry 组合成候选 Profile。
+- Provider 负责为某类 Rule Operator 提供 predecessor/candidate projection。
+- Provider 必须通过统一 CandidateFactory 调用 Core Rule Interpreter 与资源 staging/admission；不得自行声明转移合法。
+- Registry fingerprint 进入候选规格 fingerprint 与缓存键。
+- Provider 是可信 Core 代码扩展，不是持久化组件代码；持久化组件只能提交受 Schema 校验的声明式 RuleContribution。
+- 规则本体最终应从手写 Provider 迁移到 RuleDefinition / RuleProgram 声明的前驱投影；无法给出有限、确定的 predecessor projection 时，Solver 返回 Undetermined。

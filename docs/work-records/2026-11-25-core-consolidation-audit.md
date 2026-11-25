@@ -378,3 +378,31 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - RuleContribution Schema Version 指纹代码 head d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed 两条精确验证 45596511987 / 45596522515 均 SUCCESS。
 - xUnit 866/866；资源样本 5,032 组无错误；Core build 成功。
 - 最新工作记录更新为文档提交；代码验证证据对应 d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed。
+
+
+## 2026-11-25 第十六轮：候选算子 Provider Registry 化
+
+### 代码源与验证
+- 代码 head：18a0b26407ee51c6df722f093165c3b3770c31a7。
+- 精确 runs：45597874582 SUCCESS、45597884119 SUCCESS。
+- xUnit：868 total / 0 errors / 0 failed / 0 skipped。
+- 资源样本：2,000 random + 3,000 capacity + 32 deterministic，0 bugs；Core build succeeded。
+
+### 实施
+- 新增 IWorldOrderRuleCandidateProvider、WorldOrderRuleCandidateProviderRegistry。
+- 将 MATCH、POUR_IN、POUR_OUT、RESHAPE_EMPTY、RESHAPE_FULL、PREPARE_POUR_OUT 拆为独立 Provider。
+- WorldOrderRuleCandidateCatalog 只负责遍历来源形状、需求和注册的 Providers，不再直接持有每种算子的候选生成分支。
+- 新增 WorldOrderRuleCandidateFactory，所有 Provider 仍必须通过统一 WorkshopRulebook 和 staging/admission 规则进行候选评估，不能自行伪造合法转移。
+- Provider 的 ProviderId、Version、Order 进入 Registry fingerprint；Registry fingerprint 进入 specification fingerprint 与 CandidateBook cache key。
+- WorldOrderRuleCandidateBook 支持注入 immutable registry；默认使用 Core 内建注册表。
+- 新增重复 ProviderId 拒绝、Provider 版本/顺序改变会改变候选规格指纹的测试。
+- 保留旧候选顺序：来源形状优先，其次 MATCH / POUR_IN / POUR_OUT / RESHAPE_EMPTY / RESHAPE_FULL；预备 POUR_OUT 单独生成。
+
+### 验证失败与修复
+- 初版 head d8da461a79eaa3d6f74e99ce24b9089186862d1b 的两条 CI 45597443073 / 45597455088 失败，失败点为新测试构造自定义 Vocabulary 时没有提供非默认液体的极性映射；这是测试夹具错误，不是 Provider 实现错误。
+- 为测试补齐 fuel=Anode / coolant=Cathode 映射后，head 18a0b26407ee51c6df722f093165c3b3770c31a7 两条精确 CI 均 SUCCESS。
+
+### 尚未完成
+- Provider 是可信 Core 算法扩展，不是可持久化的任意组件代码；组件 RuleContribution 仍只能声明式配置已知 Effect。
+- WorkshopRulebook 仍持有基础操作解释逻辑；下一步需把规则本体表达为 versioned RuleDefinition / RuleProgram，Candidate Provider 应逐步从手写操作循环改为消费规则声明的 predecessor projection。
+- A/B Branch Enumerator 仍分别绑定 Master/Slave 流程；下一步是 OrderPolicy / RolePlan 解耦。

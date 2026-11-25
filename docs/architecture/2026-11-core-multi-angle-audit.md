@@ -303,3 +303,8 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 ## 2026-11-25 第十五轮：Rule Schema 版本化与缓存失效
 
 RuleContributionSchemaRegistry.CurrentVersion 已进入 EffectiveRuleProfile fingerprint 与 WorldSnapshot RuleSetVersion，避免规则参数 schema / 投影语义变化后错误复用旧 Profile 或结构候选缓存。新增 effect schema 完整性与 ModifyCapacity 静态不可求解测试。代码 head d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed 的精确 runs 45596511987 / 45596522515 均 SUCCESS：866/866 xUnit、0 errors / 0 failures / 0 skipped，资源样本 5,032 组 0 bugs，Core Build succeeded。后续工作重点转向 RuleOperator Provider Registry 与 OrderPolicy，继续从候选算法中移除固定操作列表和 A/B 岗位流程。
+
+
+## 2026-11-25 第十六轮：候选操作生成从 Catalog 抽为 Provider Registry（已验证）
+
+Core code head 18a0b26407ee51c6df722f093165c3b3770c31a7 两条精确 runs 45597874582 / 45597884119 均 SUCCESS：868/868 xUnit、0 errors / 0 failures，资源样本 5,032 组 0 bugs。Candidate Catalog 现遍历版本化 IWorldOrderRuleCandidateProvider registry；内建六类 Jar 候选操作各自独立，统一 Factory 仍委托 WorkshopRulebook 与 staging/admission 进行权威验证。Provider identity/version/order 纳入候选规格指纹及缓存键。A/B Branch Enumerator 与 Master/Slave RolePlan 仍待解耦。
