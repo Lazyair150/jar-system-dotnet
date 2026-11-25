@@ -24,7 +24,7 @@ Space's names `燃料` and `冷却液` must therefore be legal world identities 
 2. Polarity is a separate binary structural property. Each World explicitly assigns exactly one of its two liquid identities to Cathode and the other to Anode. The assignment is not inferred from display names or list order.
 3. A World vocabulary is immutable and owns this mapping. No process-global mutable registry is allowed.
 4. A Jar resolves its polarity through the exact vocabulary with which it was created. Deep clone, pool rent/recycle, restore and snapshot validation must preserve/check vocabulary identity and mapping.
-5. Workshop capability/rule evaluation uses the same World mapping to derive the bench polarity mode from the two banned identities. Ban continues to govern free-liquid staging and must not be applied to Jar-internal liquid ownership.
+5. Workshop Ban governs only the workshop's free-liquid staging account (pay/receive/transfer admission). It does not derive a Jar-operating polarity mode and cannot block MATCH, Jar-internal consumption, or physical Jar migration. If a future workshop-specific Jar-operation polarity policy is required, it must be a separate explicit capability, never inferred from Ban.
 6. Solver and executor iterate the vocabulary supplied by the World/solver context. Static default constants may remain only as a backwards-compatible default-world fixture, never as the production algorithm's liquid domain.
 7. World configuration validates: exactly two unique liquid identities; exactly two mapping entries; keys equal the liquid identity set; values contain Cathode and Anode exactly once.
 8. Snapshot/fingerprint formats serialize the identity and polarity assignment explicitly in a stable canonical order. Mapping changes are content changes and must invalidate/revise the World fingerprint.
@@ -38,7 +38,7 @@ The exact public type names may be refined during implementation, but preserve t
 - `WorldOptions.LiquidPolarities: Dictionary<string, LiquidPolarity>`.
 - `Vocabulary` captures a read-only identity-to-polarity mapping and exposes `TryGetPolarity` / `ResolvePolarity`.
 - `Jar.Polarity` resolves through its captured vocabulary.
-- `WorkshopCapability` captures or receives the same vocabulary mapping; its `PolarityMode` derives from the actual two identity keys, not literals.
+- `WorkshopCapability` receives the World liquid identity vocabulary for staging-account validation/enumeration; Ban is not translated into Jar polarity compatibility.
 - Pure solver facts either carry the resolved polarity or evaluate it through the same immutable Workshop/World rule context. They must not call a static name resolver.
 
 ## Space mapping
@@ -61,7 +61,7 @@ These names and this particular assignment are Space content. They must not be e
 
 - Rename-isomorphism: replace both liquid identities with arbitrary new unique IDs while preserving polarity assignments and all corresponding keyed data. Solve results, operation topology, resource accounting and final state remain structurally equivalent after identity substitution.
 - Polarity-swap: swap the two assignments and all corresponding identity-labelled data; results transform consistently rather than retaining name-based behavior.
-- Ban-scope: banning a staging liquid blocks free-liquid storage/use/transfer only; Jar-internal consumption and ordinary Jar migration remain governed by their own operation/ownership rules.
+- Ban-scope: banning a staging liquid blocks free-liquid storage/use/transfer only; MATCH, POUR_OUT, Jar-internal RESHAPE consumption and ordinary Jar migration are not rejected merely because the Jar contains the banned liquid.
 - Multi-world isolation: two simultaneous worlds with different names/mappings never resolve each other's liquid identities.
 - Pool/clone/restore: no Jar can be rented from a pool under a mismatched vocabulary.
 - Core/Space bridge: exact mapping survives config serialization, fingerprinting, DTO/snapshot and reload.
