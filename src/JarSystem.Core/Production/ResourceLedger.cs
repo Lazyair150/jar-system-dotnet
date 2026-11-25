@@ -167,9 +167,6 @@ public sealed class ResourceLedger
                 (item.OperationId != null && string.IsNullOrWhiteSpace(item.ResourceIdentity)) ||
                 (item.FromAccountId != null && string.IsNullOrWhiteSpace(item.FromAccountId)) ||
                 (item.ToAccountId != null && string.IsNullOrWhiteSpace(item.ToAccountId)) ||
-                !item.FromEndpoint!.Value.IsValid || !item.ToEndpoint!.Value.IsValid ||
-                (item.FromAccountId != null && item.FromEndpoint != ResourceEndpoint.ForAccount(item.FromAccountId)) ||
-                (item.ToAccountId != null && item.ToEndpoint != ResourceEndpoint.ForAccount(item.ToAccountId)) ||
                 (item.OperationId != null && item.Kind == ResourceKinds.Jar && !IsCanonicalJarId(item.ResourceIdentity)) ||
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
@@ -399,6 +396,9 @@ public sealed class ResourceLedger
                 string.IsNullOrWhiteSpace(item.ResourceIdentity) ||
                 (item.FromAccountId != null && string.IsNullOrWhiteSpace(item.FromAccountId)) ||
                 (item.ToAccountId != null && string.IsNullOrWhiteSpace(item.ToAccountId)) ||
+                !item.FromEndpoint!.Value.IsValid || !item.ToEndpoint!.Value.IsValid ||
+                (item.FromAccountId != null && item.FromEndpoint.Value != ResourceEndpoint.ForAccount(item.FromAccountId)) ||
+                (item.ToAccountId != null && item.ToEndpoint.Value != ResourceEndpoint.ForAccount(item.ToAccountId)) ||
                 (item.Kind != ResourceKinds.Jar && item.Kind != ResourceKinds.Liquid) ||
                 (item.Kind == ResourceKinds.Jar &&
                     (item.Amount != 1 || !IsCanonicalJarId(item.ResourceIdentity))))
