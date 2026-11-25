@@ -57,6 +57,52 @@ public sealed class WorldV2FactoryTests
     };
 
     [Fact]
+    public void FactoryAcceptsCustomLiquidIdentitiesOnlyWithExplicitPolarityAndFingerprintsTheMapping()
+    {
+        var options = ValidOptions();
+        options.Liquids = new List<string> { "fuel", "coolant" };
+        options.LiquidPolarities = new Dictionary<string, LiquidPolarity>
+        {
+            ["fuel"] = LiquidPolarity.Anode,
+            ["coolant"] = LiquidPolarity.Cathode
+        };
+        options.LiquidProductionRates = new Dictionary<string, double>
+        {
+            ["fuel"] = 0.5,
+            ["coolant"] = 0
+        };
+        options.InitialLiquidStock = new Dictionary<string, int> { ["fuel"] = 3 };
+
+        Assert.True(options.Validate().IsValid, string.Join("; ", options.Validate().Errors));
+        var fingerprint = WorldV2ConfigurationFingerprint.Compute(options);
+        using var world = WorldV2Factory.Create(options);
+        Assert.Equal(3, world.ShipLiquidInventory!.GetAmount("fuel"));
+        Assert.Equal(0, world.ShipLiquidInventory.GetAmount("coolant"));
+
+        var serialized = System.Text.Json.JsonSerializer.Serialize(options);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<WorldV2Options>(serialized)!;
+        Assert.Equal(LiquidPolarity.Anode, restored.LiquidPolarities["fuel"]);
+        Assert.Equal(LiquidPolarity.Cathode, restored.LiquidPolarities["coolant"]);
+
+        restored.LiquidPolarities["fuel"] = LiquidPolarity.Cathode;
+        restored.LiquidPolarities["coolant"] = LiquidPolarity.Anode;
+        Assert.NotEqual(fingerprint, WorldV2ConfigurationFingerprint.Compute(restored));
+    }
+
+    [Fact]
+    public void FactoryRejectsCustomLiquidIdentitiesWithoutExplicitPolarityMapping()
+    {
+        var options = ValidOptions();
+        options.Liquids = new List<string> { "fuel", "coolant" };
+
+        var validation = options.Validate();
+
+        Assert.False(validation.IsValid);
+        Assert.Contains(validation.Errors, error => error.Contains("liquidPolarities"));
+        Assert.Throws<System.ArgumentException>(() => WorldV2Factory.Create(options));
+    }
+
+    [Fact]
     public void FactoryBuildsAConsistentWorldFromExplicitLogicalTimeConfiguration()
     {
         var options = ValidOptions();
