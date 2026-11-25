@@ -156,6 +156,8 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
     {
         _workshop = workshop ?? throw new ArgumentNullException(nameof(workshop));
         _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
+            throw new ArgumentException("An exact Board-owned Workshop instance identity is required.", nameof(workshop));
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
         Account = new RuleResourceAccount(workshopOwner, "workshop.free-liquid-staging");
         Account.Validate();
@@ -421,6 +423,8 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
     {
         _workshop = workshop ?? throw new ArgumentNullException(nameof(workshop));
         _areaId = CircuitAreaDefinition.RequireIdentity(areaId, nameof(areaId));
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
+            throw new ArgumentException("An exact Board-owned Workshop instance identity is required.", nameof(workshop));
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
         Account = new RuleResourceAccount(workshopOwner, "workshop.jar-storage");
         Account.Validate();
