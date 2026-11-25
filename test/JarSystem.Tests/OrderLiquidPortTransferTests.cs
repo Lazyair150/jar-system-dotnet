@@ -192,7 +192,8 @@ public sealed class OrderLiquidPortTransferTests
             path.SourceAdapter, path.TargetAdapter, path.Source, path.Target,
             restoredLedger, () => 78);
 
-        Assert.Throws<System.InvalidOperationException>(() => replay.Commit());
+        Assert.Equal(receipt, replay.Commit());
+        Assert.True(replay.IsCommitted);
         Assert.Throws<System.InvalidOperationException>(() => replay.Cancel());
         Assert.Single(restoredLedger.Entries);
         Assert.Equal(1, path.Source.GetAmount(OrderId, "酒"));
