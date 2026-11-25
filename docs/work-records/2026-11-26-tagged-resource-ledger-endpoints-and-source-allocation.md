@@ -178,3 +178,8 @@ ExternalSource / ExternalSink 与 Account 之间的资源边仍允许，因为�
 ### 第二轮 CI 阻断与修复
 
 在 World V2 预置补液回滚端点迁移后，Actions 明确报出 `ResourceWorldRuntime.cs` 中回滚闭包引用了外层不存在的 `targetWorkshop`（CS0103）。这是代码作用域错误，阻断 Release build；其余测试摘要/契约 marker 缺失均是 build 未通过后的连锁结果。修复提交 `d6ef0d6ffaaa88122f9036f77d3cb54db1bd5c1a` 在 BeginReplacement 的局部生命周期中捕获确切的 `prefillTargetWorkshop`，回滚时用原目标工作台的身份构造来源账户，不从岗位或名称重新推导。该提交的 push 验证运行 `45678082511` 已启动，截至本记录更新时仍在执行，结果未确认。
+
+
+### 第三轮 CI 测试分析器修复
+
+修复预置回滚作用域错误后，Release build 继续推进到测试项目，新的首个阻断是 xUnit2031：`Assert.Single(collection.Where(predicate))` 必须改为 `Assert.Single(collection, predicate)`。三个位置均在新增的 World V2 ledger endpoint 端到端测试中；已在提交 `3828d06dc05fe9c64dfef7550e297c835fd901d3` 统一修正。该提交 push run `45678588961` 正在执行，尚未得到完整 build/test/contract 结果。
