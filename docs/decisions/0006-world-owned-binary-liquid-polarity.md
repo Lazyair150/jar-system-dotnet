@@ -1,6 +1,6 @@
 # ADR-0006: World-owned binary liquid identity and Jar polarity
 
-- Status: Proposed for implementation on PR #63
+- Status: Accepted; implementation in progress on PR #63 (exact-head CI pending)
 - Date: 2026-11-25
 - Decision owners: Jar Core domain contract
 - Related audit: `docs/architecture/2026-11-core-multi-angle-audit.md`
@@ -36,6 +36,7 @@ The exact public type names may be refined during implementation, but preserve t
 
 - `LiquidPolarity` enum in a dependency-safe configuration/value layer: `Cathode`, `Anode`.
 - `WorldOptions.LiquidPolarities: Dictionary<string, LiquidPolarity>`.
+- `WorldV2Options.LiquidPolarities: Dictionary<string, LiquidPolarity>`; the World V2 factory passes this exact mapping into its immutable Vocabulary.
 - `Vocabulary` captures a read-only identity-to-polarity mapping and exposes `TryGetPolarity` / `ResolvePolarity`.
 - `Jar.Polarity` resolves through its captured vocabulary.
 - `WorkshopCapability` receives the World liquid identity vocabulary for staging-account validation/enumeration; Ban is not translated into Jar polarity compatibility.
@@ -69,3 +70,13 @@ These names and this particular assignment are Space content. They must not be e
 ## Consequences
 
 This is a cross-cutting contract change, not a local alias patch. It touches config, vocabulary, Jar, workshop capability/rules, solver projections, execution, world snapshot/checkpoint, tests, bridge schema and Space authored options. It must be delivered as one coherent migration with compatibility tests; intermediate partial states must not be merged.
+
+
+## Implementation checkpoint (2026-11-25)
+
+- Implemented explicit `LiquidPolarity` and immutable `Vocabulary` mapping; `Jar.Polarity` resolves through its captured vocabulary.
+- Both legacy `WorldOptions` and World V2 `WorldV2Options` now carry `liquidPolarities`, validate exactly one Cathode and one Anode, and serialize the mapping. World V2 factory passes the mapping into `Vocabulary`; World V2 canonical configuration fingerprint automatically includes the serialized property.
+- Context-free `JarPolarityResolver` overloads and `JarFacts` default inference have been removed. Production solver facts must receive polarity from the active World/RuleContext.
+- Workshop Ban no longer defines Jar-operation polarity. It remains a staging admission policy; the legacy `WorkshopPolarityMode` is retained only as an Unrestricted transition-contract projection.
+- Added tests for custom identity mapping, list-order independence, liquid rename isomorphism at the polarity projection, mapping swap, staging-only Ban, World V2 custom mapping factory construction, JSON round-trip and configuration fingerprint sensitivity.
+- Core exact-head CI remains pending; additional test and static-scan failures may require further changes. Do not treat this checkpoint as complete until the complete suite passes.
