@@ -738,3 +738,6 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 第五条 Workshop→Workshop 游离液体路径 Run `45628744479` / `45628759676` 仍在执行；第六条新增代码当前 CI 尚未完成。后续以最新 HEAD 的验证结果为准。
 
 - Jar 回滚复审发现一个非数量型状态：Warehouse 的 Jar 列表顺序会影响后续 `FlowToMaster` 选罐顺序。最初补偿只把 Jar 追加回仓库，虽恢复了所有权和实体引用，却可能改变列表位置。现 `TryTakeJarExact` 返回原始索引，`RestoreJarExact` 按该索引插回；新增失败注入测试验证多罐仓库在回滚后逐项保持同一引用与原顺序。提交：`ff78355892a22cb1d4a4b5b2bc7d575426490f41`、`54cdc8df776fbff776709cb72dc903ec38f68eda`、`66ae69e59fa7aee0293ea37cfe0359b818be0edb`、`ac6c9e08e752f2c6a0b68fc0edf2de2da6a28823`。
+
+- 第五条 Workshop→Workshop 游离液体与第六条 Workshop→Workshop Jar 参与者，在当前 Jar 顺序补偿修正之前的快照 Run `45629276410`（提交 `c55cc6211e253f13436dc194c7349d2414c5a960`）通过：Build 成功；xUnit 933 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该结果覆盖第五、第六条路径与对应测试，但不含随后新增的 Warehouse Jar 原索引回滚测试。
+- 当前最新 HEAD `53083a06a5707a215119b71754e0a8a547bca310` 的 Run `45629635494` 正在执行；PR #63 Open、Draft、GitHub API mergeable=true / mergeable_state=unstable（检查仍运行），未合并。
