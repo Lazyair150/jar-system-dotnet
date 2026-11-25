@@ -131,7 +131,8 @@ public sealed class ShipPrefillPortTransferTests
             path.SourceAdapter, path.TargetAdapter, path.Ship, path.Staging,
             restoredLedger, () => 92);
 
-        Assert.Throws<System.InvalidOperationException>(() => replay.Commit());
+        Assert.Equal(receipt, replay.Commit());
+        Assert.True(replay.IsCommitted);
         Assert.Throws<System.InvalidOperationException>(() => replay.Cancel());
         Assert.Single(restoredLedger.Entries);
         Assert.Equal(3, path.Ship.GetAmount("酒"));
