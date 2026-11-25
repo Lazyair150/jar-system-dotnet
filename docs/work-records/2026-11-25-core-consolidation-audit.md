@@ -749,3 +749,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 最新完整代码快照（包含六条参与者、Warehouse Jar 原索引回滚及 934 项测试）的 Run `45629635494`（提交 `53083a06a5707a215119b71754e0a8a547bca310`）通过：Build 成功；xUnit 934 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。此 Run 已证明原索引补偿测试通过。
 
 - 对第五条 Workshop 游离液体路径补充来源端 Ban 测试：使用内部快照恢复入口构造“历史/异常状态中来源台已禁用但仍有旧余额”的情况，验证 Output Adapter 仍会拒绝提取，液体留在来源账户。提交 `c47b5965c3f18bad7772abae73ec46fe35bea5b2`。此测试不改变 Ban 语义，只验证端口预检在异常旧状态下仍 fail-closed。
+
+- 文档与 ResourceCauses 词表说明更新后的完整 Run `45630249477`（提交 `6df684df084f6237cbfa566a13b750ec511d1a3d`）通过：Build 成功；xUnit 934 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该结果覆盖六条参与者、账本批次预分配、Jar 顺序补偿和 3.12 共同边界文档。
