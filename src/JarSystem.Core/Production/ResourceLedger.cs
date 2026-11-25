@@ -156,7 +156,11 @@ public sealed class ResourceLedger
                 item.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred)) ||
             snapshot.TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != snapshot.TransferReceipts.Count)
             throw new DomainValidationException("资源账本快照的转移回执与 OperationId 索引不一致。");
-        foreach (var receipt in snapshot.TransferReceipts) receipt.Validate();
+        foreach (var receipt in snapshot.TransferReceipts)
+        {
+            receipt.Validate();
+            ValidateTransferReceiptResourceIdentity(receipt);
+        }
 
         var ledger = new ResourceLedger(snapshot.Capacity)
         {
@@ -198,6 +202,19 @@ public sealed class ResourceLedger
             foreach (var item in restored._transferReceipts)
                 _transferReceipts.Add(item.Key, item.Value);
         }
+    }
+
+    private static void ValidateTransferReceiptResourceIdentity(ResourceTransferReceipt receipt)
+    {
+        if (receipt.ResourceKind == RuleResourceKind.Jar &&
+            (receipt.RequestedAmount != 1 || receipt.TransferredAmount != 1 ||
+             receipt.RetainedAtSourceAmount != 0 || receipt.DiscardedAmount != 0 ||
+             !int.TryParse(receipt.ResourceIdentity, System.Globalization.NumberStyles.None,
+                 System.Globalization.CultureInfo.InvariantCulture, out var jarId) ||
+             jarId <= 0 ||
+             jarId.ToString(System.Globalization.CultureInfo.InvariantCulture) != receipt.ResourceIdentity))
+            throw new DomainValidationException(
+                "Jar transfer receipts must identify one canonical positive JarId and transfer exactly one Jar.");
     }
 
     private static ResourceEvent Clone(ResourceEvent item) => new()
@@ -316,14 +333,7 @@ public sealed class ResourceLedger
             throw new DomainValidationException("Transfer receipt OperationId does not match its ledger key.");
         if (receipt.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
             throw new DomainValidationException("Only a committed transfer can enter the receipt journal.");
-        if (receipt.ResourceKind == RuleResourceKind.Jar &&
-            (receipt.RequestedAmount != 1 || receipt.TransferredAmount != 1 ||
-             receipt.RetainedAtSourceAmount != 0 || receipt.DiscardedAmount != 0 ||
-             !int.TryParse(receipt.ResourceIdentity, System.Globalization.NumberStyles.None,
-                 System.Globalization.CultureInfo.InvariantCulture, out var jarId) ||
-             jarId <= 0 ||
-             jarId.ToString(System.Globalization.CultureInfo.InvariantCulture) != receipt.ResourceIdentity))
-            throw new DomainValidationException("Jar transfer receipts must identify one canonical positive JarId and transfer exactly one Jar.");
+        ValidateTransferReceiptResourceIdentity(receipt);
 
         lock (_gate)
         {
