@@ -355,7 +355,7 @@ public sealed class ResourceLedger
         Tick = item.Tick,
         Cause = item.Cause,
         Kind = item.Kind,
-        Name = item.Name,
+        Name = item.DisplayName ?? item.Name,
         DisplayName = item.DisplayName ?? item.Name,
         Amount = item.Amount,
         From = item.From,
