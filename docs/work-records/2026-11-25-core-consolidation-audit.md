@@ -635,3 +635,16 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 新增 `WarehouseLiquidStoragePortAdapter`：以 Production Individual 身份绑定旧版中央仓库液体账户，检查词表身份、逐液种容量和余额；不套用 Workshop Ban。
 - 新增测试覆盖仓库 Jar 身份规范化、液体容量与未知词表身份。
 - 注意：第二十二轮 Warehouse Adapter 的新增代码在本补记时尚未获得最新 HEAD CI 结果，不能沿用上一轮 887 项测试的通过结论。
+
+
+### 第二十二轮 CI 失败定位与分层修正
+- Core 精确 HEAD `7c27c6663c5a5f8fe2f9e0ec9333fa9d1575d246` 的验证 Run `45616813861`：Build、两个 Godot Host Build、随机/确定性基线、StrategyExperiment、契约快照/schema、World 配置等价、协议守卫、求解器差分、Session Replay、安全依赖与 Secret 扫描均通过。
+- xUnit 889 项中 1 项失败：`ArchitectureTests.CoreLayersOnlyDependDownward`；失败原因是 `Domain/ResourcePortAdapters.cs` 在 Domain 圈层引用了更高层的 `Production`。
+- 修正：将 Adapter 实现命名空间迁移到 `JarSystem.Core.Production`，显式引用低层 `JarSystem.Core.Domain` 契约；测试改为导入 Production Adapter 命名空间。没有修改架构测试规则，也没有放宽层级表。
+- 修正提交：Adapter namespace commit `b828f376fcc590bbb080a1eb735d53fc03db1d9a`；测试 import commit `66aae9c73b1d696b1a345aa9df3e79711cff5a51`。
+- 新提交的完整验证结果尚待 CI；在新 HEAD 的架构测试通过前，不将该修正记为验证完成。
+
+### 事务参与者审计（设计前置）
+- 已审阅 `Orders/Switching/ResourceTransferrer`：它会直接移动 Workshop 资源，且副作用（账本、统计、对象池 Return）被延迟到 CommitEffects；其注入回调明确要求非抛异常，副作用部分完成后不能安全自动回滚。因此不能直接包装成通用跨账户原子参与者。
+- 已审阅 `World/Execution/OrderTransferService`：它先完成完整预检，再触发 `commitStarted`，逐个移动 Jar、执行液体批次转移、验证精确归属并批量写入幂等账本；这是较完整的现有事务边界，但它包含 B 类订单租约/Manifest/RuleTransition 语义，不应被误用为通用账户转移实现。
+- 下一步继续定位底层 `OrderLiquidTransfer`、Workshop prefill 和 Ship Inventory 的实际提交/撤销 API；只有能证明准备、版本复核、提交、补偿/回滚和幂等收据的路径才可成为事务参与者。暂不实现顺序调用两端 mutator 的伪协调器。
