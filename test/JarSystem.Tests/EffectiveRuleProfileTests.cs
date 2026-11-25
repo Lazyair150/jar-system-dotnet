@@ -146,7 +146,7 @@ public sealed class EffectiveRuleProfileTests
             "workshop",
             priority,
             new RuleContributionSource("installed-component", "component.workshop", 1, instanceId, 1, slotId),
-            [new RuleContributionParameter("shape", "circle")]);
+            []);
 
     [Fact]
     public void UnknownContributionEffectIsRejectedDuringProfileAssembly()
