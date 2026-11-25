@@ -695,12 +695,10 @@ public sealed class ResourceEventWireDto
             (ToAccountId != null && string.IsNullOrWhiteSpace(ToAccountId)) ||
             (FromEndpoint != null && !FromEndpoint.IsValid) ||
             (ToEndpoint != null && !ToEndpoint.IsValid) ||
-            (FromAccountId != null &&
-                (FromEndpoint?.Kind != ResourceEndpointKind.Account || FromEndpoint.AccountId != FromAccountId)) ||
-            (ToAccountId != null &&
-                (ToEndpoint?.Kind != ResourceEndpointKind.Account || ToEndpoint.AccountId != ToAccountId)) ||
-            (FromEndpoint == null && FromAccountId != null) ||
-            (ToEndpoint == null && ToAccountId != null) ||
+            (FromEndpoint != null && FromAccountId != null &&
+                (FromEndpoint.Kind != ResourceEndpointKind.Account || FromEndpoint.AccountId != FromAccountId)) ||
+            (ToEndpoint != null && ToAccountId != null &&
+                (ToEndpoint.Kind != ResourceEndpointKind.Account || ToEndpoint.AccountId != ToAccountId)) ||
             (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))) ||
             (OperationId != null && Kind == ResourceKinds.Jar && !IsCanonicalJarId(ResourceIdentity)))
             throw new InvalidOperationException("资源账本事件 Wire DTO 无效。");
