@@ -264,3 +264,18 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 - 该源版本还明确拒绝不包含 World-owned polarity mapping 的旧 checkpoint schema v2，避免把历史 JSON 缺字段误当成默认世界语义。
 - Space PR #2 workflow 已将 checkout 与 `CORE_EXPECTED_SHA` 固定到 Core `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。Space code head `a19a6afcf47d06bf500764407bad63e8f6bd5dde` 的联合 run `45588639250` 已 SUCCESS：Core Bridge 与 Space build、Godot 4.7.1 import/parse、HUD 21/21、Hangar/owned inventory/progression/domain、parser ingress、World V2 lifecycle/fault/commands/snapshot isolation、battle pause/navigation 全部通过。最终 marker 为 `CROSS-REPO-WORLD-V2-OK core=5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。负向 fault injection 日志属于预期测试，不是 CI 失败。
 - 目前 GitHub 仅有 Core PR #63 与 Space PR #2 两个 Open Draft PR；历史 superseded PR 已关闭，历史分支保留。
+
+
+## 2026-11-25 第十二轮：概念体系正式化与算法结构解耦审查
+
+本轮以整合分支最新源码为准，不沿用早期文档中“尚无 RuleContribution”等过期判断。现状为：World-owned Vocabulary、EffectiveRuleProfile、RuleContext、统一三态 RuleEvaluation、符号候选、资源模拟和活动执行检查点均已存在；但仍有明确结构耦合缺口：
+- 候选生成使用 Constants.SHAPES，默认内容目录仍侵入 World V2 搜索空间。
+- WorkshopRulebook 以固定操作 enum/switch 驱动内建算子，RuleDefinition 目录尚未成为统一执行入口。
+- RuleContext.From(profile) 直接 switch Effect 并对缺失参数给 fallback；未知/无效贡献必须改为 schema 验证与 fail-closed。
+- A/B Branch Enumerator 直接分支 Master/Slave 与固定交接结构；订单类别和世界岗位语义尚未成为独立策略输入。
+- WorldSnapshot 已有 RuleSet/WorkshopProfile/Resource 指纹，但缺少可供候选枚举使用的显式 World Shape Vocabulary。
+- 候选字符串、岗位标签、预算和操作顺序需要逐项归类，不能把所有常量一概删除。
+
+新增规范文件 core-conceptual-model-and-formal-rules.md 与 ADR 0007。正式目标为 World-owned identity/configuration、declarative Rule Definition/Contribution、single Rule Interpreter、SolveProblem/OrderPolicy、StructuralSolution 与 ResourceBinding/Readiness 分离、Admission/Lease/Execution/Settlement 版本化。现有 A/B、Ban、Mark、资源守恒、失败代价语义必须保留。
+
+本轮只正式化规范和裁决，不宣称代码层已完成泛化。下一阶段先消除默认形状目录进入求解候选空间，再集中规则解释入口；完成每个迁移点后运行差分与精确 head CI。
