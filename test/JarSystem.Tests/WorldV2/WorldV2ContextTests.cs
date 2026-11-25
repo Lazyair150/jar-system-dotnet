@@ -282,7 +282,7 @@ public sealed class WorldV2ContextTests
             checkpoint.Reservations,
             new WorldResourceReservationBookWireDto(new[] { mismatchedLeaseWire }),
             checkpoint.ResourceLedger, checkpoint.Clock, checkpoint.RuntimeLedgerTick,
-            checkpoint.Shapes, checkpoint.Liquids, checkpoint.Sessions);
+            checkpoint.Shapes, checkpoint.Liquids, checkpoint.LiquidPolarities, checkpoint.Sessions);
         Assert.Throws<InvalidOperationException>(
             () => secondWorld.RestoreExecutionResourceCheckpoint(mismatchedCheckpoint));
 
