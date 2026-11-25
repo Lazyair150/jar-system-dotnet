@@ -565,9 +565,12 @@ public sealed class ResourceLedgerSnapshotTests
         var batch = new[]
         {
             new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
-                "酒", 2, From: "source", To: "target"),
+                "酒", 2, From: "source", To: "target",
+                FromAccountId: new RuleResourceAccount("source", "source1").AccountId,
+                ToAccountId: new RuleResourceAccount("target", "target1").AccountId),
             new ResourceLedgerMutation(ResourceCauses.Discard, ResourceKinds.Liquid,
-                "蜜", 1, From: "source", To: null)
+                "蜜", 1, From: "source", To: null,
+                FromAccountId: new RuleResourceAccount("source", "source1").AccountId)
         };
 
         Assert.True(ledger.RecordBatchOnce(operationId, 9, batch));
@@ -579,11 +582,16 @@ public sealed class ResourceLedgerSnapshotTests
         var decoded = WorldV2CheckpointJsonCodec.Decode<ResourceLedgerWireDto>(encoded).Payload;
         var restored = ResourceLedger.Restore(decoded.ToSnapshot());
         Assert.Equal(new[] { operationId, operationId }, restored.Entries.Select(item => item.OperationId));
+        Assert.Equal(new RuleResourceAccount("source", "source1").AccountId, restored.Entries[0].FromAccountId);
+        Assert.Equal(new RuleResourceAccount("target", "target1").AccountId, restored.Entries[0].ToAccountId);
         Assert.False(restored.RecordBatchOnce(operationId, 10, batch));
         Assert.Throws<System.InvalidOperationException>(() => restored.RecordBatchOnce(
             operationId, 10, new[]
             {
-                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 99)
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "酒", 2, From: "source", To: "target",
+                    FromAccountId: new RuleResourceAccount("other-source-kind", "source1").AccountId,
+                    ToAccountId: new RuleResourceAccount("target", "target1").AccountId)
             }));
     }
 
