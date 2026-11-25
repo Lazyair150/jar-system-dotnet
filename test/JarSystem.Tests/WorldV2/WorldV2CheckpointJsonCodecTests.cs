@@ -62,14 +62,14 @@ public sealed class WorldV2CheckpointJsonCodecTests
               "schemaVersion": {{version}},
               "kind": "world-v2-execution-checkpoint",
               "configurationFingerprint": null,
-              "payload": {}
+              "payload": { "Name": "legacy", "Count": 1 }
             }
             """;
 
         var decoded = WorldV2CheckpointJsonCodec.Decode<Payload>(json);
 
         Assert.Equal(version, decoded.SchemaVersion);
-        Assert.Equal(new Payload("", 0), decoded.Payload);
+        Assert.Equal(new Payload("legacy", 1), decoded.Payload);
     }
 
     [Fact]
