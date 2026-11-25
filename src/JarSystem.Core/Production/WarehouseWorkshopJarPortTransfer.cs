@@ -127,10 +127,17 @@ public sealed class PreparedWarehouseWorkshopJarPortTransfer
         try
         {
             var jarId = int.Parse(_request.ResourceIdentity, System.Globalization.CultureInfo.InvariantCulture);
+            ResourceTransferReceipt? committedReceipt = null;
             if (!WarehouseWorkshopJarTransfer.TryExecute(
                 _warehouse, _workshop, jarId, out _,
                 () =>
                 {
+                    var sourceAfter = _sourceAdapter.Preflight(
+                        _sourcePort, _request.ResourceIdentity, _request.Amount);
+                    var targetAfter = _targetAdapter.Preflight(
+                        _targetPort, _request.ResourceIdentity, _request.Amount);
+                    committedReceipt = ResourcePortTransferGuards.CreateCommittedReceipt(
+                        _request, source, target, sourceAfter, targetAfter);
                     if (_ledger is not null)
                     {
                         var jar = _workshop.Jars.Single(item => item.Id == jarId);
@@ -157,21 +164,8 @@ public sealed class PreparedWarehouseWorkshopJarPortTransfer
                     sourceAfterFailure, targetAfterFailure);
             }
 
-            var sourceAfter = _sourceAdapter.Preflight(
-                _sourcePort, _request.ResourceIdentity, _request.Amount);
-            var targetAfter = _targetAdapter.Preflight(
-                _targetPort, _request.ResourceIdentity, _request.Amount);
-            _receipt = new ResourceTransferReceipt(
-                _request.OperationId, _request.ConnectionId,
-                _request.SourcePortId, _request.TargetPortId,
-                _request.ResourceKind, _request.ResourceIdentity,
-                _request.SourceAccount, _request.TargetAccount,
-                _request.Amount, _request.Amount, 0, 0,
-                ResourceTransferOutcome.Transferred,
-                source.ObservedVersionToken, sourceAfter.ObservedVersionToken,
-                target.ObservedVersionToken, targetAfter.ObservedVersionToken,
-                "allowed");
-            _receipt.Validate();
+            _receipt = committedReceipt
+                ?? throw new System.InvalidOperationException("Physical transfer completed without a prepared receipt.");
             return _receipt;
         }
         catch
