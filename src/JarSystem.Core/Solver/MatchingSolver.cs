@@ -393,7 +393,7 @@ namespace JarSystem.Core.Solver
 
                 // 已经由 produce 阶段倒空过的那条，跳过重复执行。
                 if (head.role == Role.MatchEmpty && head.liquid == null
-                    && state[head.jar].Polarity == JarPolarity.Neutral && state[head.jar].Shape == head.req.Shape
+                    && cap.ResolvePolarity(state[head.jar].Liquid) == JarPolarity.Neutral && state[head.jar].Shape == head.req.Shape
                     && state[head.jar].IsMarked)
                 {
                     consume.Dequeue();
