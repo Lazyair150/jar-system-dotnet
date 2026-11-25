@@ -173,3 +173,8 @@ ExternalSource / ExternalSink 与 Account 之间的资源边仍允许，因为�
 ### 账本边界强化补记
 
 账户到账户的 World 范围校验不仅应用于新写入的 Record / RecordBatchOnce，也应用于 ResourceLedger.Restore 的历史快照事件校验。即使 wire payload 的 endpoint tag 和旧 AccountId 投影各自有效，只要两个账户端点混用 account:v1/account:v2，或两个 v2 账户来自不同 World，恢复阶段也会拒绝；避免通过存档绕过写入边界。新增测试覆盖跨 World snapshot 的拒绝。
+
+
+### 第二轮 CI 阻断与修复
+
+在 World V2 预置补液回滚端点迁移后，Actions 明确报出 `ResourceWorldRuntime.cs` 中回滚闭包引用了外层不存在的 `targetWorkshop`（CS0103）。这是代码作用域错误，阻断 Release build；其余测试摘要/契约 marker 缺失均是 build 未通过后的连锁结果。修复提交 `d6ef0d6ffaaa88122f9036f77d3cb54db1bd5c1a` 在 BeginReplacement 的局部生命周期中捕获确切的 `prefillTargetWorkshop`，回滚时用原目标工作台的身份构造来源账户，不从岗位或名称重新推导。该提交的 push 验证运行 `45678082511` 已启动，截至本记录更新时仍在执行，结果未确认。
