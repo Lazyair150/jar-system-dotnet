@@ -242,7 +242,7 @@ public sealed class ResourceWorldRuntime
                         foreach (var item in transaction.Receipt.Accepted)
                             _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
                                 item.Key, item.Value, from: "自机液库", to: "主台预置",
-                                reason: "主工作台切换前置补液");
+                                reason: "主工作台切换前置补液", resourceIdentity: item.Key);
                     }
                     return transaction;
                 }
@@ -271,7 +271,7 @@ public sealed class ResourceWorldRuntime
                     foreach (var item in transaction.Receipt.Accepted)
                         _resourceLedger.Record(tick, ResourceCauses.Return, ResourceKinds.Liquid,
                             item.Key, item.Value, from: "主台预置", to: "自机液库",
-                            reason: "主工作台切换回滚");
+                            reason: "主工作台切换回滚", resourceIdentity: item.Key);
                 }
             };
         }
@@ -432,11 +432,11 @@ public sealed class ResourceWorldRuntime
             // 两者之和等于 ProducedAmount，避免同一份液体被重复计量。
             _resourceLedger.Record(tick, ResourceCauses.Production, ResourceKinds.Liquid,
                 receipt.Liquid, receipt.AcceptedAmount,
-                from: "液体生产区", to: destination);
+                from: "液体生产区", to: destination, resourceIdentity: receipt.Liquid);
             _resourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid,
                 receipt.Liquid, receipt.DiscardedAmount,
                 from: "液体生产区", to: null,
-                reason: "自机液库或资源库存容量不足");
+                reason: "自机液库或资源库存容量不足", resourceIdentity: receipt.Liquid);
         }
     }
 
