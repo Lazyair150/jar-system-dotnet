@@ -5,9 +5,9 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using JarSystem.Core.Config;
-using JarSystem.Core.Production;
+using JarSystem.Core.Domain;
 
-namespace JarSystem.Core.Domain;
+namespace JarSystem.Core.Production;
 
 /// <summary>
 /// Read-only adapter boundary for one authoritative account. Preflight never mutates the account;
