@@ -1,9 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Domain;
-using JarSystem.Core.Production;
-
-namespace JarSystem.Tests;
+namespace JarSystem.Core.Production;
 
 /// <summary>
 /// Atomic discrete Jar ownership transfer from the Production Warehouse to Workshop storage.
