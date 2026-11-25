@@ -118,12 +118,15 @@ public class SolverLiquidSoundnessTests
     [Fact]
     public void BannedJarLiquidCanBeSelfConsumedWithoutStagingAccess()
     {
-        // Bench bans 酒 and therefore focuses Anode; a Cathode Jar cannot be operated,
-        // even though full reshape would consume its own internal liquid rather than staging stock.
-        NeverFeasible("阳极工作台操作阴极酒 Jar",
-            new List<Requirement> { new() { Shape = "方罐" } },
-            Jars("酒"),
-            new Dictionary<string, int>());
+        // Bench bans 酒 only in staging. Full reshape consumes the Jar-owned liquid.
+        foreach (var solver in Solvers())
+        {
+            var result = solver.Solve(
+                new List<Requirement> { new() { Shape = "方罐" } },
+                Info(Bench()), Jars("酒"), new Dictionary<string, int>());
+            Assert.True(result.Feasible,
+                solver.GetType().Name + " rejected Jar-owned liquid: " + result.Blockage);
+        }
     }
 
     [Fact]
