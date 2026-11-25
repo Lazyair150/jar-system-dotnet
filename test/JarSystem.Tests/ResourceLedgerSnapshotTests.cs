@@ -773,6 +773,33 @@ public sealed class ResourceLedgerSnapshotTests
 
 
 
+
+    [Fact]
+    public void DisplayNameAndLegacyNameChangesDoNotChangeOperationFingerprint()
+    {
+        var ledger = new ResourceLedger();
+        const string operationId = "display-name-only-change";
+        var original = new ResourceLedgerMutation(
+            ResourceCauses.Stock, ResourceKinds.Liquid, "wine", 3,
+            ResourceIdentity: "liquid.wine",
+            FromEndpoint: ResourceEndpoint.ExternalSource("production.seed"),
+            ToEndpoint: ResourceEndpoint.LegacyUnknown,
+            DisplayName: "酒");
+
+        Assert.True(ledger.RecordBatchOnce(operationId, 1, new[] { original }));
+        var renamed = original with { Name = "Wine", DisplayName = "Wine" };
+
+        Assert.False(ledger.RecordBatchOnce(operationId, 2, new[] { renamed }));
+        var recorded = Assert.Single(ledger.Entries);
+        Assert.Equal("liquid.wine", recorded.ResourceIdentity);
+        Assert.Equal("酒", recorded.DisplayName);
+        Assert.Equal("酒", recorded.Name);
+
+        var changedIdentity = renamed with { ResourceIdentity = "liquid.honey" };
+        Assert.Throws<InvalidOperationException>(() =>
+            ledger.RecordBatchOnce(operationId, 3, new[] { changedIdentity }));
+    }
+
     [Fact]
     public void LegacyOperationFingerprintRemainsIdempotentAfterTaggedEndpointUpgrade()
     {
