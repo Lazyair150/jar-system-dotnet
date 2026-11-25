@@ -246,3 +246,49 @@ Latest lifecycle/identity implementation commits include:
 - Transfer isolation and adapter hardening: `227f50f5042ae1f7f38ecd4ec32f5d29f65f21f8`, `7065d67b7b44ac17f894fc6d63386442ccf5e6ed`, `f88ca26fcc1bb887394f55149b20f366f7150925`, `bfbea930143c44b12191e4ba04b24f4937595a88`.
 
 The integration branch compares as 61 commits ahead and 0 behind the previously verified code baseline `e78abd388aeee0785933feef894e53292b955e60`. The latest queried commit has no returned combined status or PR-associated workflow run; CI remains unconfirmed. No local .NET build or xUnit execution is claimed.
+
+
+## Persisted WorldV2OwnerIdentityMap and concrete runtime binding
+
+The identity implementation has advanced from adapter overloads to the actual World V2 object graph:
+
+- Added immutable `WorldV2OwnerIdentityMap`, containing exact local IDs for Ship, CircuitBoard, ProductionArea, Warehouse and exact-ID dictionaries for Producer and Workshop.
+- Added `WorldV2OwnerIdentityMapWireDto`; the map is captured in the root execution checkpoint. Checkpoint JSON schema is now **7**; schemas 3–6 remain accepted as legacy formats without the owner map.
+- Host, ApplicationService and Godot Bridge accept an explicit owner map together with WorldInstanceId. The map is restored from checkpoint on load; no new owner IDs are generated during restore.
+- Factory binds Ship owner to `ShipLiquidInventory`, ProductionArea owner to `ResourceArea`, Warehouse owner to `Warehouse`, Producer owners to `Producer`, and Workshop owners to exact `Workshop.OwnedInstanceId`. CircuitBoard runtime identity is retained in the map for the host/Space board boundary (Core has no board object instance to attach it to).
+- `WorldV2ProducerOptions.ProducerInstanceId` and `WorldV2WorkshopOptions.OwnedInstanceId` were added as explicit runtime identity references. If an owner map is supplied, every live Producer and Workshop must have one and the map must match the exact runtime ID set. Duplicate ProducerInstanceId and Workshop OwnedInstanceId are rejected both at configuration and runtime collection boundaries.
+- If both board assignment and workshop options provide OwnedInstanceId, they must match exactly. No name, role, list index or definition ID is used to invent identity.
+- `WorldV2ConfigurationFingerprint` now excludes `ProducerInstanceId` and `OwnedInstanceId`; the identity map is persisted separately. This keeps runtime identity separate from immutable World definition/configuration.
+- `WorldV2Context.RestoreExecutionResourceCheckpoint` compares the entire owner map before applying state and validates every account:v2 ledger endpoint against the current WorldInstanceId. account:v1 remains legacy/unknown scope and is not assigned a guessed World.
+- Added tests for owner-map checkpoint round-trip, explicit Host restore, definition fingerprint independence from local runtime IDs, duplicate runtime IDs, and v2 account endpoint World validation.
+
+### Additional changed files
+
+- `src/JarSystem.Core/World/WorldV2OwnerIdentityMap.cs`
+- `src/JarSystem.Core/World/WorldV2OwnerIdentityMapWireDto.cs`
+- `src/JarSystem.Core/World/WorldV2ExecutionCheckpointWireDto.cs`
+- `src/JarSystem.Core/World/WorldV2CheckpointJsonCodec.cs`
+- `src/JarSystem.Core/World/WorldV2ConfigurationFingerprint.cs`
+- `src/JarSystem.Core/World/WorldV2Options.cs`
+- `src/JarSystem.Core/World/WorldV2Context.cs`
+- `src/JarSystem.Core/World/WorkshopRoster.cs`
+- `src/JarSystem.Core/Production/ProducerModule.cs`
+- `src/JarSystem.Core/Production/ResourceArea.cs`
+- `src/JarSystem.Core/Production/Warehouse.cs`
+- `src/JarSystem.Core/Domain/LiquidResourceAccounts.cs`
+- `src/JarSystem.Core/Domain/Workshop.cs`
+- `src/JarSystem.Core/Domain/ResourcePortAdapters.cs`
+- `test/JarSystem.Tests/ResourceAccountIdentityTests.cs`
+- `test/JarSystem.Tests/WorldV2/WorldV2HostServiceTests.cs`
+- `test/JarSystem.Tests/WorldV2/WorldV2ContextTests.cs`
+- `test/JarSystem.Tests/WorldV2/WorldV2CheckpointJsonCodecTests.cs`
+
+### Remaining identity boundary
+
+- Core's WorldV2 owner map is now explicit and checkpointed, but Space still must provide the real player Ship OwnedInstanceId and Board runtime instance ID when constructing the map.
+- Existing two-string RuleResourceAccount constructors and legacy ResourcePortAdapter constructors still emit account:v1. Only typed-owner overloads emit v2; all production ledger write sites must be migrated deliberately.
+- The Producer model now has ProducerInstanceId, but producer-facing presentation/status DTOs and every checkpoint/config contract consumer still need an explicit identity review.
+- Account:v2 endpoints are checked against WorldInstanceId on checkpoint restore; a full mapping check from every ledger account to the permitted owner map (including order-staging derived identities) remains to be implemented.
+- Tagged Account/ExternalSource/ExternalSink/LegacyUnknown endpoints, DisplayName migration, per-source settlement and compound B-class atomicity remain later stages.
+
+Latest code slice was written through commit `62696c1172a2b15790d521ca365565f37c061805`; documentation updates follow in this work-record commit. No local build/test is claimed. The workflow connector returned no current-head PR run/status; CI remains unconfirmed.
