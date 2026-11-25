@@ -1,4 +1,5 @@
 using System;
+using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.World;
 
@@ -16,15 +17,40 @@ internal sealed class PreparedWorldV2Restore : IDisposable
 
     public static PreparedWorldV2Restore Create(
         WorldV2Options options,
-        WorldV2ExecutionResourceCheckpoint checkpoint)
+        WorldV2ExecutionResourceCheckpoint checkpoint,
+        WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(checkpoint);
 
-        var context = WorldV2Factory.Create(options);
+        if (legacyMigrationWorldInstanceId.HasValue &&
+            !legacyMigrationWorldInstanceId.Value.IsValid)
+            throw new ArgumentException("Legacy migration WorldInstanceId 无效。",
+                nameof(legacyMigrationWorldInstanceId));
+        if (checkpoint.WorldInstanceId.HasValue &&
+            legacyMigrationWorldInstanceId.HasValue &&
+            checkpoint.WorldInstanceId.Value != legacyMigrationWorldInstanceId.Value)
+            throw new InvalidOperationException(
+                "迁移身份不能覆盖检查点中已持久化的 WorldInstanceId。");
+
+        var targetWorldInstanceId = checkpoint.WorldInstanceId ?? legacyMigrationWorldInstanceId;
+        if (!targetWorldInstanceId.HasValue)
+            throw new InvalidOperationException(
+                "旧检查点缺少 WorldInstanceId；恢复前必须由宿主显式提供并持久化迁移身份。");
+
+        var restoreCheckpoint = checkpoint;
+        if (!checkpoint.WorldInstanceId.HasValue)
+        {
+            var wire = WorldV2ExecutionCheckpointWireDto.FromCheckpoint(checkpoint);
+            wire.WorldInstanceId = targetWorldInstanceId.Value.Value;
+            restoreCheckpoint = wire.ToCheckpoint(checkpoint.ConfigurationFingerprint);
+        }
+
+        var context = WorldV2Factory.Create(
+            options, worldInstanceId: targetWorldInstanceId.Value);
         try
         {
-            context.RestoreExecutionResourceCheckpoint(checkpoint);
+            context.RestoreExecutionResourceCheckpoint(restoreCheckpoint);
             return new PreparedWorldV2Restore(context);
         }
         catch
