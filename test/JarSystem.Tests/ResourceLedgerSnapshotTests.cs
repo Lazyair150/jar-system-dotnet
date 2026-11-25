@@ -96,6 +96,45 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void LedgerRejectsCrossWorldAndMixedVersionAccountToAccountFactsAtomically()
+    {
+        var worldA = new WorldInstanceId("ledger-world-a");
+        var worldB = new WorldInstanceId("ledger-world-b");
+        var source = ResourceEndpoint.ForAccount(new RuleResourceAccount(
+            new OwnerIdentity(worldA, ResourceOwnerKind.Workshop, "source"), "workshop.free-liquid-staging").AccountId);
+        var foreignTarget = ResourceEndpoint.ForAccount(new RuleResourceAccount(
+            new OwnerIdentity(worldB, ResourceOwnerKind.Workshop, "target"), "workshop.free-liquid-staging").AccountId);
+        var legacyTarget = ResourceEndpoint.ForAccount(
+            new RuleResourceAccount("workshop.free-liquid-staging", "legacy-target").AccountId);
+
+        var ledger = new ResourceLedger();
+        Assert.Throws<DomainValidationException>(() => ledger.Record(
+            1, ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 1,
+            fromEndpoint: source, toEndpoint: foreignTarget));
+        Assert.Throws<DomainValidationException>(() => ledger.RecordBatchOnce(
+            "operation.cross-world", 1,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 1,
+                    FromAccountId: source.AccountId, ToAccountId: foreignTarget.AccountId,
+                    FromEndpoint: source, ToEndpoint: foreignTarget)
+            }));
+        Assert.Throws<DomainValidationException>(() => ledger.RecordBatchOnce(
+            "operation.mixed-version", 1,
+            new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid, "酒", 1,
+                    FromAccountId: source.AccountId, ToAccountId: legacyTarget.AccountId,
+                    FromEndpoint: source, ToEndpoint: legacyTarget)
+            }));
+
+        Assert.Empty(ledger.Entries);
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.False(ledger.HasRecordedOperation("operation.cross-world"));
+        Assert.False(ledger.HasRecordedOperation("operation.mixed-version"));
+    }
+
+    [Fact]
     public void RestoreRejectsOperationEventsWithoutTheirPayloadFingerprint()
     {
         const string operationId = "operation.missing-fingerprint";
