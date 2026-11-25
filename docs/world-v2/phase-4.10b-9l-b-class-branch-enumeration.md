@@ -60,3 +60,6 @@ Opaque rule input or exhausted search budgets produce Undetermined, never Infeas
 ## Production entry point
 
 `JarOrderSpecificationSolver.Solve` now routes B-class orders through `WorldOrderBClassBranchEnumerator`. A successful concrete assembly returns `9l_concrete_plan`; enumeration-level Infeasible/Undetermined results are labeled `9l_concrete_b`. B-class still requires both roles and an empty initial Slave inventory.
+
+
+- B-class input invariant: Slave begins with no pre-existing Jar or free-liquid inventory; the only Slave-side inputs are the single atomic handoff from Master and resources explicitly permitted by the current execution model.
