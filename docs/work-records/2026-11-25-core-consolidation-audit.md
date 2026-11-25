@@ -664,3 +664,6 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 
 - 首轮事务参与者验证 Run `45620718472`：Build 通过，但 xUnit 894 项中 1 项失败，失败测试为 `CancelBeforeCommitIsTerminalAndDoesNotMoveResources`。失败原因是测试把第二次 Cancel 放在 Commit 完成之后，而契约只承诺提交前重复 Cancel 幂等；提交完成后取消应被拒绝。实现行为正确，测试调用顺序错误。
 - 已将重复 Cancel 移至 Commit 前，验证其幂等性；提交 `5b452f9deeda290c7ee5c7258fd526f9bf1f49f2`。新 CI 待完成，不能把上一轮失败运行算作通过。
+
+- 第二次审查发现一个需要提前封堵的绑定风险：Prepare 同时接收 Adapter 与 staging 参数，若调用方误把 Adapter A 与 staging B 配对，预检会读 A、物理提交却写 B。已为订单 Adapter 暴露只读 OrderId 和内部精确实例绑定检查，并在 Prepare 强制验证两者；新增错配实例测试。提交：`e8d441f5a632f2638d321f8908abc8930a203263`、`5f07fb57b77a15bdc7492393a8f685bf6e617a8f`、`76bfa86740063f9c7220f6b36854ee3b982dbccf`。这项修正是提交前一致性要求，避免“预检账户”和“实际变更账户”分离。
+- 先前测试修正后的 Run `45621317001` 尚在运行；其代码快照不包含上述绑定风险修正，最终验证必须以之后的最新 HEAD 为准。
