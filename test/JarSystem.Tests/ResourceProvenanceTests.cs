@@ -99,7 +99,7 @@ public class ResourceProvenanceTests
             Assert.Equal("关卡配置", e.From);
             Assert.Equal("仓库", e.To);
             Assert.Equal(ResourceEndpointKind.ExternalSource, e.FromEndpoint.Kind);
-            Assert.Equal("level.initial-stock", e.FromEndpoint.ExternalEndpointId);
+            Assert.Equal("level.initial-stock", e.FromEndpoint.ExternalIdentity);
             Assert.Equal(ResourceEndpointKind.LegacyUnknown, e.ToEndpoint.Kind);
             Assert.Equal(0, e.Tick);
         });
@@ -131,7 +131,7 @@ public class ResourceProvenanceTests
             e => e.Name == "蜜" && e.Reason == "仓库该液体已满");
         Assert.Equal(ResourceEndpointKind.LegacyUnknown, discard.FromEndpoint.Kind);
         Assert.Equal(ResourceEndpointKind.ExternalSink, discard.ToEndpoint.Kind);
-        Assert.Equal("legacy-warehouse.liquid-capacity-overflow", discard.ToEndpoint.ExternalEndpointId);
+        Assert.Equal("legacy-warehouse.liquid-capacity-overflow", discard.ToEndpoint.ExternalIdentity);
     }
 
     [Fact]
