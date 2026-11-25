@@ -135,7 +135,7 @@ public sealed class WorldV2Context : IDisposable
                     !capability.LiquidPolarities.TryGetValue(item.Key, out var polarity) ||
                     polarity != item.Value))
                 throw new ArgumentException(
-                    "同一 World v2 Context 的所有工作台必须共享完全一致的形状词表、液体身份与极性映射。",
+                    "同一 World v2 Context 的所有工作台必须共享完全一致的液体身份与极性映射及形状词表。",
                     nameof(workshops));
         }
         var board = new OrderDemandBoard(passiveFulfillmentPolicy, activeFulfillmentPolicy);
