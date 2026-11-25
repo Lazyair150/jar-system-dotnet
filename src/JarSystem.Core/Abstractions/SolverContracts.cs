@@ -157,9 +157,6 @@ public class JarState
     // 选择性转移标记：从台求解池中的主台来源罐子（受转移预算约束，未使用则留在主台）
     public bool MasterOrigin { get; set; }
 
-    /// <summary>Jar 的三态极性，由权威内部液体身份派生。</summary>
-    public JarPolarity Polarity => JarPolarityResolver.Resolve(Liquid);
-
     /// <summary>复制求解器状态（投影唯一实现）。<paramref name="masterOrigin"/> 为 null 时保留来源标记。</summary>
     public static JarState Copy(JarState source, bool? masterOrigin = null) => new()
     {
