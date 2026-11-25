@@ -207,10 +207,16 @@ public sealed class WorldV2Context : IDisposable
         var resourceLedger = new ResourceLedger();
         if (shipLiquidInventory != null)
         {
+            var stockSource = ResourceEndpoint.ExternalSource("level.initial-stock");
+            var shipStockTarget = shipLiquidInventory.OwnerIdentity is { } shipOwner
+                ? ResourceEndpoint.ForAccount(new RuleResourceAccount(shipOwner, "ship.liquid-inventory").AccountId)
+                : ResourceEndpoint.LegacyUnknown;
             foreach (var item in shipLiquidInventory.Balances.OrderBy(item => item.Key, StringComparer.Ordinal))
                 resourceLedger.Record(0, ResourceCauses.Stock, ResourceKinds.Liquid,
                     item.Key, item.Value, from: "关卡初始库存", to: "自机液库",
-                    resourceIdentity: item.Key);
+                    resourceIdentity: item.Key,
+                    toAccountId: shipStockTarget.Kind == ResourceEndpointKind.Account ? shipStockTarget.AccountId : null,
+                    fromEndpoint: stockSource, toEndpoint: shipStockTarget);
         }
         var admission = shipLiquidInventory == null
             ? new WorldOrderExecutionAdmission(board, solveBook, roster, reservations)
