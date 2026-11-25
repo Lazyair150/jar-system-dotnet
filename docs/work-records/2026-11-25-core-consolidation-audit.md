@@ -682,3 +682,5 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 新增 `ShipPrefillPortTransfer` / `PreparedShipPrefillPortTransfer`，只连接 Ship Liquid Output 到 Workshop Prefill Input；复用 Ship 预留与 WorkshopPrefillTransaction，不经过订单子账或游离液体账户。新增测试覆盖精确转移、目标 Ban、版本竞态、容量不足、取消和适配器实例错配。
 - 第二条路径代码提交：`23f4f974464273bc33ff677cdff0e649824013cc`、`edfeb46eb88d746c2040b1fe66eb3d1e51f31052`、`b3ab3d5856e66bdabc43b81fa7c9c1a04e41cc54`、`cd2b927ddc712b6ef30b2baff8fcf215d651b464`、`b438235f55fd6bc69af3b9d80354038d128b5489`、`0726f124855962529e4ee1e0c16a99438a1b9470`。
 - 第二条路径验证 Run `45622714477` 正在执行；结果待记录。
+
+- 为第二条路径补充了直接领域事务回滚测试：验证 Begin 后 Ship 已扣款且预留回库容量、Workshop Prefill 已临时入账并锁定暂存区；Rollback 后两端精确恢复，预留归零、暂存区占用归零。测试提交 `7392edbead413d00561b11f8b3f59b0f054a3724`。
