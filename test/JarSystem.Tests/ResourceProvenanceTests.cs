@@ -98,6 +98,9 @@ public class ResourceProvenanceTests
             Assert.Equal(ResourceKinds.Liquid, e.Kind);
             Assert.Equal("关卡配置", e.From);
             Assert.Equal("仓库", e.To);
+            Assert.Equal(ResourceEndpointKind.ExternalSource, e.FromEndpoint.Kind);
+            Assert.Equal("level.initial-stock", e.FromEndpoint.ExternalEndpointId);
+            Assert.Equal(ResourceEndpointKind.LegacyUnknown, e.ToEndpoint.Kind);
             Assert.Equal(0, e.Tick);
         });
     }
