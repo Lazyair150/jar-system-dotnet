@@ -234,6 +234,37 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void ConcurrentSameOperationPublishesExactlyOneReceiptAndEventBatch()
+    {
+        var ledger = new ResourceLedger();
+        var source = new RuleResourceAccount("workshop-liquid-staging", "workshop.concurrent.source");
+        var target = new RuleResourceAccount("workshop-liquid-staging", "workshop.concurrent.target");
+        var receipt = new ResourceTransferReceipt(
+            "operation.concurrent.1", "connection.concurrent.1",
+            "source.out", "target.in", RuleResourceKind.Liquid, "酒",
+            source, target, 4, 4, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-v1", "source-v2", "target-v1", "target-v2", "allowed");
+        var batch = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "酒", 4, From: source.OwnerId, To: target.OwnerId)
+        };
+        var committed = 0;
+
+        System.Threading.Tasks.Parallel.For(0, 32, _ =>
+        {
+            if (ledger.RecordTransferOnce(receipt.OperationId, 77, batch, receipt))
+                System.Threading.Interlocked.Increment(ref committed);
+        });
+
+        Assert.Equal(1, committed);
+        Assert.Single(ledger.Entries);
+        Assert.Equal(1, ledger.LastSeq);
+        Assert.True(ledger.TryGetTransferReceipt(receipt.OperationId, out var stored));
+        Assert.Equal(receipt, stored);
+    }
+
+    [Fact]
     public void TransferReceiptJournalSurvivesWorldCheckpointJsonWireRoundTrip()
     {
         var ledger = new ResourceLedger();
