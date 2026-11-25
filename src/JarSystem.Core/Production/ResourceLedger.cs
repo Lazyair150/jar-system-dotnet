@@ -154,6 +154,7 @@ public sealed class ResourceLedger
             if (item.Seq <= previousSeq || item.Seq > snapshot.LastSeq ||
                 item.Tick < 0 || item.Amount <= 0 ||
                 (item.OperationId != null && !snapshot.OperationIds.Contains(item.OperationId, StringComparer.Ordinal)) ||
+                (item.OperationId != null && !snapshot.OperationFingerprints.ContainsKey(item.OperationId)) ||
                 (item.OperationId != null && string.IsNullOrWhiteSpace(item.ResourceIdentity)) ||
                 (item.OperationId != null && item.Kind == ResourceKinds.Jar && !IsCanonicalJarId(item.ResourceIdentity)) ||
                 !ResourceCauses.All.Contains(item.Cause, StringComparer.Ordinal) ||
@@ -167,6 +168,7 @@ public sealed class ResourceLedger
         if (snapshot.TransferReceipts.Any(item =>
                 item is null ||
                 !snapshot.OperationIds.Contains(item.OperationId, StringComparer.Ordinal) ||
+                !snapshot.OperationFingerprints.ContainsKey(item.OperationId) ||
                 item.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred)) ||
             snapshot.TransferReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != snapshot.TransferReceipts.Count)
             throw new DomainValidationException("资源账本快照的转移回执与 OperationId 索引不一致。");
