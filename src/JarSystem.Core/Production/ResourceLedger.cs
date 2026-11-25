@@ -171,21 +171,22 @@ public sealed class ResourceLedger
         var restored = Restore(snapshot);
         if (restored.Capacity != Capacity)
             throw new DomainValidationException("资源账本快照容量与当前账本不一致。");
-        _entries.EnsureCapacity(restored._entries.Count);
-        _operationIds.EnsureCapacity(restored._operationIds.Count);
-        _entries.Clear();
-        _entries.AddRange(restored._entries);
-        _seq = restored._seq;
-        Dropped = restored.Dropped;
-        _operationIds.Clear();
-        foreach (var operationId in restored._operationIds)
-            _operationIds.Add(operationId);
-        _transferReceipts.Clear();
-        foreach (var item in restored._transferReceipts)
-            _transferReceipts.Add(item.Key, item.Value with { });
-        _transferReceipts.Clear();
-        foreach (var item in restored._transferReceipts)
-            _transferReceipts.Add(item.Key, item.Value with { });
+        lock (_gate)
+        {
+            _entries.EnsureCapacity(restored._entries.Count);
+            _operationIds.EnsureCapacity(restored._operationIds.Count);
+            _transferReceipts.EnsureCapacity(restored._transferReceipts.Count);
+            _entries.Clear();
+            _entries.AddRange(restored._entries);
+            _seq = restored._seq;
+            Dropped = restored.Dropped;
+            _operationIds.Clear();
+            foreach (var operationId in restored._operationIds)
+                _operationIds.Add(operationId);
+            _transferReceipts.Clear();
+            foreach (var item in restored._transferReceipts)
+                _transferReceipts.Add(item.Key, item.Value with { });
+        }
     }
 
     private static ResourceEvent Clone(ResourceEvent item) => new()
