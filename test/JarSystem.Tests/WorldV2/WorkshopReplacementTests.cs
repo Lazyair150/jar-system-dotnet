@@ -190,8 +190,11 @@ public sealed class WorkshopReplacementTests
     [Fact]
     public void TransferEffectsAreDeferredUntilCommitAndDiscardedOnRollback()
     {
-        var oldMaster = new Workshop("旧主台");
-        var newMaster = new Workshop("新主台", maxJars: 0);
+        var worldId = new WorldInstanceId("world-switch-endpoints");
+        var oldMaster = new Workshop("旧主台", ownedInstanceId: "switch-old",
+            ownerIdentity: new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "switch-old"));
+        var newMaster = new Workshop("新主台", maxJars: 0, ownedInstanceId: "switch-new",
+            ownerIdentity: new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "switch-new"));
         var jar = new Jar("圆罐");
         oldMaster.AddJar(jar);
         var pool = new JarPool();
@@ -230,6 +233,11 @@ public sealed class WorkshopReplacementTests
         Assert.Empty(oldMaster.Jars);
         Assert.Equal(1, discardedJars);
         Assert.Equal(1, ledger.LastSeq);
+        var discard = Assert.Single(ledger.Entries);
+        Assert.Equal(ResourceEndpointKind.Account, discard.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.ExternalSink, discard.ToEndpoint.Kind);
+        Assert.Equal("switch-old", AccountIdentity.ParseV2(discard.FromEndpoint.AccountId!).Owner.LocalOwnerId);
+        Assert.Equal("workshop.jar-storage.capacity-overflow", discard.ToEndpoint.ExternalEndpointId);
         Assert.Equal(1, pool.Returned);
         Assert.True(jar.IsRecycled);
         Assert.Throws<InvalidOperationException>(() => successfulMigration.Rollback());
