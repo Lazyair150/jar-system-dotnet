@@ -439,31 +439,50 @@ public sealed class ResourceWorldRuntime
         {
             if (jar.JarId <= 0)
                 throw new DomainValidationException("Jar 生产账本事实缺少 canonical JarId。");
+            var source = OwnerAccountEndpoint(Resources.OwnerIdentity, "production-area.jar-production");
+            var target = OwnerAccountEndpoint(Resources.Inventory.OwnerIdentity, "warehouse.jar-storage");
             _resourceLedger.Record(tick, ResourceCauses.Production, ResourceKinds.Jar,
-                jar.Shape, 1, from: "生产器", to: "仓库",
-                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                jar.Shape, 1, from: "资源生产区", to: "中央仓库",
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                fromAccountId: AccountId(source), toAccountId: AccountId(target),
+                fromEndpoint: source, toEndpoint: target);
         }
 
         foreach (var jar in result.DiscardedJarFacts)
         {
             if (jar.JarId <= 0)
                 throw new DomainValidationException("Jar 溢出丢弃账本事实缺少 canonical JarId。");
+            var source = OwnerAccountEndpoint(Resources.Inventory.OwnerIdentity, "warehouse.jar-storage");
             _resourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Jar,
-                jar.Shape, 1, from: "仓库", reason: "仓库罐位已满",
-                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                jar.Shape, 1, from: "中央仓库", reason: "仓库罐位已满",
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                fromAccountId: AccountId(source), fromEndpoint: source,
+                toEndpoint: ResourceEndpoint.ExternalSink("warehouse.jar-capacity-overflow"));
         }
 
-        var destination = Resources.ShipLiquidInventory == null ? "中央仓库" : "自机液库";
+        var liquidProductionSource = OwnerAccountEndpoint(Resources.OwnerIdentity, "production-area.liquid-production");
+        var liquidDestination = Resources.ShipLiquidInventory == null
+            ? OwnerAccountEndpoint(Resources.Inventory.OwnerIdentity, "warehouse.liquid-storage")
+            : OwnerAccountEndpoint(Resources.ShipLiquidInventory.OwnerIdentity, "ship.liquid-inventory");
+        var liquidOverflow = ResourceEndpoint.ExternalSink(
+            Resources.ShipLiquidInventory == null
+                ? "warehouse.liquid-capacity-overflow"
+                : "ship.liquid-inventory.capacity-overflow");
         foreach (var receipt in result.LiquidProductionReceipts)
         {
             // Accepted + Discarded equals ProducedAmount; identity remains the canonical vocabulary key.
             _resourceLedger.Record(tick, ResourceCauses.Production, ResourceKinds.Liquid,
                 receipt.Liquid, receipt.AcceptedAmount,
-                from: "液体生产区", to: destination, resourceIdentity: receipt.Liquid);
+                from: "资源生产区", to: Resources.ShipLiquidInventory == null ? "中央仓库" : "自机液库",
+                resourceIdentity: receipt.Liquid,
+                fromAccountId: AccountId(liquidProductionSource), toAccountId: AccountId(liquidDestination),
+                fromEndpoint: liquidProductionSource, toEndpoint: liquidDestination);
             _resourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid,
                 receipt.Liquid, receipt.DiscardedAmount,
-                from: "液体生产区", to: null,
-                reason: "自机液库或资源库存容量不足", resourceIdentity: receipt.Liquid);
+                from: "资源生产区", to: null,
+                reason: "资源接收账户容量不足", resourceIdentity: receipt.Liquid,
+                fromAccountId: AccountId(liquidProductionSource),
+                fromEndpoint: liquidProductionSource, toEndpoint: liquidOverflow);
         }
 
         if (master == null)
@@ -473,25 +492,43 @@ public sealed class ResourceWorldRuntime
         {
             if (jar.JarId <= 0)
                 throw new DomainValidationException("Jar 流入账本事实缺少 canonical JarId。");
+            var source = OwnerAccountEndpoint(Resources.Inventory.OwnerIdentity, "warehouse.jar-storage");
+            var target = WorkshopAccountEndpoint(master, "workshop.jar-storage");
             _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Jar,
-                jar.Shape, 1, from: "仓库", to: master.Name,
+                jar.Shape, 1, from: "中央仓库", to: master.Name,
                 resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                toAccountId: WorkshopAccountId(master, "workshop.jar-storage"));
+                fromAccountId: AccountId(source), toAccountId: AccountId(target),
+                fromEndpoint: source, toEndpoint: target);
         }
 
         foreach (var item in result.FlowedLiquids.Where(item => item.Value > 0))
+        {
+            var source = OwnerAccountEndpoint(Resources.Inventory.OwnerIdentity, "warehouse.liquid-storage");
+            var target = WorkshopAccountEndpoint(master, "workshop.free-liquid-staging");
             _resourceLedger.Record(tick, ResourceCauses.Flow, ResourceKinds.Liquid,
-                item.Key, item.Value, from: "仓库", to: master.Name,
+                item.Key, item.Value, from: "中央仓库", to: master.Name,
                 resourceIdentity: item.Key,
-                toAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"));
+                fromAccountId: AccountId(source), toAccountId: AccountId(target),
+                fromEndpoint: source, toEndpoint: target);
+        }
     }
 
-    private static string? WorkshopAccountId(Workshop workshop, string accountKind)
+    private static ResourceEndpoint OwnerAccountEndpoint(OwnerIdentity? owner, string accountKind) =>
+        owner.HasValue
+            ? ResourceEndpoint.ForAccount(new RuleResourceAccount(owner.Value, accountKind).AccountId)
+            : ResourceEndpoint.LegacyUnknown;
+
+    private static ResourceEndpoint WorkshopAccountEndpoint(Workshop workshop, string accountKind)
     {
+        if (workshop.OwnerIdentity is { } owner)
+            return OwnerAccountEndpoint(owner, accountKind);
         if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
-            return null;
-        return new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId;
+            return ResourceEndpoint.LegacyUnknown;
+        return ResourceEndpoint.ForAccount(new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId);
     }
+
+    private static string? AccountId(ResourceEndpoint endpoint) =>
+        endpoint.Kind == ResourceEndpointKind.Account ? endpoint.AccountId : null;
 
     private void ThrowIfFaulted()
     {
