@@ -81,6 +81,23 @@ public sealed class OrderLiquidPortTransferTests
     }
 
     [Fact]
+    public void LedgerPublicationFailureRestoresBothOrderAccounts()
+    {
+        var path = CreatePath();
+        path.Source.Receive(OrderId, "酒", 4);
+
+        Assert.Throws<System.InvalidOperationException>(() =>
+            OrderLiquidTransfer.TryExecute(
+                OrderId, path.Source, path.Target,
+                new Dictionary<string, int> { ["酒"] = 2 },
+                out _,
+                () => throw new System.InvalidOperationException("injected ledger publication failure")));
+
+        Assert.Equal(4, path.Source.GetAmount(OrderId, "酒"));
+        Assert.Equal(0, path.Target.GetAmount(OrderId, "酒"));
+    }
+
+    [Fact]
     public void VersionChangeAfterPrepareStopsTransferWithoutMutationByParticipant()
     {
         var path = CreatePath();
