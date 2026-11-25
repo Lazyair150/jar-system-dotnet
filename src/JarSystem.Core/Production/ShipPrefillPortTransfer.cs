@@ -70,33 +70,12 @@ public sealed class PreparedShipPrefillPortTransfer
 
         var source = _sourceAdapter.Preflight(_sourcePort, _request.ResourceIdentity, _request.Amount);
         var target = _targetAdapter.Preflight(_targetPort, _request.ResourceIdentity, _request.Amount);
-        source.Validate();
-        target.Validate();
-
-        if (_ledger?.HasRecordedOperation(_request.OperationId) == true)
-        {
-            _duplicateOperation = true;
-            throw new InvalidOperationException(
-                "This OperationId was already committed; reconcile from the authoritative ledger instead of replaying.");
-        }
-
-        if (source.ObservedVersionToken != _request.ExpectedSourceVersionToken ||
-            target.ObservedVersionToken != _request.ExpectedTargetVersionToken)
-            return _receipt = NoMutation(
-                ResourceTransferOutcome.Undetermined, "account.version.changed", source, target);
-
-        if (source.Decision != RuleDecisionKind.Allowed ||
-            target.Decision != RuleDecisionKind.Allowed)
-        {
-            var outcome = source.Decision == RuleDecisionKind.Undetermined ||
-                target.Decision == RuleDecisionKind.Undetermined
-                ? ResourceTransferOutcome.Undetermined
-                : ResourceTransferOutcome.Rejected;
-            var reason = source.Decision != RuleDecisionKind.Allowed
-                ? source.ReasonCode
-                : target.ReasonCode;
-            return _receipt = NoMutation(outcome, reason, source, target);
-        }
+        var preflightReceipt = ResourcePortTransferGuards.EvaluateCommitPreflight(
+            _request, source, target, _ledger,
+            () => _duplicateOperation = true,
+            (outcome, reason) => NoMutation(outcome, reason, source, target));
+        if (preflightReceipt is not null)
+            return _receipt = preflightReceipt;
 
         var ledgerTick = _ledger is null ? 0 : _ledgerTickProvider!();
         if (ledgerTick < 0)
@@ -222,8 +201,7 @@ public static class ShipPrefillPortTransfer
         ArgumentNullException.ThrowIfNull(ship);
         ArgumentNullException.ThrowIfNull(staging);
         request.Validate();
-        if ((ledger is null) != (ledgerTickProvider is null))
-            throw new ArgumentException("ResourceLedger and its logical tick provider must be supplied together.");
+        ResourcePortTransferGuards.ValidateLedgerPair(ledger, ledgerTickProvider);
 
         if (connection.ConnectionId != request.ConnectionId ||
             connection.SourcePortId != request.SourcePortId ||
