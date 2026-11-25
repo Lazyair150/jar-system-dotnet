@@ -35,6 +35,7 @@ public sealed record RuleContribution(
             if (!names.Add(parameter.Name))
                 throw new ArgumentException($"Duplicate rule contribution parameter: {parameter.Name}");
         }
+        RuleContributionSchemaRegistry.Validate(this);
     }
 }
 

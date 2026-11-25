@@ -147,4 +147,62 @@ public sealed class EffectiveRuleProfileTests
             priority,
             new RuleContributionSource("installed-component", "component.workshop", 1, instanceId, 1, slotId),
             [new RuleContributionParameter("shape", "circle")]);
+
+    [Fact]
+    public void UnknownContributionEffectIsRejectedDuringProfileAssembly()
+    {
+        var contribution = Contribution("rule.unknown", "instance.unknown", "slot.unknown", 1) with
+        {
+            Effect = (RuleContributionEffect)999
+        };
+
+        Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+            EffectiveRuleProfile.Create("board.demo", 1, 1, [contribution]));
+    }
+
+    [Fact]
+    public void RetimeContributionRequiresPositiveTypedStepParameter()
+    {
+        var missing = Contribution("rule.retime", "instance.retime", "slot.retime", 1) with
+        {
+            Effect = RuleContributionEffect.RetimeProcess,
+            Target = "*",
+            Parameters = []
+        };
+        var invalid = missing with
+        {
+            Parameters =
+            [
+                new RuleContributionParameter("modifierName", "retime"),
+                new RuleContributionParameter("modifierSource", "component"),
+                new RuleContributionParameter("ticksPerStep", "not-a-number")
+            ]
+        };
+
+        Assert.Throws<System.ArgumentException>(() =>
+            EffectiveRuleProfile.Create("board.demo", 1, 1, [missing]));
+        Assert.Throws<System.ArgumentException>(() =>
+            EffectiveRuleProfile.Create("board.demo", 1, 1, [invalid]));
+    }
+
+    [Fact]
+    public void IntensityContributionRejectsNegativeFactor()
+    {
+        var contribution = Contribution("rule.intensity", "instance.intensity", "slot.intensity", 1) with
+        {
+            Effect = RuleContributionEffect.ModifyIntensity,
+            Target = "production",
+            Parameters =
+            [
+                new RuleContributionParameter("modifierName", "intensity"),
+                new RuleContributionParameter("modifierSource", "component"),
+                new RuleContributionParameter("factorPerMille", "-1")
+            ]
+        };
+
+        Assert.Throws<System.ArgumentException>(() =>
+            EffectiveRuleProfile.Create("board.demo", 1, 1, [contribution]));
+    }
+
+
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Config;
 
@@ -54,20 +55,25 @@ public sealed class RuleContext
             {
                 case RuleContributionEffect.GrantAdditionalMark:
                     if (contribution.Source.SourceKind == "temporary-modifier")
-                        modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName", "grant"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Shape = contribution.Target });
+                        modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Shape = contribution.Target });
                     break;
                 case RuleContributionEffect.SuppressOperation:
-                    modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName", "suppress"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation", "") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape", "") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid", "") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason", "此刻不得进行该操作") });
+                    modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason") });
                     break;
                 case RuleContributionEffect.RequireCondition:
-                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName", "require"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Text = contribution.Target, Violation = null });
+                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Text = contribution.Target, Violation = null });
                     break;
                 case RuleContributionEffect.RetimeProcess:
-                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName", "retime"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.TryParse(Parameter(parameters, "ticksPerStep", "1"), out var ticks) ? ticks : 1 });
+                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.Parse(Parameter(parameters, "ticksPerStep"), NumberStyles.None, CultureInfo.InvariantCulture) });
                     break;
                 case RuleContributionEffect.ModifyIntensity:
-                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName", "intensity"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.TryParse(Parameter(parameters, "factorPerMille", "1000"), out var factor) ? factor : 1000 });
+                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource", "temporary"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.Parse(Parameter(parameters, "factorPerMille"), NumberStyles.Integer, CultureInfo.InvariantCulture) });
                     break;
+                case RuleContributionEffect.ModifyCapacity:
+                    // Preserved in the profile, but not yet projectable by the current solver.
+                    break;
+                default:
+                    throw new NotSupportedException("RuleContribution effect has no Core interpreter: " + contribution.Effect);
             }
         }
         var stack = mutableStack
@@ -76,8 +82,10 @@ public sealed class RuleContext
         return new RuleContext(capability, stack, profile, scope, sourceSlotId, modifiers);
     }
 
-    private static string Parameter(IReadOnlyDictionary<string, string> parameters, string key, string fallback) =>
-        parameters.TryGetValue(key, out var value) ? value : fallback;
+    private static string Parameter(IReadOnlyDictionary<string, string> parameters, string key) =>
+        parameters.TryGetValue(key, out var value)
+            ? value
+            : throw new InvalidOperationException("Validated rule contribution is missing parameter: " + key);
 
     /// <summary>由基础能力 + 修饰器栈构造。</summary>
     public RuleContext(
@@ -192,7 +200,7 @@ public sealed class RuleContext
         (_effectiveProfile?.Contributions.Any(x =>
             x.Scope == _ruleScope &&
             (_ruleSlotId is null || x.Source.SlotId == _ruleSlotId) &&
-            x.Effect == RuleContributionEffect.ModifyCapacity) ?? false);
+            !RuleContributionSchemaRegistry.Get(x.Effect).SupportsStaticSolverProjection) ?? false);
 
     public string? RequiredViolation() => Stack.RequiredViolation();
 }
