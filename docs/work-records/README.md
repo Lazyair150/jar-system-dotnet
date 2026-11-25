@@ -34,3 +34,5 @@
 
 - [ADR 0010：复合资源转移与资源事实身份](../decisions/0010-compound-resource-transfer-and-fact-identity.md)
 - [第二十六轮：B 类复合交接与资源事实身份审查](2026-11-25-core-consolidation-audit.md)
+
+- [第二十七轮：最新 Core CI 与账本事件身份实现前置检查](2026-11-25-core-consolidation-audit.md)
