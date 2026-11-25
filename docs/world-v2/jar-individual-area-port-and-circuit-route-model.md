@@ -24,10 +24,17 @@ Jar 系统不是“若干工作台功能 + 一个订单算法”，而是由**�
 
 | 区域 | 资源/职责 | 权威所有者 |
 |---|---|---|
-| 液体暂存区（Liquid Staging Area） | 工作台游离液体账户、容量、液体接收策略、操作可用余额 | 该工作台实例 |
+| 液体资源区（Workshop Liquid Area） | 工作台游离液体、容量与接收策略；内部按用途区分账户/作用域 | 该工作台实例 |
 | Jar 存储区（Jar Storage Area） | Jar 个体集合、Jar 容量、Jar 接收/取出策略 | 该工作台实例 |
 
-工作台还拥有自己的能力/规则上下文：基础与附加标记、Ban、容量、有效修饰器及其版本。规则上下文约束工作台操作，但不是第三个资源账户。
+液体资源区不能被误解为一个无差别余额。现有实现至少区分：
+- 普通工作台游离液体库存：按液体身份记账，沿用每种液体的 MaxLiquids 容量语义。
+- 订单范围暂存：由 WorkshopLiquidStaging 管理，容量按工作台聚合，内部按订单隔离余额，并单独管理主台预置液。
+- 自机液库：不属于工作台；通过显式预置交易为工作台提供液体，并支持提交/回滚。
+
+普通库存与订单范围暂存的容量、Ban、订单隔离和资源结算语义不能互相替代。二者可能消费同一套 Jar 化学转换证明，但必须分别验证资源账户可用性。Jar 内部液体仍是第三个独立所有权账户。
+
+工作台还拥有自己的能力/规则上下文：基础与附加标记、Ban、容量、有效修饰器及其版本。规则上下文约束工作台操作，但不是资源账户。
 
 主台/从台是自机安装槽位的**角色关系**，不是工作台 Definition 或 Owned Instance 的固有身份。同一个工作台个体在不同 Board Assignment 中可以承担不同角色；当前运行中的精确安装关系必须冻结。
 
@@ -194,8 +201,11 @@ Identity/Vocabulary -> Area & Port Contracts -> Rule Definitions -> Circuit Imag
 
 已存在的实现事实：
 
-- Workshop 是独立领域对象，持有自己的 Jar 集合、游离液体暂存账户、能力和规则上下文。
-- Workshop 对 Jar/液体集合提供只读视图，变更通过 AddJar/RemoveJar/TransferOut/TransferIn 与 AddLiquid/RemoveLiquid/TryReceiveLiquid/DrainLiquid 等领域方法。
+- Workshop 是独立领域对象，持有自己的 Jar 集合、普通游离液体库存、能力和规则上下文；通过 AddJar/RemoveJar/TransferOut/TransferIn 与 AddLiquid/RemoveLiquid/TryReceiveLiquid/DrainLiquid 等领域方法变更。
+- WorkshopLiquidStaging 是单个工作台的订单范围液体暂存对象，内部包含订单隔离子账户、主台预置余额和共享容量预留；它不执行 Jar 化学操作。
+- ShipLiquidInventory 是独立自机液库，具有 Produce、TryWithdraw、Return、预置交易提交/回滚等资源接口。
+- ResourceArea 组合 Jar Producer/Warehouse、LiquidProduction 与 ShipLiquidInventory；Jar 生产入仓库后按流率进入主台，液体生产进入自机液库，不自动流入工作台。
+- OrderDemandBoard/OrderDemandArea 管理主动/被动订单归属、顺序、成功保留策略与冷却；它不负责求解或执行。
 - WorldSnapshot 分开保存 Master/Slave Workshop Profile、Ship Liquid Inventory 与资源指纹。
 - Board Definition/Assignment、Owned Instance 与主从槽位角色已在上层模型中分离。
 - Core 已有 ResourceEffect、staging admission、主从 Transfer 和订单资源范围的部分契约/适配器。

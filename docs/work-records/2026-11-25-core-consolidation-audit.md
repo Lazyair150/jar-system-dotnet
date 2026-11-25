@@ -453,3 +453,15 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 2. 为 Workshop Jar Storage、Liquid Staging、Ship Liquid Inventory 建三个 Port Adapter，并以旧领域方法做差分测试。
 3. 将 Board Production/Workshop/Order 区域及 Slot Assignment 映射到不可变 Circuit Image。
 4. 再把订单结构解从现有 A/B 策略中抽出，形成通用多资源端口路径求解。
+
+
+### 第十七轮源码深挖补记：液体账户不能被抽象合并
+
+进一步核对 LiquidResourceAccounts.cs、ResourceArea.cs、OrderDemandBoard.cs、OrderDemandArea.cs 与 order-funnel contract，发现“工作台液体区”在现有实现中并非单一无差别余额：
+- Workshop 普通游离液体库存按液体身份计数，容量语义为每液体 MaxLiquids。
+- WorkshopLiquidStaging 是订单范围暂存，容量为工作台聚合容量，内部按 OrderId 隔离，并有独立主台预置余额/容量预留。
+- ShipLiquidInventory 是自机账户，生产、扣款、返还与预置转移具有独立收据/事务。
+- Jar 内部液体又是 Jar 个体账户。
+因此 Area 是所有权与访问边界；Area 内可以有多个具有不同生命周期和容量语义的账户/子作用域。端口不能把这些账户合并为“工作台总液体”。
+
+同时核对到 ResourceArea 已组合 Jar Producer/Warehouse、LiquidProduction 和 ShipLiquidInventory；Jar 生产入仓库后按流率进入主台，液体生产进入自机液库，不自动灌入工作台。OrderDemandBoard/OrderDemandArea 管理主动/被动需求归属、顺序、成功保留策略和冷却，不负责求解/执行。这些既有边界必须被未来 Circuit Image 显式引用，而不是重造第二份资源状态。
