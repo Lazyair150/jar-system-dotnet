@@ -626,3 +626,12 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - Jar 端口若声明逻辑时间吞吐限制，在 Scheduler Window 未接入前返回 Undetermined。
 - 版本令牌的多值字段改用长度前缀规范化编码，避免液体身份包含分隔符导致拼接歧义。
 - 扩展测试覆盖预置账户与订单子账隔离，以及含 Ban 液体的 Jar 仍可作为 Jar 资源被识别/迁移。
+
+
+### 第二十一轮验证与第二十二轮扩展：Production Warehouse
+- 第一批五种 Adapter 与测试在代码 HEAD `0a18fb10c7a4724f5eb6a46b06a4df7620ad7386` 通过完整验证：Run `45615937262` SUCCESS，Build succeeded / 0 Error(s)，xUnit 887 total / 0 errors / 0 failed / 0 skipped。
+- 仅工作记录更新后的 HEAD `89ca4da5335d824371302c2142d88e903ede9a75` 再次通过完整验证：Run `45615978354` SUCCESS，Build succeeded / 0 Error(s)，xUnit 887 total / 0 errors / 0 failed / 0 skipped。
+- 新增 `WarehouseJarStoragePortAdapter`：以 Production Individual 身份绑定中央仓库 Jar 账户，按离散 Jar ID 检查库存归属、重复身份和仓库容量。
+- 新增 `WarehouseLiquidStoragePortAdapter`：以 Production Individual 身份绑定旧版中央仓库液体账户，检查词表身份、逐液种容量和余额；不套用 Workshop Ban。
+- 新增测试覆盖仓库 Jar 身份规范化、液体容量与未知词表身份。
+- 注意：第二十二轮 Warehouse Adapter 的新增代码在本补记时尚未获得最新 HEAD CI 结果，不能沿用上一轮 887 项测试的通过结论。
