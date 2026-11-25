@@ -570,8 +570,8 @@ public sealed class WorldOrderExecutionSessionTests
             ownedInstanceId: "owned.workshop.slave");
         var jar = new Jar("圆罐", "酒", id: 9881, vocabulary: Words);
         Assert.Equal(JarPolarity.Cathode, jar.Polarity);
-        Assert.Equal(WorkshopPolarityMode.Cathode, master.Capability.PolarityMode);
-        Assert.Equal(WorkshopPolarityMode.Anode, slave.Capability.PolarityMode);
+        Assert.Equal(WorkshopPolarityMode.Unrestricted, master.Capability.PolarityMode);
+        Assert.Equal(WorkshopPolarityMode.Unrestricted, slave.Capability.PolarityMode);
         Assert.True(master.AddJar(jar));
 
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
