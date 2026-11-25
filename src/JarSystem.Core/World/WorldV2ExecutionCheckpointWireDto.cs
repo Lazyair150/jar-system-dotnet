@@ -695,8 +695,10 @@ public sealed class ResourceEventWireDto
             (ToAccountId != null && string.IsNullOrWhiteSpace(ToAccountId)) ||
             (FromEndpoint != null && !FromEndpoint.IsValid) ||
             (ToEndpoint != null && !ToEndpoint.IsValid) ||
-            (FromEndpoint?.Kind == ResourceEndpointKind.Account && FromEndpoint.AccountId != FromAccountId) ||
-            (ToEndpoint?.Kind == ResourceEndpointKind.Account && ToEndpoint.AccountId != ToAccountId) ||
+            (FromAccountId != null &&
+                (FromEndpoint?.Kind != ResourceEndpointKind.Account || FromEndpoint.AccountId != FromAccountId)) ||
+            (ToAccountId != null &&
+                (ToEndpoint?.Kind != ResourceEndpointKind.Account || ToEndpoint.AccountId != ToAccountId)) ||
             (FromEndpoint == null && FromAccountId != null) ||
             (ToEndpoint == null && ToAccountId != null) ||
             (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))) ||
