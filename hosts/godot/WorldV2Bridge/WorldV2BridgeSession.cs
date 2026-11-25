@@ -50,6 +50,23 @@ public sealed class WorldV2BridgeSession : IDisposable
         _application.CreateOrReplaceWorld(options, worldInstanceId);
     }
 
+    /// <summary>使用宿主持有的完整 Owner 身份映射创建或重建 World。</summary>
+    public void CreateOrReplaceWorld(
+        WorldV2Options options,
+        WorldInstanceId worldInstanceId,
+        WorldV2OwnerIdentityMap ownerIdentities)
+    {
+        ThrowIfDisposed();
+        _application.CreateOrReplaceWorld(options, worldInstanceId, ownerIdentities);
+    }
+
+    /// <summary>读取当前 World 已注入的 Owner 身份映射。</summary>
+    public WorldV2OwnerIdentityMap? GetOwnerIdentityMap()
+    {
+        ThrowIfDisposed();
+        return _application.GetOwnerIdentityMap();
+    }
+
     /// <summary>读取当前 World 的稳定实例身份，供宿主存档元数据使用。</summary>
     public WorldInstanceId GetWorldInstanceId()
     {
