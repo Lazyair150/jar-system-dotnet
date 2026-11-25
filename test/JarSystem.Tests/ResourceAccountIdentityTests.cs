@@ -164,4 +164,27 @@ public sealed class ResourceAccountIdentityTests
                 new ShipLiquidInventory(20), workshopOwner, "area.ship"));
     }
 
+
+    [Fact]
+    public void WorldScopedAccountTransferCannotCrossWorldOrMixLegacyEndpoint()
+    {
+        var source = new RuleResourceAccount(
+            new OwnerIdentity(new WorldInstanceId("world-a"), ResourceOwnerKind.Ship, "ship-1"),
+            "ship.liquid-inventory");
+        var sameWorldTarget = new RuleResourceAccount(
+            new OwnerIdentity(new WorldInstanceId("world-a"), ResourceOwnerKind.Workshop, "workshop-1"),
+            "workshop.free-liquid-staging");
+        var otherWorldTarget = new RuleResourceAccount(
+            new OwnerIdentity(new WorldInstanceId("world-b"), ResourceOwnerKind.Workshop, "workshop-1"),
+            "workshop.free-liquid-staging");
+        var legacyTarget = new RuleResourceAccount(
+            "workshop.free-liquid-staging", "workshop-1");
+
+        RuleResourceAccount.ValidateTransferScope(source, sameWorldTarget);
+        Assert.Throws<System.ArgumentException>(() =>
+            RuleResourceAccount.ValidateTransferScope(source, otherWorldTarget));
+        Assert.Throws<System.ArgumentException>(() =>
+            RuleResourceAccount.ValidateTransferScope(source, legacyTarget));
+    }
+
 }
