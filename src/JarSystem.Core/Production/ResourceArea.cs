@@ -169,9 +169,16 @@ public sealed class ResourceArea
             }
         }
 
+        var producedJarFacts = Inventory.LastReceivedJarFacts;
+        var discardedJarFacts = Inventory.LastDiscardedJarFacts;
+        if (producedJarFacts.Count != producedJars.Count)
+            throw new InvalidOperationException("Producer Warehouse Jar facts do not match the produced entity batch.");
+
         if (master == null || deltaLogicalTimeMilli == 0)
-            return new ResourceAreaAdvanceResult(producedJars.Count, producedLiquids,
-                liquidProductionReceipts, 0, new Dictionary<string, int>());
+            return new ResourceAreaAdvanceResult(
+                producedJars.Count, producedJarFacts, discardedJarFacts,
+                producedLiquids, liquidProductionReceipts,
+                Array.Empty<WarehouseJarFact>(), 0, new Dictionary<string, int>());
 
         // 吞吐额度是"本时间片可处理的上限"，不是资源欠条。
         // 整数额度无论库存/目的地是否足够都会在本时间片消耗；只有小数余量留到下一片。
@@ -182,12 +189,17 @@ public sealed class ResourceArea
         // 只有 B 类会话在主从交接阶段才允许主台向从台泵送液体。
         var moved = Inventory.FlowToMaster(master, jarQuota, _shipLiquidInventory == null ? liquidQuota : 0);
 
+        var flowedJarFacts = moved.Jars.Select(jar =>
+        {
+            if (jar.Id is not > 0)
+                throw new DomainValidationException("资源区 Jar 流入事实缺少 canonical JarId。");
+            return new WarehouseJarFact(jar.Id.Value, jar.Shape);
+        }).ToArray();
+
         return new ResourceAreaAdvanceResult(
-            producedJars.Count,
-            producedLiquids,
-            liquidProductionReceipts,
-            moved.Jars.Count,
-            moved.Liquids);
+            producedJars.Count, producedJarFacts, discardedJarFacts,
+            producedLiquids, liquidProductionReceipts,
+            flowedJarFacts, moved.Jars.Count, moved.Liquids);
     }
 
     private static long ToRateMilli(double rate, string parameter)
@@ -212,26 +224,35 @@ public sealed record LiquidProductionReceipt(
 public sealed class ResourceAreaAdvanceResult
 {
     public int ProducedJarCount { get; }
+    public IReadOnlyList<WarehouseJarFact> ProducedJarFacts { get; }
+    public IReadOnlyList<WarehouseJarFact> DiscardedJarFacts { get; }
     public IReadOnlyList<(string Liquid, int Amount)> ProducedLiquids { get; }
     public IReadOnlyList<LiquidProductionReceipt> LiquidProductionReceipts { get; }
+    public IReadOnlyList<WarehouseJarFact> FlowedJarFacts { get; }
     public int FlowedJarCount { get; }
     public IReadOnlyDictionary<string, int> FlowedLiquids { get; }
 
     internal ResourceAreaAdvanceResult(
         int producedJarCount,
+        IReadOnlyList<WarehouseJarFact> producedJarFacts,
+        IReadOnlyList<WarehouseJarFact> discardedJarFacts,
         IReadOnlyList<(string Liquid, int Amount)> producedLiquids,
         IReadOnlyList<LiquidProductionReceipt> liquidProductionReceipts,
+        IReadOnlyList<WarehouseJarFact> flowedJarFacts,
         int flowedJarCount,
         IReadOnlyDictionary<string, int> flowedLiquids)
     {
         ProducedJarCount = producedJarCount;
-        ProducedLiquids = producedLiquids;
+        ProducedJarFacts = Array.AsReadOnly(producedJarFacts.ToArray());
+        DiscardedJarFacts = Array.AsReadOnly(discardedJarFacts.ToArray());
+        ProducedLiquids = Array.AsReadOnly(producedLiquids.ToArray());
         LiquidProductionReceipts = Array.AsReadOnly(liquidProductionReceipts.ToArray());
+        FlowedJarFacts = Array.AsReadOnly(flowedJarFacts.ToArray());
         FlowedJarCount = flowedJarCount;
-        FlowedLiquids = flowedLiquids;
+        FlowedLiquids = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(flowedLiquids, StringComparer.Ordinal));
     }
 }
-
 
 /// <summary>
 /// 资源区运行时快照：生产器累加器、液体产能、中央仓库和仓库→主台吞吐余数。
