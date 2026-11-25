@@ -238,11 +238,12 @@ public sealed class OrderResourceSettlementService
         {
             return receipt.Accepted.Select(item => new ResourceLedgerMutation(
                     ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
-                    From: "订单暂存", To: "自机液库", DisplayName: item.Key))
+                    From: "订单暂存", To: "自机液库",
+                    ResourceIdentity: item.Key, DisplayName: item.Key))
                 .Concat(receipt.Discarded.Select(item => new ResourceLedgerMutation(
                     ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
                     From: "订单暂存", To: null, Reason: "自机液库总容量不足",
-                    DisplayName: item.Key)));
+                    ResourceIdentity: item.Key, DisplayName: item.Key)));
         }
 
         var mutations = new List<ResourceLedgerMutation>();
