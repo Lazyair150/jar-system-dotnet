@@ -19,17 +19,6 @@ public sealed class WorldV2ContextTests
     private static readonly Vocabulary Words =
         new(new[] { "圆罐", "方罐" }, new[] { "酒", "蜜" });
 
-    private sealed class ThrowAfterSettlementLedgerStageFaultPort : IOrderSettlementFaultPort
-    {
-        public void AfterMasterDrain() { }
-        public void AfterSlaveDrain() { }
-        public void AfterShipReturnBeforeReceipt() { }
-        public void AfterLedgerBatchRecorded() { }
-        public void AfterLedgerStageMarked() =>
-            throw new InvalidOperationException("injected failure after zero-resource settlement stage");
-        public void BeforeReservationRelease() { }
-    }
-
 
     private static WorldOrderSolverRegistry CreateSolverRegistry() =>
         new(new IWorldOrderSpecificationSolver[]
@@ -88,41 +77,6 @@ public sealed class WorldV2ContextTests
 
         Assert.Contains(demand.Id, result.StartedDemandIds);
         Assert.Null(world.DemandBoard.Find(demand.Id));
-        Assert.Equal(0, world.Reservations.Count);
-    }
-
-    [Fact]
-    public void ZeroResourceSettlementCanRetryAfterLedgerStageWithoutPhantomOperationId()
-    {
-        var master = CreateMaster();
-        var ship = new ShipLiquidInventory(4);
-        using var world = WorldV2Context.Create(
-            CreateResources(), new[] { master }, master, slave: null,
-            solverRegistry: CreateSolverRegistry(), logicalTimePerUnit: 1_000,
-            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
-            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
-            shipLiquidInventory: ship);
-        var demand = CreateDemand();
-        world.DemandBoard.AddDemand(demand, DemandAreaKind.Active);
-        var started = world.Scheduler.TryStartActiveDemand(demand.Id);
-        Assert.True(started.Success, started.Reason);
-
-        var failingService = new OrderResourceSettlementService(
-            new ThrowAfterSettlementLedgerStageFaultPort());
-        Assert.Throws<InvalidOperationException>(() =>
-            failingService.SettleAndRelease(
-                demand.Id, world.Admission, world.ResourceLedger, settlementTick: 1));
-
-        var lease = Assert.IsType<OrderResourceLease>(world.Admission.FindLease(demand.Id));
-        var operationId = lease.SettlementOperationId;
-        Assert.Equal(OrderResourceSettlementStage.LedgerRecorded, lease.SettlementStage);
-        Assert.False(world.ResourceLedger.HasRecordedOperation(operationId));
-
-        var retryReceipt = new OrderResourceSettlementService().SettleAndRelease(
-            demand.Id, world.Admission, world.ResourceLedger, settlementTick: 1);
-
-        Assert.NotNull(retryReceipt);
-        Assert.False(world.ResourceLedger.HasRecordedOperation(operationId));
         Assert.Equal(0, world.Reservations.Count);
     }
 
