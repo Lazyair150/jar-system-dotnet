@@ -56,8 +56,9 @@ public sealed class PreparedOrderLiquidPortTransfer
     public bool IsCommitted => _receipt?.Outcome == ResourceTransferOutcome.Transferred;
 
     /// <summary>
-    /// Commit is idempotent for this prepared instance. Replays using a separately-created
-    /// instance must still be deduplicated by the caller's durable operation journal.
+    /// Commit is idempotent for this prepared instance. When a ResourceLedger is supplied,
+    /// its persisted OperationIds also prevent cross-instance/process replay; without it,
+    /// the caller must provide a durable operation journal.
     /// </summary>
     public ResourceTransferReceipt Commit()
     {
@@ -156,7 +157,8 @@ public sealed class PreparedOrderLiquidPortTransfer
         catch
         {
             // OrderLiquidTransfer compensates both account snapshots on mutation failure.
-            // If that compensation itself fails, preserve the fault and prohibit retries.
+            // A failure after physical commit (for example, ledger publication) is ambiguous:
+            // preserve the fault and require authoritative reconciliation, never auto-retry.
             _faulted = true;
             throw;
         }
