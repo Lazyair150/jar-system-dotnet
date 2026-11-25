@@ -248,3 +248,11 @@ ProducerSlot 的旧单液体 fixture 也已迁移为合法二元 World；手工 
 - 最新记录中的 Core head `ee37b8595474c228039727fe573d823aad1d3a41` 的 verify runs `45586817186` / `45586828250` 在本轮记录时尚未完成；后续修订 head 仍需以精确 SHA 的最终 Actions 结果验收。
 - Space PR #2 的项目引用已是 sibling WorldV2Bridge ProjectReference，但其 cross-repo workflow 仍固定 checkout 旧 Core SHA `b342259fe04363386085dc9a4ca995112954ed43`。Core 绿色后必须更新 Space workflow 与 `CORE_EXPECTED_SHA`，再跑 Godot 4.7.1 全套跨仓库验证。
 - PR #63 保持 Draft/Open；旧堆叠 PR 已关闭为 superseded，历史分支不删除。
+
+
+## 2026-11-25 第十轮：World 单一词表装配约束与精确 CI 记录
+
+- Core head `0ff648ea7f3f05489f04c278f75039de8271985d` 的两个 verify runs `45587335108` / `45587347149` 均 SUCCESS：854 项 xUnit，0 errors、0 failures；构建、World V2 Host、资源随机/容量/确定性样本、契约快照、schema 与配置世界等价验证全部通过。
+- 绿色 head 之后继续检查公开的 `WorldV2Context.Create`，新增同一 World 内所有工作台必须共享相同液体身份集合与极性映射的装配约束，避免一个 Jar 在同一 World 的不同岗位被解释为不同极性。Context 的液体目录也必须与工作台词表一致。
+- 新增反向映射冲突测试。最新 Core head 为 `fd0b3761babe3af7f7d770483004ef1a454021f8`，对应 runs `45587631031` / `45587642292` 在本节更新时仍执行中；只有这两个精确 head workflow 完成后，才能将其作为 Space pin。
+- Space 当前 head `a8daee73df55bf30125960a9a6231ea93e706d4f` 在旧 Core pin `b342259fe04363386085dc9a4ca995112954ed43` 下的 run `45577582987` 成功，但不代表新 Core 整合通过。下一步是更新 Space workflow 的 Core checkout SHA 与 `CORE_EXPECTED_SHA`，重新执行 Godot 4.7.1 全套跨仓库验证。
