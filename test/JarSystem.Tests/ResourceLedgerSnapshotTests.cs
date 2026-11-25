@@ -90,6 +90,41 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void EntriesExposeReadOnlyViewInsteadOfMutableBackingList()
+    {
+        var ledger = new ResourceLedger();
+        ledger.Record(1, ResourceCauses.Stock, ResourceKinds.Liquid, "酒", 1);
+
+        var view = Assert.IsAssignableFrom<System.Collections.Generic.IList<ResourceEvent>>(ledger.Entries);
+        Assert.True(view.IsReadOnly);
+        Assert.Throws<System.NotSupportedException>(() => view.Clear());
+        Assert.Single(ledger.Entries);
+    }
+
+    [Fact]
+    public void SnapshotDoesNotSilentlyDeduplicateOperationIdsBeforeRestoreValidation()
+    {
+        var snapshot = new ResourceLedgerSnapshot(
+            4, 0, 0, Array.Empty<ResourceEvent>(),
+            new[] { "operation.duplicate", "operation.duplicate" });
+
+        Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(snapshot));
+    }
+
+    [Fact]
+    public void EmptyOperationBatchDoesNotReserveAnIdWithoutAnyResourceFact()
+    {
+        var ledger = new ResourceLedger();
+
+        Assert.Throws<DomainValidationException>(() =>
+            ledger.RecordBatchOnce("operation.empty", 1, Array.Empty<ResourceLedgerMutation>()));
+
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.Empty(ledger.Entries);
+        Assert.False(ledger.HasRecordedOperation("operation.empty"));
+    }
+
+    [Fact]
     public void RestoreRejectsLastSequenceThatDoesNotMatchRetainedTail()
     {
         var invalid = new ResourceLedgerSnapshot(
