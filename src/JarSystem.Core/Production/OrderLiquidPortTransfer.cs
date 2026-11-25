@@ -93,10 +93,18 @@ public sealed class PreparedOrderLiquidPortTransfer
             {
                 [_request.ResourceIdentity] = _request.Amount
             };
+            ResourceTransferReceipt? committedReceipt = null;
             if (!OrderLiquidTransfer.TryExecute(
                 _orderId, _sourceStaging, _targetStaging, batch, out _,
                 () =>
                 {
+                    var sourceAfterCommit = _sourceAdapter.Preflight(
+                        _sourcePort, _request.ResourceIdentity, _request.Amount);
+                    var targetAfterCommit = _targetAdapter.Preflight(
+                        _targetPort, _request.ResourceIdentity, _request.Amount);
+                    committedReceipt = ResourcePortTransferGuards.CreateCommittedReceipt(
+                        _request, source, target, sourceAfterCommit, targetAfterCommit);
+
                     if (_ledger is not null &&
                         !_ledger.RecordBatchOnce(_request.OperationId, ledgerTick, new[]
                         {
@@ -120,21 +128,8 @@ public sealed class PreparedOrderLiquidPortTransfer
                     sourceAfterFailure, targetAfterFailure);
             }
 
-            var sourceAfter = _sourceAdapter.Preflight(
-                _sourcePort, _request.ResourceIdentity, _request.Amount);
-            var targetAfter = _targetAdapter.Preflight(
-                _targetPort, _request.ResourceIdentity, _request.Amount);
-            _receipt = new ResourceTransferReceipt(
-                _request.OperationId, _request.ConnectionId,
-                _request.SourcePortId, _request.TargetPortId,
-                _request.ResourceKind, _request.ResourceIdentity,
-                _request.SourceAccount, _request.TargetAccount,
-                _request.Amount, _request.Amount, 0, 0,
-                ResourceTransferOutcome.Transferred,
-                source.ObservedVersionToken, sourceAfter.ObservedVersionToken,
-                target.ObservedVersionToken, targetAfter.ObservedVersionToken,
-                "allowed");
-            _receipt.Validate();
+            _receipt = committedReceipt
+                ?? throw new InvalidOperationException("Order transfer completed without a validated receipt.");
             return _receipt;
         }
         catch
