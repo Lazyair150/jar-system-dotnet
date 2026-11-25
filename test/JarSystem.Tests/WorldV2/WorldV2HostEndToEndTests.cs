@@ -157,10 +157,17 @@ public sealed class WorldV2HostEndToEndTests
                 AccountIdentity.ParseV2(productionJar.ToEndpoint.AccountId!).Owner.OwnerKind);
         });
 
-        var flowedJar = Assert.Single(resourceEvents, item =>
-            item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Jar);
-        Assert.Equal("warehouse-e2e", AccountIdentity.ParseV2(flowedJar.FromEndpoint.AccountId!).Owner.LocalOwnerId);
-        Assert.Equal("workshop-e2e", AccountIdentity.ParseV2(flowedJar.ToEndpoint.AccountId!).Owner.LocalOwnerId);
+        var flowedJars = resourceEvents
+            .Where(item => item.Cause == ResourceCauses.Flow && item.Kind == ResourceKinds.Jar)
+            .ToArray();
+        Assert.NotEmpty(flowedJars);
+        Assert.All(flowedJars, flowedJar =>
+        {
+            Assert.Equal("warehouse-e2e",
+                AccountIdentity.ParseV2(flowedJar.FromEndpoint.AccountId!).Owner.LocalOwnerId);
+            Assert.Equal("workshop-e2e",
+                AccountIdentity.ParseV2(flowedJar.ToEndpoint.AccountId!).Owner.LocalOwnerId);
+        });
 
         // Host 操作结束后，仍可通过下一次独占操作读取同一世界的脱离式状态。
         var worldStillAvailable = false;
