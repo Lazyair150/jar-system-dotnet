@@ -851,3 +851,52 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 修正提交：`5a578f3df20527ad94e8fd19ef45e27031fe5c7c`。随后读取该精确提交的文件，确认零资源结算测试仍存在且使用 RunSchedulingPass + Admission.TryAdmit；Execution Resource Checkpoint 测试保留原始同步启动代码。
 - 文档提交链：工作记录 `37a00e794f52f906461ddc0501c18c393411179c`；架构规范 `f070c9ec62375465edda8c849533682937049bc0`；工作记录索引 `0be6ddff332ea089b31a3a41d0a31383a32ca1d0`；ADR 0009 `d6d26d5e05e6c27d37a369d6db3630973b61fcb3`。
 - 当前最新代码 HEAD 已推进至 `5a578f3df20527ad94e8fd19ef45e27031fe5c7c`；针对该精确 HEAD 的 CI 尚待查询/完成。之前 HEAD 的失败和绿色结果均不替代本次验证。
+
+
+### 第二十六轮：B 类复合交接与资源事实身份审查（2026-11-25）
+
+**起始与验证基线**
+
+- 仓库：Lazyair150/jar-system-dotnet
+- 分支：architecture/core-liquid-identity-consolidation
+- 本轮审查基线：19297beb2b64ff7eb9d8f8a90ba5dfc1b151f94f
+- PR #63：Open / Draft / mergeable=true；未合并。
+- 精确 HEAD 的两条 CI：Run 45639075910、45639062873，均为 Success。此前错误测试夹具提交的失败 Run 保留，不作为本轮通过依据。
+
+**审查对象与源码事实**
+
+1. 六条 Resource Port participant 已统一使用 ResourcePortTransferCommitCoordinator 和单资源 ResourceTransferReceipt；但 B 类订单真实交接仍走 WorldOrderExecutionSession.TransferToSlave -> OrderTransferService.Transfer。
+2. B 类交接一次可能包含多只 Jar 和多种液体；Jar Storage 与订单液体 Staging 是不同权威账户。当前服务先移动 Jar，再迁移液体，最后验证精确身份/RuleTransition 并用 RecordBatchOnce 发布混合账本批次。这是一个复合事务，不等同于六条单资源端口参与者中的任意一条。
+3. OrderTransferService 的 Jar 账本事实目前使用 ResourceKinds.Jar + jar.Shape + amount=1；新端口 Jar 回执却以 canonical JarId 作为 ResourceIdentity。Jar Shape 是属性/展示标签，不是 Jar 个体身份。
+4. ResourceLedgerMutation 当前字段只有 Cause、Kind、Name、Amount、From、To、Reason；没有独立 ResourceIdentity。对于 Jar，ResourceTransferReceipt.ResourceIdentity 与事件 Name=jar.Shape 没有强类型关联。
+5. ResourceEvent 当前没有 OperationId；RecordTransferOnce 虽在同一锁内发布事件、OperationId 与 Receipt，但事件本身没有 OperationId 或 Seq range 回指，不能直接从任一事件追溯到产生它的提交操作。对于多事件复合批次，这个缺口更明显。
+6. B 类旧路径的账本 From/To 使用 master.Name / slave.Name，是显示名称而非稳定账户身份；工作台重命名后，同一权威账户的历史端点表达会变化。新端口参与者使用 RuleResourceAccount.OwnerId，两套端点语义尚未统一。
+7. B 类旧路径在账本发布前检查 OperationId 是否存在，并在全部物理交接后用 RecordBatchOnce 写批次；它没有持久化复合 Receipt，也不能像单资源 participant 一样按完整请求返回同一历史回执。
+8. World V2 当前依赖单写者命令序列保护多个物理账户的联合窗口。ResourceLedger 的内部锁不构成 Jar Storage 与 Liquid Staging 的联合锁。
+
+**正式概念边界**
+
+- Resource Identity：资源个体/类型的机器身份。Jar 必须是 JarId；液体必须是 World Vocabulary 中的液体身份。
+- Display Attribute：供 UI/日志展示的名称或属性。Jar Shape 不可替代 JarId；Workshop.Name 不可替代账户 OwnerId。
+- Transfer Leg：一条明确的 Source Account/Output Port -> Target Account/Input Port 资源变化，携带 Kind、Identity、Amount 和端点版本。
+- Compound Transfer：多个 Transfer Leg 组成一个具有共同 OperationId 和提交边界的操作；B 类主从交接属于此类。所有 Leg 必须一起提交或一起补偿，不能拆成多个独立已提交操作。
+- Route：由 Connection 与规则转换构成的结构路径；它可以承载一个或多个 Transfer Leg，但不等于事务批次。
+- Ledger Event：资源变化事实，必须能关联其 OperationId、ResourceIdentity 和稳定账户端点；显示属性仅用于解释，不参与身份判断。
+
+**本轮决策方向**
+
+- 新增 ADR 0010，冻结复合转移与资源事实身份/关联契约。
+- 保留单资源 ResourceTransferReceipt 作为单腿操作的兼容形式；未来复合操作使用包含多腿和多账户版本信息的批次回执。不能把 B 类交接伪装成一个 Jar 或一种液体的单资源回执。
+- 账本事实需要独立 ResourceIdentity，并以 OperationId 关联批次中的每条事件；显示名、Jar Shape、Workshop.Name 不再充当机器身份。
+- 先建立复合回执与 Wire/checkpoint 契约及差分测试，再迁移 OrderTransferService；不直接将现有 B 类服务拆成多次独立 Port Commit。
+- 迁移前保留 B 类交接既有语义：从台必须为空；Jar 同一实体引用；Jar 内液体不受游离 Ban；游离液体仍受主台 Output 与从台 Input Ban；交接原子失败必须恢复两侧 Jar 顺序/引用与液体子账。
+
+**后续工作**
+
+1. 定义 ResourceTransferBatchRequest/Receipt（命名暂定）：OperationId、Batch/Policy identity、Leg 集合、稳定账户身份、预期版本、提交后版本与完整性校验。
+2. 为 ResourceLedgerMutation / ResourceEvent 增加独立资源身份与 OperationId 关联，并制定 Wire Schema 版本迁移策略。
+3. 对 B 类交接建立多账户 Prepare/Commit/Compensate 参与者，统一 Jar Storage 与 Order Liquid Staging 的联合补偿窗口。
+4. 增加故障注入：第 N 只 Jar 移动失败、液体批次提交失败、RuleTransition 后置校验失败、账本发布失败、检查点恢复后相同 OperationId 重放、不同请求载荷冲突。
+5. 验证同一批次中的 JarId/液体身份、数量守恒、端点 OwnerId、事件 OperationId 与回执 Legs 完全一致。
+
+本轮只完成源码审计和规范决策，没有声称复合转移实现已经完成，也没有改变 B 类运行行为。
