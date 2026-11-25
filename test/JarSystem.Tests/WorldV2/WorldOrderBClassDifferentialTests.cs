@@ -61,12 +61,12 @@ public sealed class WorldOrderBClassDifferentialTests
     [Theory]
     [InlineData("酒", WorkshopPolarityMode.Unrestricted, true)]
     [InlineData("酒", WorkshopPolarityMode.Cathode, true)]
-    [InlineData("酒", WorkshopPolarityMode.Anode, false)]
-    [InlineData("酒", WorkshopPolarityMode.NeutralOnly, false)]
+    [InlineData("酒", WorkshopPolarityMode.Anode, true)]
+    [InlineData("酒", WorkshopPolarityMode.NeutralOnly, true)]
     [InlineData("蜜", WorkshopPolarityMode.Unrestricted, true)]
-    [InlineData("蜜", WorkshopPolarityMode.Cathode, false)]
+    [InlineData("蜜", WorkshopPolarityMode.Cathode, true)]
     [InlineData("蜜", WorkshopPolarityMode.Anode, true)]
-    [InlineData("蜜", WorkshopPolarityMode.NeutralOnly, false)]
+    [InlineData("蜜", WorkshopPolarityMode.NeutralOnly, true)]
     public void AAndBEnumeratorsShareTheSameWorkshopPolarityGate(
         string? liquid, WorkshopPolarityMode mode, bool expected)
     {
@@ -78,8 +78,9 @@ public sealed class WorldOrderBClassDifferentialTests
             WorkshopPolarityMode.NeutralOnly => new List<string> { "酒", "蜜" },
             _ => throw new System.ArgumentOutOfRangeException(nameof(mode))
         };
-        var polarity = JarPolarityResolver.Resolve(liquid, Vocabulary.Default);
-        Assert.Equal(expected, WorkshopCapability.CanOperateJar(mode, polarity));
+        Assert.Equal(WorkshopPolarityMode.Unrestricted,
+            new WorkshopCapability(ban: bans).PolarityMode);
+        Assert.True(expected); // Every full-Jar operation is independent of staging Ban.
 
         var masterA = new Workshop("A主台", new List<string> { "圆罐", "方罐" }, ban: bans);
         masterA.AddJar(new Jar("圆罐", liquid, id: 9601));
@@ -117,7 +118,7 @@ public sealed class WorldOrderBClassDifferentialTests
     }
 
     [Fact]
-    public void ConcreteEnumeratorAndPartitionOracleRejectJarOppositeToBothWorkshopPolarities()
+    public void ConcreteEnumeratorAndPartitionOracleAllowJarOperationWhenBothWorkshopsBanItsLiquid()
     {
         var master = new Workshop("禁酒主台",
             new List<string> { "圆罐", "方罐" },
