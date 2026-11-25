@@ -594,3 +594,26 @@ Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI �
 - 负值配置在构造边界拒绝；零值可用于表达当前关闭的端口能力。
 - `CircuitTopologyTests` 增加端口吞吐契约测试。
 - 当前 Core 最新代码 HEAD：`476956eea99c96dc4fc567ed3073da703acf2d80`；精确 CI 正在执行，结果待补。
+
+
+## 2026-11-25 第二十轮：第一批只读 Port Adapter
+
+### 新增实现
+- `ResourcePortAdapters.cs`：
+  - `IResourcePortAdapter`：只暴露 Account + Preflight，不提供单边写入，防止将半转移误认为已提交。
+  - `WorkshopFreeLiquidPortAdapter`：绑定精确 OwnedInstanceId，复用 Workshop `CanStoreLiquid` / `CanUseLiquid`，只作用于游离液体账户。
+  - `WorkshopOrderLiquidPortAdapter`：绑定精确 Workshop + OrderId 子账户，复用订单暂存 `CanAcceptOperation` / `CanConsume`，并把共享容量、占用、预留纳入版本令牌。
+  - `ShipLiquidInventoryPortAdapter`：绑定自机 Individual 身份，使用跨液种共享容量检查输入、指定液种余额检查输出。
+- 版本令牌使用规范化排序状态的 SHA-256，不假设账户已有统一整数版本。
+- 不支持的策略版本、Area 不匹配和逻辑时间吞吐限制均 fail-closed；吞吐限制在 Scheduler Window 未接入前返回 Undetermined。
+- 预检是只读操作，没有写入/提交接口；未实现 Transfer Coordinator。
+
+### 测试
+- 新增 `ResourcePortAdapterTests.cs`，覆盖 Ban、余额不足、容量不足、订单子账隔离、共享容量、自机总容量、资源白名单、单次数量上限、未知策略、错误 Area、吞吐未知状态和预检无副作用。
+- 本轮修订：所有 Adapter 在检查 Area/Policy 前先验证正数量和非空资源身份；订单预置事务忙碌/不可用时由预检返回 Undetermined。
+
+### 语义边界
+- Workshop Free Liquid 与 Workshop Order Liquid 是两个独立权威账户，不共享余额。
+- Ban 继续通过各自账户既有规则执行；Jar 内部液体不经过这些 Adapter。
+- Ship Liquid Inventory 不套用 Workshop Ban。
+- 目前只完成只读预检，不执行跨账户扣款/收款，不得称为端到端转移已完成。
