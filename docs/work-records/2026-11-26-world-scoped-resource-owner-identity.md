@@ -306,3 +306,36 @@ Further implementation after the initial owner-map write:
 - Checkpoint restore validates v2 ledger account endpoints against the active WorldInstanceId. The typed account transfer contracts separately reject cross-World and mixed-version transfer endpoints.
 
 Latest implementation commit before this work-record append: `e0ce362a4dd238caaa6410f0c41d4b0bd9d51877`. Branch comparison against baseline `e78abd388aeee0785933feef894e53292b955e60` is 106 commits ahead, 0 behind. Latest queried workflow/status endpoints returned empty; current-head CI remains unconfirmed. No local build/test is claimed.
+
+## Reconciliation and CI follow-up — 2026-11-26
+
+This append reconciles this work record with the later implementation status recorded in ADR 0011 and the normative architecture document. Earlier sections above describe intermediate slices and must not be read as the current schema or endpoint status.
+
+### Current implementation status confirmed from the branch
+
+- Checkpoint JSON schema is now 9. Schema 3–8 remain readable through explicit compatibility rules.
+- Tagged ResourceEndpoint kinds (Account, ExternalSource, ExternalSink, LegacyUnknown) are present in ResourceEvent, ResourceLedgerMutation, snapshots and checkpoint wire.
+- World V2 initial stock, aggregate Jar production, Warehouse flow, prefill, rollback and retired-prefill paths now emit explicit endpoints when the runtime owner identity is available.
+- B-class Workshop handoff emits scoped account endpoints when exact Workshop OwnerIdentity is available. Settlement retains per-source Requested/Accepted/Discarded allocations and writes separate ledger legs; it does not create a synthetic aggregate owner.
+- ResourceEvent DisplayName is present in schema-9 wire and validated for schema 9+. Full migration of all legacy producers is not complete.
+- Traditional ProductionService still contains an intentional LegacyUnknown migration boundary because its host assembly does not yet supply stable World/Owner identity.
+- Durable cross-account physical transaction coordination remains unimplemented. Do not treat ledger batch atomicity as proof of physical multi-account atomicity.
+
+### CI failure and correction
+
+- PR #63 verification Run 45662558305 checked merge test tree ffefb13623e379a848f946c5638488426b4167b4 (PR head 60fd372a0817fa3b9ab4285dfa6add9fe0ba5580 merged into base 40e578e6e32472549d647ed903ef98cc98028bb6).
+- The first blocking failure was CS0246 at WorldV2CheckpointJsonCodec.cs line 46: WorldInstanceId could not be resolved. Downstream builds, tests, contract snapshots, solver and replay were blocked by this compile failure; they are not independent test failures. Security scan completed with 6 projects and 0 vulnerable packages.
+- Corrected the DecodeExecutionResourceCheckpoint migration parameter to use the explicit global type name global::JarSystem.Core.Domain.WorldInstanceId.
+- Fix commit: 8b5f0cbbe5531a63aef3721ccd82c75aafcfaede.
+- The changed file was re-read from the integration branch and the exact diff was confirmed. The GitHub connector did not return a PR-associated workflow run or combined status for this commit. Current-head CI remains unconfirmed; no local build or test is claimed.
+
+### Next implementation sequence
+
+1. Obtain a fresh verification result for the corrected Core head; inspect the first actual failing stage if any rather than treating cascading gates as separate defects.
+2. Audit every remaining LegacyUnknown-producing write path, prioritizing traditional ProductionService and its host identity injection. Do not fabricate owner IDs from names, labels, roles, list positions or object references.
+3. Complete DisplayName migration at all production event producers while preserving legacy Name read compatibility and historical operation fingerprints.
+4. Add explicit tests that new writes cannot emit LegacyUnknown, while legacy checkpoint reads preserve unknown provenance without inference.
+5. Only after the endpoint and identity migration is complete, implement durable B-class compound Prepare/Commit/Compensate across physical accounts with fault injection and a compound idempotency receipt.
+6. Keep Space's Core pin unchanged until a verified Core integration SHA exists; then perform the cross-repository build and the previously outstanding GUI acceptance.
+
+No PR was merged, no Space code was changed, and no GUI acceptance is claimed in this follow-up.
