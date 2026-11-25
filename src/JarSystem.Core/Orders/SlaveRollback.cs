@@ -116,12 +116,15 @@ internal sealed class SlaveRollback
                 if (remainder > 0)
                 {
                     countDiscardedLiquids?.Invoke(liquid, remainder);
+                    var rejectedByBan = master.IsBanned(liquid);
                     ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Liquid,
                         liquid, remainder, from: slave.Name, to: null,
-                        reason: master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满",
+                        reason: rejectedByBan ? "主台禁" + liquid : "主台液体容量满",
                         resourceIdentity: liquid, displayName: liquid,
                         fromAccountId: AccountId(source), fromEndpoint: source,
-                        toEndpoint: ResourceEndpoint.ExternalSink("workshop.free-liquid-staging.capacity-overflow"));
+                        toEndpoint: ResourceEndpoint.ExternalSink(rejectedByBan
+                            ? "workshop.free-liquid-staging.ban-rejection"
+                            : "workshop.free-liquid-staging.capacity-overflow"));
                     appendLog(new ExecutionLogEntry
                     {
                         Phase = "rollback",
