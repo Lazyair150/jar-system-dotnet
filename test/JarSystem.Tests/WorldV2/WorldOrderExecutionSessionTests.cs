@@ -146,7 +146,8 @@ public sealed class WorldOrderExecutionSessionTests
         OwnerIdentity? shipOwner = withOwnerIdentities
             ? new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "ship-owned") : null;
         var ship = new ShipLiquidInventory(
-            4, new Dictionary<string, int> { ["酒"] = 1 }, shipOwner);
+            withOwnerIdentities ? 1 : 4,
+            new Dictionary<string, int> { ["酒"] = 1 }, shipOwner);
         ReevaluateWithShip(book, roster, ship, demand.Id);
         var reservations = new WorldResourceReservationBook();
         var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
@@ -826,18 +827,25 @@ public sealed class WorldOrderExecutionSessionTests
 
         Assert.NotNull(receipt);
         Assert.Equal(2, receipt!.Requested["酒"]);
+        Assert.Equal(1, receipt.Accepted["酒"]);
+        Assert.Equal(1, receipt.Discarded["酒"]);
         Assert.Equal(2, receipt.SourceAllocations.Count);
-        Assert.Equal(2, setup.Ledger.For(ResourceCauses.Return).Count);
-        var events = setup.Ledger.For(ResourceCauses.Return);
-        Assert.Equal(2, events.Select(item => item.FromAccountId).Distinct(StringComparer.Ordinal).Count());
-        Assert.All(events, item =>
-        {
-            Assert.StartsWith("account:v2:", item.FromAccountId);
-            Assert.StartsWith("account:v2:", item.ToAccountId);
-            Assert.Equal(ResourceEndpointKind.Account, item.FromEndpoint.Kind);
-            Assert.Equal(ResourceEndpointKind.Account, item.ToEndpoint.Kind);
-            Assert.Equal(item.ToAccountId, item.ToEndpoint.AccountId);
-        });
+        Assert.Equal(1, setup.Ledger.For(ResourceCauses.Return).Count);
+        Assert.Equal(1, setup.Ledger.For(ResourceCauses.Discard).Count);
+        var returned = Assert.Single(setup.Ledger.For(ResourceCauses.Return));
+        var discarded = Assert.Single(setup.Ledger.For(ResourceCauses.Discard));
+        Assert.StartsWith("account:v2:", returned.FromAccountId);
+        Assert.StartsWith("account:v2:", returned.ToAccountId);
+        Assert.Equal(ResourceEndpointKind.Account, returned.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, returned.ToEndpoint.Kind);
+        Assert.Equal(returned.ToAccountId, returned.ToEndpoint.AccountId);
+        Assert.StartsWith("account:v2:", discarded.FromAccountId);
+        Assert.Equal(ResourceEndpointKind.Account, discarded.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.ExternalSink, discarded.ToEndpoint.Kind);
+        Assert.Equal(receipt.SourceAllocations[0].SourceEndpoint.AccountId, returned.FromAccountId);
+        Assert.Equal(receipt.SourceAllocations[1].SourceEndpoint.AccountId, discarded.FromAccountId);
+        Assert.Equal(1, receipt.SourceAllocations[0].Accepted["酒"]);
+        Assert.Equal(1, receipt.SourceAllocations[1].Discarded["酒"]);
         Assert.All(receipt.SourceAllocations, allocation =>
         {
             Assert.Equal(ResourceEndpointKind.Account, allocation.SourceEndpoint.Kind);
