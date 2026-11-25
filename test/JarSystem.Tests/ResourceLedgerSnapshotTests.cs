@@ -700,7 +700,10 @@ public sealed class ResourceLedgerSnapshotTests
                 ToEndpoint: ResourceEndpoint.ExternalSink("warehouse.capacity-overflow"))
         }));
 
-        var restored = ResourceLedger.Restore(ledger.Capture());
+        var wire = ResourceLedgerWireDto.FromSnapshot(ledger.Capture());
+        var encoded = WorldV2CheckpointJsonCodec.Encode(wire, null);
+        var decodedWire = WorldV2CheckpointJsonCodec.Decode<ResourceLedgerWireDto>(encoded).Payload;
+        var restored = ResourceLedger.Restore(decodedWire.ToSnapshot());
         Assert.Equal(ResourceEndpointKind.ExternalSource, restored.Entries[0].FromEndpoint.Kind);
         Assert.Equal(ResourceEndpointKind.Account, restored.Entries[0].ToEndpoint.Kind);
         Assert.Equal(ship.AccountId, restored.Entries[0].ToEndpoint.AccountId);
