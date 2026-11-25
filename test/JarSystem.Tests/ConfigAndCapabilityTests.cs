@@ -27,13 +27,18 @@ public class ConfigAndCapabilityTests
         Assert.Empty(report.Warnings);   // 默认世界里每个形状都有生产者 ⇒ 连警告都没有
     }
 
-    /// <summary>S2 的围栏：液体**数量恰好两个**、且**名字与顺序不可改**（求解/执行仍按内置名遍历）。</summary>
+    /// <summary>世界拥有两种互斥液体身份；身份可重命名、重排，但极性必须显式一一映射。</summary>
     [Fact]
-    public void ChangingLiquidNamesOrCount_IsRejected()
+    public void LiquidIdentitiesCanBeRenamedAndReorderedWhenPolarityMappingIsExplicit()
     {
         var renamed = CloneDefault();
-        renamed.Liquids = [Constants.LIQUIDS[1], Constants.LIQUIDS[0]];   // 只换顺序
-        Assert.False(renamed.Validate().IsValid);
+        renamed.Liquids = [ "冷却液", "燃料" ];
+        renamed.LiquidPolarities = new Dictionary<string, LiquidPolarity>
+        {
+            ["燃料"] = LiquidPolarity.Anode,
+            ["冷却液"] = LiquidPolarity.Cathode
+        };
+        Assert.True(renamed.Validate().IsValid, string.Join("; ", renamed.Validate().Errors));
 
         var extra = CloneDefault();
         extra.Liquids = [Constants.LIQUIDS[0], Constants.LIQUIDS[1], "醋"];
