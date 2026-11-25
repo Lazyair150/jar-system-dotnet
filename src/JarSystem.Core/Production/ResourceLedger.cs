@@ -248,7 +248,7 @@ public sealed class ResourceLedger
         // ResourceIdentity is the stable machine key. Name/DisplayName are presentation-only.
         var canonicalMutations = mutations.Select(item => new
         {
-            item.Cause, item.Kind, item.ResourceIdentity, item.Amount, item.From, item.To,
+            item.Cause, item.Kind, item.ResourceIdentity, item.Amount,
             item.Reason, item.FromAccountId, item.ToAccountId, item.FromEndpoint, item.ToEndpoint
         }).ToArray();
         var payload = JsonSerializer.Serialize(new
