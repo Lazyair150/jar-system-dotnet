@@ -155,3 +155,39 @@ Additional follow-up commits after the compiler correction:
 - `0fc3609b157ee4f7326339412576b1608a8ea57b` and `e81e5f2d1de920639b8b0bae868543d930077d9d`: add and correct the schema-5 JSON migration regression.
 - `2aff4665e033f399a2e77281f69e60621a150f59`: reject the invalid default value of the struct at World creation.
 - These follow-up commits have not yet been covered by a returned CI run. The current head's combined status remains empty.
+
+
+## Host lifecycle and replay identity implementation
+
+The WorldInstanceId slice has now been carried through the actual Host/Application/Godot bridge lifecycle, rather than stopping at Context and DTO:
+
+- `WorldV2Factory.Create(..., worldInstanceId)` accepts an injected identity and passes it to Context. The options/configuration object does not own WorldInstanceId; it is runtime instance identity, not definition data.
+- `WorldV2HostService.Replace(options)` generates a fresh opaque ID exactly once at the Host boundary. `Replace(options, worldInstanceId)` is the deterministic path for a save/session owner that already persisted an ID.
+- `WorldV2ApplicationService` exposes explicit-ID creation and `GetWorldInstanceId()`; `WorldV2BridgeSession` exposes the same operations to Godot.
+- Normal checkpoint restore builds the replacement Context using the checkpoint's exact WorldInstanceId before applying any runtime state. The ID is not regenerated during restore.
+- Legacy in-memory or JSON checkpoints with no WorldInstanceId are rejected by the Host restore boundary unless the caller explicitly supplies a migration identity. The identity is copied into the migrated checkpoint before restore, and conflicting migration IDs are rejected.
+- JSON restore APIs pass the migration identity through both decoding and Host preparation, so a schema-3/4/5 migration is not lost between layers.
+- Added Host tests for generated and explicit IDs, identity preservation across checkpoint replacement, and explicit legacy migration; added Godot bridge coverage for identity preservation across JSON restore.
+- Existing test fixtures that construct deliberately modified checkpoints now retain the original WorldInstanceId, ensuring their intended validation branch is reached rather than failing early on a missing identity.
+
+### Changed files in this lifecycle slice
+
+- `src/JarSystem.Core/World/WorldV2Options.cs`
+- `src/JarSystem.Core/World/WorldV2HostService.cs`
+- `src/JarSystem.Core/World/PreparedWorldV2Restore.cs`
+- `src/JarSystem.Core/World/WorldV2ApplicationService.cs`
+- `hosts/godot/WorldV2Bridge/WorldV2BridgeSession.cs`
+- `test/JarSystem.Tests/WorldV2/WorldV2HostServiceTests.cs`
+- `test/JarSystem.Tests/WorldV2/WorldV2BridgeSessionTests.cs`
+
+### Validation boundary
+
+- Source and test files were re-read from the integration branch after the edits. The new test paths and call signatures are present.
+- The previous compiler failure was fixed in the earlier slice; no new compile or test run is available from this environment.
+- `fetch_commit_workflow_runs` and combined status for the latest lifecycle test commit returned empty results. Because the connector wrapper only returns PR-triggered runs, this is not evidence that push-triggered CI did not run. Current-head CI is **unconfirmed**.
+- No local build, xUnit run, or Godot GUI run is claimed.
+- The lifecycle path now supplies stable WorldInstanceId for Host-created worlds. Direct low-level `WorldV2Factory.Create(options)` remains a compatibility path with no ID; production Host creation no longer uses that path.
+
+### Next implementation slice
+
+Introduce OwnerIdentity as a typed, World-scoped value and AccountId v2 as a canonical, versioned encoding. Then thread stable local owner identities into Ship, Board/Production Area, Warehouse, Producer, Workshop and order staging. Do not use display names or Master/Slave roles as local owner IDs. Keep AccountId v1 as an explicit legacy read path and do not reinterpret nullable legacy endpoints until tagged endpoint semantics are implemented.
