@@ -87,7 +87,9 @@ public class OrderEvent : ICommandJournal
         Order = order;
         Master = masterWorkshop;
         Slave = slaveWorkshop;
-        Executor = new CommandExecutor(log);
+        Executor = new CommandExecutor(log, () => IsTransactionFaulted
+            ? TransactionFaultReason ?? "订单事务状态不确定，已冻结。"
+            : null);
         _countDiscardedJars = countDiscardedJars;
         _countDiscardedLiquids = countDiscardedLiquids;
         _ledger = ledger;
