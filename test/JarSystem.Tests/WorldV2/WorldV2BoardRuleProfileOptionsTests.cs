@@ -90,6 +90,7 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
                 }
             }
         };
+        assignment.Assignments.Sort((left, right) => string.CompareOrdinal(left.SlotId, right.SlotId));
         assignment.AssignmentFingerprint = assignment.ComputeCanonicalFingerprint();
 
         var profile = new WorldV2BoardRuleProfileOptions
@@ -114,7 +115,7 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
         var errors = profile.Validate(assignment);
 
         Assert.Contains(errors, error =>
-            error.Contains("unsupported area/sub-area/component", System.StringComparison.Ordinal));
+            error.Contains("unsupported area/component/role/control-area combination", System.StringComparison.Ordinal));
     }
 
     private static WorldV2BoardAssignmentSnapshotOptions CreateParserAssignment(string subAreaId)
