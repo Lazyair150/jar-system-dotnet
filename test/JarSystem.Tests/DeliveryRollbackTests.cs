@@ -224,6 +224,62 @@ public class DeliveryRollbackTests
     }
 
     [Fact]
+    public void LegacyOrderEventFreezesAfterRollbackLedgerCommitProjectionFailure()
+    {
+        var master = Bench("主台", maxJars: 1);
+        var slave = Bench("从台", maxJars: 3);
+        Assert.True(master.AddJar(MakeJar(40, "圆罐")));
+        var deliveredJar = MakeJar(41, "圆罐", "酒");
+        var discardedJar = MakeJar(42, "方罐");
+        Assert.True(slave.AddJar(deliveredJar));
+        Assert.True(slave.AddJar(discardedJar));
+        Assert.True(slave.MarkJar(deliveredJar).Success);
+
+        var order = new Order(
+            new List<Requirement> { new() { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.B,
+            vocabulary: Vocabulary.Default);
+        var ledger = new ResourceLedger();
+        var orderEvent = new OrderEvent(
+            order, master, slave,
+            countDiscardedJars: _ => throw new InvalidOperationException(
+                "Injected legacy discard-stat projection failure"),
+            ledger: ledger,
+            tickOf: () => 73);
+        Assert.True(orderEvent.Start());
+        Assert.True(orderEvent.AdvanceToSlavePhase().Success);
+
+        var error = Assert.Throws<SlaveRollbackTransactionException>(() => orderEvent.Deliver());
+
+        Assert.Contains("投影发布失败", error.Message);
+        Assert.True(orderEvent.IsTransactionFaulted);
+        Assert.Contains("投影发布失败", orderEvent.TransactionFaultReason);
+        Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
+        Assert.Empty(slave.Jars);
+        Assert.Same(master.Jars.Single(), master.Jars.Single());
+        Assert.Equal(new[] { 40 }, master.Jars.Select(jar => jar.Id!.Value));
+        var committed = ledger.Entries;
+        Assert.Equal(2, committed.Count);
+        Assert.True(ledger.HasRecordedOperation(
+            "legacy-order:" + order.Id + ":slave-rollback"));
+        Assert.Equal("order.delivery", Assert.Single(committed,
+            item => item.ResourceIdentity == "41").ToEndpoint.ExternalIdentity);
+        Assert.Equal(ResourceCauses.Discard,
+            Assert.Single(committed, item => item.ResourceIdentity == "42").Cause);
+
+        var lastSeq = ledger.LastSeq;
+        var retry = orderEvent.Deliver();
+        Assert.False(retry.Success);
+        Assert.Contains("事务状态不确定", retry.Reason);
+        Assert.False(orderEvent.Fail("retry must not convert uncertain delivery into failure").Success);
+        Assert.Throws<InvalidOperationException>(() => orderEvent.RollbackSlaveToMaster());
+        Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
+        Assert.Equal(lastSeq, ledger.LastSeq);
+        Assert.Equal(2, ledger.Entries.Count);
+        Assert.True((bool)orderEvent.GetReport()["transactionFaulted"]!);
+    }
+
+    [Fact]
     public void TransferredJarsGoBackToTheMaster()
     {
         var master = Bench("主台");
