@@ -322,13 +322,14 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
     private static bool IsValidSlotShape(WorldV2BoardSlotSnapshotOptions slot) =>
         slot.ComponentKind switch
         {
-            "workshop" => slot.AreaId == "workshop" &&
+            "workshop" => slot.AreaId == "workshop" && slot.SubAreaId == "none" &&
                 (slot.RoleId == "master" || slot.RoleId == "slave") && slot.ControlArea == "none",
-            "ore_parser" => slot.AreaId == "decomposition" &&
+            // Decomposition is a functional child-area of the production area.
+            "ore_parser" => slot.AreaId == "production" && slot.SubAreaId == "decomposition" &&
                 slot.RoleId == "none" && slot.ControlArea == "none",
-            "skill" => slot.AreaId == "orders" &&
+            "skill" => slot.AreaId == "orders" && slot.SubAreaId == "none" &&
                 slot.RoleId == "none" && (slot.ControlArea == "Active" || slot.ControlArea == "Passive"),
-            "production_device" => slot.AreaId == "production" &&
+            "production_device" => slot.AreaId == "production" && slot.SubAreaId == "none" &&
                 slot.RoleId == "none" && slot.ControlArea == "none",
             // Board structure is extensible. Unsupported assigned component kinds are
             // rejected by the runtime projection validator, not by Board schema parsing.
@@ -357,6 +358,7 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
                 writer.WriteStartObject();
                 writer.WriteString("slotId", slot.SlotId);
                 writer.WriteString("areaId", slot.AreaId);
+                writer.WriteString("subAreaId", slot.SubAreaId);
                 writer.WriteString("componentKind", slot.ComponentKind);
                 writer.WriteString("displayName", slot.DisplayName);
                 writer.WriteString("roleId", slot.RoleId);
@@ -403,6 +405,7 @@ public sealed class WorldV2BoardSlotSnapshotOptions
 {
     [JsonPropertyName("slotId")] public string SlotId { get; set; } = "";
     [JsonPropertyName("areaId")] public string AreaId { get; set; } = "";
+    [JsonPropertyName("subAreaId")] public string SubAreaId { get; set; } = "none";
     [JsonPropertyName("componentKind")] public string ComponentKind { get; set; } = "";
     [JsonPropertyName("displayName")] public string DisplayName { get; set; } = "";
     [JsonPropertyName("roleId")] public string RoleId { get; set; } = "";
