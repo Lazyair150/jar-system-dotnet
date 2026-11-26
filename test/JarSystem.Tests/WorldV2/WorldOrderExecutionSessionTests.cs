@@ -89,7 +89,12 @@ public sealed class WorldOrderExecutionSessionTests
     private sealed class ThrowAtOrderTransferBoundary : IOrderTransferFaultPort
     {
         private readonly string _boundary;
-        public ThrowAtOrderTransferBoundary(string boundary) => _boundary = boundary;
+        private readonly string? _compensationBoundary;
+        public ThrowAtOrderTransferBoundary(string boundary, string? compensationBoundary = null)
+        {
+            _boundary = boundary;
+            _compensationBoundary = compensationBoundary;
+        }
         private void Hit(string boundary)
         {
             if (_boundary == boundary)
@@ -98,6 +103,11 @@ public sealed class WorldOrderExecutionSessionTests
         public void AfterJarMoves() => Hit("jar-moves");
         public void AfterLiquidTransfer() => Hit("liquid-transfer");
         public void BeforeLedgerPublication() => Hit("ledger-publication");
+        public void BeforeCompensation()
+        {
+            if (_compensationBoundary == "compensation")
+                throw new InvalidOperationException("Injected B-class compensation failure");
+        }
     }
 
     private sealed class ThrowAtSettlementBoundary : IOrderSettlementFaultPort
@@ -807,6 +817,48 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(OrderResourceLeaseStage.Settled, lease.Stage);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Empty(ledger.For(ResourceCauses.Transfer));
+    }
+
+    [Fact]
+    public void RuntimeFreezesAndRetainsUncertainBTransferWhenWholeAccountCompensationFails()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", "酒", id: 9886, vocabulary: Words);
+        Assert.True(master.AddJar(jar));
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster,
+            1_000, ledger, () => 47, null,
+            new ThrowAtOrderTransferBoundary("jar-moves", "compensation"));
+        Assert.True(started.Success, started.Reason);
+
+        var runtime = CreateRuntime(setup.Board, setup.Roster, ledger, () => 47);
+        Assert.True(runtime.RegisterExecutionSession(started.Session!));
+        var lease = setup.Reservations.FindLease(demand.Id)!;
+
+        var error = Assert.Throws<AggregateException>(() => runtime.AdvanceWorldTime(1_000));
+
+        Assert.Contains("全量补偿失败", error.Message);
+        Assert.True(runtime.IsFaulted);
+        Assert.Contains("Injected B-class compensation failure", runtime.FaultReason);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Same(lease, setup.Reservations.FindLease(demand.Id));
+        Assert.Equal(OrderResourceLeaseStage.TransferPending, lease.Stage);
+        Assert.Empty(ledger.For(ResourceCauses.Transfer));
+
+        // The uncertain physical state is deliberately not auto-repaired or auto-retried.
+        Assert.Empty(master.Jars);
+        Assert.Same(jar, Assert.Single(slave.Jars));
+        var worldTimeAtFault = runtime.Clock.WorldTimeMilli;
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
+        Assert.Equal(worldTimeAtFault, runtime.Clock.WorldTimeMilli);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Equal(1, setup.Reservations.Count);
     }
 
     [Fact]
