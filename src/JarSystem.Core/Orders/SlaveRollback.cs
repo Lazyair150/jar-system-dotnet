@@ -18,14 +18,46 @@ namespace JarSystem.Core.Orders;
 /// </list>
 /// 该操作对成功、失败、取消三条收尾路径一致，并由过程互斥保证从台只属于一个 B 类订单。
 /// </summary>
+internal interface ISlaveRollbackFaultPort
+{
+    void AfterJarMoves();
+    void AfterLiquidMoves();
+    void BeforeLedgerPublication();
+    void BeforeCompensation();
+    void AfterLedgerPublication();
+}
+
+internal sealed class NoopSlaveRollbackFaultPort : ISlaveRollbackFaultPort
+{
+    public static NoopSlaveRollbackFaultPort Instance { get; } = new();
+    private NoopSlaveRollbackFaultPort() { }
+    public void AfterJarMoves() { }
+    public void AfterLiquidMoves() { }
+    public void BeforeLedgerPublication() { }
+    public void BeforeCompensation() { }
+    public void AfterLedgerPublication() { }
+}
+
+/// <summary>
+/// Rollback could not finish as one committed physical + ledger operation.
+/// The caller must preserve the session/lease and freeze the owning runtime.
+/// </summary>
+internal sealed class SlaveRollbackTransactionException : AggregateException
+{
+    public SlaveRollbackTransactionException(string message, Exception cause)
+        : base(message, cause) { }
+
+    public SlaveRollbackTransactionException(string message, Exception cause, Exception compensationError)
+        : base(message, cause, compensationError) { }
+}
+
+/// <summary>
+/// **从台 → 主台的资源回落**。Jar、游离液体、账本批次作为一个同步事务提交。
+/// 任何提交前异常都会恢复主从工作台原快照；无法恢复或提交后的投影回调失败时，
+/// 抛出 SlaveRollbackTransactionException，由宿主冻结世界并保留会话现场。
+/// </summary>
 internal sealed class SlaveRollback
 {
-    /// <param name="master">主台（回滚资源的接收方）。</param>
-    /// <param name="slave">从台（回滚来源）。</param>
-    /// <param name="appendLog">追加执行日志的出口（由 <see cref="OrderEvent"/> 提供）——
-    /// 日志本身不再对外可变，因此这里收回调而不是可变 List。</param>
-    /// <param name="ledger">资源账本（只读投影）：回落记 `return`，主台收不下的记 `discard`。</param>
-    /// <param name="tickOf">取当前逻辑 tick 的出口（账本只记录事实，不推进时间）。</param>
     private static ResourceEndpoint WorkshopAccountEndpoint(Workshop workshop, string accountKind)
     {
         if (workshop.OwnerIdentity is { } owner)
@@ -46,93 +78,200 @@ internal sealed class SlaveRollback
         Action<string, int>? countDiscardedLiquids = null,
         ResourceLedger? ledger = null,
         Func<int>? tickOf = null,
-        int? ledgerTickOverride = null)
+        int? ledgerTickOverride = null,
+        string? operationId = null,
+        ISlaveRollbackFaultPort? faults = null)
     {
+        ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(slave);
+        ArgumentNullException.ThrowIfNull(appendLog);
         if (ReferenceEquals(master, slave)) return;
 
-        // 一次结算使用同一个账本 tick；成功交付路径可在不可逆交付之前预取并显式传入。
-        // tick 来源由世界装配层提供，不在此换算旧/新时间轴。
-        var ledgerTick = ledger == null ? 0 : ledgerTickOverride ?? tickOf?.Invoke() ?? 0;
-        var slaveJars = new List<Jar>(slave.Jars);
-
-        foreach (var jar in slaveJars)
+        var slaveHasResources = slave.HasResources;
+        if (ledger != null)
         {
-            if (jar == null) continue;
-            if (jar.Id is not > 0)
-                throw new DomainValidationException("从台回落账本事实缺少 canonical JarId。");
-            var jarIdentity = jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            slave.TransferOut(jar);
-            // 禁液令不影响满罐转移：装满被主台禁用液体的罐子原样归还，
-            // 不在此清空罐内液体（禁令只作用于倒入、游离存储与改形成本）。
-            if (!master.TransferIn(jar))
+            if (string.IsNullOrWhiteSpace(operationId))
+                throw new ArgumentException(
+                    "带资源账本的从台回落必须提供持久化 OperationId。",
+                    nameof(operationId));
+            if (ledger.HasRecordedOperation(operationId))
             {
-                countDiscardedJars?.Invoke(1);
-                var source = WorkshopAccountEndpoint(slave, "workshop.jar-storage");
-                ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Jar,
-                    jar.Shape, 1, from: slave.Name, to: null, reason: "主台罐子容量满",
-                    resourceIdentity: jarIdentity, displayName: jar.Shape,
-                    fromAccountId: AccountId(source), fromEndpoint: source,
-                    toEndpoint: ResourceEndpoint.ExternalSink("workshop.jar-storage.capacity-overflow"));
-                appendLog(new ExecutionLogEntry
-                {
-                    Phase = "rollback",
-                    Command = "discard_jar",
-                    Jar = jar.GetDescription(),
-                    Reason = "主台罐子容量满，丢弃（仓库单向流动，不回收）"
-                });
-            }
-            else
-            {
-                var source = WorkshopAccountEndpoint(slave, "workshop.jar-storage");
-                var target = WorkshopAccountEndpoint(master, "workshop.jar-storage");
-                ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Jar,
-                    jar.Shape, 1, from: slave.Name, to: master.Name,
-                    resourceIdentity: jarIdentity, displayName: jar.Shape,
-                    fromAccountId: AccountId(source), toAccountId: AccountId(target),
-                    fromEndpoint: source, toEndpoint: target);
+                if (!slaveHasResources) return;
+                throw new SlaveRollbackTransactionException(
+                    "从台仍持有资源，但对应的回落 OperationId 已在账本提交；禁止重复扣动或猜测补偿。",
+                    new InvalidOperationException("Rollback OperationId already exists while slave still owns resources."));
             }
         }
+        if (!slaveHasResources) return;
 
-        foreach (var kv in slave.LiquidStorage.ToList())
+        var ledgerTick = ledger == null
+            ? 0
+            : ledgerTickOverride ?? tickOf?.Invoke()
+                ?? throw new InvalidOperationException("从台回落账本缺少逻辑 tick。");
+        if (ledgerTick < 0)
+            throw new ArgumentOutOfRangeException(nameof(ledgerTick));
+
+        var slaveJars = slave.Jars.ToArray();
+        var sourceJarIds = slaveJars.Select(jar => jar.Id ?? 0).ToArray();
+        var targetJarIdsBefore = master.Jars.Select(jar => jar.Id ?? 0).ToArray();
+        if (sourceJarIds.Any(id => id <= 0) ||
+            sourceJarIds.Distinct().Count() != sourceJarIds.Length ||
+            targetJarIdsBefore.Any(id => id <= 0) ||
+            targetJarIdsBefore.Distinct().Count() != targetJarIdsBefore.Length ||
+            sourceJarIds.Intersect(targetJarIdsBefore).Any())
+            throw new DomainValidationException("从台回落前主从 Jar 身份无效、重复或跨账户重叠。");
+
+        var masterBefore = master.CreateSnapshot();
+        var slaveBefore = slave.CreateSnapshot();
+        var expectedMasterJarIds = targetJarIdsBefore.ToHashSet();
+        var expectedMasterLiquids = new Dictionary<string, int>(master.LiquidStorage, StringComparer.Ordinal);
+        var ledgerMutations = new List<ResourceLedgerMutation>();
+        var pendingLogs = new List<ExecutionLogEntry>();
+        var discardedJarCount = 0;
+        var discardedLiquidCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var faultPort = faults ?? NoopSlaveRollbackFaultPort.Instance;
+
+        try
         {
-            var liquid = kv.Key;
-            var amount = kv.Value;
-            if (amount > 0)
+            foreach (var jar in slaveJars)
             {
-                slave.RemoveLiquid(liquid, amount);
-                // 禁令与容量是两种独立拒收原因：被主台禁用的游离液体全部丢弃；
-                // 未被禁用时才按容量部分接收。满罐中的液体随罐返回，不经过这里。
-                int accepted = master.IsBanned(liquid)
-                    ? 0
-                    : master.TryReceiveLiquid(liquid, amount);
-                int remainder = amount - accepted;
-                var source = WorkshopAccountEndpoint(slave, "workshop.free-liquid-staging");
-                var target = WorkshopAccountEndpoint(master, "workshop.free-liquid-staging");
-                ledger?.Record(ledgerTick, ResourceCauses.Return, ResourceKinds.Liquid,
-                    liquid, accepted, from: slave.Name, to: master.Name, resourceIdentity: liquid,
-                    displayName: liquid,
-                    fromAccountId: AccountId(source), toAccountId: AccountId(target),
-                    fromEndpoint: source, toEndpoint: target);
-                if (remainder > 0)
+                var jarId = jar.Id!.Value;
+                if (!ReferenceEquals(slave.TransferOut(jar), jar))
+                    throw new InvalidOperationException($"无法从从台精确移出罐子 #{jarId}。");
+
+                var source = WorkshopAccountEndpoint(slave, "workshop.jar-storage");
+                if (master.TransferIn(jar))
                 {
-                    countDiscardedLiquids?.Invoke(liquid, remainder);
-                    var rejectedByBan = master.IsBanned(liquid);
-                    ledger?.Record(ledgerTick, ResourceCauses.Discard, ResourceKinds.Liquid,
-                        liquid, remainder, from: slave.Name, to: null,
-                        reason: rejectedByBan ? "主台禁" + liquid : "主台液体容量满",
-                        resourceIdentity: liquid, displayName: liquid,
-                        fromAccountId: AccountId(source), fromEndpoint: source,
-                        toEndpoint: ResourceEndpoint.ExternalSink(rejectedByBan
-                            ? "workshop.free-liquid-staging.ban-rejection"
-                            : "workshop.free-liquid-staging.capacity-overflow"));
-                    appendLog(new ExecutionLogEntry
+                    expectedMasterJarIds.Add(jarId);
+                    var target = WorkshopAccountEndpoint(master, "workshop.jar-storage");
+                    ledgerMutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Return, ResourceKinds.Jar, jar.Shape, 1,
+                        From: slave.Name, To: master.Name,
+                        ResourceIdentity: jarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        FromAccountId: AccountId(source), ToAccountId: AccountId(target),
+                        FromEndpoint: source, ToEndpoint: target,
+                        DisplayName: jar.Shape));
+                }
+                else
+                {
+                    discardedJarCount++;
+                    ledgerMutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
+                        From: slave.Name, To: null, Reason: "主台罐子容量满",
+                        ResourceIdentity: jarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        FromAccountId: AccountId(source), FromEndpoint: source,
+                        ToEndpoint: ResourceEndpoint.ExternalSink("workshop.jar-storage.capacity-overflow"),
+                        DisplayName: jar.Shape));
+                    pendingLogs.Add(new ExecutionLogEntry
                     {
                         Phase = "rollback",
-                        Command = "discard_liquid",
-                        Reason = (master.IsBanned(liquid) ? "主台禁" + liquid : "主台液体容量满") + "，" + liquid + "×" + remainder + " 丢弃（仓库单向流动，不回收）"
+                        Command = "discard_jar",
+                        Jar = jar.GetDescription(),
+                        Reason = "主台罐子容量满，丢弃（仓库单向流动，不回收）"
                     });
                 }
             }
+
+            faultPort.AfterJarMoves();
+
+            foreach (var item in slave.LiquidStorage.Where(item => item.Value > 0).ToArray())
+            {
+                if (!slave.RemoveLiquid(item.Key, item.Value))
+                    throw new InvalidOperationException("从台游离液体库存变化与回落计划不一致：" + item.Key);
+
+                var source = WorkshopAccountEndpoint(slave, "workshop.free-liquid-staging");
+                var target = WorkshopAccountEndpoint(master, "workshop.free-liquid-staging");
+                var accepted = master.IsBanned(item.Key)
+                    ? 0
+                    : master.TryReceiveLiquid(item.Key, item.Value);
+                var remainder = item.Value - accepted;
+
+                if (accepted > 0)
+                    ledgerMutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Return, ResourceKinds.Liquid, item.Key, accepted,
+                        From: slave.Name, To: master.Name,
+                        ResourceIdentity: item.Key,
+                        FromAccountId: AccountId(source), ToAccountId: AccountId(target),
+                        FromEndpoint: source, ToEndpoint: target,
+                        DisplayName: item.Key));
+
+                if (remainder > 0)
+                {
+                    discardedLiquidCounts[item.Key] = checked(
+                        discardedLiquidCounts.GetValueOrDefault(item.Key) + remainder);
+                    var rejectedByBan = master.IsBanned(item.Key);
+                    ledgerMutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, remainder,
+                        From: slave.Name, To: null,
+                        Reason: rejectedByBan ? "主台禁" + item.Key : "主台液体容量满",
+                        ResourceIdentity: item.Key,
+                        FromAccountId: AccountId(source), FromEndpoint: source,
+                        ToEndpoint: ResourceEndpoint.ExternalSink(rejectedByBan
+                            ? "workshop.free-liquid-staging.ban-rejection"
+                            : "workshop.free-liquid-staging.capacity-overflow"),
+                        DisplayName: item.Key));
+                    pendingLogs.Add(new ExecutionLogEntry
+                    {
+                        Phase = "rollback",
+                        Command = "discard_liquid",
+                        Reason = (rejectedByBan ? "主台禁" + item.Key : "主台液体容量满") +
+                            "，" + item.Key + "×" + remainder + " 丢弃（仓库单向流动，不回收）"
+                    });
+                }
+
+                if (accepted > 0)
+                    expectedMasterLiquids[item.Key] = checked(
+                        expectedMasterLiquids.GetValueOrDefault(item.Key) + accepted);
+            }
+
+            faultPort.AfterLiquidMoves();
+
+            var actualMasterJarIds = master.Jars.Select(jar => jar.Id ?? 0).ToArray();
+            if (slave.HasResources || actualMasterJarIds.Any(id => id <= 0) ||
+                actualMasterJarIds.Distinct().Count() != actualMasterJarIds.Length ||
+                !actualMasterJarIds.ToHashSet().SetEquals(expectedMasterJarIds) ||
+                expectedMasterLiquids.Any(item => master.LiquidStorage.GetValueOrDefault(item.Key) != item.Value) ||
+                master.LiquidStorage.Any(item => !expectedMasterLiquids.ContainsKey(item.Key) && item.Value > 0))
+                throw new InvalidOperationException("从台回落提交后的主从物理账户状态与资源计划不一致。");
+
+            faultPort.BeforeLedgerPublication();
+            if (ledger != null && ledgerMutations.Count > 0 &&
+                !ledger.RecordBatchOnce(operationId!, ledgerTick, ledgerMutations))
+                throw new InvalidOperationException("从台回落账本 OperationId 已被占用，拒绝重复提交。");
+        }
+        catch (Exception rollbackError)
+        {
+            try
+            {
+                faultPort.BeforeCompensation();
+                master.RestoreFromSnapshot(masterBefore);
+                slave.RestoreFromSnapshot(slaveBefore);
+            }
+            catch (Exception compensationError)
+            {
+                throw new SlaveRollbackTransactionException(
+                    "从台回落失败，且主从工作台物理账户全量补偿失败；必须冻结世界并保留故障现场。",
+                    rollbackError, compensationError);
+            }
+
+            throw new SlaveRollbackTransactionException(
+                "从台回落失败；主从工作台已完整恢复，账本批次未提交，必须保留订单会话以供重试或人工处理。",
+                rollbackError);
+        }
+
+        try
+        {
+            faultPort.AfterLedgerPublication();
+            foreach (var entry in pendingLogs) appendLog(entry);
+            if (discardedJarCount > 0) countDiscardedJars?.Invoke(discardedJarCount);
+            foreach (var item in discardedLiquidCounts)
+                countDiscardedLiquids?.Invoke(item.Key, item.Value);
+        }
+        catch (Exception publicationError)
+        {
+            throw new SlaveRollbackTransactionException(
+                "从台回落物理账户与账本批次已提交，但日志/统计投影发布失败；必须冻结世界并保留提交现场。",
+                publicationError);
         }
     }
 }
