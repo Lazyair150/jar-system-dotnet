@@ -80,7 +80,8 @@ internal sealed class SlaveRollback
         Func<int>? tickOf = null,
         int? ledgerTickOverride = null,
         string? operationId = null,
-        ISlaveRollbackFaultPort? faults = null)
+        ISlaveRollbackFaultPort? faults = null,
+        IReadOnlyCollection<int>? deliveredJarIds = null)
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(slave);
@@ -114,12 +115,17 @@ internal sealed class SlaveRollback
         var slaveJars = slave.Jars.ToArray();
         var sourceJarIds = slaveJars.Select(jar => jar.Id ?? 0).ToArray();
         var targetJarIdsBefore = master.Jars.Select(jar => jar.Id ?? 0).ToArray();
+        var deliveryIds = (deliveredJarIds ?? Array.Empty<int>()).ToArray();
+        var deliveryIdSet = deliveryIds.ToHashSet();
         if (sourceJarIds.Any(id => id <= 0) ||
             sourceJarIds.Distinct().Count() != sourceJarIds.Length ||
             targetJarIdsBefore.Any(id => id <= 0) ||
             targetJarIdsBefore.Distinct().Count() != targetJarIdsBefore.Length ||
-            sourceJarIds.Intersect(targetJarIdsBefore).Any())
-            throw new DomainValidationException("从台回落前主从 Jar 身份无效、重复或跨账户重叠。");
+            sourceJarIds.Intersect(targetJarIdsBefore).Any() ||
+            deliveryIds.Any(id => id <= 0) ||
+            deliveryIdSet.Count != deliveryIds.Length ||
+            !deliveryIdSet.IsSubsetOf(sourceJarIds))
+            throw new DomainValidationException("从台回落前主从 Jar 身份或交付 Jar 清单无效、重复或不属于从台。");
 
         var masterBefore = master.CreateSnapshot();
         var slaveBefore = slave.CreateSnapshot();
@@ -136,10 +142,29 @@ internal sealed class SlaveRollback
             foreach (var jar in slaveJars)
             {
                 var jarId = jar.Id!.Value;
+                var source = WorkshopAccountEndpoint(slave, "workshop.jar-storage");
+
+                if (deliveryIdSet.Contains(jarId))
+                {
+                    var clear = slave.ClearMark(jar);
+                    if (!clear.Success)
+                        throw new InvalidOperationException(
+                            clear.Reason ?? $"无法清理交付罐 #{jarId} 的操作标记");
+                    if (!ReferenceEquals(slave.TransferOut(jar), jar))
+                        throw new InvalidOperationException($"无法从从台精确移出交付罐 #{jarId}。");
+                    ledgerMutations.Add(new ResourceLedgerMutation(
+                        ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
+                        From: slave.Name, To: "订单交付",
+                        ResourceIdentity: jarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        FromAccountId: AccountId(source), FromEndpoint: source,
+                        ToEndpoint: ResourceEndpoint.ExternalSink("order.delivery"),
+                        DisplayName: jar.Shape));
+                    continue;
+                }
+
                 if (!ReferenceEquals(slave.TransferOut(jar), jar))
                     throw new InvalidOperationException($"无法从从台精确移出罐子 #{jarId}。");
 
-                var source = WorkshopAccountEndpoint(slave, "workshop.jar-storage");
                 if (master.TransferIn(jar))
                 {
                     expectedMasterJarIds.Add(jarId);
