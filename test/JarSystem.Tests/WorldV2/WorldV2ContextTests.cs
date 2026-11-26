@@ -339,7 +339,7 @@ public sealed class WorldV2ContextTests
         Assert.Throws<InvalidOperationException>(
             () => secondWorld.RestoreExecutionResourceCheckpoint(mismatchedCheckpoint));
 
-        secondWorld.RestoreExecutionResourceCheckpoint(decodedCheckpoint);
+        secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
 
         var restoredLease = Assert.Single(secondWorld.Reservations.Capture().Reservations);
         Assert.Equal(OrderResourceLeaseStage.MasterExecuting, restoredLease.Stage);
@@ -448,7 +448,7 @@ public sealed class WorldV2ContextTests
         Assert.Equal(firstDemand.Id, restoredDemand.Id);
         secondWorld.DemandBoard.AddDemand(restoredDemand, DemandAreaKind.Active);
 
-        secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
+        secondWorld.RestoreExecutionResourceCheckpoint(decodedCheckpoint);
 
         Assert.Equal(1, secondShip.GetAmount("酒"));
         Assert.Equal(1, secondWorld.Admission.GetLiquidScopes(restoredDemand.Id)!.Value.Slave!.GetAmount("酒"));
