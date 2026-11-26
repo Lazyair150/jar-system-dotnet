@@ -41,3 +41,50 @@ Core 的 `WorldV2BoardSlotSnapshotOptions` 只保留了 `areaId`，没有接收 
 2. 更新 Space 集成使用的精确 Core SHA。
 3. 验证真实 Hangar 装配、战斗启动、暂停和返回菜单。
 4. 单独修复主菜单场景切换后 HUD 残留/输入不可用问题；不能用 headless 状态探针替代 GUI 验收。
+## 续记：2026-11-26 回归结果与测试夹具修复
+
+### 新的实际验证证据
+
+用户在本地执行了 Core xUnit 与 Space 跨仓库验证。实际结果必须拆开记录：
+
+- Core xUnit：`Total: 1040, Errors: 0, Failed: 3`，因此 Core 全量测试尚未通过。
+- Space HUD：`21 checks, 0 failures`。
+- Space Hangar / Board / progression domain contracts：`all-domain-contracts=passed`。
+- Parser ingress：`parsed=1`、重复回执保留、逐形状容量结果精确、共享时钟生效、没有绕过工作台。
+- World V2 runtime、生命周期、故障边界、释放后命令拒绝、快照隔离探针通过。
+- 暂停控制器探针：`passed terminal-menu-transition=true`。
+- 跨仓库脚本最终标记：`CROSS-REPO-WORLD-V2-OK core=9aed7c07eb1940893a28707c3fe0398cda568729`。
+- 本次上传日志没有出现此前三个 detached Node 的 `Leaked instance: Node:` 或 `Cannot get path of node as it is not in a scene tree` 记录；不能据此宣称所有 Godot Resource/ObjectDB 引用均已无泄漏。
+
+### Core xUnit 三项失败的根因
+
+精确 CI Run：`45844458666`，验证对象是 Core commit `9aed7c07eb1940893a28707c3fe0398cda568729` 对应的 PR merge build。Release Build、Godot hosts、StrategyExperiment、contract snapshot/schema、config-world equivalence、protocol guard、solver differential（4004/4004）、modifier differential（400 场景 / 1600 项）、session replay（33 条命令）和安全扫描（6 个项目、0 个漏洞）均通过；失败集中在 xUnit 的三个 Board Slot 相关用例：
+
+1. `WorldV2BoardRuleProfileOptionsTests.ValidateAcceptsParserInDecompositionSubAreaOfProduction`：assignment entries 未按稳定 `slotId` 排序，违反现有快照契约。
+2. `WorldV2BoardRuleProfileOptionsTests.ValidateRejectsParserPlacedDirectlyInProductionWithoutDecompositionSubArea`：断言仍使用旧错误文案，没有跟随当前校验器的错误文本。
+3. `WorldV2FactoryTests.FactoryAppliesBoardContributionsToExactMasterAndSlaveRuntimeSlots`：测试夹具把 parser 写成顶层 `AreaId=decomposition`，而正式层级是 `AreaId=production`、`SubAreaId=decomposition`。
+
+这三项是测试夹具/断言漂移，不构成放宽 Core 运行时契约的理由。
+
+### 已实施的修正
+
+- `WorldV2BoardRuleProfileOptionsTests`：正向用例在计算 fingerprint 前按稳定 `SlotId` 排序 assignment entries。
+- 同一测试文件：拒绝用例改为断言当前正式校验错误 `unsupported area/component/role/control-area combination`。
+- `WorldV2FactoryTests`：parser slot 改为 `AreaId=production` + `SubAreaId=decomposition`。
+- 没有修改 `IsValidSlotShape`、assignment 顺序要求或运行时接受范围；Core 仍只接受正式定义的 Board slot 层级。
+
+### 提交与验证边界
+
+- 测试修正提交一：`3f33c74157a2e429ac4c22ff36725a7b39be30b3`。
+- 测试修正提交二：`47c2c7f4e6c9f78b448e8fe601940c39be580835`。
+- 当前 Core 分支应以第二个提交为最新已知 HEAD；尚未取得这两个提交对应的成功 CI 或本地 xUnit 回归结果。
+- 这次跨仓库成功标记使用 Core `9aed7c0`，并不包含上述测试修正提交；它证明 Space 集成链路通过，不证明 Core xUnit 通过。
+- Space 仓库的本地分支 HEAD 未出现在这份日志中，因此本记录不推断其 SHA。
+
+### 下一步
+
+1. 拉取 Core 分支最新提交 `47c2c7f4e6c9f78b448e8fe601940c39be580835`。
+2. 运行 Core xUnit，确认上述三个用例修正后全量通过；若失败，按新日志处理，不复用旧失败结论。
+3. 重新运行 Core PR 对应验证，确认精确 HEAD 的 Actions 状态。
+4. Core 验证闭环后，再更新 Space 使用的 Core pin；不把当前成功的旧 pin 当作最新验证基线。
+5. GUI 验收仍需独立进行：默认 Hangar 配置、进入战斗、暂停、返回主菜单、再次进入战斗。
