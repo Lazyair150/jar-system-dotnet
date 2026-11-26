@@ -289,7 +289,7 @@ public class DeliveryRollbackTests
             new List<Command> { new TransferCommand(postFaultJar, slave, master) },
             slave, journal: null);
         Assert.False(batchAttempt.Success);
-        Assert.Equal(1, batchAttempt.ExecutedCount);
+        Assert.Equal(0, batchAttempt.ExecutedCount);
         Assert.Same(postFaultJar, Assert.Single(slave.Jars));
         Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
         Assert.Equal(lastSeq, ledger.LastSeq);
