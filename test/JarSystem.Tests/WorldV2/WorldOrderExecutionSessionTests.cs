@@ -994,6 +994,7 @@ public sealed class WorldOrderExecutionSessionTests
         var setup = PrepareSettlementScenario(
             settlementFaultPort: new ThrowAtSettlementBoundary("master-drain", failCompensation: true));
         var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
+        var shipBefore = setup.Ship.Capture();
         Assert.True(scopes.Master.Staging.TryReceiveExact(
             setup.Demand.Id, "酒", 1, out var masterGrant), masterGrant.Reason);
 
@@ -1022,7 +1023,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Empty(setup.Ledger.For(ResourceCauses.Discard));
         Assert.Empty(scopes.Master.Balance);
         Assert.Equal(1, scopes.Slave!.GetAmount("酒"));
-        Assert.Equal(1, setup.Ship.GetAmount("酒"));
+        Assert.Equal(shipBefore.Balances.GetValueOrDefault("酒"), setup.Ship.GetAmount("酒"));
 
         var frozenTime = runtime.Clock.WorldTimeMilli;
         Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
