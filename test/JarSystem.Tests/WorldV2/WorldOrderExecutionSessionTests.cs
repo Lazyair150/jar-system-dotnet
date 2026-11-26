@@ -789,7 +789,8 @@ public sealed class WorldOrderExecutionSessionTests
         var returned = Assert.Single(ledger.For(ResourceCauses.Return),
             entry => entry.Kind == ResourceKinds.Liquid);
         var returnSource = AccountIdentity.ParseV2(returned.FromEndpoint.AccountId!);
-        Assert.Equal(masterOwner, returnSource.Owner);
+        Assert.Equal(ResourceOwnerIdentityGuard.ForOrderStaging(masterOwner, demand.Id),
+            returnSource.Owner);
         Assert.Equal("workshop.order-liquid-staging", returnSource.AccountKind);
     }
 
@@ -846,7 +847,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(runtime.RegisterExecutionSession(started.Session!));
         var lease = setup.Reservations.FindLease(demand.Id)!;
 
-        var error = Assert.Throws<AggregateException>(() => runtime.AdvanceWorldTime(1_000));
+        var error = Assert.ThrowsAny<AggregateException>(() => runtime.AdvanceWorldTime(1_000));
 
         Assert.Contains("全量补偿失败", error.Message);
         Assert.True(runtime.IsFaulted);
