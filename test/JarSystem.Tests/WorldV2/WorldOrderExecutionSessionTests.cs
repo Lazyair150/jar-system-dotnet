@@ -780,12 +780,17 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Contains("liquid-transfer", session.Reason);
         Assert.Same(jar, Assert.Single(master.Jars));
         Assert.Empty(slave.Jars);
-        Assert.Equal(1, scopesBefore.Master.GetAmount("酒"));
+        Assert.Equal(0, scopesBefore.Master.GetAmount("酒"));
         Assert.Equal(0, scopesBefore.Slave!.GetAmount("酒"));
         Assert.Equal(1, ship.GetAmount("酒")); // Failure cleanup refunds the restored source account exactly once.
         Assert.Equal(0, reservations.Count);
         Assert.Empty(ledger.For(ResourceCauses.Transfer));
-        Assert.Single(ledger.For(ResourceCauses.Return));
+        Assert.Empty(ledger.For(ResourceCauses.Discard));
+        var returned = Assert.Single(ledger.For(ResourceCauses.Return),
+            entry => entry.Kind == ResourceKinds.Liquid);
+        var returnSource = AccountIdentity.ParseV2(returned.FromEndpoint.AccountId!);
+        Assert.Equal(masterOwner, returnSource.Owner);
+        Assert.Equal("workshop.order-liquid-staging", returnSource.AccountKind);
     }
 
     [Fact]
