@@ -169,6 +169,20 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
     }
 
     [Fact]
+    public void ValidateRejectsUnsupportedAssignmentSnapshotSchemaWithSpecificDiagnostic()
+    {
+        var assignment = CreateParserAssignment(subAreaId: "decomposition");
+        assignment.SchemaVersion = 3;
+        assignment.AssignmentFingerprint = assignment.ComputeCanonicalFingerprint();
+        var profile = CreateProfile(assignment);
+
+        var errors = profile.Validate(assignment);
+
+        Assert.Contains(errors, error =>
+            error.Contains("boardAssignmentSnapshot schemaVersion is unsupported: 3", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateRejectsParserPlacedDirectlyInProductionWithoutDecompositionSubArea()
     {
         var assignment = CreateParserAssignment(subAreaId: "none");
