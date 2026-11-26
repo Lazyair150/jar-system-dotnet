@@ -19,6 +19,33 @@ public interface IResourcePortAdapter
     ResourcePortPreflight Preflight(CircuitPortDefinition port, string resourceIdentity, int amount);
 }
 
+/// <summary>
+/// Internal runtime binding for a capacity domain. The object reference is never
+/// persisted or hashed; it proves concrete binding consistency within one World transaction.
+/// </summary>
+internal sealed record ResourceCapacityDomainBinding(
+    ResourceCapacityDomainId Id,
+    object RuntimeStateReference)
+{
+    public static ResourceCapacityDomainBinding Create(
+        OwnerIdentity owner, string domainKind, string localDomainId, object runtimeStateReference)
+    {
+        ArgumentNullException.ThrowIfNull(runtimeStateReference);
+        return new ResourceCapacityDomainBinding(
+            new ResourceCapacityDomainId(owner, domainKind, localDomainId),
+            runtimeStateReference);
+    }
+
+    public bool IsSameRuntimeDomain(ResourceCapacityDomainBinding other) =>
+        other != null && Id == other.Id &&
+        ReferenceEquals(RuntimeStateReference, other.RuntimeStateReference);
+}
+
+internal interface IResourceCapacityDomainBoundAdapter
+{
+    ResourceCapacityDomainBinding? CapacityDomainBinding { get; }
+}
+
 internal static class ResourceOwnerIdentityGuard
 {
     public static void Require(
@@ -131,7 +158,7 @@ internal static class ResourcePortPreflightFactory
 }
 
 /// <summary>Preflight adapter for a Workshop's legacy free-liquid pool; Jar-internal liquid is deliberately outside this account.</summary>
-public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
+public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.free-liquid-staging";
     public const int SupportedPolicyVersion = 1;
@@ -139,6 +166,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
     private readonly Workshop _workshop;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     internal bool IsBoundTo(Workshop workshop) => ReferenceEquals(_workshop, workshop);
 
     public WorkshopFreeLiquidPortAdapter(Workshop workshop, string areaId)
@@ -161,6 +189,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
         Account = new RuleResourceAccount(workshopOwner, "workshop.free-liquid-staging");
         Account.Validate();
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.free-liquid", _areaId, workshop);
     }
 
 
@@ -192,7 +221,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter
 }
 
 /// <summary>Preflight adapter for one exact order sub-account in a Workshop's shared liquid staging area.</summary>
-public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
+public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.order-liquid-staging";
     public const int SupportedPolicyVersion = 1;
@@ -201,6 +230,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
     private readonly string _areaId;
     private readonly int _orderId;
     public RuleResourceAccount Account { get; }
+    internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     public int OrderId => _orderId;
     internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
@@ -229,6 +259,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
         var stagingOwner = ResourceOwnerIdentityGuard.ForOrderStaging(workshopOwner, orderId);
         Account = new RuleResourceAccount(stagingOwner, "workshop.order-liquid-staging");
         Account.Validate();
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.liquid-staging", _areaId, _staging);
     }
 
 
@@ -264,7 +295,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter
 }
 
 /// <summary>Preflight adapter for the self-ship liquid inventory; all liquids share one aggregate capacity.</summary>
-public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
+public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
 {
     public const string SupportedPolicyId = "ship.liquid-inventory";
     public const int SupportedPolicyVersion = 1;
@@ -272,6 +303,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
     private readonly ShipLiquidInventory _inventory;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     internal bool IsBoundTo(ShipLiquidInventory inventory) => ReferenceEquals(_inventory, inventory);
 
     public ShipLiquidInventoryPortAdapter(ShipLiquidInventory inventory, string shipIndividualId, string areaId)
@@ -292,6 +324,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
         ResourceOwnerIdentityGuard.Require(shipOwner, ResourceOwnerKind.Ship);
         Account = new RuleResourceAccount(shipOwner, "ship.liquid-inventory");
         Account.Validate();
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(shipOwner, "ship.liquid-inventory", _areaId, _inventory);
     }
 
 
@@ -331,7 +364,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter
 
 
 /// <summary>Preflight adapter for one Workshop's independent prefill account, never merged with order sub-accounts.</summary>
-public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter
+public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.prefill-liquid-staging";
     public const int SupportedPolicyVersion = 1;
@@ -339,6 +372,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter
     private readonly WorkshopLiquidStaging _staging;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
     public WorkshopPrefillLiquidPortAdapter(
@@ -360,6 +394,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop);
         Account = new RuleResourceAccount(workshopOwner, "workshop.prefill-liquid-staging");
         Account.Validate();
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.liquid-staging", _areaId, _staging);
     }
 
 
@@ -398,7 +433,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter
 }
 
 /// <summary>Preflight adapter for the Workshop's discrete Jar storage; Jar-internal liquid is not checked against Workshop Ban.</summary>
-public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
+public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.jar-storage";
     public const int SupportedPolicyVersion = 1;
@@ -406,6 +441,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
     private readonly Workshop _workshop;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     internal bool IsBoundTo(Workshop workshop) => ReferenceEquals(_workshop, workshop);
 
     public WorkshopJarStoragePortAdapter(Workshop workshop, string areaId)
@@ -428,6 +464,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
         Account = new RuleResourceAccount(workshopOwner, "workshop.jar-storage");
         Account.Validate();
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.jar-storage", _areaId, _workshop);
     }
 
 
@@ -492,7 +529,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter
 
 
 /// <summary>Preflight adapter for the Production Area's central discrete Jar warehouse.</summary>
-public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
+public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
 {
     public const string SupportedPolicyId = "production.warehouse.jar-storage";
     public const int SupportedPolicyVersion = 1;
@@ -500,6 +537,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
     private readonly Warehouse _warehouse;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     internal bool IsBoundTo(Warehouse warehouse) => ReferenceEquals(_warehouse, warehouse);
 
     public WarehouseJarStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
@@ -520,6 +558,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
         ResourceOwnerIdentityGuard.Require(warehouseOwner, ResourceOwnerKind.Warehouse);
         Account = new RuleResourceAccount(warehouseOwner, "production.warehouse.jar-storage");
         Account.Validate();
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(warehouseOwner, "production.warehouse.jar-storage", _areaId, _warehouse);
     }
 
 
@@ -585,7 +624,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter
 }
 
 /// <summary>Preflight adapter for the legacy Production Area warehouse liquid account; it has no Workshop Ban.</summary>
-public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter
+public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
 {
     public const string SupportedPolicyId = "production.warehouse.liquid-storage";
     public const int SupportedPolicyVersion = 1;
@@ -593,6 +632,7 @@ public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter
     private readonly Warehouse _warehouse;
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
+    internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     internal bool IsBoundTo(Warehouse warehouse) => ReferenceEquals(_warehouse, warehouse);
 
     public WarehouseLiquidStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
@@ -613,6 +653,7 @@ public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter
         ResourceOwnerIdentityGuard.Require(warehouseOwner, ResourceOwnerKind.Warehouse);
         Account = new RuleResourceAccount(warehouseOwner, "production.warehouse.liquid-storage");
         Account.Validate();
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(warehouseOwner, "production.warehouse.liquid-storage", _areaId, _warehouse);
     }
 
 

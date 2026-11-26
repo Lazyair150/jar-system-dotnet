@@ -96,6 +96,78 @@ public sealed class ResourcePortAdapterTests
     }
 
     [Fact]
+    public void CapacityDomainIdentityIsWorldScopedAndLengthPrefixed()
+    {
+        var owner = new OwnerIdentity(new WorldInstanceId("world.capacity.domain"),
+            ResourceOwnerKind.Workshop, "workshop:α");
+        var left = new ResourceCapacityDomainId(owner, "workshop:liquid", "area:staging");
+        var same = new ResourceCapacityDomainId(owner, "workshop:liquid", "area:staging");
+        var differentWorld = new ResourceCapacityDomainId(
+            new OwnerIdentity(new WorldInstanceId("world.capacity.other"),
+                ResourceOwnerKind.Workshop, "workshop:α"),
+            "workshop:liquid", "area:staging");
+        var splitFields = new ResourceCapacityDomainId(owner, "workshop", "liquid:area:staging");
+
+        Assert.Equal(left, same);
+        Assert.Equal(left.ToCanonicalString(), same.ToCanonicalString());
+        Assert.StartsWith("capacity:v1:", left.ToCanonicalString(), StringComparison.Ordinal);
+        Assert.NotEqual(left, differentWorld);
+        Assert.NotEqual(left, splitFields);
+        Assert.NotEqual(left.ToCanonicalString(), splitFields.ToCanonicalString());
+    }
+
+    [Fact]
+    public void TypedOrderStagingAndPrefillAdaptersShareCapacityDomainButKeepAccountsDistinct()
+    {
+        var owner = new OwnerIdentity(new WorldInstanceId("world.capacity.shared"),
+            ResourceOwnerKind.Workshop, "workshop.capacity.01");
+        var staging = new WorkshopLiquidStaging(8, new[] { "蜜" });
+        var order = new WorkshopOrderLiquidPortAdapter(staging, owner, "area.staging", 101);
+        var prefill = new WorkshopPrefillLiquidPortAdapter(staging, owner, "area.staging");
+
+        var orderBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(order).CapacityDomainBinding;
+        var prefillBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(prefill).CapacityDomainBinding;
+
+        Assert.NotEqual(order.Account.AccountId, prefill.Account.AccountId);
+        Assert.NotNull(orderBinding);
+        Assert.NotNull(prefillBinding);
+        Assert.Equal(orderBinding!.Id, prefillBinding!.Id);
+        Assert.True(orderBinding.IsSameRuntimeDomain(prefillBinding));
+        Assert.Same(staging, orderBinding.RuntimeStateReference);
+        Assert.Same(staging, prefillBinding.RuntimeStateReference);
+    }
+
+    [Fact]
+    public void WorkshopFreeLiquidAndJarAccountsHaveSeparateCapacityDomains()
+    {
+        var owner = new OwnerIdentity(new WorldInstanceId("world.capacity.separate"),
+            ResourceOwnerKind.Workshop, "workshop.capacity.02");
+        var workshop = new Workshop("master", ownedInstanceId: owner.LocalOwnerId, ownerIdentity: owner);
+        var liquid = new WorkshopFreeLiquidPortAdapter(workshop, "area.workshop", owner);
+        var jars = new WorkshopJarStoragePortAdapter(workshop, "area.workshop", owner);
+        var liquidBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(liquid).CapacityDomainBinding;
+        var jarBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(jars).CapacityDomainBinding;
+
+        Assert.NotEqual(liquid.Account.AccountId, jars.Account.AccountId);
+        Assert.NotNull(liquidBinding);
+        Assert.NotNull(jarBinding);
+        Assert.NotEqual(liquidBinding!.Id, jarBinding!.Id);
+        Assert.Same(workshop, liquidBinding.RuntimeStateReference);
+        Assert.Same(workshop, jarBinding.RuntimeStateReference);
+    }
+
+    [Fact]
+    public void LegacyAccountV1AdapterDoesNotAdvertiseWorldScopedCapacityDomain()
+    {
+        var workshop = new Workshop("master", ownedInstanceId: "workshop.legacy.capacity");
+        var adapter = new WorkshopFreeLiquidPortAdapter(workshop, "area.workshop");
+        var binding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(adapter).CapacityDomainBinding;
+
+        Assert.StartsWith("account:v1:", adapter.Account.AccountId, StringComparison.Ordinal);
+        Assert.Null(binding);
+    }
+
+    [Fact]
     public void PortIdentityLimitAndUnsupportedThroughputFailClosed()
     {
         var workshop = new Workshop("master", ownedInstanceId: "workshop.03");

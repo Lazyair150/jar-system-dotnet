@@ -80,6 +80,50 @@ public enum ResourceOwnerKind
 }
 
 /// <summary>
+/// <summary>
+/// Stable identity for one shared capacity/reservation constraint domain.
+/// Several resource accounts may be governed by the same capacity domain.
+/// </summary>
+public readonly record struct ResourceCapacityDomainId
+{
+    public OwnerIdentity Owner { get; }
+    public string DomainKind { get; }
+    public string LocalDomainId { get; }
+
+    public ResourceCapacityDomainId(OwnerIdentity owner, string domainKind, string localDomainId)
+    {
+        if (!owner.IsValid)
+            throw new ArgumentException("Capacity domain requires a valid World-scoped OwnerIdentity.", nameof(owner));
+        OwnerIdentity.ValidateIdentityPart(domainKind, nameof(domainKind));
+        OwnerIdentity.ValidateIdentityPart(localDomainId, nameof(localDomainId));
+        _ = new UTF8Encoding(false, true).GetByteCount(domainKind);
+        _ = new UTF8Encoding(false, true).GetByteCount(localDomainId);
+        Owner = owner;
+        DomainKind = domainKind;
+        LocalDomainId = localDomainId;
+    }
+
+    public bool IsValid => Owner.IsValid &&
+        !string.IsNullOrWhiteSpace(DomainKind) &&
+        string.Equals(DomainKind, DomainKind.Trim(), StringComparison.Ordinal) &&
+        !string.IsNullOrWhiteSpace(LocalDomainId) &&
+        string.Equals(LocalDomainId, LocalDomainId.Trim(), StringComparison.Ordinal);
+
+    public string ToCanonicalString()
+    {
+        if (!IsValid)
+            throw new InvalidOperationException("Cannot serialize an invalid ResourceCapacityDomainId.");
+        return "capacity:v1:" +
+            OwnerIdentity.EncodeUtf8Field(Owner.WorldInstanceId.Value) +
+            OwnerIdentity.EncodeUtf8Field(OwnerIdentity.OwnerKindToken(Owner.OwnerKind)) +
+            OwnerIdentity.EncodeUtf8Field(Owner.LocalOwnerId) +
+            OwnerIdentity.EncodeUtf8Field(DomainKind) +
+            OwnerIdentity.EncodeUtf8Field(LocalDomainId);
+    }
+
+    public override string ToString() => ToCanonicalString();
+}
+
 /// Versioned identity for one exact resource account. The v2 wire form is UTF-8
 /// byte-length-prefixed and therefore unambiguous even when fields contain separators.
 /// This value type does not reinterpret legacy account:v1 strings.
