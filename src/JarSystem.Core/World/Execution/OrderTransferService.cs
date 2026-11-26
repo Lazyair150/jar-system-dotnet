@@ -33,6 +33,12 @@ internal sealed class NoopOrderTransferFaultPort : IOrderTransferFaultPort
     public void BeforeLedgerPublication() { }
     public void BeforeCompensation() { }
 }
+internal sealed class OrderTransferCompensationException : AggregateException
+{
+    public OrderTransferCompensationException(
+        string message, Exception transferError, Exception rollbackError)
+        : base(message, transferError, rollbackError) { }
+}
 
 internal sealed class WorkshopJarTransferPort : IOrderJarTransferPort
 {
@@ -367,7 +373,7 @@ internal sealed class OrderTransferService
             }
             catch (Exception rollbackError)
             {
-                throw new AggregateException(
+                throw new OrderTransferCompensationException(
                     "B 类主从交接失败，且工作台/订单暂存/租约状态全量补偿失败；必须冻结世界并保留故障现场。",
                     transferError, rollbackError);
             }
