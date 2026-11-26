@@ -642,9 +642,37 @@ public sealed class ResourceLedger
                 return false;
             }
 
+            var mutationBatch = mutations.ToArray();
+            var observedStored = new Dictionary<string, int>(StringComparer.Ordinal);
+            var observedDiscarded = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var mutation in mutationBatch)
+            {
+                if (mutation.Amount != 1 || mutation.Kind != ResourceKinds.Jar ||
+                    string.IsNullOrWhiteSpace(mutation.Name) || string.IsNullOrWhiteSpace(mutation.ResourceIdentity))
+                    throw new DomainValidationException("外部 Jar 导入账本批次必须由带身份的单 Jar 事实组成。");
+
+                var target = mutation.Cause switch
+                {
+                    var cause when cause == ResourceCauses.Production => observedStored,
+                    var cause when cause == ResourceCauses.Discard => observedDiscarded,
+                    _ => throw new DomainValidationException("外部 Jar 导入账本批次包含非生产/丢弃事实。")
+                };
+                target[mutation.Name] = checked(target.GetValueOrDefault(mutation.Name) + mutation.Amount);
+            }
+
+            static bool HasSameCounts(
+                IReadOnlyDictionary<string, int> expected,
+                IReadOnlyDictionary<string, int> actual) =>
+                expected.Count == actual.Count &&
+                expected.All(item => actual.TryGetValue(item.Key, out var amount) && amount == item.Value);
+
+            if (!HasSameCounts(receipt.StoredJarCounts, observedStored) ||
+                !HasSameCounts(receipt.DiscardedJarCounts, observedDiscarded))
+                throw new DomainValidationException("外部 Jar 导入逐形状回执与对应账本事实不一致。");
+
             var storedReceipt = receipt.DeepCopy();
             _producedJarImportReceipts.EnsureCapacity(checked(_producedJarImportReceipts.Count + 1));
-            if (!RecordBatchOnce(ledgerOperationId, tick, mutations))
+            if (!RecordBatchOnce(ledgerOperationId, tick, mutationBatch))
                 return false;
 
             _producedJarImportReceipts.Add(ledgerOperationId, storedReceipt);

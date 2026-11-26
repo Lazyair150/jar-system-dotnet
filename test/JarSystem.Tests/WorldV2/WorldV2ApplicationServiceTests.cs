@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Production;
@@ -728,6 +729,9 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(3, first.StoredJarCount);
         Assert.Equal(0, first.DiscardedJarCount);
         Assert.True(first.HasExactReceipt);
+        Assert.Equal(2, first.StoredJarCountsByShape!["圆罐"]);
+        Assert.Equal(1, first.StoredJarCountsByShape["方罐"]);
+        Assert.Empty(first.DiscardedJarCountsByShape!);
         Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
 
         var duplicate = app.ImportProducedJars("stone-batch-001",
@@ -737,7 +741,11 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(first.SubmittedJarCount, duplicate.SubmittedJarCount);
         Assert.Equal(first.StoredJarCount, duplicate.StoredJarCount);
         Assert.Equal(first.DiscardedJarCount, duplicate.DiscardedJarCount);
+        Assert.Equal(first.StoredJarCountsByShape, duplicate.StoredJarCountsByShape);
+        Assert.Equal(first.DiscardedJarCountsByShape, duplicate.DiscardedJarCountsByShape);
         Assert.Single(app.GetResourceLedger().ProducedJarImportReceipts);
+        var restoredLedger = ResourceLedger.Restore(app.GetResourceLedger());
+        Assert.Single(restoredLedger.Capture().ProducedJarImportReceipts);
         Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
 
         Assert.Throws<DomainValidationException>(() =>
@@ -760,6 +768,8 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(Constants.WAREHOUSE_MAX_JARS, result.StoredJarCount);
         Assert.Equal(1, result.DiscardedJarCount);
         Assert.True(result.HasExactReceipt);
+        Assert.Equal(Constants.WAREHOUSE_MAX_JARS, result.StoredJarCountsByShape!["圆罐"]);
+        Assert.Equal(1, result.DiscardedJarCountsByShape!["圆罐"]);
         var replay = app.ImportProducedJars("stone-batch-overflow",
             new Dictionary<string, int> { ["圆罐"] = Constants.WAREHOUSE_MAX_JARS + 1 });
         Assert.True(replay.WasDuplicate);
@@ -767,6 +777,8 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(result.SubmittedJarCount, replay.SubmittedJarCount);
         Assert.Equal(result.StoredJarCount, replay.StoredJarCount);
         Assert.Equal(result.DiscardedJarCount, replay.DiscardedJarCount);
+        Assert.Equal(result.StoredJarCountsByShape, replay.StoredJarCountsByShape);
+        Assert.Equal(result.DiscardedJarCountsByShape, replay.DiscardedJarCountsByShape);
         Assert.Equal(Constants.WAREHOUSE_MAX_JARS, app.GetWorldSnapshot().ResourceJars.Count);
         var ledger = app.GetResourceLedger();
         var jarFacts = ledger.Events.Where(item => item.Kind == "jar").ToArray();
@@ -803,6 +815,38 @@ public sealed class WorldV2ApplicationServiceTests
 
 
     [Fact]
+    public void Schema10CheckpointRetainsLegacyImportDeduplicationButCannotInventExactOutcome()
+    {
+        using var firstHost = new WorldV2HostService();
+        var firstApp = new WorldV2ApplicationService(firstHost);
+        firstApp.CreateOrReplaceWorld(Options());
+        firstApp.ImportProducedJars("stone-batch-legacy-checkpoint",
+            new Dictionary<string, int> { ["圆罐"] = 2 });
+
+        var checkpointJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(
+            firstApp.CaptureExecutionResourceCheckpoint());
+        var legacyRoot = JsonNode.Parse(checkpointJson)!.AsObject();
+        legacyRoot["schemaVersion"] = 10;
+        legacyRoot["payload"]!["ResourceLedger"]!.AsObject().Remove("ProducedJarImportReceipts");
+        var schema10Json = legacyRoot.ToJsonString();
+        var persistedOptions = firstApp.CaptureWorldOptions();
+
+        using var restoredHost = new WorldV2HostService();
+        var restoredApp = new WorldV2ApplicationService(restoredHost);
+        restoredApp.RestoreExecutionResourceCheckpointJson(persistedOptions, schema10Json);
+
+        var duplicate = restoredApp.ImportProducedJars("stone-batch-legacy-checkpoint",
+            new Dictionary<string, int> { ["圆罐"] = 2 });
+
+        Assert.True(duplicate.WasDuplicate);
+        Assert.False(duplicate.HasExactReceipt);
+        Assert.Equal(0, duplicate.SubmittedJarCount);
+        Assert.Null(duplicate.StoredJarCountsByShape);
+        Assert.Null(duplicate.DiscardedJarCountsByShape);
+        Assert.Equal(2, restoredApp.GetWorldSnapshot().ResourceJars.Count);
+    }
+
+    [Fact]
     public void ExternalProducedJarImportDeduplicationSurvivesExecutionCheckpointRestore()
     {
         using var firstHost = new WorldV2HostService();
@@ -827,6 +871,8 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(2, duplicate.SubmittedJarCount);
         Assert.Equal(2, duplicate.StoredJarCount);
         Assert.Equal(0, duplicate.DiscardedJarCount);
+        Assert.Equal(2, duplicate.StoredJarCountsByShape!["方罐"]);
+        Assert.Empty(duplicate.DiscardedJarCountsByShape!);
         Assert.Single(restoredApp.GetResourceLedger().ProducedJarImportReceipts);
         Assert.Equal(2, restoredApp.GetWorldSnapshot().ResourceJars.Count);
     }
