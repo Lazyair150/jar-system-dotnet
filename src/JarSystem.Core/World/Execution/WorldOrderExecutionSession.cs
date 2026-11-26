@@ -863,7 +863,10 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     entry => _resourceSettlementLog.Add(entry),
                     ledger: rollbackLedger,
                     tickOf: tickOf,
-                    ledgerTickOverride: rollbackLedger == null ? null : ledgerTickOverride);
+                    ledgerTickOverride: rollbackLedger == null ? null : ledgerTickOverride,
+                    operationId: rollbackLedger == null
+                        ? null
+                        : _manifest.WorldVersion + ":order:" + DemandId + ":rollback");
             }
             _slaveTransferCommitted = false;
         }
