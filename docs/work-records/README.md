@@ -15,6 +15,8 @@
 
 ## 当前索引
 
+- [2026-11-27 Board Assignment schema 2 ingress 兼容修复](2026-11-27-board-assignment-schema-v2-ingress-fix.md)
+
 - [2026-11-25 Core 多角度审查与 Space 收敛启动记录](2026-11-25-core-consolidation-audit.md)
 - [Core 多角度架构审查与收敛方案](../architecture/2026-11-core-multi-angle-audit.md)
 - [Jar 个体、区域接口与自机电路通路模型](../world-v2/jar-individual-area-port-and-circuit-route-model.md)
