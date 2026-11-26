@@ -575,3 +575,10 @@ No PR was merged, no Space code was changed, and no GUI acceptance is claimed in
 - Corrected the seven public Adapter classes to expose the internal binding through explicit implementation of the internal interface, while retaining the concrete internal property for constructor assignment. This keeps ResourceCapacityDomainBinding and its runtime object reference out of public API surface.
 - The batch binding registry added in `b9283cab` requires the interface view and remains internal. No test or architecture rule was relaxed.
 - Exact follow-up head requires its own Release/xUnit/solver/protocol/replay/security verification before acceptance.
+
+
+### Second explicit-interface correction — 2026-11-26
+
+- Run `45771646621` for head `6246d62d` compiled past the capacity-domain interface, then failed because `IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference` had the same implicit-interface visibility issue. The seven expression-bodied properties were private by default.
+- Added explicit interface implementations for the runtime account object reference, mirroring the already explicit capacity-domain binding. Concrete internal property remains private to each public Adapter; no internal runtime object reference is added to public API.
+- The new exact head must pass its own complete CI before this adapter-binding stage is considered validated.

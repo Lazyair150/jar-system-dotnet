@@ -264,6 +264,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter, IResou
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     ResourceCapacityDomainBinding? IResourceCapacityDomainBoundAdapter.CapacityDomainBinding => CapacityDomainBinding;
     object AccountRuntimeStateReference => _workshop;
+    object IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference => AccountRuntimeStateReference;
     internal bool IsBoundTo(Workshop workshop) => ReferenceEquals(_workshop, workshop);
 
     public WorkshopFreeLiquidPortAdapter(Workshop workshop, string areaId)
@@ -330,6 +331,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter, IReso
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     ResourceCapacityDomainBinding? IResourceCapacityDomainBoundAdapter.CapacityDomainBinding => CapacityDomainBinding;
     object AccountRuntimeStateReference => _staging;
+    object IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference => AccountRuntimeStateReference;
     public int OrderId => _orderId;
     internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
@@ -405,6 +407,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter, IReso
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     ResourceCapacityDomainBinding? IResourceCapacityDomainBoundAdapter.CapacityDomainBinding => CapacityDomainBinding;
     object AccountRuntimeStateReference => _inventory;
+    object IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference => AccountRuntimeStateReference;
     internal bool IsBoundTo(ShipLiquidInventory inventory) => ReferenceEquals(_inventory, inventory);
 
     public ShipLiquidInventoryPortAdapter(ShipLiquidInventory inventory, string shipIndividualId, string areaId)
@@ -476,6 +479,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter, IRe
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     ResourceCapacityDomainBinding? IResourceCapacityDomainBoundAdapter.CapacityDomainBinding => CapacityDomainBinding;
     object AccountRuntimeStateReference => _staging;
+    object IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference => AccountRuntimeStateReference;
     internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
     public WorkshopPrefillLiquidPortAdapter(
@@ -547,6 +551,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter, IResou
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     ResourceCapacityDomainBinding? IResourceCapacityDomainBoundAdapter.CapacityDomainBinding => CapacityDomainBinding;
     object AccountRuntimeStateReference => _workshop;
+    object IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference => AccountRuntimeStateReference;
     internal bool IsBoundTo(Workshop workshop) => ReferenceEquals(_workshop, workshop);
 
     public WorkshopJarStoragePortAdapter(Workshop workshop, string areaId)
@@ -645,6 +650,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter, IReso
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     ResourceCapacityDomainBinding? IResourceCapacityDomainBoundAdapter.CapacityDomainBinding => CapacityDomainBinding;
     object AccountRuntimeStateReference => _warehouse;
+    object IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference => AccountRuntimeStateReference;
     internal bool IsBoundTo(Warehouse warehouse) => ReferenceEquals(_warehouse, warehouse);
 
     public WarehouseJarStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
@@ -742,6 +748,7 @@ public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter, IR
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
     ResourceCapacityDomainBinding? IResourceCapacityDomainBoundAdapter.CapacityDomainBinding => CapacityDomainBinding;
     object AccountRuntimeStateReference => _warehouse;
+    object IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference => AccountRuntimeStateReference;
     internal bool IsBoundTo(Warehouse warehouse) => ReferenceEquals(_warehouse, warehouse);
 
     public WarehouseLiquidStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
