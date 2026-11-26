@@ -727,11 +727,17 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(3, first.SubmittedJarCount);
         Assert.Equal(3, first.StoredJarCount);
         Assert.Equal(0, first.DiscardedJarCount);
+        Assert.True(first.HasExactReceipt);
         Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
 
         var duplicate = app.ImportProducedJars("stone-batch-001",
             new Dictionary<string, int> { ["方罐"] = 1, ["圆罐"] = 2 });
         Assert.True(duplicate.WasDuplicate);
+        Assert.True(duplicate.HasExactReceipt);
+        Assert.Equal(first.SubmittedJarCount, duplicate.SubmittedJarCount);
+        Assert.Equal(first.StoredJarCount, duplicate.StoredJarCount);
+        Assert.Equal(first.DiscardedJarCount, duplicate.DiscardedJarCount);
+        Assert.Single(app.GetResourceLedger().ProducedJarImportReceipts);
         Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
 
         Assert.Throws<DomainValidationException>(() =>
@@ -753,6 +759,14 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(Constants.WAREHOUSE_MAX_JARS + 1, result.SubmittedJarCount);
         Assert.Equal(Constants.WAREHOUSE_MAX_JARS, result.StoredJarCount);
         Assert.Equal(1, result.DiscardedJarCount);
+        Assert.True(result.HasExactReceipt);
+        var replay = app.ImportProducedJars("stone-batch-overflow",
+            new Dictionary<string, int> { ["圆罐"] = Constants.WAREHOUSE_MAX_JARS + 1 });
+        Assert.True(replay.WasDuplicate);
+        Assert.True(replay.HasExactReceipt);
+        Assert.Equal(result.SubmittedJarCount, replay.SubmittedJarCount);
+        Assert.Equal(result.StoredJarCount, replay.StoredJarCount);
+        Assert.Equal(result.DiscardedJarCount, replay.DiscardedJarCount);
         Assert.Equal(Constants.WAREHOUSE_MAX_JARS, app.GetWorldSnapshot().ResourceJars.Count);
         var ledger = app.GetResourceLedger();
         var jarFacts = ledger.Events.Where(item => item.Kind == "jar").ToArray();
@@ -809,6 +823,11 @@ public sealed class WorldV2ApplicationServiceTests
             new Dictionary<string, int> { ["方罐"] = 2 });
 
         Assert.True(duplicate.WasDuplicate);
+        Assert.True(duplicate.HasExactReceipt);
+        Assert.Equal(2, duplicate.SubmittedJarCount);
+        Assert.Equal(2, duplicate.StoredJarCount);
+        Assert.Equal(0, duplicate.DiscardedJarCount);
+        Assert.Single(restoredApp.GetResourceLedger().ProducedJarImportReceipts);
         Assert.Equal(2, restoredApp.GetWorldSnapshot().ResourceJars.Count);
     }
 

@@ -104,6 +104,7 @@ public sealed class ResourceLedger
     private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ResourceTransferReceipt> _transferReceipts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ResourceLedgerTransferBatchReceipt> _transferBatchReceipts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ResourceLedgerProducedJarImportReceipt> _producedJarImportReceipts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _operationFingerprints = new(StringComparer.Ordinal);
     private long _seq;
     private int _dropped;
@@ -142,7 +143,8 @@ public sealed class ResourceLedger
     {
         lock (_gate)
             return new ResourceLedgerSnapshot(Capacity, _seq, Dropped, _entries, _operationIds,
-                _transferReceipts.Values, _operationFingerprints, _transferBatchReceipts.Values);
+                _transferReceipts.Values, _operationFingerprints, _transferBatchReceipts.Values,
+                _producedJarImportReceipts.Values);
     }
 
     /// <summary>
@@ -202,6 +204,20 @@ public sealed class ResourceLedger
                 .Distinct(StringComparer.Ordinal).Count() != snapshot.TransferBatchReceipts.Count)
             throw new DomainValidationException("资源账本快照包含重复或空的复合转移回执。");
 
+        if (snapshot.ProducedJarImportReceipts.Any(item => item is null) ||
+            snapshot.ProducedJarImportReceipts.Select(item => item.LedgerOperationId)
+                .Distinct(StringComparer.Ordinal).Count() != snapshot.ProducedJarImportReceipts.Count ||
+            snapshot.ProducedJarImportReceipts.Select(item => item.OperationId)
+                .Distinct(StringComparer.Ordinal).Count() != snapshot.ProducedJarImportReceipts.Count)
+            throw new DomainValidationException("资源账本快照包含重复或空的外部 Jar 导入回执。");
+        foreach (var receipt in snapshot.ProducedJarImportReceipts)
+        {
+            receipt.Validate();
+            if (!snapshot.OperationIds.Contains(receipt.LedgerOperationId, StringComparer.Ordinal) ||
+                !snapshot.OperationFingerprints.ContainsKey(receipt.LedgerOperationId))
+                throw new DomainValidationException("外部 Jar 导入回执与账本 OperationId / 指纹索引不一致。");
+        }
+
         var batchIds = new HashSet<string>(StringComparer.Ordinal);
         var batchLegOwners = new Dictionary<string, string>(StringComparer.Ordinal);
         var transferReceiptsById = snapshot.TransferReceipts.ToDictionary(item => item.OperationId, StringComparer.Ordinal);
@@ -252,6 +268,8 @@ public sealed class ResourceLedger
             ledger._transferReceipts.Add(receipt.OperationId, receipt with { });
         foreach (var receipt in snapshot.TransferBatchReceipts)
             ledger._transferBatchReceipts.Add(receipt.OperationId, receipt.DeepCopy());
+        foreach (var receipt in snapshot.ProducedJarImportReceipts)
+            ledger._producedJarImportReceipts.Add(receipt.LedgerOperationId, receipt.DeepCopy());
         return ledger;
     }
 
@@ -269,6 +287,7 @@ public sealed class ResourceLedger
             _operationIds.EnsureCapacity(restored._operationIds.Count);
             _transferReceipts.EnsureCapacity(restored._transferReceipts.Count);
             _transferBatchReceipts.EnsureCapacity(restored._transferBatchReceipts.Count);
+            _producedJarImportReceipts.EnsureCapacity(restored._producedJarImportReceipts.Count);
             _operationFingerprints.EnsureCapacity(restored._operationFingerprints.Count);
 
             _entries.Clear();
@@ -287,6 +306,10 @@ public sealed class ResourceLedger
             _transferBatchReceipts.Clear();
             foreach (var item in restored._transferBatchReceipts)
                 _transferBatchReceipts.Add(item.Key, item.Value);
+
+            _producedJarImportReceipts.Clear();
+            foreach (var item in restored._producedJarImportReceipts)
+                _producedJarImportReceipts.Add(item.Key, item.Value);
 
             _operationFingerprints.Clear();
             foreach (var item in restored._operationFingerprints)
@@ -587,6 +610,64 @@ public sealed class ResourceLedger
         _seq = nextSeq;
         Trim();
         return true;
+        }
+    }
+
+    /// <summary>
+    /// Atomically publishes an externally-produced Jar batch, its resource facts, idempotency
+    /// marker/fingerprint, and the exact per-shape capacity outcome used by later replays.
+    /// Existing legacy operation markers without this receipt remain outcome-unknown.
+    /// </summary>
+    public bool RecordProducedJarImportOnce(
+        string ledgerOperationId,
+        int tick,
+        IEnumerable<ResourceLedgerMutation> mutations,
+        ResourceLedgerProducedJarImportReceipt receipt)
+    {
+        if (string.IsNullOrWhiteSpace(ledgerOperationId))
+            throw new ArgumentException("账本操作 ID 不能为空。", nameof(ledgerOperationId));
+        ArgumentNullException.ThrowIfNull(mutations);
+        ArgumentNullException.ThrowIfNull(receipt);
+        receipt.Validate();
+        if (!string.Equals(ledgerOperationId, receipt.LedgerOperationId, StringComparison.Ordinal))
+            throw new DomainValidationException("外部 Jar 导入回执的账本操作 ID 与提交键不一致。");
+
+        lock (_gate)
+        {
+            if (_operationIds.Contains(ledgerOperationId))
+            {
+                if (_producedJarImportReceipts.TryGetValue(ledgerOperationId, out var prior) &&
+                    !prior.HasSamePayload(receipt))
+                    throw new InvalidOperationException("OperationId is already bound to a different produced-Jar import receipt.");
+                return false;
+            }
+
+            var storedReceipt = receipt.DeepCopy();
+            _producedJarImportReceipts.EnsureCapacity(checked(_producedJarImportReceipts.Count + 1));
+            if (!RecordBatchOnce(ledgerOperationId, tick, mutations))
+                return false;
+
+            _producedJarImportReceipts.Add(ledgerOperationId, storedReceipt);
+            return true;
+        }
+    }
+
+    /// <summary>读取首次提交时持久保存的外部 Jar 导入结果；不依赖可能被容量裁剪的事件。</summary>
+    public bool TryGetProducedJarImportReceipt(
+        string ledgerOperationId,
+        out ResourceLedgerProducedJarImportReceipt? receipt)
+    {
+        if (string.IsNullOrWhiteSpace(ledgerOperationId))
+            throw new ArgumentException("账本操作 ID 不能为空。", nameof(ledgerOperationId));
+        lock (_gate)
+        {
+            if (_producedJarImportReceipts.TryGetValue(ledgerOperationId, out var stored))
+            {
+                receipt = stored.DeepCopy();
+                return true;
+            }
+            receipt = null;
+            return false;
         }
     }
 
@@ -1025,6 +1106,89 @@ public sealed record ResourceLedgerTransferBatchLeg(
     ResourceTransferReceipt Receipt,
     IReadOnlyList<ResourceLedgerMutation> Mutations);
 
+/// <summary>
+/// External finite-parser Jar import receipt. Unlike the bounded event stream, this receipt
+/// is retained for the lifetime of the operation ID so an idempotent replay can return the
+/// original per-shape stored/discarded outcome even after old resource events are trimmed.
+/// </summary>
+public sealed record ResourceLedgerProducedJarImportReceipt(
+    int SchemaVersion,
+    string OperationId,
+    string LedgerOperationId,
+    string PayloadFingerprint,
+    IReadOnlyDictionary<string, int> RequestedJarCounts,
+    IReadOnlyDictionary<string, int> StoredJarCounts,
+    IReadOnlyDictionary<string, int> DiscardedJarCounts)
+{
+    public const int CurrentSchemaVersion = 1;
+
+    public int SubmittedJarCount => RequestedJarCounts?.Values.Sum() ?? 0;
+    public int StoredJarCount => StoredJarCounts?.Values.Sum() ?? 0;
+    public int DiscardedJarCount => DiscardedJarCounts?.Values.Sum() ?? 0;
+
+    public void Validate()
+    {
+        static bool IsSha256(string? value) =>
+            value is { Length: 64 } && value.All(character =>
+                character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+        if (SchemaVersion != CurrentSchemaVersion ||
+            string.IsNullOrWhiteSpace(OperationId) || OperationId.Length > 128 ||
+            OperationId.Contains('|') || string.IsNullOrWhiteSpace(PayloadFingerprint) ||
+            !IsSha256(PayloadFingerprint) ||
+            !string.Equals(LedgerOperationId,
+                "space-produced-jar-import|" + OperationId + "|" + PayloadFingerprint,
+                StringComparison.Ordinal) ||
+            RequestedJarCounts == null || RequestedJarCounts.Count == 0 ||
+            StoredJarCounts == null || DiscardedJarCounts == null ||
+            RequestedJarCounts.Any(item => string.IsNullOrWhiteSpace(item.Key) || item.Value <= 0) ||
+            StoredJarCounts.Any(item => string.IsNullOrWhiteSpace(item.Key) || item.Value <= 0 ||
+                !RequestedJarCounts.ContainsKey(item.Key)) ||
+            DiscardedJarCounts.Any(item => string.IsNullOrWhiteSpace(item.Key) || item.Value <= 0 ||
+                !RequestedJarCounts.ContainsKey(item.Key)))
+            throw new DomainValidationException("外部 Jar 导入回执的身份、指纹或逐形状数量无效。");
+
+        long submitted = 0;
+        long stored = 0;
+        long discarded = 0;
+        foreach (var item in RequestedJarCounts)
+        {
+            submitted = checked(submitted + item.Value);
+            var storedForShape = StoredJarCounts.GetValueOrDefault(item.Key);
+            var discardedForShape = DiscardedJarCounts.GetValueOrDefault(item.Key);
+            if (storedForShape + (long)discardedForShape != item.Value)
+                throw new DomainValidationException("外部 Jar 导入回执逐形状存储数与丢弃数不守恒: " + item.Key);
+            stored += storedForShape;
+            discarded += discardedForShape;
+        }
+        if (submitted <= 0 || submitted > int.MaxValue || stored + discarded != submitted ||
+            stored > int.MaxValue || discarded > int.MaxValue)
+            throw new DomainValidationException("外部 Jar 导入回执总数量不守恒或超出可表示范围。");
+    }
+
+    public ResourceLedgerProducedJarImportReceipt DeepCopy() => new(
+        SchemaVersion, OperationId, LedgerOperationId, PayloadFingerprint,
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            RequestedJarCounts.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)),
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            StoredJarCounts.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)),
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            DiscardedJarCounts.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)));
+
+    public bool HasSamePayload(ResourceLedgerProducedJarImportReceipt other) =>
+        other != null &&
+        SchemaVersion == other.SchemaVersion &&
+        string.Equals(OperationId, other.OperationId, StringComparison.Ordinal) &&
+        string.Equals(LedgerOperationId, other.LedgerOperationId, StringComparison.Ordinal) &&
+        string.Equals(PayloadFingerprint, other.PayloadFingerprint, StringComparison.Ordinal) &&
+        RequestedJarCounts.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .SequenceEqual(other.RequestedJarCounts.OrderBy(item => item.Key, StringComparer.Ordinal)) &&
+        StoredJarCounts.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .SequenceEqual(other.StoredJarCounts.OrderBy(item => item.Key, StringComparer.Ordinal)) &&
+        DiscardedJarCounts.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .SequenceEqual(other.DiscardedJarCounts.OrderBy(item => item.Key, StringComparer.Ordinal));
+}
+
 /// <summary>资源账本纯值快照，包含增量读取所需的连续性元数据。</summary>
 public sealed class ResourceLedgerSnapshot
 {
@@ -1033,7 +1197,8 @@ public sealed class ResourceLedgerSnapshot
         IEnumerable<string>? operationIds = null,
         IEnumerable<ResourceTransferReceipt>? transferReceipts = null,
         IReadOnlyDictionary<string, string>? operationFingerprints = null,
-        IEnumerable<ResourceLedgerTransferBatchReceipt>? transferBatchReceipts = null)
+        IEnumerable<ResourceLedgerTransferBatchReceipt>? transferBatchReceipts = null,
+        IEnumerable<ResourceLedgerProducedJarImportReceipt>? producedJarImportReceipts = null)
     {
         Capacity = capacity;
         LastSeq = lastSeq;
@@ -1071,6 +1236,9 @@ public sealed class ResourceLedgerSnapshot
         TransferBatchReceipts = Array.AsReadOnly((transferBatchReceipts ?? Array.Empty<ResourceLedgerTransferBatchReceipt>())
             .OrderBy(item => item.OperationId, StringComparer.Ordinal)
             .Select(item => item.DeepCopy()).ToArray());
+        ProducedJarImportReceipts = Array.AsReadOnly((producedJarImportReceipts ?? Array.Empty<ResourceLedgerProducedJarImportReceipt>())
+            .OrderBy(item => item.LedgerOperationId, StringComparer.Ordinal)
+            .Select(item => item.DeepCopy()).ToArray());
     }
 
     public int Capacity { get; }
@@ -1080,6 +1248,7 @@ public sealed class ResourceLedgerSnapshot
     public IReadOnlyList<string> OperationIds { get; }
     public IReadOnlyList<ResourceTransferReceipt> TransferReceipts { get; }
     public IReadOnlyList<ResourceLedgerTransferBatchReceipt> TransferBatchReceipts { get; }
+    public IReadOnlyList<ResourceLedgerProducedJarImportReceipt> ProducedJarImportReceipts { get; }
     public IReadOnlyDictionary<string, string> OperationFingerprints { get; }
     public int Retained => Entries.Count;
 }

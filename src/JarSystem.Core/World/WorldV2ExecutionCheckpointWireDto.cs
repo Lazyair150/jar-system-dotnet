@@ -604,7 +604,8 @@ public sealed class ResourceLedgerWireDto
     public List<string> OperationIds { get; set; } = new();
     public List<ResourceTransferReceipt> TransferReceipts { get; set; } = new();
     public List<ResourceLedgerTransferBatchReceipt> TransferBatchReceipts { get; set; } = new();
-    public Dictionary<string, string> OperationFingerprints { get; set; } = new(StringComparer.Ordinal);
+    public List<ResourceLedgerProducedJarImportReceipt> ProducedJarImportReceipts { get; set; } = new();
+    public Dictionary<string, string> OperationFingerprints { get; set; } = new();
 
     public static ResourceLedgerWireDto FromSnapshot(ResourceLedgerSnapshot value) => new()
     {
@@ -613,13 +614,15 @@ public sealed class ResourceLedgerWireDto
         OperationIds = value.OperationIds.ToList(),
         TransferReceipts = value.TransferReceipts.Select(item => item with { }).ToList(),
         TransferBatchReceipts = value.TransferBatchReceipts.Select(item => item.DeepCopy()).ToList(),
+        ProducedJarImportReceipts = value.ProducedJarImportReceipts.Select(item => item.DeepCopy()).ToList(),
         OperationFingerprints = value.OperationFingerprints.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)
     };
 
     public void Validate()
     {
         if (Capacity < 1 || LastSeq < 0 || Dropped < 0 || Events == null || OperationIds == null ||
-            TransferReceipts == null || TransferBatchReceipts == null || OperationFingerprints == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
+            TransferReceipts == null || TransferBatchReceipts == null || ProducedJarImportReceipts == null ||
+            OperationFingerprints == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
             OperationIds.Distinct(StringComparer.Ordinal).Count() != OperationIds.Count ||
             TransferReceipts.Any(item => item == null || !OperationIds.Contains(item.OperationId, StringComparer.Ordinal) ||
                 !OperationFingerprints.ContainsKey(item.OperationId)) ||
@@ -646,6 +649,20 @@ public sealed class ResourceLedgerWireDto
             receipt.Validate();
             if (receipt.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
                 throw new InvalidOperationException("资源账本 Wire DTO 只能包含已提交的转移回执。");
+        }
+
+        if (ProducedJarImportReceipts.Any(item => item == null) ||
+            ProducedJarImportReceipts.Select(item => item.LedgerOperationId)
+                .Distinct(StringComparer.Ordinal).Count() != ProducedJarImportReceipts.Count ||
+            ProducedJarImportReceipts.Select(item => item.OperationId)
+                .Distinct(StringComparer.Ordinal).Count() != ProducedJarImportReceipts.Count)
+            throw new InvalidOperationException("资源账本 Wire DTO 包含重复或空的外部 Jar 导入回执。");
+        foreach (var receipt in ProducedJarImportReceipts)
+        {
+            receipt.Validate();
+            if (!OperationIds.Contains(receipt.LedgerOperationId, StringComparer.Ordinal) ||
+                !OperationFingerprints.ContainsKey(receipt.LedgerOperationId))
+                throw new InvalidOperationException("外部 Jar 导入回执与 OperationId / 指纹索引不一致。");
         }
 
         var transferReceiptsById = TransferReceipts.ToDictionary(item => item.OperationId, StringComparer.Ordinal);
@@ -691,7 +708,8 @@ public sealed class ResourceLedgerWireDto
     {
         Validate();
         return new ResourceLedgerSnapshot(Capacity, LastSeq, Dropped,
-            Events.Select(item => item.ToEvent()), OperationIds, TransferReceipts, OperationFingerprints, TransferBatchReceipts);
+            Events.Select(item => item.ToEvent()), OperationIds, TransferReceipts, OperationFingerprints,
+            TransferBatchReceipts, ProducedJarImportReceipts);
     }
 }
 

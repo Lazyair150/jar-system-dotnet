@@ -163,7 +163,11 @@ public sealed class WorldV2ApplicationService
                 if (priorOperations.Length != 1 ||
                     !string.Equals(priorOperations[0], ledgerOperationId, StringComparison.Ordinal))
                     throw new DomainValidationException("外部 Jar 批次 ID 已用于不同的产出内容: " + operationId);
-                result = new WorldV2ProducedJarImportResultDto(true, 0, 0, 0);
+                result = context.ResourceLedger.TryGetProducedJarImportReceipt(ledgerOperationId, out var priorReceipt)
+                    ? new WorldV2ProducedJarImportResultDto(true,
+                        priorReceipt!.SubmittedJarCount, priorReceipt.StoredJarCount,
+                        priorReceipt.DiscardedJarCount, true)
+                    : new WorldV2ProducedJarImportResultDto(true, 0, 0, 0, false);
                 return;
             }
 
@@ -206,10 +210,18 @@ public sealed class WorldV2ApplicationService
                     ResourceIdentity: jar.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))))
                 .ToArray();
 
-            if (!context.ResourceLedger.RecordBatchOnce(
-                ledgerOperationId, context.Runtime.LedgerTick, mutations))
+            var importReceipt = new ResourceLedgerProducedJarImportReceipt(
+                ResourceLedgerProducedJarImportReceipt.CurrentSchemaVersion,
+                operationId, ledgerOperationId, payloadFingerprint,
+                requested, storedByShape, discardedByShape);
+            if (!context.ResourceLedger.RecordProducedJarImportOnce(
+                ledgerOperationId, context.Runtime.LedgerTick, mutations, importReceipt))
             {
-                result = new WorldV2ProducedJarImportResultDto(true, 0, 0, 0);
+                result = context.ResourceLedger.TryGetProducedJarImportReceipt(ledgerOperationId, out var racedReceipt)
+                    ? new WorldV2ProducedJarImportResultDto(true,
+                        racedReceipt!.SubmittedJarCount, racedReceipt.StoredJarCount,
+                        racedReceipt.DiscardedJarCount, true)
+                    : new WorldV2ProducedJarImportResultDto(true, 0, 0, 0, false);
                 return;
             }
 
@@ -221,7 +233,7 @@ public sealed class WorldV2ApplicationService
             var storedCount = storedByShape.Values.Sum();
             var discardedCount = discardedByShape.Values.Sum();
             result = new WorldV2ProducedJarImportResultDto(
-                false, (int)submittedCount, storedCount, discardedCount);
+                false, (int)submittedCount, storedCount, discardedCount, true);
         });
         return result!;
     }
@@ -754,7 +766,8 @@ public sealed record WorldV2ProducedJarImportResultDto(
     bool WasDuplicate,
     int SubmittedJarCount,
     int StoredJarCount,
-    int DiscardedJarCount);
+    int DiscardedJarCount,
+    bool HasExactReceipt = false);
 
 public sealed record WorldV2RequirementInput(string Shape, string? Liquid);
 

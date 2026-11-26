@@ -16,7 +16,7 @@ namespace JarSystem.Core.World;
 /// </summary>
 public static class WorldV2CheckpointJsonCodec
 {
-    public const int CurrentSchemaVersion = 10;
+    public const int CurrentSchemaVersion = 11;
     public const string CurrentKind = "world-v2-execution-checkpoint";
 
     private static readonly Regex FingerprintPattern =
@@ -71,6 +71,24 @@ public static class WorldV2CheckpointJsonCodec
                     !batchSchemaElement.TryGetInt32(out var batchSchema) ||
                     batchSchema != ResourceLedgerTransferBatchReceipt.CurrentSchemaVersion)
                     throw new JsonException("Schema 10+ composite transfer receipts must declare a supported SchemaVersion.");
+            }
+
+            if (envelope.SchemaVersion >= 11 &&
+                (!ledgerElement.TryGetProperty("ProducedJarImportReceipts", out var producedReceiptsElement) ||
+                 producedReceiptsElement.ValueKind != JsonValueKind.Array))
+                throw new JsonException("Schema 11+ resource ledger must carry the ProducedJarImportReceipts array.");
+
+            if (envelope.SchemaVersion >= 11)
+            {
+                foreach (var receipt in ledgerElement.GetProperty("ProducedJarImportReceipts").EnumerateArray())
+                {
+                    if (receipt.ValueKind != JsonValueKind.Object ||
+                        !receipt.TryGetProperty("SchemaVersion", out var receiptSchemaElement) ||
+                        receiptSchemaElement.ValueKind != JsonValueKind.Number ||
+                        !receiptSchemaElement.TryGetInt32(out var receiptSchema) ||
+                        receiptSchema != ResourceLedgerProducedJarImportReceipt.CurrentSchemaVersion)
+                        throw new JsonException("Schema 11+ produced-Jar import receipts must declare a supported SchemaVersion.");
+                }
             }
         }
         var ledgerEvents = envelope.Payload.ResourceLedger?.Events;
@@ -154,7 +172,7 @@ public static class WorldV2CheckpointJsonCodec
         // Schemas 3-5 predate WorldInstanceId; schema 6 predates the owner map;
         // schema 7 predates tagged endpoints; schema 8 predates DisplayName.
         // Missing identities/provenance remain explicitly unknown; never infer them from names or fingerprints.
-        if (version is not (3 or 4 or 5 or 6 or 7 or 8 or 9 or CurrentSchemaVersion))
+        if (version is not (3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or CurrentSchemaVersion))
             throw new NotSupportedException("不支持的检查点 schemaVersion: " + version);
 
         if (!root.TryGetProperty("kind", out var kindElement) ||
