@@ -309,7 +309,6 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         WorldResourceReservationBook reservations,
         ResourceLedger? resourceLedger,
         Func<int>? resourceLedgerTick,
-        WorkshopRuntimeStateSnapshot? masterWorkshopSnapshot = null,
         WorkshopRuntimeStateSnapshot? slaveWorkshopSnapshot = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -425,12 +424,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                         transferredJars.Add(jarId, matches[0]);
                     }
 
-                    var transferMaster = masterWorkshopSnapshot == null
-                        ? roster.Master!
-                        : null;
                     var expectedTransferBatch = OrderTransferService.BuildTransferLedgerMutations(
                         snapshot.DemandId, snapshot.Manifest,
-                        transferMaster ?? roster.Master!, slaveWorkshop, transferredJars,
+                        roster.Master!, slaveWorkshop, transferredJars,
                         scopes.Value.Master, scopes.Value.Slave);
                     if (!resourceLedger.HasRecordedBatch(transferOperationId, expectedTransferBatch))
                         throw new InvalidOperationException(
