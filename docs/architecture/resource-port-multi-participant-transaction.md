@@ -151,8 +151,9 @@ Wire/Checkpoint 必须同步保存复合 Batch Receipt 与全部 Leg Receipt 的
 - 已完成：单条连接参与者的 Prepare、版本重验、物理局部快照补偿、后置端点验证、单 Transfer Receipt 与单账本批次原子发布。
 - 已测试：Order Liquid、Ship Prefill、Warehouse↔Workshop Jar/Liquid、Workshop↔Workshop Free Liquid/Jar 的容量/禁令/version change/duplicate OperationId/ledger publication failure 恢复。
 - 已完成：B 类订单三条领域边界（Master→Slave、Slave→Master/Delivery、order staging→Ship）的专用事务与 fail-stop/Checkpoint 验证；它们各自是独立领域事务，不应被误称为多连接 Resource Port 复合事务。
-- 未完成：多 Resource Port Leg 的全局 Prepare-all、物理 Commit-all、逆序 Compensate-all，以及 ResourceLedger 单次复合 Receipt/OperationId/event 发布。
-- 推荐顺序：先实现复合 ledger 数据结构与 wire/schema 测试，再实现批次 Prepare 与账户计划，最后实现物理批量提交/补偿和 Runtime fail-stop；完成后才把 Circuit Board 多条连接接入生产/订单路径。
+- 已完成：ResourceLedger 复合批次 Receipt、父/子 OperationId 与指纹、BatchOperationId 事件关联、单次原子发布、Snapshot/Restore/Wire 持久化和 checkpoint schema 10 兼容读取。
+- 未完成：多 Resource Port Leg 的全局 Prepare-all、共享账户净余额/容量计划、物理 Commit-all、逆序 Compensate-all，以及补偿失败时 Runtime fail-stop。
+- 推荐顺序：先实现批次 Prepare 与账户计划，再实现物理批量提交/补偿和 Runtime fail-stop；完成后才把 Circuit Board 多条连接接入生产/订单路径。
 
 在这套协议完成前，对外只能宣称“单连接端口转移具备本地事务边界”，不能宣称“多连接/多账户批次原子性”。
 

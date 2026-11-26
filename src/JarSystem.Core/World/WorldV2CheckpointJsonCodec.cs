@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
 
 namespace JarSystem.Core.World;
 
