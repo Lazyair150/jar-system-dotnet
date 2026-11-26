@@ -862,6 +862,37 @@ public sealed class WorkshopLiquidStaging
             Capacity, _banned, _accounts, _reservedCapacityByOrder, _prefillBalances);
     }
 
+    /// <summary>
+    /// Restore a validated snapshot into this exact staging object. Existing OrderLiquidScope
+    /// references therefore remain bound to the authoritative account after transaction compensation.
+    /// All replacement dictionaries are prepared and capacity-reserved before live state is changed.
+    /// </summary>
+    internal void RestoreFrom(WorkshopLiquidStagingSnapshot snapshot)
+    {
+        EnsureNoPendingPrefillTransaction();
+        var restored = Restore(snapshot);
+        if (restored.Capacity != Capacity || !_banned.SetEquals(restored._banned))
+            throw new InvalidOperationException("暂存区补偿快照与当前权威暂存区配置不一致。");
+
+        var nextAccounts = restored._accounts.ToDictionary(
+            pair => pair.Key,
+            pair => new Dictionary<string, int>(pair.Value, StringComparer.Ordinal));
+        var nextPrefill = new Dictionary<string, int>(restored._prefillBalances, StringComparer.Ordinal);
+        var nextReservations = new Dictionary<int, int>(restored._reservedCapacityByOrder);
+        _accounts.EnsureCapacity(nextAccounts.Count);
+        _prefillBalances.EnsureCapacity(nextPrefill.Count);
+        _reservedCapacityByOrder.EnsureCapacity(nextReservations.Count);
+        foreach (var account in nextAccounts.Values)
+            account.EnsureCapacity(account.Count);
+
+        _accounts.Clear();
+        foreach (var pair in nextAccounts) _accounts.Add(pair.Key, pair.Value);
+        _prefillBalances.Clear();
+        foreach (var pair in nextPrefill) _prefillBalances.Add(pair.Key, pair.Value);
+        _reservedCapacityByOrder.Clear();
+        foreach (var pair in nextReservations) _reservedCapacityByOrder.Add(pair.Key, pair.Value);
+    }
+
     internal void ValidatePrefillTransactionCanCommit()
     {
         if (!_prefillTransactionPending)
