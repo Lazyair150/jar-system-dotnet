@@ -390,15 +390,49 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         if (reservation.Stage != leaseStage)
             throw new InvalidOperationException("执行会话阶段与资源租约生命周期阶段不一致。");
 
-        if (snapshot.SlaveTransferCommitted && resourceLedger != null &&
-            (snapshot.Manifest.TransferJarIds.Count > 0 ||
-             snapshot.Manifest.TransferLiquids.Any(item => item.Value > 0)))
+        if (snapshot.Manifest.IsPartitioned && resourceLedger != null)
         {
             var transferOperationId = reservation.WorldVersion + ":order:" +
                 snapshot.DemandId + ":transfer";
-            if (!resourceLedger.HasRecordedOperation(transferOperationId))
+            var hasTransferFacts = snapshot.Manifest.TransferJarIds.Count > 0 ||
+                snapshot.Manifest.TransferLiquids.Any(item => item.Value > 0);
+            var hasTransferOperation = resourceLedger.HasRecordedOperation(transferOperationId);
+
+            if (snapshot.SlaveTransferCommitted)
+            {
+                if (hasTransferFacts)
+                {
+                    if (!hasTransferOperation)
+                        throw new InvalidOperationException(
+                            "恢复会话报告主从交接已提交，但资源账本缺少对应的 Transfer operation receipt。");
+
+                    var slaveWorkshop = roster.Slave
+                        ?? throw new InvalidOperationException("恢复 B 类 Transfer receipt 时缺少从台。");
+                    var transferredJars = new Dictionary<int, Jar>();
+                    foreach (var jarId in snapshot.Manifest.TransferJarIds)
+                    {
+                        var matches = slaveWorkshop.Jars.Where(jar => jar.Id == jarId).ToArray();
+                        if (matches.Length != 1)
+                            throw new InvalidOperationException(
+                                "恢复 B 类 Transfer receipt 时从台缺少精确 Jar：" + jarId);
+                        transferredJars.Add(jarId, matches[0]);
+                    }
+
+                    var expectedTransferBatch = OrderTransferService.BuildTransferLedgerMutations(
+                        snapshot.DemandId, snapshot.Manifest,
+                        roster.Master!, slaveWorkshop, transferredJars,
+                        scopes.Value.Master, scopes.Value.Slave);
+                    if (!resourceLedger.HasRecordedBatch(transferOperationId, expectedTransferBatch))
+                        throw new InvalidOperationException(
+                            "恢复会话的 Manifest/账户身份与 ResourceLedger Transfer 批次内容不一致。");
+                }
+                else if (hasTransferOperation)
+                    throw new InvalidOperationException(
+                        "没有资源事实的 B 类交接不能包含 ResourceLedger Transfer operation。");
+            }
+            else if (hasTransferOperation)
                 throw new InvalidOperationException(
-                    "恢复会话报告主从交接已提交，但资源账本缺少对应的 Transfer operation receipt。");
+                    "恢复会话尚未提交主从交接，但资源账本已经存在 Transfer operation receipt。");
         }
 
         // A restored lease may have a receipt before or after the ledger publication point.
