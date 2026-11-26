@@ -136,6 +136,9 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
                 entry.SubAreaId = "decomposition";
             }
         }
+        Assert.Equal(
+            "ceaf7b2038384d1d65b5767ca1ca3183b92455567291179f87a9f7f6b06f0bb1",
+            assignment.ComputeCanonicalFingerprint());
         assignment.AssignmentFingerprint = assignment.ComputeCanonicalFingerprint();
         var profile = CreateProfile(assignment);
 
