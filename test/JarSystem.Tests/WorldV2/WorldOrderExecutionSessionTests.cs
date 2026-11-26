@@ -565,7 +565,8 @@ public sealed class WorldOrderExecutionSessionTests
         master.AddLiquid("酒", 1);
         var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
         var setup = Prepare(master, slave, demand);
-        var runtime = CreateRuntime(setup.Board, setup.Roster);
+        var ledger = new ResourceLedger();
+        var runtime = CreateRuntime(setup.Board, setup.Roster, ledger, () => 59);
         var started = runtime.TryStartExecutionSession(
             demand.Id, setup.Book, setup.Admission, 1_000);
         Assert.True(started.Success, started.Reason);
@@ -575,6 +576,13 @@ public sealed class WorldOrderExecutionSessionTests
             runtime.AdvanceWorldTime(1_000);
 
         Assert.True(session.Succeeded, session.Reason);
+        var deliveredFact = Assert.Single(ledger.For(ResourceCauses.Transfer),
+            entry => entry.Kind == ResourceKinds.Jar &&
+                entry.ToEndpoint.Kind == ResourceEndpointKind.ExternalSink &&
+                entry.ToEndpoint.ExternalIdentity == "order.delivery");
+        Assert.Equal(deliveredJar.Id!.Value.ToString(CultureInfo.InvariantCulture),
+            deliveredFact.ResourceIdentity);
+        Assert.Equal("订单交付", deliveredFact.To);
         Assert.Empty(master.Jars);
         Assert.Empty(slave.Jars);
         Assert.False(slave.HasResources);
