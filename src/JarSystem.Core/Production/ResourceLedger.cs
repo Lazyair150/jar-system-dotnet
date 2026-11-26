@@ -625,6 +625,33 @@ public sealed class ResourceLedger
         }
     }
 
+    /// <summary>
+    /// Read-only verification that an existing OperationId is bound to this exact normalized
+    /// batch payload. Unlike RecordBatchOnce, this never creates an operation or appends events.
+    /// Legacy tombstones without fingerprints intentionally cannot satisfy this check.
+    /// </summary>
+    internal bool HasRecordedBatch(
+        string operationId, IEnumerable<ResourceLedgerMutation> mutations)
+    {
+        if (string.IsNullOrWhiteSpace(operationId))
+            throw new ArgumentException("账本操作 ID 不能为空。", nameof(operationId));
+        ArgumentNullException.ThrowIfNull(mutations);
+        var batch = mutations.Where(item => item.Amount > 0)
+            .Select(NormalizeMutationIdentity).ToArray();
+        var fingerprint = ComputeOperationFingerprint(batch, receipt: null);
+        var schema8Fingerprint = ComputeSchema8OperationFingerprint(batch, receipt: null);
+        var legacyFingerprint = ComputeLegacyOperationFingerprint(batch, receipt: null);
+        lock (_gate)
+        {
+            if (!_operationIds.Contains(operationId) ||
+                !_operationFingerprints.TryGetValue(operationId, out var recorded))
+                return false;
+            return string.Equals(recorded, fingerprint, StringComparison.Ordinal) ||
+                string.Equals(recorded, schema8Fingerprint, StringComparison.Ordinal) ||
+                string.Equals(recorded, legacyFingerprint, StringComparison.Ordinal);
+        }
+    }
+
     public bool HasRecordedOperation(string operationId)
     {
         lock (_gate) return _operationIds.Contains(operationId);
