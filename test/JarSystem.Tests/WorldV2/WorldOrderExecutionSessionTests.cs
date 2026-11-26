@@ -1044,10 +1044,10 @@ public sealed class WorldOrderExecutionSessionTests
         var slaveBefore = scopes.Slave!.Balance.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
         var shipBefore = setup.Ship.Capture();
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.ThrowsAny<InvalidOperationException>(() =>
             new OrderResourceSettlementService(new ThrowAtSettlementBoundary(boundary))
                 .SettleAndRelease(setup.Demand.Id, setup.Admission, setup.Ledger, 17));
-        Assert.Contains("Injected settlement failure", error.Message);
+        Assert.Contains("Injected settlement failure", error.InnerException!.Message);
 
         Assert.Equal(masterBefore.OrderBy(item => item.Key), scopes.Master.Balance.OrderBy(item => item.Key));
         Assert.Equal(slaveBefore.OrderBy(item => item.Key), scopes.Slave.Balance.OrderBy(item => item.Key));
@@ -1078,10 +1078,10 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(scopes.Master.Staging.TryReceiveExact(
             setup.Demand.Id, "酒", 1, out var masterGrant), masterGrant.Reason);
 
-        var settlementError = Assert.Throws<InvalidOperationException>(() =>
+        var settlementError = Assert.ThrowsAny<InvalidOperationException>(() =>
             new OrderResourceSettlementService(new ThrowAtSettlementBoundary("reservation-release"))
                 .SettleAndRelease(setup.Demand.Id, setup.Admission, setup.Ledger, 19));
-        Assert.Contains("Injected settlement failure", settlementError.Message);
+        Assert.Contains("Injected settlement failure", settlementError.InnerException!.Message);
         var receipt = lease.SettlementReceipt;
 
         Assert.NotNull(receipt);
