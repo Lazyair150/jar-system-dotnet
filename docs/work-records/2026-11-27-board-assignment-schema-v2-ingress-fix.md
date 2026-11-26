@@ -44,8 +44,9 @@ Existing schema 1 tests remain unchanged to protect compatibility.
 ## Validation status
 
 - Source-level contract comparison against Space's producer: completed.
-- xUnit / Core verification on the final commit: pending; no success is claimed yet.
-- Space cross-repository Bridge build against the final Core SHA: pending.
+- Core verification: PASS. Workflow run `45856292385` (verify, run #5646) completed successfully. The job checked out the PR merge ref containing Core code/test commit `ba84182eba7555b3456d66ffceb58845d97a1bea`; `JarSystem.Tests Total: 1044, Errors: 0, Failed: 0, Skipped: 0`; full build, Godot Bridge Release build, solver differential (`4004/4004`), replay, security and `QUALITY-OK` / `VERDICT=OK` all passed.
+- A later Core commit `b03af7edeb96cfe478c46a1887747870c12f8b50` adds XML documentation comments only; the tested production/test code is unchanged.
+- Space cross-repository Bridge build against pinned Core SHA `ba84182eba7555b3456d66ffceb58845d97a1bea`: pending.
 - Godot desktop Hangar-to-combat acceptance: pending.
 
 ## Release gate
