@@ -181,7 +181,7 @@ public sealed class WorldV2FactoryTests
                 {
                     new() { SlotId = "slot.master", AreaId = "workshop", ComponentKind = "workshop", DisplayName = "Master", RoleId = "master", ControlArea = "none", Required = true },
                     new() { SlotId = "slot.slave", AreaId = "workshop", ComponentKind = "workshop", DisplayName = "Slave", RoleId = "slave", ControlArea = "none", Required = true },
-                    new() { SlotId = "slot.parser", AreaId = "decomposition", ComponentKind = "ore_parser", DisplayName = "Parser", RoleId = "none", ControlArea = "none", Required = true }
+                    new() { SlotId = "slot.parser", AreaId = "production", SubAreaId = "decomposition", ComponentKind = "ore_parser", DisplayName = "Parser", RoleId = "none", ControlArea = "none", Required = true }
                 }
             },
             Assignments = new List<WorldV2BoardAssignmentEntryOptions>
