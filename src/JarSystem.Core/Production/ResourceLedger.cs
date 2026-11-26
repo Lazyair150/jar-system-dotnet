@@ -222,10 +222,7 @@ public sealed class ResourceLedger
                     storedLeg != legReceipt)
                     throw new DomainValidationException("资源账本复合回执缺少精确的 Leg OperationId / Receipt 索引。");
             }
-            if (!snapshot.OperationFingerprints.TryGetValue(batchReceipt.OperationId, out var parentFingerprint) ||
-                !string.Equals(parentFingerprint,
-                    ComputeTransferBatchFingerprint(batchReceipt, snapshot.OperationFingerprints),
-                    StringComparison.Ordinal))
+            if (!HasValidTransferBatchFingerprint(batchReceipt, snapshot.OperationFingerprints))
                 throw new DomainValidationException("资源账本复合回执父指纹与批次/Leg 指纹不一致。");
         }
         if (batchLegOwners.Keys.Any(batchIds.Contains))
@@ -332,6 +329,20 @@ public sealed class ResourceLedger
             Receipt = receipt
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    internal static bool HasValidTransferBatchFingerprint(
+        ResourceLedgerTransferBatchReceipt receipt,
+        IReadOnlyDictionary<string, string> operationFingerprints)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        ArgumentNullException.ThrowIfNull(operationFingerprints);
+        if (!operationFingerprints.TryGetValue(receipt.OperationId, out var parentFingerprint) ||
+            receipt.LegReceipts.Any(item => !operationFingerprints.ContainsKey(item.OperationId)))
+            return false;
+        return string.Equals(parentFingerprint,
+            ComputeTransferBatchFingerprint(receipt, operationFingerprints),
+            StringComparison.Ordinal);
     }
 
     private static string ComputeTransferBatchFingerprint(

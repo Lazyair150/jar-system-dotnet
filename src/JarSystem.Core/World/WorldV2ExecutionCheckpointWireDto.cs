@@ -669,6 +669,8 @@ public sealed class ResourceLedgerWireDto
                     stored != leg)
                     throw new InvalidOperationException("资源账本复合回执缺少精确的 Leg OperationId / Receipt。");
             }
+            if (!ResourceLedger.HasValidTransferBatchFingerprint(batchReceipt, OperationFingerprints))
+                throw new InvalidOperationException("资源账本复合回执父指纹与批次/Leg 指纹不一致。");
         }
 
         if (legOwners.Keys.Any(batchIds.Contains))
