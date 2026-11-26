@@ -38,7 +38,9 @@ public class OrderExecutionTimingTests
     public void LegacyOrderCompletionRecordsFaultedProcessResultAfterRollbackProjectionFailure()
     {
         var system = NewSystem();
-        var master = Bench("主台", "圆罐");
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐" }, [], [],
+            maxJars: 1, maxLiquids: 30, vocabulary: Vocabulary.Default);
         var slave = Bench("从台", "方罐");
         Assert.True(master.AddJar(new Jar("圆罐", id: 8101, vocabulary: Vocabulary.Default)));
         Assert.True(slave.AddJar(new Jar("方罐", id: 8102, vocabulary: Vocabulary.Default)));
