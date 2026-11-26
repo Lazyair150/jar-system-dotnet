@@ -266,7 +266,7 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
     public IReadOnlyList<string> Validate(string boardId, int boardVersion, string assignmentFingerprint)
     {
         var errors = new List<string>();
-        if (SchemaVersion != 1 || BoardId != boardId || DefinitionVersion != boardVersion ||
+        if (SchemaVersion is not (1 or 2) || BoardId != boardId || DefinitionVersion != boardVersion ||
             AssignmentFingerprint != assignmentFingerprint || BoardDefinition == null ||
             BoardDefinition.SchemaVersion is not (1 or 2) || BoardDefinition.BoardId != BoardId ||
             BoardDefinition.DefinitionVersion != DefinitionVersion || string.IsNullOrWhiteSpace(BoardDefinition.DisplayName))
@@ -302,6 +302,9 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
             }
             if (!slots.TryGetValue(entry.SlotId, out var slot) || slot.ComponentKind != entry.ComponentKind)
                 errors.Add("board assignment does not match its frozen slot definition: " + entry.SlotId);
+            else if (SchemaVersion >= 2 &&
+                (entry.AreaId != slot.AreaId || entry.SubAreaId != slot.SubAreaId))
+                errors.Add("board assignment area hierarchy does not match its exact frozen slot: " + entry.SlotId);
             else if (entry.ComponentKind == "workshop" && (slot.RoleId ?? "") != (entry.RoleId ?? ""))
                 errors.Add("workshop assignment role does not match its frozen Board Slot: " + entry.SlotId);
             else if (entry.ComponentKind == "skill" && (slot.ControlArea ?? "") != (entry.ControlArea ?? ""))
@@ -374,6 +377,11 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
             {
                 writer.WriteStartObject();
                 writer.WriteString("slotId", entry.SlotId);
+                if (SchemaVersion >= 2)
+                {
+                    writer.WriteString("areaId", entry.AreaId);
+                    writer.WriteString("subAreaId", entry.SubAreaId);
+                }
                 writer.WriteString("componentKind", entry.ComponentKind);
                 writer.WriteString("ownedInstanceId", entry.OwnedInstanceId);
                 writer.WriteString("definitionId", entry.DefinitionId);
@@ -416,6 +424,8 @@ public sealed class WorldV2BoardSlotSnapshotOptions
 public sealed class WorldV2BoardAssignmentEntryOptions
 {
     [JsonPropertyName("slotId")] public string SlotId { get; set; } = "";
+    [JsonPropertyName("areaId")] public string AreaId { get; set; } = "";
+    [JsonPropertyName("subAreaId")] public string SubAreaId { get; set; } = "none";
     [JsonPropertyName("componentKind")] public string ComponentKind { get; set; } = "";
     [JsonPropertyName("ownedInstanceId")] public string OwnedInstanceId { get; set; } = "";
     [JsonPropertyName("definitionId")] public string DefinitionId { get; set; } = "";
