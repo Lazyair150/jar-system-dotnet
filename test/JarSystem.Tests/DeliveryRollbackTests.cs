@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using JarSystem.Core.Production;
 using System.Linq;
 using JarSystem.Core.Config;
+using JarSystem.Core.Commands;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using Xunit;
@@ -272,6 +273,24 @@ public class DeliveryRollbackTests
         Assert.Contains("日志/统计投影发布失败", retry.Reason);
         Assert.False(orderEvent.Fail("retry must not convert uncertain delivery into failure").Success);
         Assert.Throws<InvalidOperationException>(() => orderEvent.RollbackSlaveToMaster());
+
+        // The legacy Executor is public. Its direct entrypoint must still honor the
+        // OrderEvent fail-stop guard, even if a caller bypasses ExecuteCommand and
+        // passes no ICommandJournal at all.
+        var postFaultJar = MakeJar(43, "方罐");
+        Assert.True(slave.AddJar(postFaultJar));
+        var bypassAttempt = orderEvent.Executor.Execute(
+            new TransferCommand(postFaultJar, slave, master), slave, journal: null);
+        Assert.False(bypassAttempt.Success);
+        Assert.Same(postFaultJar, Assert.Single(slave.Jars));
+        Assert.DoesNotContain(master.Jars, jar => jar.Id == postFaultJar.Id);
+
+        var batchAttempt = orderEvent.Executor.ExecuteBatch(
+            new List<Command> { new TransferCommand(postFaultJar, slave, master) },
+            slave, journal: null);
+        Assert.False(batchAttempt.Success);
+        Assert.Equal(1, batchAttempt.ExecutedCount);
+        Assert.Same(postFaultJar, Assert.Single(slave.Jars));
         Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
         Assert.Equal(lastSeq, ledger.LastSeq);
         Assert.Equal(2, ledger.Entries.Count);
