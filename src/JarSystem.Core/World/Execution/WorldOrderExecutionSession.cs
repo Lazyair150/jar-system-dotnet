@@ -28,7 +28,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly IReadOnlyList<int> _deliveryJarIds;
     private readonly WorldPlanStepApplier _applier;
     private readonly OrderTransferService _transferService;
-    private readonly OrderResourceSettlementService _settlementService = new();
+    private readonly OrderResourceSettlementService _settlementService;
     private readonly OrderLiquidScope? _masterLiquidScope;
     private readonly OrderLiquidScope? _slaveLiquidScope;
     private readonly long _unitDurationLogicalMilli;
@@ -88,7 +88,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         bool initializeExecution = true,
         IOrderJarTransferPort? jarTransferPort = null,
         IOrderTransferFaultPort? transferFaultPort = null,
-        ISlaveRollbackFaultPort? slaveRollbackFaultPort = null)
+        ISlaveRollbackFaultPort? slaveRollbackFaultPort = null,
+        IOrderSettlementFaultPort? settlementFaultPort = null)
     {
         DemandId = demandId;
         _board = board;
@@ -107,6 +108,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         _applier = new WorldPlanStepApplier();
         _transferService = new OrderTransferService(jarTransferPort, transferFaultPort);
         _slaveRollbackFaultPort = slaveRollbackFaultPort;
+        _settlementService = settlementFaultPort == null
+            ? new OrderResourceSettlementService()
+            : new OrderResourceSettlementService(settlementFaultPort);
         var liquidScopes = admission.GetLiquidScopes(demandId);
         _masterLiquidScope = liquidScopes?.Master;
         _slaveLiquidScope = liquidScopes?.Slave;
@@ -460,7 +464,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         Func<int>? resourceLedgerTick,
         IOrderJarTransferPort? jarTransferPort,
         IOrderTransferFaultPort? transferFaultPort = null,
-        ISlaveRollbackFaultPort? slaveRollbackFaultPort = null)
+        ISlaveRollbackFaultPort? slaveRollbackFaultPort = null,
+        IOrderSettlementFaultPort? settlementFaultPort = null)
     {
         if (board == null) throw new ArgumentNullException(nameof(board));
         if (solveBook == null) throw new ArgumentNullException(nameof(solveBook));
@@ -499,7 +504,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 resourceLedger, resourceLedgerTick,
                 jarTransferPort: jarTransferPort,
                 transferFaultPort: transferFaultPort,
-                slaveRollbackFaultPort: slaveRollbackFaultPort);
+                slaveRollbackFaultPort: slaveRollbackFaultPort,
+                settlementFaultPort: settlementFaultPort);
 
             // 只有新自机液库路径才记录这笔实际扣款；旧兼容准入不伪造新的资源流向。
             if (resourceLedger != null && admission.ShipLiquidInventory != null)
@@ -560,7 +566,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 AdvanceOneUnit();
             }
             catch (Exception exception) when (
-                exception is OrderTransferCompensationException or SlaveRollbackTransactionException)
+                exception is OrderTransferCompensationException or SlaveRollbackTransactionException or OrderSettlementTransactionException)
             {
                 // A whole-account compensation/rollback transaction failed or aborted.
                 // Do not run ordinary cleanup, release leases, or remove this session. Runtime
@@ -617,7 +623,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             return (true, null);
         }
         catch (Exception ex) when (
-            ex is OrderTransferCompensationException or SlaveRollbackTransactionException)
+            ex is OrderTransferCompensationException or SlaveRollbackTransactionException or OrderSettlementTransactionException)
         {
             throw;
         }
@@ -833,7 +839,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 _solveBook.MarkDirty(DemandId, "订单执行失败，需按当前世界重新求解：" + reason);
         }
         catch (Exception exception) when (
-            exception is OrderTransferCompensationException or SlaveRollbackTransactionException)
+            exception is OrderTransferCompensationException or SlaveRollbackTransactionException or OrderSettlementTransactionException)
         {
             preserveUncertainSession = true;
             throw;
