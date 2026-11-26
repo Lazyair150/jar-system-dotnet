@@ -197,6 +197,41 @@ public sealed class ResourceLedger
             receipt.Validate();
             ValidateTransferReceiptResourceIdentity(receipt);
         }
+        if (snapshot.TransferBatchReceipts.Any(item => item == null) ||
+            snapshot.TransferBatchReceipts.Select(item => item.OperationId)
+                .Distinct(StringComparer.Ordinal).Count() != snapshot.TransferBatchReceipts.Count)
+            throw new DomainValidationException("资源账本快照包含重复或空的复合转移回执。");
+
+        var batchIds = new HashSet<string>(StringComparer.Ordinal);
+        var batchLegIds = new HashSet<string>(StringComparer.Ordinal);
+        var transferReceiptsById = snapshot.TransferReceipts.ToDictionary(item => item.OperationId, StringComparer.Ordinal);
+        foreach (var batchReceipt in snapshot.TransferBatchReceipts)
+        {
+            batchReceipt.Validate();
+            if (!batchIds.Add(batchReceipt.OperationId) ||
+                !snapshot.OperationIds.Contains(batchReceipt.OperationId, StringComparer.Ordinal) ||
+                !snapshot.OperationFingerprints.ContainsKey(batchReceipt.OperationId))
+                throw new DomainValidationException("资源账本复合回执与批次 OperationId 索引不一致.");
+
+            foreach (var legReceipt in batchReceipt.LegReceipts)
+            {
+                if (!batchLegIds.Add(legReceipt.OperationId) ||
+                    !snapshot.OperationIds.Contains(legReceipt.OperationId, StringComparer.Ordinal) ||
+                    !snapshot.OperationFingerprints.ContainsKey(legReceipt.OperationId) ||
+                    !transferReceiptsById.TryGetValue(legReceipt.OperationId, out var storedLeg) ||
+                    storedLeg != legReceipt)
+                    throw new DomainValidationException("资源账本复合回执缺少精确的 Leg OperationId / Receipt 索引。");
+            }
+        }
+        foreach (var item in snapshot.Entries.Where(item => item.BatchOperationId != null))
+        {
+            if (!batchIds.Contains(item.BatchOperationId!) ||
+                !batchLegIds.Contains(item.OperationId ?? "") ||
+                !snapshot.TransferBatchReceipts.Any(batch =>
+                    batch.OperationId == item.BatchOperationId &&
+                    batch.LegReceipts.Any(leg => leg.OperationId == item.OperationId)))
+                throw new DomainValidationException("资源账本事件引用了不存在或不匹配的复合转移批次。");
+        }
 
         var ledger = new ResourceLedger(snapshot.Capacity)
         {
@@ -210,6 +245,8 @@ public sealed class ResourceLedger
             ledger._operationFingerprints.Add(item.Key, item.Value);
         foreach (var receipt in snapshot.TransferReceipts)
             ledger._transferReceipts.Add(receipt.OperationId, receipt with { });
+        foreach (var receipt in snapshot.TransferBatchReceipts)
+            ledger._transferBatchReceipts.Add(receipt.OperationId, receipt.DeepCopy());
         return ledger;
     }
 
@@ -226,6 +263,7 @@ public sealed class ResourceLedger
             _entries.EnsureCapacity(restored._entries.Count);
             _operationIds.EnsureCapacity(restored._operationIds.Count);
             _transferReceipts.EnsureCapacity(restored._transferReceipts.Count);
+            _transferBatchReceipts.EnsureCapacity(restored._transferBatchReceipts.Count);
             _operationFingerprints.EnsureCapacity(restored._operationFingerprints.Count);
 
             _entries.Clear();
@@ -240,6 +278,10 @@ public sealed class ResourceLedger
             _transferReceipts.Clear();
             foreach (var item in restored._transferReceipts)
                 _transferReceipts.Add(item.Key, item.Value);
+
+            _transferBatchReceipts.Clear();
+            foreach (var item in restored._transferBatchReceipts)
+                _transferBatchReceipts.Add(item.Key, item.Value);
 
             _operationFingerprints.Clear();
             foreach (var item in restored._operationFingerprints)
@@ -616,6 +658,187 @@ public sealed class ResourceLedger
         }
     }
 
+    /// <summary>
+    /// Atomically publishes one composite batch marker, every leg OperationId/receipt and all
+    /// leg events. No leg becomes independently durable before the complete batch is published.
+    /// </summary>
+    public bool RecordTransferBatchOnce(
+        string operationId,
+        int tick,
+        IEnumerable<ResourceLedgerTransferBatchLeg> legs,
+        ResourceLedgerTransferBatchReceipt receipt)
+    {
+        if (string.IsNullOrWhiteSpace(operationId))
+            throw new ArgumentException("账本批次操作 ID 不能为空。", nameof(operationId));
+        if (tick < 0) throw new ArgumentOutOfRangeException(nameof(tick));
+        ArgumentNullException.ThrowIfNull(legs);
+        ArgumentNullException.ThrowIfNull(receipt);
+        receipt.Validate();
+        if (!string.Equals(operationId, receipt.OperationId, StringComparison.Ordinal))
+            throw new DomainValidationException("Transfer batch receipt OperationId does not match its ledger key.");
+
+        var suppliedLegs = legs.ToArray();
+        if (suppliedLegs.Length != receipt.LegReceipts.Count ||
+            suppliedLegs.Any(item => item == null) ||
+            !suppliedLegs.Select(item => item.Receipt).SequenceEqual(receipt.LegReceipts))
+            throw new DomainValidationException("Transfer batch legs do not match the composite receipt order and identity.");
+
+        lock (_gate)
+        {
+            var prepared = new List<(ResourceTransferReceipt Receipt, ResourceLedgerMutation[] Mutations, string Fingerprint)>(suppliedLegs.Length);
+            var childIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var leg in suppliedLegs)
+            {
+                var legReceipt = leg.Receipt;
+                legReceipt.Validate();
+                if (legReceipt.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
+                    throw new DomainValidationException("Only committed transfer legs can enter the resource ledger.");
+                ValidateTransferReceiptResourceIdentity(legReceipt);
+                if (!childIds.Add(legReceipt.OperationId) ||
+                    string.Equals(legReceipt.OperationId, operationId, StringComparison.Ordinal))
+                    throw new DomainValidationException("Transfer batch contains a duplicate or self-referential leg OperationId.");
+
+                var sourceAccountId = legReceipt.SourceAccount.AccountId;
+                var targetAccountId = legReceipt.TargetAccount.AccountId;
+                var expectedKind = legReceipt.ResourceKind == RuleResourceKind.Jar
+                    ? ResourceKinds.Jar
+                    : ResourceKinds.Liquid;
+                var batch = leg.Mutations.Select(NormalizeMutationIdentity)
+                    .Select(item => item with
+                    {
+                        FromAccountId = item.FromAccountId ?? sourceAccountId,
+                        ToAccountId = item.ToAccountId ?? targetAccountId,
+                        FromEndpoint = item.FromAccountId == null &&
+                            item.FromEndpoint == ResourceEndpoint.LegacyUnknown
+                                ? ResourceEndpoint.ForAccount(sourceAccountId) : item.FromEndpoint,
+                        ToEndpoint = item.ToAccountId == null &&
+                            item.ToEndpoint == ResourceEndpoint.LegacyUnknown
+                                ? ResourceEndpoint.ForAccount(targetAccountId) : item.ToEndpoint
+                    }).ToArray();
+
+                if (batch.Length == 0 ||
+                    (legReceipt.ResourceKind == RuleResourceKind.Jar && batch.Length != 1) ||
+                    batch.Any(item =>
+                        item.Amount <= 0 ||
+                        (item.Cause != ResourceCauses.Transfer && item.Cause != ResourceCauses.Flow) ||
+                        item.Kind != expectedKind ||
+                        string.IsNullOrWhiteSpace(item.Name) ||
+                        (item.DisplayName != null && string.IsNullOrWhiteSpace(item.DisplayName)) ||
+                        item.ResourceIdentity != legReceipt.ResourceIdentity ||
+                        item.From != legReceipt.SourceAccount.OwnerId ||
+                        item.To != legReceipt.TargetAccount.OwnerId ||
+                        item.FromAccountId != sourceAccountId ||
+                        item.ToAccountId != targetAccountId ||
+                        !item.FromEndpoint!.Value.IsValid || !item.ToEndpoint!.Value.IsValid ||
+                        item.FromEndpoint.Value != ResourceEndpoint.ForAccount(sourceAccountId) ||
+                        item.ToEndpoint.Value != ResourceEndpoint.ForAccount(targetAccountId) ||
+                        (legReceipt.ResourceKind == RuleResourceKind.Jar &&
+                            (item.Amount != 1 || !IsCanonicalJarId(item.ResourceIdentity)))))
+                    throw new DomainValidationException("Transfer batch leg mutations do not describe the receipt's exact resource and account endpoints.");
+                if (batch.Sum(item => (long)item.Amount) != legReceipt.TransferredAmount)
+                    throw new DomainValidationException("Transfer batch leg amount does not match its final receipt.");
+
+                foreach (var item in batch)
+                    ValidateAccountEndpointWorldScope(item.FromEndpoint!.Value, item.ToEndpoint!.Value);
+
+                prepared.Add((legReceipt with { }, batch,
+                    ComputeOperationFingerprint(batch, legReceipt)));
+            }
+
+            var receiptCopy = receipt.DeepCopy();
+            var batchFingerprintPayload = JsonSerializer.Serialize(new
+            {
+                Receipt = receiptCopy,
+                Legs = prepared.Select(item => new { item.Receipt.OperationId, item.Fingerprint }).ToArray()
+            });
+            var batchFingerprint = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(batchFingerprintPayload)));
+
+            if (_operationIds.Contains(operationId))
+            {
+                if (!_transferBatchReceipts.TryGetValue(operationId, out var priorBatch) ||
+                    !priorBatch.HasSamePayload(receiptCopy) ||
+                    !_operationFingerprints.TryGetValue(operationId, out var priorBatchFingerprint) ||
+                    !string.Equals(priorBatchFingerprint, batchFingerprint, StringComparison.Ordinal))
+                    throw new InvalidOperationException("OperationId is already bound to a different or incomplete transfer batch.");
+                foreach (var leg in prepared)
+                {
+                    if (!_operationIds.Contains(leg.Receipt.OperationId) ||
+                        !_transferReceipts.TryGetValue(leg.Receipt.OperationId, out var priorReceipt) ||
+                        priorReceipt != leg.Receipt ||
+                        !_operationFingerprints.TryGetValue(leg.Receipt.OperationId, out var priorLegFingerprint) ||
+                        !string.Equals(priorLegFingerprint, leg.Fingerprint, StringComparison.Ordinal))
+                        throw new InvalidOperationException("A previously recorded transfer batch has an incomplete or conflicting leg index.");
+                }
+                return false;
+            }
+
+            if (prepared.Any(item => _operationIds.Contains(item.Receipt.OperationId)))
+                throw new InvalidOperationException("A transfer batch leg OperationId is already committed outside this batch.");
+
+            var nextSeq = _seq;
+            var events = new List<ResourceEvent>(prepared.Sum(item => item.Mutations.Length));
+            foreach (var leg in prepared)
+            {
+                foreach (var item in leg.Mutations)
+                {
+                    nextSeq = checked(nextSeq + 1);
+                    events.Add(new ResourceEvent
+                    {
+                        Seq = nextSeq, Tick = tick, Cause = item.Cause, Kind = item.Kind,
+                        Name = item.DisplayName ?? item.Name,
+                        DisplayName = item.DisplayName ?? item.Name,
+                        ResourceIdentity = item.ResourceIdentity,
+                        OperationId = leg.Receipt.OperationId,
+                        BatchOperationId = operationId,
+                        Amount = item.Amount, From = item.From, To = item.To,
+                        FromAccountId = item.FromAccountId, ToAccountId = item.ToAccountId,
+                        FromEndpoint = item.FromEndpoint!.Value,
+                        ToEndpoint = item.ToEndpoint!.Value,
+                        Reason = item.Reason
+                    });
+                }
+            }
+
+            // Reserve every backing store before publishing any part of the composite transaction.
+            _entries.EnsureCapacity(checked(_entries.Count + events.Count));
+            _operationIds.EnsureCapacity(checked(_operationIds.Count + prepared.Count + 1));
+            _operationFingerprints.EnsureCapacity(checked(_operationFingerprints.Count + prepared.Count + 1));
+            _transferReceipts.EnsureCapacity(checked(_transferReceipts.Count + prepared.Count));
+            _transferBatchReceipts.EnsureCapacity(checked(_transferBatchReceipts.Count + 1));
+
+            _operationIds.Add(operationId);
+            _operationFingerprints.Add(operationId, batchFingerprint);
+            foreach (var leg in prepared)
+            {
+                _operationIds.Add(leg.Receipt.OperationId);
+                _operationFingerprints.Add(leg.Receipt.OperationId, leg.Fingerprint);
+                _transferReceipts.Add(leg.Receipt.OperationId, leg.Receipt with { });
+            }
+            _transferBatchReceipts.Add(operationId, receiptCopy);
+            _entries.AddRange(events);
+            _seq = nextSeq;
+            Trim();
+            return true;
+        }
+    }
+
+    public bool TryGetTransferBatchReceipt(
+        string operationId,
+        out ResourceLedgerTransferBatchReceipt? receipt)
+    {
+        lock (_gate)
+        {
+            if (_transferBatchReceipts.TryGetValue(operationId, out var stored))
+            {
+                receipt = stored.DeepCopy();
+                return true;
+            }
+            receipt = null;
+            return false;
+        }
+    }
+
     public bool TryGetTransferReceipt(string operationId, out ResourceTransferReceipt? receipt)
     {
         lock (_gate)
@@ -686,6 +909,89 @@ public sealed class ResourceLedger
     }
 }
 
+
+
+/// <summary>
+/// Versioned durable receipt for one composite resource-transfer transaction.
+/// The batch ID and all leg receipts are one replay and recovery unit.
+/// </summary>
+public sealed class ResourceLedgerTransferBatchReceipt
+{
+    public const int CurrentSchemaVersion = 1;
+
+    public ResourceLedgerTransferBatchReceipt(
+        string operationId,
+        IEnumerable<ResourceTransferReceipt> legReceipts,
+        int schemaVersion = CurrentSchemaVersion)
+    {
+        OperationId = operationId;
+        SchemaVersion = schemaVersion;
+        ArgumentNullException.ThrowIfNull(legReceipts);
+        LegReceipts = Array.AsReadOnly(legReceipts.Select(item => item is null
+            ? throw new ArgumentException("Batch receipt cannot contain a null leg receipt.", nameof(legReceipts))
+            : item with { }).ToArray());
+    }
+
+    public string OperationId { get; }
+    public int SchemaVersion { get; }
+    public IReadOnlyList<ResourceTransferReceipt> LegReceipts { get; }
+
+    public void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(OperationId) ||
+            !string.Equals(OperationId, OperationId.Trim(), StringComparison.Ordinal) ||
+            SchemaVersion != CurrentSchemaVersion ||
+            LegReceipts == null || LegReceipts.Count == 0 ||
+            LegReceipts.Any(item => item == null) ||
+            LegReceipts.Any(item => string.Equals(item.OperationId, OperationId, StringComparison.Ordinal)) ||
+            LegReceipts.Select(item => item.OperationId).Distinct(StringComparer.Ordinal).Count() != LegReceipts.Count)
+            throw new DomainValidationException("Resource transfer batch receipt has an invalid identity, version or leg set.");
+
+        foreach (var leg in LegReceipts)
+        {
+            leg.Validate();
+            if (leg.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
+                throw new DomainValidationException("A committed transfer batch can contain only committed leg receipts.");
+            if (leg.ResourceKind == RuleResourceKind.Jar &&
+                (leg.RequestedAmount != 1 || leg.TransferredAmount != 1 ||
+                 leg.RetainedAtSourceAmount != 0 || leg.DiscardedAmount != 0 ||
+                 !int.TryParse(leg.ResourceIdentity, System.Globalization.NumberStyles.None,
+                     System.Globalization.CultureInfo.InvariantCulture, out var jarId) ||
+                 jarId <= 0 ||
+                 jarId.ToString(System.Globalization.CultureInfo.InvariantCulture) != leg.ResourceIdentity))
+                throw new DomainValidationException("A Jar transfer batch leg must identify exactly one canonical Jar.");
+        }
+
+        var accountIds = LegReceipts
+            .SelectMany(item => new[] { item.SourceAccount.AccountId, item.TargetAccount.AccountId })
+            .ToArray();
+        var worldScoped = accountIds.Select(id =>
+            id.StartsWith("account:v2:", StringComparison.Ordinal)).Distinct().ToArray();
+        if (worldScoped.Length > 1)
+            throw new DomainValidationException("A resource transfer batch cannot mix World-scoped and legacy accounts.");
+        if (worldScoped.Length == 1 && worldScoped[0])
+        {
+            var world = AccountIdentity.ParseV2(accountIds[0]).Owner.WorldInstanceId;
+            if (accountIds.Skip(1).Any(id =>
+                    AccountIdentity.ParseV2(id).Owner.WorldInstanceId != world))
+                throw new DomainValidationException("A resource transfer batch cannot span multiple Worlds.");
+        }
+    }
+
+    public ResourceLedgerTransferBatchReceipt DeepCopy() =>
+        new(OperationId, LegReceipts.Select(item => item with { }), SchemaVersion);
+
+    public bool HasSamePayload(ResourceLedgerTransferBatchReceipt other) =>
+        other != null &&
+        SchemaVersion == other.SchemaVersion &&
+        string.Equals(OperationId, other.OperationId, StringComparison.Ordinal) &&
+        LegReceipts.SequenceEqual(other.LegReceipts);
+}
+
+/// <summary>One physical transfer leg and the exact ledger facts it contributes to its parent batch.</summary>
+public sealed record ResourceLedgerTransferBatchLeg(
+    ResourceTransferReceipt Receipt,
+    IReadOnlyList<ResourceLedgerMutation> Mutations);
 
 /// <summary>资源账本纯值快照，包含增量读取所需的连续性元数据。</summary>
 public sealed class ResourceLedgerSnapshot
