@@ -43,3 +43,4 @@ architecture/core-liquid-identity-consolidation
 - [Tagged Resource Ledger Endpoints 与多来源结算分配（2026-11-26）](2026-11-26-tagged-resource-ledger-endpoints-and-source-allocation.md)
 - [2026-11-26 外部 Jar 导入精确回执（Core）](2026-11-26-produced-jar-import-receipts.md)
 - [2026-11-26 外部 Jar 导入回执测试契约修正](2026-11-26-produced-jar-import-receipt-test-contract-fix.md)
+- [2026-11-26 Board Slot 层级区域契约修复](2026-11-26-board-slot-hierarchy-contract-fix.md)
