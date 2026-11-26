@@ -61,6 +61,7 @@ public sealed class WorldV2CheckpointJsonCodecTests
     [InlineData(6)]
     [InlineData(7)]
     [InlineData(8)]
+    [InlineData(9)]
     public void DecodeAcceptsLegacyCheckpointEnvelopes(int version)
     {
         var json = JsonSerializer.Serialize(new
@@ -102,11 +103,29 @@ public sealed class WorldV2CheckpointJsonCodecTests
     }
 
     [Fact]
-    public void DecodeRejectsUnsupportedSchemaVersion()
+    public void SchemaTenExecutionCheckpointRequiresCompositeTransferBatchReceiptArray()
     {
         const string json = """
             {
               "schemaVersion": 10,
+              "kind": "world-v2-execution-checkpoint",
+              "configurationFingerprint": null,
+              "payload": {
+                "ResourceLedger": {}
+              }
+            }
+            """;
+
+        Assert.Throws<JsonException>(
+            () => WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(json));
+    }
+
+    [Fact]
+    public void DecodeRejectsUnsupportedSchemaVersion()
+    {
+        const string json = """
+            {
+              "schemaVersion": 11,
               "kind": "world-v2-execution-checkpoint",
               "configurationFingerprint": null,
               "payload": {}
