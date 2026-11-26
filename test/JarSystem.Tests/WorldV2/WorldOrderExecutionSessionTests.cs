@@ -130,7 +130,12 @@ public sealed class WorldOrderExecutionSessionTests
     private sealed class ThrowAtSettlementBoundary : IOrderSettlementFaultPort
     {
         private readonly string _boundary;
-        public ThrowAtSettlementBoundary(string boundary) => _boundary = boundary;
+        private readonly bool _failCompensation;
+        public ThrowAtSettlementBoundary(string boundary, bool failCompensation = false)
+        {
+            _boundary = boundary;
+            _failCompensation = failCompensation;
+        }
         private void Hit(string boundary)
         {
             if (_boundary == boundary)
@@ -139,6 +144,11 @@ public sealed class WorldOrderExecutionSessionTests
         public void AfterMasterDrain() => Hit("master-drain");
         public void AfterSlaveDrain() => Hit("slave-drain");
         public void AfterShipReturnBeforeReceipt() => Hit("ship-return-before-receipt");
+        public void BeforeCompensation()
+        {
+            if (_failCompensation)
+                throw new InvalidOperationException("Injected settlement compensation failure");
+        }
         public void AfterLedgerBatchRecorded() => Hit("ledger-batch");
         public void AfterLedgerStageMarked() => Hit("stage-mark");
         public void BeforeReservationRelease() => Hit("reservation-release");
@@ -152,9 +162,12 @@ public sealed class WorldOrderExecutionSessionTests
         WorldOrderExecutionAdmission Admission,
         WorldResourceReservationBook Reservations,
         ShipLiquidInventory Ship,
-        ResourceLedger Ledger);
+        ResourceLedger Ledger,
+        WorldOrderExecutionSession Session);
 
-    private static SettlementScenario PrepareSettlementScenario(bool withOwnerIdentities = false)
+    private static SettlementScenario PrepareSettlementScenario(
+        bool withOwnerIdentities = false,
+        IOrderSettlementFaultPort? settlementFaultPort = null)
     {
         var worldId = withOwnerIdentities ? new WorldInstanceId("settlement-world") : default;
         OwnerIdentity? masterOwner = withOwnerIdentities
@@ -193,13 +206,18 @@ public sealed class WorldOrderExecutionSessionTests
         var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
         var ledger = new ResourceLedger();
         var started = WorldOrderExecutionSession.TryStart(
-            demand.Id, board, book, admission, roster, 1_000, ledger, () => 17);
+            demand.Id, board, book, admission, roster, 1_000, ledger, () => 17,
+            jarTransferPort: null,
+            transferFaultPort: null,
+            slaveRollbackFaultPort: null,
+            settlementFaultPort: settlementFaultPort);
         Assert.True(started.Success, started.Reason);
         started.Session!.AdvanceLogicalTime(1_000);
         Assert.Equal(WorldOrderExecutionStage.SlaveSteps, started.Session.Stage);
         var scopes = admission.GetLiquidScopes(demand.Id)!.Value;
         Assert.Equal(1, scopes.Slave!.GetAmount("酒"));
-        return new SettlementScenario(demand, board, book, roster, admission, reservations, ship, ledger);
+        return new SettlementScenario(
+            demand, board, book, roster, admission, reservations, ship, ledger, started.Session!);
     }
 
     private static void ReevaluateWithShip(
@@ -969,6 +987,49 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal("rollback-ship", AccountIdentity.ParseV2(liquidReturn.ToEndpoint.AccountId!).Owner.LocalOwnerId);
     }
 
+
+    [Fact]
+    public void SettlementCompensationFailureFreezesRuntimeAndPreservesActiveOrderLease()
+    {
+        var setup = PrepareSettlementScenario(
+            settlementFaultPort: new ThrowAtSettlementBoundary("master-drain", failCompensation: true));
+        var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
+        Assert.True(scopes.Master.Staging.TryReceiveExact(
+            setup.Demand.Id, "酒", 1, out var masterGrant), masterGrant.Reason);
+
+        var runtime = CreateRuntime(setup.Board, setup.Roster, setup.Ledger, () => 17);
+        Assert.True(runtime.RegisterExecutionSession(setup.Session));
+        var lease = setup.Reservations.FindLease(setup.Demand.Id)!;
+        using var suppressSlavePourIn = setup.Roster.Slave!.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：触发订单失败收尾并进入液体结算"
+        });
+
+        var error = Assert.Throws<OrderSettlementTransactionException>(
+            () => runtime.AdvanceWorldTime(1_000));
+
+        Assert.Contains("补偿回滚失败", error.Message);
+        Assert.Contains("Injected settlement compensation failure", error.InnerException!.Message);
+        Assert.True(runtime.IsFaulted);
+        Assert.Contains("订单液体结算", runtime.FaultReason);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Same(lease, setup.Reservations.FindLease(setup.Demand.Id));
+        Assert.Equal(1, setup.Reservations.Count);
+        Assert.Equal(OrderResourceSettlementStage.NotStarted, lease.SettlementStage);
+        Assert.Empty(setup.Ledger.For(ResourceCauses.Return));
+        Assert.Empty(setup.Ledger.For(ResourceCauses.Discard));
+        Assert.Empty(scopes.Master.Balance);
+        Assert.Equal(1, scopes.Slave!.GetAmount("酒"));
+        Assert.Equal(1, setup.Ship.GetAmount("酒"));
+
+        var frozenTime = runtime.Clock.WorldTimeMilli;
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
+        Assert.Equal(frozenTime, runtime.Clock.WorldTimeMilli);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Same(lease, setup.Reservations.FindLease(setup.Demand.Id));
+    }
 
     [Theory]
     [InlineData("master-drain")]
