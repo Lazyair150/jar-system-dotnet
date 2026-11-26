@@ -263,6 +263,10 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
     [JsonPropertyName("boardDefinition")] public WorldV2BoardDefinitionSnapshotOptions? BoardDefinition { get; set; }
     [JsonPropertyName("assignments")] public List<WorldV2BoardAssignmentEntryOptions> Assignments { get; set; } = new();
 
+    /// <summary>
+    /// Validates legacy schema 1 and hierarchical schema 2. Schema 2 assignment entries
+    /// carry AreaId/SubAreaId and bind those values to the exact frozen Board Slot.
+    /// </summary>
     public IReadOnlyList<string> Validate(string boardId, int boardVersion, string assignmentFingerprint)
     {
         var errors = new List<string>();
@@ -440,7 +444,9 @@ public sealed class WorldV2BoardSlotSnapshotOptions
 public sealed class WorldV2BoardAssignmentEntryOptions
 {
     [JsonPropertyName("slotId")] public string SlotId { get; set; } = "";
+    /// <summary>Required and fingerprinted for Assignment Snapshot schema 2.</summary>
     [JsonPropertyName("areaId")] public string AreaId { get; set; } = "";
+    /// <summary>Required and fingerprinted for Assignment Snapshot schema 2.</summary>
     [JsonPropertyName("subAreaId")] public string SubAreaId { get; set; } = "none";
     [JsonPropertyName("componentKind")] public string ComponentKind { get; set; } = "";
     [JsonPropertyName("ownedInstanceId")] public string OwnedInstanceId { get; set; } = "";
