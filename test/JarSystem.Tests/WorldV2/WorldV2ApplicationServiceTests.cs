@@ -185,11 +185,18 @@ public sealed class WorldV2ApplicationServiceTests
             "custom.coolant.order", DemandAreaKind.Passive, 0, "custom:template");
 
         var demands = app.GetWorldSnapshot().Demands;
-        Assert.Equal(2, demands.Count);
-        Assert.Contains(demands, item =>
-            item.Id == directId && item.Requirements.Single().Liquid == "coolant");
-        Assert.Contains(demands, item =>
-            item.Id == templateId && item.Requirements.Single().Liquid == "coolant");
+        Assert.Collection(
+            demands,
+            item =>
+            {
+                Assert.Equal(directId, item.Id);
+                Assert.Equal("coolant", Assert.Single(item.Requirements).Liquid);
+            },
+            item =>
+            {
+                Assert.Equal(templateId, item.Id);
+                Assert.Equal("coolant", Assert.Single(item.Requirements).Liquid);
+            });
 
         var imported = app.ImportProducedJars(
             "custom-liquid-parser-batch",
