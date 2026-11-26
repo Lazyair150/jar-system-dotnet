@@ -202,7 +202,7 @@ public sealed class WorldV2ApplicationServiceTests
             "custom-liquid-parser-batch",
             new Dictionary<string, int> { ["圆罐"] = 1 });
         Assert.Equal(1, imported.StoredJarCount);
-        Assert.Equal(1, app.GetWorldSnapshot().ResourceJars.Count);
+        Assert.Single(app.GetWorldSnapshot().ResourceJars);
     }
 
     [Fact]
