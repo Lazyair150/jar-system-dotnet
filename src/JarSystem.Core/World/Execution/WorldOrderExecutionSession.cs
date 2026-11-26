@@ -554,6 +554,13 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             {
                 AdvanceOneUnit();
             }
+            catch (OrderTransferCompensationException)
+            {
+                // Whole-account compensation failed. The physical ownership state is uncertain;
+                // do not run ordinary cleanup, release leases, or remove this session. Runtime
+                // must latch a fault and preserve the exact scene for explicit reconciliation.
+                throw;
+            }
             catch
             {
                 // 领域端口已成功但后置条件违约时，单步执行器会抛 invariant exception。
