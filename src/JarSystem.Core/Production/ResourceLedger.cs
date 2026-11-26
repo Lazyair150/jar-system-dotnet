@@ -61,6 +61,8 @@ public sealed class ResourceEvent
     public string? ResourceIdentity { get; init; }
     /// <summary>产生该事实的幂等操作；普通历史记录与旧事件可为 null。</summary>
     public string? OperationId { get; init; }
+    /// <summary>若事件属于复合资源转移批次，则指向该批次的共同 OperationId。</summary>
+    public string? BatchOperationId { get; init; }
     /// <summary>Legacy display alias; consumers should prefer DisplayName.</summary>
     public string Name { get; init; } = "";
     /// <summary>Localized presentation text; never participates in resource identity or operation fingerprints.</summary>
@@ -101,6 +103,7 @@ public sealed class ResourceLedger
     private readonly List<ResourceEvent> _entries = new();
     private readonly HashSet<string> _operationIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ResourceTransferReceipt> _transferReceipts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ResourceLedgerTransferBatchReceipt> _transferBatchReceipts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _operationFingerprints = new(StringComparer.Ordinal);
     private long _seq;
     private int _dropped;
@@ -138,7 +141,8 @@ public sealed class ResourceLedger
     public ResourceLedgerSnapshot Capture()
     {
         lock (_gate)
-            return new ResourceLedgerSnapshot(Capacity, _seq, Dropped, _entries, _operationIds, _transferReceipts.Values, _operationFingerprints);
+            return new ResourceLedgerSnapshot(Capacity, _seq, Dropped, _entries, _operationIds,
+                _transferReceipts.Values, _operationFingerprints, _transferBatchReceipts.Values);
     }
 
     /// <summary>
@@ -370,6 +374,7 @@ public sealed class ResourceLedger
         Reason = item.Reason,
         ResourceIdentity = item.ResourceIdentity,
         OperationId = item.OperationId,
+        BatchOperationId = item.BatchOperationId,
         FromEndpoint = item.FromEndpoint,
         ToEndpoint = item.ToEndpoint
     };
@@ -689,7 +694,8 @@ public sealed class ResourceLedgerSnapshot
         int capacity, long lastSeq, int dropped, IEnumerable<ResourceEvent> entries,
         IEnumerable<string>? operationIds = null,
         IEnumerable<ResourceTransferReceipt>? transferReceipts = null,
-        IReadOnlyDictionary<string, string>? operationFingerprints = null)
+        IReadOnlyDictionary<string, string>? operationFingerprints = null,
+        IEnumerable<ResourceLedgerTransferBatchReceipt>? transferBatchReceipts = null)
     {
         Capacity = capacity;
         LastSeq = lastSeq;
@@ -713,7 +719,8 @@ public sealed class ResourceLedgerSnapshot
                 ? ResourceEndpoint.ForAccount(item.ToAccountId) : item.ToEndpoint,
             Reason = item.Reason,
             ResourceIdentity = item.ResourceIdentity,
-            OperationId = item.OperationId
+            OperationId = item.OperationId,
+            BatchOperationId = item.BatchOperationId
         }).ToArray());
         OperationIds = Array.AsReadOnly((operationIds ?? Array.Empty<string>())
             .OrderBy(item => item, StringComparer.Ordinal).ToArray());
@@ -723,6 +730,9 @@ public sealed class ResourceLedgerSnapshot
         OperationFingerprints = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
             (operationFingerprints ?? new Dictionary<string, string>())
                 .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal));
+        TransferBatchReceipts = Array.AsReadOnly((transferBatchReceipts ?? Array.Empty<ResourceLedgerTransferBatchReceipt>())
+            .OrderBy(item => item.OperationId, StringComparer.Ordinal)
+            .Select(item => item.DeepCopy()).ToArray());
     }
 
     public int Capacity { get; }
@@ -731,6 +741,7 @@ public sealed class ResourceLedgerSnapshot
     public IReadOnlyList<ResourceEvent> Entries { get; }
     public IReadOnlyList<string> OperationIds { get; }
     public IReadOnlyList<ResourceTransferReceipt> TransferReceipts { get; }
+    public IReadOnlyList<ResourceLedgerTransferBatchReceipt> TransferBatchReceipts { get; }
     public IReadOnlyDictionary<string, string> OperationFingerprints { get; }
     public int Retained => Entries.Count;
 }
