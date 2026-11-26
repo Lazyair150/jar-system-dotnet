@@ -56,8 +56,10 @@ The test asserts both demands are materialized and the produced Jar is stored.
 
 - Source fix commit: `fe0b068c9e80cc232b76c91111d42fa257c227e9`.
 - Regression test commit: `b593f4a2effcd7091f80e1a31d703072c2d5f6b4`.
-- Exact branch head when this record was created: `b593f4a2effcd7091f80e1a31d703072c2d5f6b4`.
-- CI/local execution for this exact head: pending. No pass is claimed yet.
+- First CI run `45859139265` failed at build analysis only: xUnit2013 rejected a collection-count assertion in the new test. The runtime code and Bridge builds passed; the run did not reach a clean xUnit gate.
+- Test assertion was changed to `Assert.Collection` in commit `93f050fabb201c37a4bc1601f45e6c0aaff33cdd`.
+- Exact branch head after analyzer correction: `93f050fabb201c37a4bc1601f45e6c0aaff33cdd`.
+- CI for the corrected head: pending. No pass is claimed yet.
 - Desktop confirmation: pending.
 
 ## Architecture rule
