@@ -182,7 +182,7 @@ public sealed class WorldOrderExecutionSessionTests
             maxJars: 4, maxLiquids: 4, vocabulary: Words,
             ownedInstanceId: withOwnerIdentities ? "slave-owned" : null,
             ownerIdentity: slaveOwner);
-        Assert.True(master.AddJar(new Jar("圆罐", vocabulary: Words)));
+        Assert.True(master.AddJar(new Jar("圆罐", id: 170101, vocabulary: Words)));
         using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
         {
             Operation = "POUR_IN",
