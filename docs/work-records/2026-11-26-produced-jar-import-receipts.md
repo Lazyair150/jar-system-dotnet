@@ -45,3 +45,11 @@ Core 原实现将外部 Jar 导入的操作 ID 与 payload 指纹写入账本，
 - [ ] Space bridge / parser receipt 接入与 probe 同步
 
 只有集中运行后才将测试项改为通过。当前运行环境未检测到 `dotnet`、Godot 可执行文件或已挂载仓库工作树，因此本次无法在该环境启动 .NET/Godot 运行测试；已补齐对应 xUnit / Probe 用例并进行源码契约静态核对。未运行的构建、测试、Godot Probe 或 GUI 试玩不标记为通过。
+
+
+## Space 消费端接入
+
+- Space 分支：`world-v2/phase-4.10b-hangar-ui`。
+- Space 消费端行为实现提交：`ab0a813b17f77f8464bee4ac5ea1cd65c7f3ee07`、`8c56c6efbd56d16ae19249fdeced34a958d3ce10`、`3aba7b180c3f597d82578aef504cd5b10760fe5c`；后续过程记录同步提交为 `888a9126a9ac5d16c5d058e1ddfb92664c1cbc88`、`0ee21ab7b464da6cec7b142009f8e159f6af1364`。
+- Space C# bridge 将 HasExactReceipt 与逐形状 stored/discarded maps 转成 Godot Dictionary；Parser checkpoint v5 / receipt v2 做逐形状守恒校验、duplicate_exact 恢复及 legacy receipt v1 兼容。
+- 对旧聚合回执不伪造 per-shape attribution，单独暴露 perShapeCoreOutcomeHistoryComplete。
