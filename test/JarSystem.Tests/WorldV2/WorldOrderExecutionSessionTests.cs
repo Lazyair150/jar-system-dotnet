@@ -782,7 +782,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Empty(slave.Jars);
         Assert.Equal(1, scopesBefore.Master.GetAmount("酒"));
         Assert.Equal(0, scopesBefore.Slave!.GetAmount("酒"));
-        Assert.Equal(1, ship.GetAmount("酒"), "Failure cleanup refunds the restored source account exactly once.");
+        Assert.Equal(1, ship.GetAmount("酒")); // Failure cleanup refunds the restored source account exactly once.
         Assert.Equal(0, reservations.Count);
         Assert.Empty(ledger.For(ResourceCauses.Transfer));
         Assert.Single(ledger.For(ResourceCauses.Return));
