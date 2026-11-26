@@ -1019,7 +1019,10 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Same(lease, setup.Reservations.FindLease(setup.Demand.Id));
         Assert.Equal(1, setup.Reservations.Count);
         Assert.Equal(OrderResourceSettlementStage.NotStarted, lease.SettlementStage);
-        Assert.Empty(setup.Ledger.For(ResourceCauses.Return));
+        Assert.Single(setup.Ledger.For(ResourceCauses.Return),
+            entry => entry.Kind == ResourceKinds.Jar);
+        Assert.DoesNotContain(setup.Ledger.For(ResourceCauses.Return),
+            entry => entry.Kind == ResourceKinds.Liquid);
         Assert.Empty(setup.Ledger.For(ResourceCauses.Discard));
         Assert.Empty(scopes.Master.Balance);
         Assert.Equal(1, scopes.Slave!.GetAmount("酒"));
