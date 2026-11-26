@@ -368,13 +368,26 @@ internal sealed class OrderService : IOrderExecutionCompletion
 
         if (session.Succeeded)
         {
-            var delivery = event_.Deliver();
+            (bool Success, string? Reason) delivery;
+            try
+            {
+                delivery = event_.Deliver();
+            }
+            catch (SlaveRollbackTransactionException) when (event_.IsTransactionFaulted)
+            {
+                // The rollback/delivery ledger batch may already be durable. Never retry
+                // delivery or turn a partially published projection into a later success.
+                var reason = event_.TransactionFaultReason ?? "B 类交付事务状态不确定，世界需要人工核对。";
+                session.Recorder?.Milestone(ProcessMilestones.Delivery, "交付事务状态不确定：" + reason);
+                RecordTransactionFaultEvent(order, master, effectiveSlave, event_, session, reason);
+                return (false, reason, event_.GetReport(), event_.TransferOccurred, session.Operations);
+            }
+
             session.Recorder?.Milestone(ProcessMilestones.Delivery,
                 delivery.Success ? "交付完成" : "交付失败：" + (delivery.Reason ?? "未给出原因"));
             if (delivery.Success)
-            {
                 _system.NoteOrderCompleted();
-            }
+
             _system.AddEvent(new Dictionary<string, object?>
             {
                 ["type"] = "order_event",
@@ -382,14 +395,24 @@ internal sealed class OrderService : IOrderExecutionCompletion
                 ["master"] = master.Name,
                 ["slave"] = effectiveSlave.Name,
                 ["success"] = delivery.Success,
-                ["timestamp"] = _system.Now.ToString("o"),   // 用"本次意图的时间"（可记录/可回放）
+                ["timestamp"] = _system.Now.ToString("o"),
                 ["operations"] = session.Operations
             });
-            return (delivery.Success, null, event_.GetReport(), event_.TransferOccurred, session.Operations);
+            return (delivery.Success, delivery.Reason, event_.GetReport(), event_.TransferOccurred, session.Operations);
         }
         else
         {
-            event_.Fail(session.Reason);
+            try
+            {
+                event_.Fail(session.Reason);
+            }
+            catch (SlaveRollbackTransactionException) when (event_.IsTransactionFaulted)
+            {
+                var reason = event_.TransactionFaultReason ?? "B 类失败回落事务状态不确定，世界需要人工核对。";
+                RecordTransactionFaultEvent(order, master, effectiveSlave, event_, session, reason);
+                return (false, reason, event_.GetReport(), event_.TransferOccurred, session.Operations);
+            }
+
             _system.AddEvent(new Dictionary<string, object?>
             {
                 ["type"] = "order_event",
@@ -398,11 +421,35 @@ internal sealed class OrderService : IOrderExecutionCompletion
                 ["slave"] = effectiveSlave.Name,
                 ["success"] = false,
                 ["reason"] = session.Reason,
-                ["timestamp"] = _system.Now.ToString("o"),   // 同上
+                ["timestamp"] = _system.Now.ToString("o"),
                 ["operations"] = session.Operations
             });
             return (false, session.Reason, event_.GetReport(), event_.TransferOccurred, session.Operations);
         }
+    }
+
+    private void RecordTransactionFaultEvent(
+        Order order,
+        Workshop master,
+        Workshop slave,
+        OrderEvent orderEvent,
+        OrderExecutionSession session,
+        string reason)
+    {
+        _system.AddEvent(new Dictionary<string, object?>
+        {
+            ["type"] = "order_event",
+            ["order"] = order.Id,
+            ["master"] = master.Name,
+            ["slave"] = slave.Name,
+            ["success"] = false,
+            ["transactionFaulted"] = true,
+            ["orderStatus"] = order.Status,
+            ["reason"] = reason,
+            ["timestamp"] = _system.Now.ToString("o"),
+            ["operations"] = session.Operations,
+            ["event"] = orderEvent.GetReport()
+        });
     }
 
     /// <summary>
