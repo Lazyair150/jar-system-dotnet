@@ -340,9 +340,9 @@ internal sealed class OrderTransferService
 
         // Lease state is part of this physical transaction. Publish it before the ledger so
         // the idempotent batch is the final durable write; compensation restores TransferPending.
-        _faults.BeforeLedgerPublication();
         lease.MarkTransferCommitted();
         lease.MarkSlaveExecuting();
+        _faults.BeforeLedgerPublication();
 
         if (ledger != null && ledgerMutations.Count > 0 &&
             !ledger.RecordBatchOnce(ledgerOperationId, ledgerTick, ledgerMutations))
