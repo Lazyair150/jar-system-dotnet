@@ -107,6 +107,17 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
     }
 
     [Fact]
+    public void ValidateAcceptsVersionTwoFrozenBoardWithProductionDecompositionHierarchy()
+    {
+        var assignment = CreateParserAssignment(subAreaId: "decomposition");
+        assignment.BoardDefinition!.SchemaVersion = 2;
+        assignment.AssignmentFingerprint = assignment.ComputeCanonicalFingerprint();
+        var profile = CreateProfile(assignment);
+
+        Assert.Empty(profile.Validate(assignment));
+    }
+
+    [Fact]
     public void ValidateRejectsParserPlacedDirectlyInProductionWithoutDecompositionSubArea()
     {
         var assignment = CreateParserAssignment(subAreaId: "none");
