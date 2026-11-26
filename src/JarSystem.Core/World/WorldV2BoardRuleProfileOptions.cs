@@ -266,11 +266,27 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
     public IReadOnlyList<string> Validate(string boardId, int boardVersion, string assignmentFingerprint)
     {
         var errors = new List<string>();
-        if (SchemaVersion is not (1 or 2) || BoardId != boardId || DefinitionVersion != boardVersion ||
-            AssignmentFingerprint != assignmentFingerprint || BoardDefinition == null ||
-            BoardDefinition.SchemaVersion is not (1 or 2) || BoardDefinition.BoardId != BoardId ||
-            BoardDefinition.DefinitionVersion != DefinitionVersion || string.IsNullOrWhiteSpace(BoardDefinition.DisplayName))
-            errors.Add("boardRuleProfile assignment snapshot identity does not match its frozen Board");
+        if (SchemaVersion is not (1 or 2))
+            errors.Add("boardAssignmentSnapshot schemaVersion is unsupported: " + SchemaVersion);
+        if (BoardId != boardId)
+            errors.Add("boardAssignmentSnapshot boardId differs from boardRuleProfile");
+        if (DefinitionVersion != boardVersion)
+            errors.Add("boardAssignmentSnapshot definitionVersion differs from boardRuleProfile");
+        if (AssignmentFingerprint != assignmentFingerprint)
+            errors.Add("boardAssignmentSnapshot assignmentFingerprint differs from boardRuleProfile");
+        if (BoardDefinition == null)
+            errors.Add("boardAssignmentSnapshot is missing its frozen Board Definition");
+        else
+        {
+            if (BoardDefinition.SchemaVersion is not (1 or 2))
+                errors.Add("frozen Board Definition schemaVersion is unsupported: " + BoardDefinition.SchemaVersion);
+            if (BoardDefinition.BoardId != BoardId)
+                errors.Add("frozen Board Definition boardId differs from boardAssignmentSnapshot");
+            if (BoardDefinition.DefinitionVersion != DefinitionVersion)
+                errors.Add("frozen Board Definition definitionVersion differs from boardAssignmentSnapshot");
+            if (string.IsNullOrWhiteSpace(BoardDefinition.DisplayName))
+                errors.Add("frozen Board Definition displayName is required");
+        }
         if (Assignments == null || BoardDefinition?.Slots == null)
         {
             errors.Add("board assignment snapshot requires slots and assignment entries");
