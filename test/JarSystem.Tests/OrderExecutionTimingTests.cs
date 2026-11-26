@@ -3,6 +3,7 @@ using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.Process;
 using JarSystem.Core.Services;
 using Xunit;
