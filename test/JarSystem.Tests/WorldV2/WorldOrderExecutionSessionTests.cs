@@ -1284,6 +1284,35 @@ public sealed class WorldOrderExecutionSessionTests
                 progress, board, book, admission, roster, reservations, ledger, () => 17));
         Assert.Contains("Settlement operation receipt", ledgerError.Message);
 
+        // Persist the receipt and its exact ledger fingerprint as separate wire
+        // subgraphs, then verify that the rehydrated pair still agrees byte-for-byte
+        // at the normalized transaction contract (event trimming does not erase it).
+        var expectedSettlementBatch = OrderResourceSettlementService
+            .BuildSettlementLedgerMutations(lease.SettlementReceipt!).ToArray();
+        var pairedLedger = new ResourceLedger(capacity: 1);
+        Assert.True(pairedLedger.RecordBatchOnce(
+            lease.SettlementOperationId, 17, expectedSettlementBatch));
+        var leaseBookJson = WorldV2CheckpointJsonCodec.Encode(
+            new WorldResourceReservationBookWireDto(new[]
+            {
+                OrderResourceLeaseWireDto.FromLease(lease)
+            }), configurationFingerprint: null);
+        var decodedLeaseBook = WorldV2CheckpointJsonCodec
+            .Decode<WorldResourceReservationBookWireDto>(leaseBookJson).Payload;
+        var ledgerWireJson = WorldV2CheckpointJsonCodec.Encode(
+            ResourceLedgerWireDto.FromSnapshot(pairedLedger.Capture()),
+            configurationFingerprint: null);
+        var decodedLedgerWire = WorldV2CheckpointJsonCodec
+            .Decode<ResourceLedgerWireDto>(ledgerWireJson).Payload;
+        decodedLedgerWire.Validate();
+        var pairedRestoredLedger = ResourceLedger.Restore(decodedLedgerWire.ToSnapshot());
+        var pairedRestoredLease = Assert.Single(decodedLeaseBook.Leases);
+        var pairedRestoredReceipt = pairedRestoredLease.ToReceipt()!;
+        Assert.True(pairedRestoredLedger.HasRecordedBatch(
+            pairedRestoredLease.SettlementOperationId,
+            OrderResourceSettlementService.BuildSettlementLedgerMutations(
+                pairedRestoredReceipt)));
+
         // OperationId presence alone is insufficient: bind it to the exact immutable
         // receipt payload before a checkpoint or retry is allowed to trust it.
         var wrongBatch = new[]
