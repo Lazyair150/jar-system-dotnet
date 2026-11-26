@@ -186,7 +186,7 @@ public sealed class WorldV2ApplicationService
                 remainingSlots -= stored;
             }
 
-            var vocabulary = new Vocabulary(context.Shapes, context.Liquids);
+            var vocabulary = new Vocabulary(context.Shapes, context.Liquids, context.LiquidPolarities);
             // JarId is assigned at entity creation, not deferred until the first Workshop admission.
             // Both stored and immediately discarded outputs are therefore individually auditable.
             var storedJars = storedByShape
@@ -502,9 +502,12 @@ public sealed class WorldV2ApplicationService
 
         _host.ExecuteExclusive(context =>
         {
+            // Reuse the exact immutable World mapping. Resource-account keys carry identity only;
+            // they must never be used to infer polarity from names or enumeration order.
             var vocabulary = new Vocabulary(
                 context.Resources.Producers.Generators.Keys,
-                context.Resources.Inventory.LiquidWarehouse.Keys);
+                context.Resources.Inventory.LiquidWarehouse.Keys,
+                context.LiquidPolarities);
             var requirements = requirementInputs.Select(item =>
                 new Requirement { Shape = item.Shape, Liquid = item.Liquid }).ToList();
 
@@ -544,7 +547,7 @@ public sealed class WorldV2ApplicationService
             if (!context.OrderTemplates.TryGet(templateName, out var template))
                 throw new KeyNotFoundException("当前 World v2 未配置订单模板: " + templateName);
 
-            var vocabulary = new Vocabulary(context.Shapes, context.Liquids);
+            var vocabulary = new Vocabulary(context.Shapes, context.Liquids, context.LiquidPolarities);
             var specification = new JarOrderSpecification(
                 template.Instantiate(), template.Type, vocabulary: vocabulary);
             var demand = new OrderDemand(
