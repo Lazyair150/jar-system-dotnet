@@ -38,8 +38,9 @@ Core 原实现将外部 Jar 导入的操作 ID 与 payload 指纹写入账本，
 - [ ] Legacy schema 10 duplicate test must preserve unknown outcome without duplicating physical Jars
 - [ ] WorldV2ApplicationServiceTests 相关用例
 - [ ] ResourceLedgerSnapshotTests
-- [ ] WorldV2CheckpointJsonCodecTests：schema 10 兼容及 schema 11 必需字段
+- [ ] WorldV2CheckpointJsonCodecTests：schema 10 兼容及 schema 11 必需字段（新增 schema 11 缺字段拒绝用例）
 - [ ] Core 整体测试套件
+- [ ] 逐形状回执与实际账本 mutation 不一致时 fail-closed
 - [ ] Space bridge / parser receipt 接入与 probe 同步
 
 只有集中运行后才将测试项改为通过。当前运行环境未检测到 `dotnet`、Godot 可执行文件或已挂载仓库工作树，因此本次无法在该环境启动 .NET/Godot 运行测试；已补齐对应 xUnit / Probe 用例并进行源码契约静态核对。未运行的构建、测试、Godot Probe 或 GUI 试玩不标记为通过。

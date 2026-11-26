@@ -143,6 +143,26 @@ public sealed class WorldV2CheckpointJsonCodecTests
     }
 
     [Fact]
+    public void SchemaElevenExecutionCheckpointRequiresProducedJarImportReceiptArray()
+    {
+        const string json = """
+            {
+              "schemaVersion": 11,
+              "kind": "world-v2-execution-checkpoint",
+              "configurationFingerprint": null,
+              "payload": {
+                "ResourceLedger": {
+                  "TransferBatchReceipts": []
+                }
+              }
+            }
+            """;
+
+        Assert.Throws<JsonException>(
+            () => WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(json));
+    }
+
+    [Fact]
     public void DecodeRejectsUnsupportedSchemaVersion()
     {
         const string json = """
