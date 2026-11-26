@@ -75,6 +75,45 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
     [Fact]
+    public void HasRecordedBatchVerifiesExactPayloadWithoutMutatingLedger()
+    {
+        const string operationId = "world:order:payload-check:settlement";
+        var batch = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Return, ResourceKinds.Liquid,
+                "酒", 2, From: "订单暂存", To: "自机液库"),
+            new ResourceLedgerMutation(ResourceCauses.Discard, ResourceKinds.Liquid,
+                "蜜", 1, From: "订单暂存", Reason: "自机液库总容量不足")
+        };
+        var ledger = new ResourceLedger();
+        Assert.True(ledger.RecordBatchOnce(operationId, 31, batch));
+        var lastSeq = ledger.LastSeq;
+        var entries = ledger.Entries;
+
+        Assert.True(ledger.HasRecordedBatch(operationId, batch));
+        Assert.False(ledger.HasRecordedBatch(operationId, new[]
+        {
+            batch[0],
+            batch[1] with { Amount = 2 }
+        }));
+        Assert.False(ledger.HasRecordedBatch(operationId, new[]
+        {
+            batch[0] with { ResourceIdentity = "蜜" },
+            batch[1]
+        }));
+        Assert.False(ledger.HasRecordedBatch("missing:settlement", batch));
+        Assert.Equal(lastSeq, ledger.LastSeq);
+        Assert.Equal(entries, ledger.Entries);
+
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.True(restored.HasRecordedBatch(operationId, batch));
+        Assert.False(restored.HasRecordedBatch(operationId, new[]
+        {
+            batch[0] with { Amount = 99 }, batch[1]
+        }));
+    }
+
+    [Fact]
     public void InvalidBatchPublishesNeitherPartialEventsNorOperationReceipt()
     {
         var ledger = new ResourceLedger();
