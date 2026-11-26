@@ -166,7 +166,8 @@ public sealed class WorldV2ApplicationService
                 result = context.ResourceLedger.TryGetProducedJarImportReceipt(ledgerOperationId, out var priorReceipt)
                     ? new WorldV2ProducedJarImportResultDto(true,
                         priorReceipt!.SubmittedJarCount, priorReceipt.StoredJarCount,
-                        priorReceipt.DiscardedJarCount, true)
+                        priorReceipt.DiscardedJarCount, true,
+                        priorReceipt.StoredJarCounts, priorReceipt.DiscardedJarCounts)
                     : new WorldV2ProducedJarImportResultDto(true, 0, 0, 0, false);
                 return;
             }
@@ -220,7 +221,8 @@ public sealed class WorldV2ApplicationService
                 result = context.ResourceLedger.TryGetProducedJarImportReceipt(ledgerOperationId, out var racedReceipt)
                     ? new WorldV2ProducedJarImportResultDto(true,
                         racedReceipt!.SubmittedJarCount, racedReceipt.StoredJarCount,
-                        racedReceipt.DiscardedJarCount, true)
+                        racedReceipt.DiscardedJarCount, true,
+                        racedReceipt.StoredJarCounts, racedReceipt.DiscardedJarCounts)
                     : new WorldV2ProducedJarImportResultDto(true, 0, 0, 0, false);
                 return;
             }
@@ -233,7 +235,8 @@ public sealed class WorldV2ApplicationService
             var storedCount = storedByShape.Values.Sum();
             var discardedCount = discardedByShape.Values.Sum();
             result = new WorldV2ProducedJarImportResultDto(
-                false, (int)submittedCount, storedCount, discardedCount, true);
+                false, (int)submittedCount, storedCount, discardedCount, true,
+                storedByShape, discardedByShape);
         });
         return result!;
     }
@@ -767,7 +770,9 @@ public sealed record WorldV2ProducedJarImportResultDto(
     int SubmittedJarCount,
     int StoredJarCount,
     int DiscardedJarCount,
-    bool HasExactReceipt = false);
+    bool HasExactReceipt = false,
+    IReadOnlyDictionary<string, int>? StoredJarCountsByShape = null,
+    IReadOnlyDictionary<string, int>? DiscardedJarCountsByShape = null);
 
 public sealed record WorldV2RequirementInput(string Shape, string? Liquid);
 
