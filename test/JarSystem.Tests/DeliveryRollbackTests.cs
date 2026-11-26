@@ -256,7 +256,6 @@ public class DeliveryRollbackTests
         Assert.Contains("投影发布失败", orderEvent.TransactionFaultReason);
         Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
         Assert.Empty(slave.Jars);
-        Assert.Same(master.Jars.Single(), master.Jars.Single());
         Assert.Equal(new[] { 40 }, master.Jars.Select(jar => jar.Id!.Value));
         var committed = ledger.Entries;
         Assert.Equal(2, committed.Count);
