@@ -1032,6 +1032,49 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Same(lease, setup.Reservations.FindLease(setup.Demand.Id));
     }
 
+    [Fact]
+    public void PostReceiptSettlementFailureFreezesRuntimeAndRetainsLedgerReceiptAndLease()
+    {
+        var setup = PrepareSettlementScenario(
+            settlementFaultPort: new ThrowAtSettlementBoundary("ledger-batch"));
+        var shipBefore = setup.Ship.GetAmount("酒");
+        var scopes = setup.Admission.GetLiquidScopes(setup.Demand.Id)!.Value;
+        var runtime = CreateRuntime(setup.Board, setup.Roster, setup.Ledger, () => 17);
+        Assert.True(runtime.RegisterExecutionSession(setup.Session));
+        var lease = setup.Reservations.FindLease(setup.Demand.Id)!;
+
+        using var suppressSlavePourIn = setup.Roster.Slave!.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：触发结算收据提交后的故障窗口"
+        });
+
+        var error = Assert.Throws<OrderSettlementTransactionException>(
+            () => runtime.AdvanceWorldTime(1_000));
+
+        Assert.Contains("账本/租约释放阶段", error.Message);
+        Assert.True(runtime.IsFaulted);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Same(lease, setup.Reservations.FindLease(setup.Demand.Id));
+        Assert.Equal(1, setup.Reservations.Count);
+        Assert.Equal(OrderResourceSettlementStage.ResourcesReturned, lease.SettlementStage);
+        Assert.NotNull(lease.SettlementReceipt);
+        Assert.True(setup.Ledger.HasRecordedOperation(lease.SettlementOperationId));
+        Assert.Single(setup.Ledger.For(ResourceCauses.Return),
+            entry => entry.Kind == ResourceKinds.Liquid && entry.Name == "酒");
+        Assert.Empty(setup.Ledger.For(ResourceCauses.Discard));
+        Assert.Empty(scopes.Master.Balance);
+        Assert.Empty(scopes.Slave!.Balance);
+        Assert.Equal(shipBefore + 1, setup.Ship.GetAmount("酒"));
+
+        var frozenTime = runtime.Clock.WorldTimeMilli;
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
+        Assert.Equal(frozenTime, runtime.Clock.WorldTimeMilli);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Same(lease, setup.Reservations.FindLease(setup.Demand.Id));
+    }
+
     [Theory]
     [InlineData("master-drain")]
     [InlineData("slave-drain")]
