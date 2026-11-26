@@ -83,7 +83,7 @@ public class DeliveryRollbackTests
                 operationId: "rollback:atomic:21",
                 faults: new ThrowAfterLiquidMoves()));
 
-        Assert.Contains("Injected SlaveRollback failure", error.Message);
+        Assert.Contains("Injected SlaveRollback failure", error.InnerException!.Message);
         Assert.Same(originalMasterJar, Assert.Single(master.Jars));
         Assert.Same(returningJar, Assert.Single(slave.Jars));
         Assert.Equal(1, master.LiquidStorage["蜜"]);
