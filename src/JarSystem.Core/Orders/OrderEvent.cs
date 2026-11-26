@@ -208,8 +208,12 @@ public class OrderEvent : ICommandJournal
     /// 语义细节全部移入 <see cref="SlaveRollback"/>（全集排空 / 禁令边界 / 容量丢弃三件事一处说清）。
     /// </summary>
     public void RollbackSlaveToMaster() =>
-        _rollback.Execute(Master, Slave, AppendLog, _countDiscardedJars, _countDiscardedLiquids,
-            _ledger, _tickOf);
+        _rollback.Execute(
+            Master, Slave, AppendLog, _countDiscardedJars, _countDiscardedLiquids,
+            _ledger, _tickOf,
+            operationId: _ledger == null ? null :
+                "legacy-order:" + Order.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                ":slave-rollback");
 
     public Dictionary<string, object?> GetReport()
     {
