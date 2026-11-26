@@ -118,6 +118,57 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
     }
 
     [Fact]
+    public void ValidateAcceptsVersionTwoAssignmentSnapshotWithExactAreaHierarchy()
+    {
+        var assignment = CreateParserAssignment(subAreaId: "decomposition");
+        assignment.SchemaVersion = 2;
+        foreach (var entry in assignment.Assignments)
+        {
+            if (entry.ComponentKind == "workshop")
+            {
+                entry.AreaId = "workshop";
+                entry.SubAreaId = "none";
+            }
+            else if (entry.ComponentKind == "ore_parser")
+            {
+                entry.AreaId = "production";
+                entry.SubAreaId = "decomposition";
+            }
+        }
+        assignment.AssignmentFingerprint = assignment.ComputeCanonicalFingerprint();
+        var profile = CreateProfile(assignment);
+
+        Assert.Empty(profile.Validate(assignment));
+    }
+
+    [Fact]
+    public void ValidateRejectsVersionTwoAssignmentWithAreaHierarchyDifferentFromFrozenSlot()
+    {
+        var assignment = CreateParserAssignment(subAreaId: "decomposition");
+        assignment.SchemaVersion = 2;
+        foreach (var entry in assignment.Assignments)
+        {
+            if (entry.ComponentKind == "workshop")
+            {
+                entry.AreaId = "workshop";
+                entry.SubAreaId = "none";
+            }
+            else if (entry.ComponentKind == "ore_parser")
+            {
+                entry.AreaId = "workshop";
+                entry.SubAreaId = "none";
+            }
+        }
+        assignment.AssignmentFingerprint = assignment.ComputeCanonicalFingerprint();
+        var profile = CreateProfile(assignment);
+
+        var errors = profile.Validate(assignment);
+
+        Assert.Contains(errors, error =>
+            error.Contains("area hierarchy does not match its exact frozen slot", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateRejectsParserPlacedDirectlyInProductionWithoutDecompositionSubArea()
     {
         var assignment = CreateParserAssignment(subAreaId: "none");
