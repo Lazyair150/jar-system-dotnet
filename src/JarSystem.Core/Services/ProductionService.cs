@@ -112,10 +112,14 @@ internal sealed class ProductionService
 
     private static ResourceEndpoint WorkshopEndpoint(Workshop workshop, string accountKind)
     {
-        var owner = workshop.OwnerIdentity;
-        return owner.HasValue
-            ? ResourceEndpoint.ForAccount(new RuleResourceAccount(owner.Value, accountKind).AccountId)
-            : ResourceEndpoint.LegacyUnknown;
+        if (workshop.OwnerIdentity is { } owner)
+            return ResourceEndpoint.ForAccount(new RuleResourceAccount(owner, accountKind).AccountId);
+        // A legacy host may have an exact persisted local instance ID without a World map.
+        // Preserve that explicit identity; never derive an owner from Name, list position or role.
+        if (!string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
+            return ResourceEndpoint.ForAccount(
+                new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId);
+        return ResourceEndpoint.LegacyUnknown;
     }
 
     // ============================================================
