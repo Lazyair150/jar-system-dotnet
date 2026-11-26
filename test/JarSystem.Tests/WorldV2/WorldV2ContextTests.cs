@@ -139,13 +139,16 @@ public sealed class WorldV2ContextTests
             jarTransferPort: null,
             transferFaultPort: new ThrowAfterJarMoveAndCompensationFailure());
         Assert.True(started.Success, started.Reason);
-        Assert.True(world.Runtime.RegisterExecutionSession(started.Session!));
+        Assert.Contains(170201, started.Session!.CaptureProgress().Manifest.TransferJarIds);
+        Assert.True(world.Runtime.RegisterExecutionSession(started.Session));
         var lease = world.Reservations.FindLease(demand.Id)!;
 
         var error = Assert.ThrowsAny<AggregateException>(
             () => world.Runtime.AdvanceWorldTime(1_000));
 
         Assert.Contains("全量补偿失败", error.Message);
+        Assert.Empty(master.Jars);
+        Assert.Equal(170201, Assert.Single(slave.Jars).Id);
         Assert.True(world.Runtime.IsFaulted);
         Assert.Single(world.Runtime.ActiveExecutionSessions);
         Assert.Same(lease, world.Reservations.FindLease(demand.Id));
