@@ -15,7 +15,7 @@ namespace JarSystem.Core.World;
 /// </summary>
 public static class WorldV2CheckpointJsonCodec
 {
-    public const int CurrentSchemaVersion = 9;
+    public const int CurrentSchemaVersion = 10;
     public const string CurrentKind = "world-v2-execution-checkpoint";
 
     private static readonly Regex FingerprintPattern =
@@ -47,6 +47,20 @@ public static class WorldV2CheckpointJsonCodec
         global::JarSystem.Core.Domain.WorldInstanceId? legacyMigrationWorldInstanceId = null)
     {
         var envelope = Decode<WorldV2ExecutionCheckpointWireDto>(json);
+        if (envelope.SchemaVersion >= 10)
+        {
+            using var document = JsonDocument.Parse(json, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = 128
+            });
+            if (!document.RootElement.TryGetProperty("payload", out var payloadElement) ||
+                !payloadElement.TryGetProperty("ResourceLedger", out var ledgerElement) ||
+                !ledgerElement.TryGetProperty("TransferBatchReceipts", out var batchReceiptsElement) ||
+                batchReceiptsElement.ValueKind != JsonValueKind.Array)
+                throw new JsonException("Schema 10+ resource ledger must carry the TransferBatchReceipts array.");
+        }
         var ledgerEvents = envelope.Payload.ResourceLedger?.Events;
         if (envelope.SchemaVersion >= 8 &&
             (ledgerEvents == null || ledgerEvents.Any(item =>
@@ -128,7 +142,7 @@ public static class WorldV2CheckpointJsonCodec
         // Schemas 3-5 predate WorldInstanceId; schema 6 predates the owner map;
         // schema 7 predates tagged endpoints; schema 8 predates DisplayName.
         // Missing identities/provenance remain explicitly unknown; never infer them from names or fingerprints.
-        if (version is not (3 or 4 or 5 or 6 or 7 or 8 or CurrentSchemaVersion))
+        if (version is not (3 or 4 or 5 or 6 or 7 or 8 or 9 or CurrentSchemaVersion))
             throw new NotSupportedException("不支持的检查点 schemaVersion: " + version);
 
         if (!root.TryGetProperty("kind", out var kindElement) ||
