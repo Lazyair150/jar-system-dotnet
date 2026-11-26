@@ -1,0 +1,113 @@
+using System;
+using JarSystem.Core.Domain;
+
+namespace JarSystem.Core.Production;
+
+/// <summary>
+/// Shared fail-closed guard for resource-port transaction participants. It centralizes
+/// account-version revalidation, durable OperationId deduplication, and policy outcomes
+/// so individual participants cannot drift into subtly different commit semantics.
+/// </summary>
+internal static class ResourcePortTransferGuards
+{
+    public const string DuplicateOperationMessage =
+        "This OperationId was already committed; reconcile from the authoritative ledger instead of replaying.";
+
+    public static void ValidateLedgerPair(ResourceLedger? ledger, Func<int>? ledgerTickProvider)
+    {
+        if ((ledger is null) != (ledgerTickProvider is null))
+            throw new ArgumentException("ResourceLedger and its logical tick provider must be supplied together.");
+    }
+
+    /// <summary>
+    /// Construct and validate the final receipt while the physical transaction is still
+    /// compensatable. Callers must publish the ledger batch only after this returns.
+    /// </summary>
+    public static ResourceTransferReceipt CreateCommittedReceipt(
+        ResourceTransferRequest request,
+        ResourcePortPreflight sourceBefore,
+        ResourcePortPreflight targetBefore,
+        ResourcePortPreflight sourceAfter,
+        ResourcePortPreflight targetAfter)
+    {
+        var receipt = new ResourceTransferReceipt(
+            request.OperationId, request.ConnectionId,
+            request.SourcePortId, request.TargetPortId,
+            request.ResourceKind, request.ResourceIdentity,
+            request.SourceAccount, request.TargetAccount,
+            request.Amount, request.Amount, 0, 0,
+            ResourceTransferOutcome.Transferred,
+            sourceBefore.ObservedVersionToken, sourceAfter.ObservedVersionToken,
+            targetBefore.ObservedVersionToken, targetAfter.ObservedVersionToken,
+            "allowed");
+        receipt.Validate();
+        return receipt;
+    }
+
+    /// <summary>
+    /// Returns a no-mutation receipt when commit must stop, or null when both endpoints
+    /// remain allowed at the exact versions captured by Prepare. Duplicate IDs are terminal.
+    /// </summary>
+    public static ResourceTransferReceipt? EvaluateCommitPreflight(
+        ResourceTransferRequest request,
+        ResourcePortPreflight source,
+        ResourcePortPreflight target,
+        ResourceLedger? ledger,
+        Action markDuplicate,
+        Func<ResourceTransferOutcome, string, ResourceTransferReceipt> noMutation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(markDuplicate);
+        ArgumentNullException.ThrowIfNull(noMutation);
+
+        source.Validate();
+        target.Validate();
+
+        if (ledger?.TryGetTransferReceipt(request.OperationId, out var priorReceipt) == true)
+        {
+            if (priorReceipt is null ||
+                priorReceipt.ConnectionId != request.ConnectionId ||
+                priorReceipt.SourcePortId != request.SourcePortId ||
+                priorReceipt.TargetPortId != request.TargetPortId ||
+                priorReceipt.ResourceKind != request.ResourceKind ||
+                priorReceipt.ResourceIdentity != request.ResourceIdentity ||
+                priorReceipt.RequestedAmount != request.Amount ||
+                priorReceipt.SourceAccount != request.SourceAccount ||
+                priorReceipt.TargetAccount != request.TargetAccount ||
+                priorReceipt.SourceVersionBefore != request.ExpectedSourceVersionToken ||
+                priorReceipt.TargetVersionBefore != request.ExpectedTargetVersionToken ||
+                priorReceipt.Outcome != ResourceTransferOutcome.Transferred ||
+                priorReceipt.TransferredAmount != request.Amount)
+            {
+                markDuplicate();
+                throw new InvalidOperationException("OperationId is already bound to a different transfer request.");
+            }
+            return priorReceipt;
+        }
+
+        if (ledger?.HasRecordedOperation(request.OperationId) == true)
+        {
+            markDuplicate();
+            throw new InvalidOperationException(DuplicateOperationMessage);
+        }
+
+        if (source.ObservedVersionToken != request.ExpectedSourceVersionToken ||
+            target.ObservedVersionToken != request.ExpectedTargetVersionToken)
+            return noMutation(ResourceTransferOutcome.Undetermined, "account.version.changed");
+
+        if (source.Decision == RuleDecisionKind.Allowed &&
+            target.Decision == RuleDecisionKind.Allowed)
+            return null;
+
+        var outcome = source.Decision == RuleDecisionKind.Undetermined ||
+            target.Decision == RuleDecisionKind.Undetermined
+            ? ResourceTransferOutcome.Undetermined
+            : ResourceTransferOutcome.Rejected;
+        var reason = source.Decision != RuleDecisionKind.Allowed
+            ? source.ReasonCode
+            : target.ReasonCode;
+        return noMutation(outcome, reason);
+    }
+}

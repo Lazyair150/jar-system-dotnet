@@ -1,0 +1,606 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Solver;
+
+namespace JarSystem.Core.World.Solving;
+
+/// <summary>
+/// 将不可变求解计划解析为执行准入所需的精确资源占用清单。
+/// 这里只解析/验证，不修改世界、不预留资源，也不启动执行。
+/// </summary>
+public sealed class WorldOrderResourceManifest
+{
+    public int DemandId { get; }
+    public string WorldVersion { get; }
+    public bool IsPartitioned { get; }
+    public IReadOnlyList<int> MasterJarIds { get; }
+    public IReadOnlyList<int> TransferJarIds { get; }
+    public IReadOnlyList<int> LockedJarIds { get; }
+    public IReadOnlyDictionary<string, int> MasterInitialLiquidAmounts { get; }
+    public IReadOnlyDictionary<string, int> TransferLiquids { get; }
+    /// <summary>主台路径完成后的实际全部剩余游离液体；仅用于核对主台终态，不代表泵送批次。</summary>
+    public IReadOnlyDictionary<string, int> MasterFinalLiquidBalances { get; }
+    public int MasterStagingPeakCapacity { get; }
+    public int SlaveStagingPeakCapacity { get; }
+
+    private WorldOrderResourceManifest(
+        int demandId, string worldVersion, bool isPartitioned,
+        IEnumerable<int> masterJarIds, IEnumerable<int> transferJarIds,
+        IDictionary<string, int> masterLiquids, IDictionary<string, int> transferLiquids,
+        IDictionary<string, int> masterFinalLiquidBalances,
+        int masterStagingPeakCapacity, int slaveStagingPeakCapacity)
+    {
+        DemandId = demandId;
+        WorldVersion = worldVersion;
+        IsPartitioned = isPartitioned;
+        MasterJarIds = Array.AsReadOnly(masterJarIds.Distinct().OrderBy(x => x).ToArray());
+        TransferJarIds = Array.AsReadOnly(transferJarIds.Distinct().OrderBy(x => x).ToArray());
+        LockedJarIds = Array.AsReadOnly(MasterJarIds.Concat(TransferJarIds).Distinct().OrderBy(x => x).ToArray());
+        MasterInitialLiquidAmounts = Freeze(masterLiquids);
+        TransferLiquids = Freeze(transferLiquids);
+        MasterFinalLiquidBalances = Freeze(masterFinalLiquidBalances);
+        MasterStagingPeakCapacity = masterStagingPeakCapacity;
+        SlaveStagingPeakCapacity = slaveStagingPeakCapacity;
+    }
+
+    internal static WorldOrderResourceManifest RestoreFromWire(
+        int demandId, string worldVersion, bool isPartitioned,
+        IEnumerable<int> masterJarIds, IEnumerable<int> transferJarIds,
+        IReadOnlyDictionary<string, int> masterInitialLiquids,
+        IReadOnlyDictionary<string, int> transferLiquids,
+        IReadOnlyDictionary<string, int> masterFinalLiquids,
+        int masterPeak, int slavePeak)
+    {
+        if (demandId <= 0 || string.IsNullOrWhiteSpace(worldVersion) ||
+            masterJarIds == null || transferJarIds == null ||
+            masterInitialLiquids == null || transferLiquids == null || masterFinalLiquids == null)
+            throw new InvalidOperationException("Wire manifest identity or collections are invalid.");
+        var masterIds = masterJarIds.ToArray();
+        var transferIds = transferJarIds.ToArray();
+        // The sets may overlap: a jar can be processed on the master path and then
+        // transferred to the slave path. LockedJarIds is their union, not a partition.
+        if (masterIds.Any(x => x <= 0) || transferIds.Any(x => x <= 0) ||
+            masterIds.Distinct().Count() != masterIds.Length ||
+            transferIds.Distinct().Count() != transferIds.Length)
+            throw new InvalidOperationException("Wire manifest jar ownership is invalid.");
+        ValidateLiquidMap(masterInitialLiquids, "MasterInitialLiquidAmounts");
+        ValidateLiquidMap(transferLiquids, "TransferLiquids");
+        ValidateLiquidMap(masterFinalLiquids, "MasterFinalLiquidBalances");
+        if (masterPeak < 0 || slavePeak < 0 ||
+            (!isPartitioned && (transferIds.Length != 0 || transferLiquids.Count != 0 || slavePeak != 0)))
+            throw new InvalidOperationException("Wire manifest staging boundary is invalid.");
+        return new WorldOrderResourceManifest(
+            demandId, worldVersion, isPartitioned, masterIds, transferIds,
+            masterInitialLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
+            transferLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
+            masterFinalLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal),
+            masterPeak, slavePeak);
+    }
+
+    public static WorldOrderResourceManifest Create(WorldOrderSolveResult result, WorldSnapshot snapshot) =>
+        CreateCore(result, snapshot, allowResourceVersionChange: false, replay: null);
+
+    /// <summary>
+    /// Creates a Manifest using the policy-aware accepted-output witness produced by ordered replay.
+    /// Rejected or overflowed outputs are not silently reintroduced by generic path simulation.
+    /// </summary>
+    internal static WorldOrderResourceManifest CreateWithReplay(
+        WorldOrderSolveResult result,
+        WorldSnapshot snapshot,
+        WorldOrderOrderedResourceReplayResult replay)
+    {
+        if (replay == null) throw new ArgumentNullException(nameof(replay));
+        return CreateCore(result, snapshot, allowResourceVersionChange: false, replay: replay);
+    }
+
+    /// <summary>
+    /// 在规则与工作台 Profile 未变化时，尝试将旧计划绑定到新的资源快照。
+    /// 只有计划实际使用的 Jar 初态仍一致、液体供给与容量仍足够时才成功。
+    /// </summary>
+    internal static WorldOrderResourceManifest CreateForResourceRebind(
+        WorldOrderSolveResult result, WorldSnapshot snapshot)
+    {
+        if (result == null) throw new ArgumentNullException(nameof(result));
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        if (string.IsNullOrWhiteSpace(result.RuleSetVersion) ||
+            string.IsNullOrWhiteSpace(result.WorkshopProfileVersion) ||
+            !string.Equals(result.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) ||
+            !string.Equals(result.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal))
+            throw new InvalidOperationException("规则集或工作台 Profile 已变化，不能复用旧计划");
+        return CreateCore(result, snapshot, allowResourceVersionChange: true, replay: null);
+    }
+
+    internal static WorldOrderResourceManifest CreateForResourceRebindWithReplay(
+        WorldOrderSolveResult result,
+        WorldSnapshot snapshot,
+        WorldOrderOrderedResourceReplayResult replay)
+    {
+        if (result == null) throw new ArgumentNullException(nameof(result));
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        if (replay == null) throw new ArgumentNullException(nameof(replay));
+        if (string.IsNullOrWhiteSpace(result.RuleSetVersion) ||
+            string.IsNullOrWhiteSpace(result.WorkshopProfileVersion) ||
+            !string.Equals(result.RuleSetVersion, snapshot.RuleSetVersion, StringComparison.Ordinal) ||
+            !string.Equals(result.WorkshopProfileVersion, snapshot.WorkshopProfileVersion, StringComparison.Ordinal))
+            throw new InvalidOperationException("规则集或工作台 Profile 已变化，不能复用旧计划");
+        return CreateCore(result, snapshot, allowResourceVersionChange: true, replay);
+    }
+
+    private static WorldOrderResourceManifest CreateCore(
+        WorldOrderSolveResult result,
+        WorldSnapshot snapshot,
+        bool allowResourceVersionChange,
+        WorldOrderOrderedResourceReplayResult? replay)
+    {
+        if (result == null) throw new ArgumentNullException(nameof(result));
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        if (!result.IsFeasible || result.Plan == null)
+            throw new InvalidOperationException("只有携带计划的 Feasible 结果才能生成资源清单");
+        if (!allowResourceVersionChange &&
+            !string.Equals(result.WorldVersion, snapshot.Version, StringComparison.Ordinal))
+            throw new InvalidOperationException("求解结果与当前世界快照版本不一致");
+        if (snapshot.Master == null)
+            throw new InvalidOperationException("资源清单要求快照中存在主工作台");
+
+        var plan = result.Plan;
+        ValidateUsedMasterJarInputs(plan.MasterSteps, snapshot.Master);
+        var masterFinalJars = plan.MasterSteps.Count == 0
+            ? snapshot.Master.Jars.Select(jar =>
+                new WorldPlanJarState(jar.Id, jar.Shape, jar.Liquid, jar.IsMarked, false)).ToList()
+            : plan.MasterSteps[^1].After!.ToList();
+        var masterIds = snapshot.Master.Jars.Select(x => RequireId(x.Id, "主台快照")).ToHashSet();
+        var masterPathIds = ReadPathJarIds(plan.MasterSteps, masterIds, expectMasterOrigin: false, "主台路径");
+        var transferIds = plan.TransferJarIds.ToArray();
+
+        if (transferIds.Distinct().Count() != transferIds.Length)
+            throw new InvalidOperationException("转移罐子清单包含重复 ID");
+        if (transferIds.Any(id => !masterIds.Contains(id)))
+            throw new InvalidOperationException("转移罐子不属于当前主台快照");
+
+        if (replay != null)
+            return CreateFromOrderedReplay(
+                result, snapshot, plan, masterPathIds, transferIds, masterFinalJars, replay,
+                allowResourceVersionChange);
+
+        Dictionary<string, int> transferLiquids;
+        Dictionary<string, int> masterInitial;
+        Dictionary<string, int> masterFinal;
+        int masterPeak;
+        int slavePeak;
+        if (!plan.IsPartitioned)
+        {
+            if (snapshot.Slave != null && plan.SlaveSteps.Count != 0)
+                throw new InvalidOperationException("单阶段计划不能包含从台路径");
+            if (transferIds.Length != 0 || plan.TransferLiquids.Any(x => x.Value != 0))
+                throw new InvalidOperationException("单阶段计划不能包含资源转移");
+            transferLiquids = new Dictionary<string, int>(StringComparer.Ordinal);
+            masterInitial = RequiredInitialLiquids(plan.MasterSteps, null);
+            var masterSimulation = SimulatePath(plan.MasterSteps, masterInitial);
+            masterFinal = masterSimulation.FinalBalances;
+            masterPeak = masterSimulation.PeakCapacity;
+            slavePeak = 0;
+        }
+        else
+        {
+            if (snapshot.Slave == null)
+                throw new InvalidOperationException("B 类计划要求从台快照");
+            if (snapshot.Slave.Jars.Count != 0 || snapshot.Slave.Liquids.Values.Any(x => x != 0))
+                throw new InvalidOperationException("B 类计划对应的从台快照必须为空");
+
+            var slavePathIds = ReadPathJarIds(
+                plan.SlaveSteps, transferIds.ToHashSet(), expectMasterOrigin: true, "从台路径");
+            if (slavePathIds.Any(id => !transferIds.Contains(id)))
+                throw new InvalidOperationException("从台路径使用了未列入 TransferJarIds 的罐子");
+            ValidateUsedSlaveJarInputs(plan.SlaveSteps, masterFinalJars);
+
+            transferLiquids = RequiredInitialLiquids(plan.SlaveSteps, null);
+            ValidateLiquidMap(plan.TransferLiquids, "TransferLiquids");
+            if (!DictionaryEqual(transferLiquids, plan.TransferLiquids))
+                throw new InvalidOperationException("TransferLiquids 与从台路径重新计算的最低需求不一致");
+
+            masterInitial = RequiredInitialLiquids(plan.MasterSteps, transferLiquids);
+            var masterSimulation = SimulatePath(plan.MasterSteps, masterInitial);
+            masterFinal = masterSimulation.FinalBalances;
+            if (!DictionaryAtLeast(masterFinal, transferLiquids))
+                throw new InvalidOperationException("主台路径结束时的液体余额不足以满足从台路径");
+            masterPeak = masterSimulation.PeakCapacity;
+            // 从台只接收其执行路径所需的最低初始供给；主台额外剩余液体不进入从台容量计算。
+            var slaveSimulation = SimulatePath(plan.SlaveSteps, transferLiquids);
+            slavePeak = slaveSimulation.PeakCapacity;
+        }
+
+        if (snapshot.ShipLiquidInventory != null)
+        {
+            var available = snapshot.ShipLiquidInventory.Balances.ToDictionary(
+                item => item.Key, item => item.Value, StringComparer.Ordinal);
+            foreach (var item in snapshot.MasterPrefillLiquidBalances)
+                available[item.Key] = checked(available.GetValueOrDefault(item.Key) + item.Value);
+            if (!DictionaryAtLeast(available, masterInitial))
+                throw new InvalidOperationException("自机液库与主台预置库存不足以提供订单初始液体供给");
+        }
+        else
+        {
+            var available = snapshot.Master.Liquids.ToDictionary(
+                item => item.Key, item => item.Value, StringComparer.Ordinal);
+            foreach (var item in snapshot.MasterPrefillLiquidBalances)
+                available[item.Key] = checked(available.GetValueOrDefault(item.Key) + item.Value);
+            if (!DictionaryAtLeast(available, masterInitial))
+                throw new InvalidOperationException("主台当前游离液体与预置库存不足以提供订单初始液体供给");
+        }
+
+        if (masterPeak > snapshot.Master.LiquidStagingCapacity)
+            throw new InvalidOperationException("主台液体路径峰值超过当前暂存容量");
+        if (plan.IsPartitioned)
+        {
+            if (snapshot.Slave == null || transferIds.Length > snapshot.Slave.MaxJars)
+                throw new InvalidOperationException("从台罐位不足以接收当前计划");
+            if (slavePeak > snapshot.Slave.LiquidStagingCapacity)
+                throw new InvalidOperationException("从台液体路径峰值超过当前暂存容量");
+        }
+
+        return new WorldOrderResourceManifest(
+            result.DemandId, allowResourceVersionChange ? snapshot.Version : result.WorldVersion, plan.IsPartitioned,
+            masterPathIds, transferIds, masterInitial, transferLiquids,
+            masterFinal, masterPeak, slavePeak);
+    }
+
+    private static WorldOrderResourceManifest CreateFromOrderedReplay(
+        WorldOrderSolveResult result,
+        WorldSnapshot snapshot,
+        WorldOrderSolvePlan plan,
+        HashSet<int> masterPathIds,
+        int[] transferIds,
+        IReadOnlyList<WorldPlanJarState> masterFinalJars,
+        WorldOrderOrderedResourceReplayResult replay,
+        bool allowResourceVersionChange)
+    {
+        if (!replay.IsComplete)
+            throw new InvalidOperationException("有序资源重放未完成，不能生成资源清单");
+        if (replay.MasterAcceptedProducedLiquids.Count != plan.MasterSteps.Count ||
+            replay.SlaveAcceptedProducedLiquids.Count != plan.SlaveSteps.Count)
+            throw new InvalidOperationException("逐步产液接受 witness 与计划步骤数量不一致");
+        ValidateLiquidMap(replay.MasterInitialLiquids, "Replay.MasterInitialLiquids");
+        ValidateLiquidMap(replay.MasterFinalLiquids, "Replay.MasterFinalLiquids");
+        ValidateLiquidMap(replay.TransferLiquids, "Replay.TransferLiquids");
+        ValidateLiquidMap(plan.TransferLiquids, "Plan.TransferLiquids");
+        if (!DictionaryEqual(plan.TransferLiquids, replay.TransferLiquids))
+            throw new InvalidOperationException("计划 TransferLiquids 与有序资源重放边界不一致");
+
+        var masterSimulation = SimulatePath(
+            plan.MasterSteps, replay.MasterInitialLiquids, replay.MasterAcceptedProducedLiquids);
+        if (!DictionaryEqual(masterSimulation.FinalBalances, replay.MasterFinalLiquids) ||
+            masterSimulation.PeakCapacity != replay.MasterStagingPeakCapacity)
+            throw new InvalidOperationException("主台计划逐步液体快照与有序资源重放 witness 不一致");
+
+        Dictionary<string, int> transferLiquids;
+        Dictionary<string, int> masterInitial;
+        Dictionary<string, int> masterFinal;
+        int masterPeak;
+        int slavePeak;
+
+        if (!plan.IsPartitioned)
+        {
+            if (snapshot.Slave != null && plan.SlaveSteps.Count != 0)
+                throw new InvalidOperationException("单阶段计划不能包含从台路径");
+            if (transferIds.Length != 0 || replay.TransferLiquids.Count != 0 ||
+                replay.SlaveBoundaryGroup != null)
+                throw new InvalidOperationException("单阶段计划不能包含主从交接资源");
+            transferLiquids = new Dictionary<string, int>(StringComparer.Ordinal);
+            masterInitial = replay.MasterInitialLiquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+            masterFinal = masterSimulation.FinalBalances;
+            masterPeak = masterSimulation.PeakCapacity;
+            slavePeak = 0;
+        }
+        else
+        {
+            if (snapshot.Slave == null || replay.SlaveBoundaryGroup == null)
+                throw new InvalidOperationException("B 类计划要求从台快照与资源边界 witness");
+            if (snapshot.Slave.Jars.Count != 0 || snapshot.Slave.Liquids.Values.Any(x => x != 0))
+                throw new InvalidOperationException("B 类计划对应的从台快照必须为空");
+
+            var slavePathIds = ReadPathJarIds(
+                plan.SlaveSteps, transferIds.ToHashSet(), expectMasterOrigin: true, "从台路径");
+            if (slavePathIds.Any(id => !transferIds.Contains(id)))
+                throw new InvalidOperationException("从台路径使用了未列入 TransferJarIds 的罐子");
+            ValidateUsedSlaveJarInputs(plan.SlaveSteps, masterFinalJars);
+
+            transferLiquids = replay.TransferLiquids.ToDictionary(
+                x => x.Key, x => x.Value, StringComparer.Ordinal);
+            masterInitial = replay.MasterInitialLiquids.ToDictionary(
+                x => x.Key, x => x.Value, StringComparer.Ordinal);
+            masterFinal = masterSimulation.FinalBalances;
+            if (!DictionaryAtLeast(masterFinal, transferLiquids))
+                throw new InvalidOperationException("主台路径结束时的液体余额不足以满足从台路径");
+
+            var slaveSimulation = SimulatePath(
+                plan.SlaveSteps, transferLiquids, replay.SlaveAcceptedProducedLiquids);
+            if (slaveSimulation.PeakCapacity != replay.SlaveStagingPeakCapacity)
+                throw new InvalidOperationException("从台计划逐步液体快照与有序资源重放峰值不一致");
+            slavePeak = slaveSimulation.PeakCapacity;
+            masterPeak = masterSimulation.PeakCapacity;
+        }
+
+        var available = snapshot.ShipLiquidInventory == null
+            ? snapshot.Master!.Liquids.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal)
+            : snapshot.ShipLiquidInventory.Balances.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+        foreach (var item in snapshot.MasterPrefillLiquidBalances)
+            available[item.Key] = checked(available.GetValueOrDefault(item.Key) + item.Value);
+        if (!DictionaryAtLeast(available, masterInitial))
+            throw new InvalidOperationException("自机液库与主台预置库存不足以提供订单初始液体供给");
+
+        if (masterPeak > snapshot.Master!.LiquidStagingCapacity)
+            throw new InvalidOperationException("主台液体路径峰值超过当前暂存容量");
+        if (plan.IsPartitioned)
+        {
+            if (transferIds.Length > snapshot.Slave!.MaxJars)
+                throw new InvalidOperationException("从台罐位不足以接收当前计划");
+            if (slavePeak > snapshot.Slave.LiquidStagingCapacity)
+                throw new InvalidOperationException("从台液体路径峰值超过当前暂存容量");
+        }
+
+        return new WorldOrderResourceManifest(
+            result.DemandId,
+            allowResourceVersionChange ? snapshot.Version : result.WorldVersion,
+            plan.IsPartitioned,
+            masterPathIds,
+            transferIds,
+            masterInitial,
+            transferLiquids,
+            masterFinal,
+            masterPeak,
+            slavePeak);
+    }
+
+    private static void ValidateUsedMasterJarInputs(
+        IReadOnlyList<WorldPlanStep> steps, WorkshopSolveSnapshot master)
+    {
+        if (steps.Count == 0) return;
+        var initial = steps[0].Before.ToDictionary(
+            jar => RequireId(jar.Id, "主台计划初态"), jar => jar);
+        var current = master.Jars.ToDictionary(
+            jar => RequireId(jar.Id, "主台当前快照"), jar => jar);
+        var usedIds = steps.Select(step =>
+        {
+            ValidateStep(step, "主台路径");
+            return RequireId(step.Before[step.Operation!.JarIndex!.Value].Id, "主台路径");
+        }).Distinct().ToArray();
+
+        foreach (var id in usedIds)
+        {
+            if (!initial.TryGetValue(id, out var planned) ||
+                !current.TryGetValue(id, out var actual) ||
+                planned.Shape != actual.Shape ||
+                planned.Liquid != actual.Liquid ||
+                planned.IsMarked != actual.IsMarked)
+                throw new InvalidOperationException("主台计划依赖的 Jar 初态已变化：#" + id);
+        }
+    }
+
+    private static void ValidateUsedSlaveJarInputs(
+        IReadOnlyList<WorldPlanStep> steps, IReadOnlyList<WorldPlanJarState> masterFinal)
+    {
+        if (steps.Count == 0) return;
+        var plannedInitial = steps[0].Before.ToDictionary(
+            jar => RequireId(jar.Id, "从台计划初态"), jar => jar);
+        var masterFinalById = masterFinal.ToDictionary(
+            jar => RequireId(jar.Id, "主台终态"), jar => jar);
+        var usedIds = steps.Select(step =>
+        {
+            ValidateStep(step, "从台路径");
+            return RequireId(step.Before[step.Operation!.JarIndex!.Value].Id, "从台路径");
+        }).Distinct().ToArray();
+
+        foreach (var id in usedIds)
+        {
+            if (!plannedInitial.TryGetValue(id, out var planned) ||
+                !masterFinalById.TryGetValue(id, out var actual) ||
+                !planned.MasterOrigin ||
+                planned.Shape != actual.Shape ||
+                planned.Liquid != actual.Liquid ||
+                planned.IsMarked != actual.IsMarked)
+                throw new InvalidOperationException("从台计划依赖的转移 Jar 终态已变化：#" + id);
+        }
+    }
+
+    private static HashSet<int> ReadPathJarIds(
+        IReadOnlyList<WorldPlanStep> steps, HashSet<int> allowedIds,
+        bool expectMasterOrigin, string pathName)
+    {
+        var ids = new HashSet<int>();
+        foreach (var step in steps)
+        {
+            ValidateStep(step, pathName);
+            var index = step.Operation!.JarIndex!.Value;
+            var jar = step.Before[index];
+            var id = RequireId(jar.Id, pathName);
+            if (!allowedIds.Contains(id))
+                throw new InvalidOperationException(pathName + "引用了不属于对应工作台/转移集合的罐子");
+            if (expectMasterOrigin && !jar.MasterOrigin)
+                throw new InvalidOperationException("从台路径引用的罐子未标记为主台来源");
+            if (!expectMasterOrigin && jar.MasterOrigin)
+                throw new InvalidOperationException("主台路径不能引用主台来源转移投影");
+            ids.Add(id);
+        }
+        return ids;
+    }
+
+    private static void ValidateStep(WorldPlanStep step, string pathName)
+    {
+        if (step == null || step.Operation == null || !step.Operation.JarIndex.HasValue)
+            throw new InvalidOperationException(pathName + "存在缺少操作或 JarIndex 的步骤");
+        var op = step.Operation;
+        var before = step.Before;
+        var after = step.After;
+        var index = op.JarIndex.Value;
+        if (before.Count == 0 || before.Count != after.Count || index < 0 || index >= before.Count)
+            throw new InvalidOperationException(pathName + "的 JarIndex 或 Before/After 长度无效");
+
+        for (var i = 0; i < before.Count; i++)
+        {
+            if (before[i].Id != after[i].Id || before[i].MasterOrigin != after[i].MasterOrigin)
+                throw new InvalidOperationException(pathName + "的步骤改变了罐子身份或来源标记");
+            if (i != index && (before[i].Shape != after[i].Shape ||
+                before[i].Liquid != after[i].Liquid || before[i].IsMarked != after[i].IsMarked))
+                throw new InvalidOperationException(pathName + "的步骤意外修改了非目标罐子");
+        }
+
+        var source = before[index];
+        var target = after[index];
+        var expected = new Dictionary<string, int>(StringComparer.Ordinal);
+        switch (op.Type)
+        {
+            case "MATCH":
+                if (source.Shape != target.Shape || source.Liquid != target.Liquid || !target.IsMarked)
+                    throw new InvalidOperationException("MATCH 的状态变化不符合求解器语义");
+                break;
+            case "POUR_IN":
+                if (source.Liquid != null || string.IsNullOrWhiteSpace(op.TargetLiquid) ||
+                    target.Liquid != op.TargetLiquid || source.Shape != target.Shape || !target.IsMarked)
+                    throw new InvalidOperationException("POUR_IN 的状态变化不符合求解器语义");
+                expected[op.TargetLiquid] = 1;
+                break;
+            case "POUR_OUT":
+                if (source.Liquid == null || target.Liquid != null ||
+                    source.Shape != target.Shape || !target.IsMarked)
+                    throw new InvalidOperationException("POUR_OUT 的状态变化不符合求解器语义");
+                break;
+            case "RESHAPE":
+                if (string.IsNullOrWhiteSpace(op.TargetShape) || target.Shape != op.TargetShape ||
+                    !target.IsMarked || target.Liquid != null)
+                    throw new InvalidOperationException("RESHAPE 的状态变化不符合求解器语义");
+                if (op.FullReshape)
+                {
+                    if (source.Liquid == null || op.CostLiquid != source.Liquid)
+                        throw new InvalidOperationException("满罐改形必须消耗罐内原液体");
+                    // Consumed is the operation's full material-consumption witness.
+                    // This amount is Jar-internal and must not enter the free-liquid
+                    // staging ledger (SimulatePath deliberately does not debit it).
+                    expected[source.Liquid] = 1;
+                }
+                else
+                {
+                    if (source.Liquid != null || string.IsNullOrWhiteSpace(op.CostLiquid))
+                        throw new InvalidOperationException("空罐改形必须消耗游离液体");
+                    expected[op.CostLiquid] = 1;
+                }
+                break;
+            default:
+                throw new InvalidOperationException("未知求解操作类型: " + op.Type);
+        }
+
+        ValidateLiquidMap(op.Consumed, pathName + ".Consumed");
+        if (!DictionaryEqual(expected, op.Consumed))
+            throw new InvalidOperationException(pathName + "的 Consumed 与操作真实液体语义不一致");
+    }
+
+    private static (Dictionary<string, int> FinalBalances, int PeakCapacity) SimulatePath(
+        IReadOnlyList<WorldPlanStep> steps,
+        IReadOnlyDictionary<string, int> initial,
+        IReadOnlyList<string?>? acceptedProducedLiquids = null)
+    {
+        if (acceptedProducedLiquids != null && acceptedProducedLiquids.Count != steps.Count)
+            throw new InvalidOperationException("逐步产液接受 witness 与模拟路径长度不一致");
+
+        var balances = initial.Where(x => x.Value > 0)
+            .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+        var peak = ShipLiquidInventory.TotalAmount(balances);
+        for (var index = 0; index < steps.Count; index++)
+        {
+            var step = steps[index];
+            ValidateStep(step, "液体路径");
+            var op = step.Operation!;
+            var accepted = acceptedProducedLiquids == null ? null : acceptedProducedLiquids[index];
+            if (op.Type == "POUR_IN")
+                Add(balances, op.TargetLiquid!, -1);
+            else if (op.Type == "RESHAPE" && !op.FullReshape)
+                Add(balances, op.CostLiquid!, -1);
+            else if (op.Type == "POUR_OUT")
+            {
+                var produced = step.Before[op.JarIndex!.Value].Liquid!;
+                if (acceptedProducedLiquids == null || accepted == produced)
+                    Add(balances, produced, 1);
+                else if (accepted != null)
+                    throw new InvalidOperationException("产液接受 witness 与 POUR_OUT 源液体不一致");
+            }
+            else if (accepted != null)
+            {
+                throw new InvalidOperationException("非产液步骤不能拥有已接受产液 witness");
+            }
+
+            if (balances.Values.Any(x => x < 0))
+                throw new InvalidOperationException("路径模拟出现负液体余额");
+            foreach (var key in balances.Where(x => x.Value == 0).Select(x => x.Key).ToArray())
+                balances.Remove(key);
+            peak = Math.Max(peak, ShipLiquidInventory.TotalAmount(balances));
+
+            if (acceptedProducedLiquids != null && !DictionaryEqual(step.AfterLiquids, balances))
+                throw new InvalidOperationException("步骤 AfterLiquids 与策略感知重放结果不一致");
+        }
+        return (balances, peak);
+    }
+
+    private static bool DictionaryAtLeast(
+        IReadOnlyDictionary<string, int> actual, IReadOnlyDictionary<string, int> required) =>
+        required.All(x => actual.GetValueOrDefault(x.Key) >= x.Value);
+
+    // 计算路径任意前缀的最大净消耗；追加 transfer 量可确保主台执行完后仍能供给从台。
+    private static Dictionary<string, int> RequiredInitialLiquids(
+        IReadOnlyList<WorldPlanStep> steps, IReadOnlyDictionary<string, int>? requiredAtEnd)
+    {
+        var net = new Dictionary<string, int>(StringComparer.Ordinal);
+        var peak = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var step in steps)
+        {
+            ValidateStep(step, "液体路径");
+            var op = step.Operation!;
+            if (op.Type == "POUR_IN")
+                Add(net, op.TargetLiquid!, 1);
+            else if (op.Type == "RESHAPE" && !op.FullReshape)
+                Add(net, op.CostLiquid!, 1);
+            else if (op.Type == "POUR_OUT")
+            {
+                var liquid = step.Before[op.JarIndex!.Value].Liquid!;
+                Add(net, liquid, -1);
+            }
+
+            foreach (var item in net)
+                peak[item.Key] = Math.Max(peak.GetValueOrDefault(item.Key), item.Value);
+        }
+
+        if (requiredAtEnd != null)
+        {
+            foreach (var item in requiredAtEnd)
+                peak[item.Key] = Math.Max(peak.GetValueOrDefault(item.Key), net.GetValueOrDefault(item.Key) + item.Value);
+        }
+
+        foreach (var key in peak.Keys.ToArray())
+            peak[key] = Math.Max(0, peak[key]);
+        return peak;
+    }
+
+    private static void Add(Dictionary<string, int> values, string key, int amount) =>
+        values[key] = checked(values.GetValueOrDefault(key) + amount);
+
+    private static int RequireId(int? id, string source) =>
+        id is > 0 ? id.Value : throw new InvalidOperationException(source + "包含没有有效 ID 的罐子");
+
+    private static void ValidateLiquidMap(IReadOnlyDictionary<string, int> values, string name)
+    {
+        if (values.Any(x => string.IsNullOrWhiteSpace(x.Key) || x.Value < 0))
+            throw new InvalidOperationException(name + "包含无效液体名称或负数数量");
+    }
+
+    private static bool DictionaryEqual(
+        IReadOnlyDictionary<string, int> left, IReadOnlyDictionary<string, int> right)
+    {
+        var keys = left.Keys.Concat(right.Keys).Distinct(StringComparer.Ordinal);
+        return keys.All(key => left.GetValueOrDefault(key) == right.GetValueOrDefault(key));
+    }
+
+    private static IReadOnlyDictionary<string, int> Freeze(IDictionary<string, int> values) =>
+        new ReadOnlyDictionary<string, int>(
+            values.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal));
+}

@@ -1,3 +1,4 @@
+' HISTORICAL / LEGACY: this sequence describes the pre-World-V2 OrderService/OrderExecutor pipeline. It is not the authoritative World V2 mixed-role B-class schedule. Current contract: docs/world-v2/order-funnel-and-workshop-replacement-contract.md and docs/world-v2/circuit-system-model-and-bounded-resource-routing.md.
 @startuml
 title B 类订单执行链路（端到端）
 ' ============================================================

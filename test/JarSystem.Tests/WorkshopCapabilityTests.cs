@@ -19,9 +19,8 @@ namespace JarSystem.Tests;
 /// 否则它会变成一个能凭空毁掉世界的后门：
 ///
 /// 1 **改了就生效** —— 不只是字段变了，实际操作判定跟着变（PourIn 的依据就是基础标记）。
-/// 2 **拒绝不能靠嘴** —— 词表外的形状/液体、以及「新禁令会锁死池里已有的液体」都必须当场拒绝，
-///    后者尤其关键：`IsBanned` 同时挡 PourIn / PourOut / 空罐改形成本 / 满罐自耗，
-///    池里存着该液体时它就再也倒不出来，世界立刻违反 `BANNED-LIQUID-STORED`（WorldInvariants 会抓到）。
+/// 2 **拒绝不能靠嘴** —— 词表外的形状/液体，以及「新禁令命中当前游离液体库存」都必须当场拒绝，
+///    因为 Ban 约束工作台暂存账户；它不限制 Jar 内部液体，也不阻止 Jar 自耗或迁移。
 /// 3 **被拒绝的改动必须什么都没发生** —— 世界不变、命令日志也不留一条（否则回放会重放一次"没成功的意图"）。
 /// </summary>
 public class WorkshopCapabilityTests
@@ -97,26 +96,23 @@ public class WorkshopCapabilityTests
     }
 
     [Fact]
-    public void BanningALiquidThatIsStillInThePoolIsAllowedAndOnlyBlocksUse()
+    public void BanningALiquidThatIsStillInThePoolIsRejectedAtomically()
     {
-        // 2026-11 语义变更后，这是一个**合法且有意义的局面**：那 2 份蜜留在那一格里，
-        // 只是取不出来；解开禁令就又能用。旧守卫依据的 BANNED-LIQUID-STORED 已随语义一起删除。
         var sys = NewSystem();
         var bench = sys.Workshops[0];
         bench.AddLiquid("蜜", 2);
+        var beforeLog = sys.CommandLog.Count;
+        var beforeCapability = bench.Capability;
 
-        sys.SetWorkshopCapability(0, ban: new List<string> { "蜜" });
+        var ex = Assert.Throws<DomainValidationException>(() =>
+            sys.SetWorkshopCapability(0, ban: new List<string> { "蜜" }));
 
-        Assert.True(bench.IsBanned("蜜"));
-        Assert.Equal(2, bench.LiquidStorage["蜜"]);        // 液体还在（那一格仍然存在）
-        Assert.False(bench.HasUsableLiquid("蜜"));        // 但取不出来
-        Assert.Equal("工作台禁" + "蜜", bench.CheckLiquid("蜜").Reason);
-        Assert.Empty(WorldInvariants.Check(sys));         // 这是自洽的世界，不是违规
-
-        // 解开禁令后立刻恢复可用 —— 说明"禁"是可逆的规则，不是一次性销毁
-        sys.SetWorkshopCapability(0, ban: new List<string>());
+        Assert.Contains("仍存有游离液体", ex.Message);
+        Assert.Equal(2, bench.LiquidStorage["蜜"]);
         Assert.False(bench.IsBanned("蜜"));
-        Assert.True(bench.HasUsableLiquid("蜜"));
+        Assert.Same(beforeCapability, bench.Capability);
+        Assert.Equal(beforeLog, sys.CommandLog.Count);
+        Assert.Empty(WorldInvariants.Check(sys));
     }
 
     [Fact]

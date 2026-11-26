@@ -132,7 +132,7 @@ public class WorldInvariantTests
         var sys = NewSystem();
         sys.SetMasterIndex(0);
         sys.SetSlaveIndex(1);
-        sys.Workshops[1].AddLiquid("酒", 1);
+        sys.Workshops[1].AddLiquid("蜜", 1);
 
         var violations = WorldInvariants.Check(sys);
 

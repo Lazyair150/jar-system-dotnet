@@ -69,31 +69,24 @@ public class LiquidGrantTests
     }
 
     [Fact]
-    public void StorageIgnoresTheBanWhileUseDoesNot()
+    public void StorageAndUseBothRespectTheWorkshopBan()
     {
-        // 2026-11 定案：禁令约束的是**取用**，不是**存储**。
-        // 被禁的液体能流进来、能留在池子里（那一格仍然存在），只是取不出来。
         var w = Bench(new List<string> { "酒" });
 
-        Assert.True(w.CanStoreLiquid("酒", 1).Granted);          // 存得进
-        Assert.True(w.AddLiquid("酒", 2));                       // 真的存进去了
-        Assert.Equal(2, w.LiquidStorage["酒"]);
-
-        Assert.False(w.HasUsableLiquid("酒"));                   // 但一点也用不了
+        Assert.Equal("banned", w.CanStoreLiquid("酒", 1).Code);
+        Assert.False(w.AddLiquid("酒", 2));
+        Assert.Equal(0, w.LiquidStorage["酒"]);
         Assert.Equal("banned", w.CanUseLiquid("酒", 1).Code);
         Assert.Equal("工作台禁酒", w.CheckLiquid("酒").Reason);
-
-        // 而"放不下"仍然是容量的事，与禁令无关
-        Assert.Equal("over-capacity", w.CanStoreLiquid("酒", 1).Code);
     }
 
     [Fact]
-    public void OperationFailureReasonsAreUnchanged()
+    public void BannedCategoryBlocksPourInButSamePolarityJarCanSelfConsume()
     {
         // 这一步是纯重构：对外说的话必须逐字不变，否则回放与接口的可见行为就漂了。
         var w = Bench(new List<string> { "酒" });
         w.AddLiquid("蜜", 2);
-        var bomb = new Jar("圆罐", "酒", null, Vocab);
+        var bomb = new Jar("圆罐", "蜜", null, Vocab);
 
         w.AddJar(new Jar("圆罐", null, null, Vocab));
         var empty = w.Jars[0];
@@ -107,9 +100,11 @@ public class LiquidGrantTests
 
         w.AddJar(bomb);
         var fullBanned = w.TryReshape(bomb, "方罐", ReshapeMode.Full);
-        Assert.False(fullBanned.Success);
-        Assert.Equal("工作台禁酒", fullBanned.Reason);
-        Assert.Equal("酒", bomb.Liquid);                     // 被拒时液体放回罐里
+        Assert.True(fullBanned.Success, fullBanned.Reason);
+        Assert.Null(bomb.Liquid);                            // 同极 Jar 自耗仍从 Jar 自有账户扣除
+        Assert.Equal("方罐", bomb.Shape);
+        Assert.True(bomb.IsMarked);
+        Assert.Equal(2, w.LiquidStorage.GetValueOrDefault("蜜"));
     }
 
     [Fact]

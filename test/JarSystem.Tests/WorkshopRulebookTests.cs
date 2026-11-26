@@ -17,11 +17,105 @@ namespace JarSystem.Tests;
 /// 以及最初那 105 例错杀。这类错误不会让任何单测变红，只会让某一个入口悄悄宽松或严格。
 /// 对拍是唯一能自动抓住它的形状。</para>
 ///
-/// <para>注意本测试**不要求**求解器调用规则表（求解器走热路径、自己知道规则即可）。
-/// 它只要求"任何一方改动规则时另一方不会悄悄漂移"——这正是把口头约定换成可执行断言的地方。</para>
+/// <para>StateSpaceSolver 现在也通过 WorkshopRulebook 评估四种操作；本测试继续固定规则表与真实 Workshop
+/// 执行结果一致。它是规则权威入口重构的差分基线，后续执行门面也会收敛到同一契约。</para>
 /// </summary>
 public class WorkshopRulebookTests
 {
+    private static JarFacts DefaultFacts(string shape, string? liquid, bool isMarked) =>
+        new(shape, liquid, isMarked, JarPolarityResolver.Resolve(liquid, JarSystem.Core.Config.Vocabulary.Default));
+
+
+    [Fact]
+    public void RuleVersionsTrackTheWorkshopRuleContract()
+    {
+        var pourOut = WorkshopRulebook.Definitions.Single(x => x.Operator == "POUR_OUT");
+        var full = WorkshopRulebook.Definitions.Single(x => x.Operator == "RESHAPE_FULL");
+        var match = WorkshopRulebook.Definitions.Single(x => x.Operator == "MATCH");
+
+        Assert.Equal(5, WorkshopRulebook.RuleContractVersion);
+        Assert.Equal("jar.workshop.pour-out", pourOut.RuleId);
+        Assert.Equal(3, pourOut.RuleVersion);
+        Assert.Equal("jar.workshop.reshape-full", full.RuleId);
+        Assert.Equal(4, full.RuleVersion);
+        Assert.Equal("jar.workshop.match", match.RuleId);
+        Assert.Equal(5, match.RuleVersion);
+    }
+
+
+    [Fact]
+    public void MatchDoesNotApplyStagingBanToJarInternalLiquid()
+    {
+        var capability = new WorkshopCapability(
+            new[] { "圆罐", "方罐" }, new string[0], new[] { "酒" });
+        var rules = RuleContext.From(capability);
+        var facts = DefaultFacts("圆罐", "酒", false);
+
+        var decision = WorkshopRulebook.EvaluateMatch(rules, facts);
+
+        Assert.True(decision.IsAllowed);
+    }
+
+
+    [Fact]
+    public void StagingBanDoesNotChangeWhichJarPolaritiesCanBeOperated()
+    {
+        foreach (var bans in new[]
+        {
+            System.Array.Empty<string>(),
+            new[] { "酒" },
+            new[] { "蜜" },
+            new[] { "酒", "蜜" }
+        })
+        {
+            var capability = new WorkshopCapability(ban: bans);
+            Assert.Equal(WorkshopPolarityMode.Unrestricted, capability.PolarityMode);
+            Assert.True(capability.CanOperateJar(JarPolarity.Neutral));
+            Assert.True(capability.CanOperateJar(JarPolarity.Cathode));
+            Assert.True(capability.CanOperateJar(JarPolarity.Anode));
+        }
+    }
+
+    [Fact]
+    public void FullReshapeConsumesJarInternalLiquidRegardlessOfStagingBan()
+    {
+        var rules = RuleContext.From(new WorkshopCapability(
+            new[] { "圆罐" }, new[] { "方罐" }, new[] { "酒" }));
+
+        var cathodeJar = WorkshopRulebook.Evaluate(
+            rules, 3, DefaultFacts("圆罐", "酒", false),
+            WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
+        Assert.True(cathodeJar.IsAllowed);
+
+        var anodeJar = WorkshopRulebook.Evaluate(
+            rules, 3, DefaultFacts("圆罐", "蜜", false),
+            WorkshopOperation.ReshapeFull("方罐"), new Dictionary<string, int>());
+        Assert.True(anodeJar.IsAllowed);
+    }
+
+    [Fact]
+    public void PourOutIsAllowedButBannedLiquidCannotEnterFreeLiquidStaging()
+    {
+        var bannedCapability = new WorkshopCapability(
+            new[] { "圆罐" }, System.Array.Empty<string>(), new[] { "酒" });
+        var rules = RuleContext.From(bannedCapability);
+        var fullJar = DefaultFacts("圆罐", "酒", false);
+        var operation = WorkshopOperation.PourOut();
+
+        var ordinary = WorkshopRulebook.Evaluate(
+            rules, 3, fullJar, operation, new Dictionary<string, int>());
+        Assert.True(ordinary.IsAllowed);
+
+        var staging = new WorkshopLiquidStaging(3, new[] { "酒" });
+        var scope = new OrderLiquidScope(41, staging);
+        var orderScoped = WorkshopRulebook.Evaluate(rules, scope, fullJar, operation);
+        Assert.True(orderScoped.IsAllowed);
+
+        var liquidRules = new LiquidRules(bannedCapability, 3);
+        Assert.False(liquidRules.CanStore("酒", 1, 0).Granted);
+        Assert.False(liquidRules.CanPay("酒", 1, 1).Granted);
+    }
+
     private sealed class Cfg
     {
         public string Name = "";
@@ -59,9 +153,9 @@ public class WorkshopRulebookTests
         Assert.True(w.AddJar(jar), "罐子放不进工作台（罐位不足？）");
         foreach (var (l, n) in storage)
         {
-            // 2026-11 起**禁液也能存进来**（禁令只约束取用，不约束存储）。这里只需要"存得下就存进去"；
-            // 存不下的情形由 CanStore 自己拦住，不是本组测试的关注点。
-            Assert.True(w.AddLiquid(l, n), "液体存不进工作台（容量不足？）");
+            // 禁液不能进入游离液体池；Jar 内部液体仍是独立物理资源。
+            if (w.IsBanned(l)) continue;
+            Assert.True(w.AddLiquid(l, n), "测试初始液体库存无法建立");
         }
         return w;
     }
@@ -111,7 +205,7 @@ public class WorkshopRulebookTests
                     {
                         foreach (var storage in Storages)
                         {
-                            var facts = new JarFacts(shape, liquid, marked);
+                            var facts = DefaultFacts(shape, liquid, marked);
                             // 规则表只读取状态、不改它，因此这一份可以复用；
                             // 真执行会打标记改形状，所以每个候选操作单独建一份。
                             var probe = Build(cfg, shape, liquid, marked, storage);
@@ -139,6 +233,142 @@ public class WorkshopRulebookTests
         Assert.True(checkedCount > 15000, "对拍组合数量异常偏少：" + checkedCount);
     }
 
+    [Fact]
+    public void RuleTransitionsDescribeJarAndResourceEffectsWithoutMutatingInputs()
+    {
+        var capability = new WorkshopCapability(
+            new[] { "圆罐" }, new[] { "尖罐" }, System.Array.Empty<string>());
+        var rules = RuleContext.From(capability);
+
+        var empty = DefaultFacts("圆罐", null, false);
+        var fullWine = DefaultFacts("圆罐", "酒", false);
+        var liquids = new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 };
+
+        var pourIn = WorkshopRulebook.CreateTransition(
+            rules, 3, empty, WorkshopOperation.PourIn("酒"), liquids);
+        Assert.NotNull(pourIn);
+        Assert.Equal("jar.workshop.pour-in", pourIn!.Value.RuleId);
+        Assert.Equal(1, pourIn.Value.RuleVersion);
+        Assert.Equal(DefaultFacts("圆罐", "酒", true), pourIn.Value.After);
+        Assert.Equal("酒", pourIn.Value.ConsumedFreeLiquid);
+        Assert.Null(pourIn.Value.ProducedFreeLiquid);
+        Assert.Null(pourIn.Value.ConsumedJarLiquid);
+
+        var pourOut = WorkshopRulebook.CreateTransition(
+            rules, 3, fullWine, WorkshopOperation.PourOut(), liquids);
+        Assert.NotNull(pourOut);
+        Assert.Equal(DefaultFacts("圆罐", null, true), pourOut!.Value.After);
+        Assert.Equal("酒", pourOut.Value.ProducedFreeLiquid);
+
+        var reshapeEmpty = WorkshopRulebook.CreateTransition(
+            rules, 3, empty, WorkshopOperation.ReshapeEmpty("尖罐", "蜜"), liquids);
+        Assert.NotNull(reshapeEmpty);
+        Assert.Equal(DefaultFacts("尖罐", null, true), reshapeEmpty!.Value.After);
+        Assert.Equal("蜜", reshapeEmpty.Value.ConsumedFreeLiquid);
+
+        var reshapeFull = WorkshopRulebook.CreateTransition(
+            rules, 3, fullWine, WorkshopOperation.ReshapeFull("尖罐"), liquids);
+        Assert.NotNull(reshapeFull);
+        Assert.Equal(DefaultFacts("尖罐", null, true), reshapeFull!.Value.After);
+        Assert.Equal("酒", reshapeFull.Value.ConsumedJarLiquid);
+
+        // 转换描述是纯值结果；调用前的输入库存不会被规则评估修改。
+        Assert.Equal(1, liquids["酒"]);
+        Assert.Equal(1, liquids["蜜"]);
+    }
+
+    [Fact]
+    public void WorkshopExecutionRejectsFailedRequireWithoutCommittingResources()
+    {
+        var stack = new ModifierStack();
+        using var scope = stack.Push(new RequireModifier
+        {
+            Name = "gate",
+            Source = "test",
+            Text = "gate must be open",
+            Violation = () => "gate is closed"
+        });
+        var cfg = new Cfg { Name = "test", Base = new[] { "圆罐" } };
+        var workshop = Build(cfg, "圆罐", null, false, new[] { ("酒", 1) }, stack);
+        var jar = workshop.Jars[0];
+
+        var result = workshop.PourIn(jar, "酒");
+
+        Assert.False(result.Success);
+        Assert.Equal("gate is closed", result.Reason);
+        Assert.Null(jar.Liquid);
+        Assert.Equal(1, workshop.LiquidStorage["酒"]);
+    }
+
+    [Fact]
+    public void RuleCatalogHasUniqueStableIdsAndVersionsForEveryWorkshopOperator()
+    {
+        var definitions = WorkshopRulebook.Definitions;
+        Assert.Equal(5, definitions.Count);
+        Assert.Equal(definitions.Count, definitions.Select(x => x.RuleId).Distinct().Count());
+        Assert.All(definitions, definition =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(definition.RuleId));
+            Assert.True(definition.RuleVersion > 0);
+            Assert.False(string.IsNullOrWhiteSpace(definition.Operator));
+        });
+        Assert.Contains(definitions, x => x.Operator == "MATCH" &&
+            x.Category == WorkshopRuleCategory.Lifecycle);
+        Assert.Equal(4, definitions.Count(x => x.Category == WorkshopRuleCategory.Transform));
+    }
+
+    [Fact]
+    public void RuleEvaluationUsesStableDecisionCodesAndKeepsUnknownSeparate()
+    {
+        var capability = new WorkshopCapability(
+            new[] { "圆罐" }, new[] { "尖罐" }, System.Array.Empty<string>());
+        var facts = DefaultFacts("圆罐", null, false);
+        var op = WorkshopOperation.PourIn("酒");
+        var liquids = new Dictionary<string, int> { ["酒"] = 1 };
+
+        var allowed = WorkshopRulebook.Evaluate(
+            RuleContext.From(capability), 3, facts, op, liquids);
+        Assert.Equal(WorkshopRuleDecisionKind.Allowed, allowed.Kind);
+        Assert.Equal("rule.allowed", allowed.ReasonCode);
+
+        var bannedCapability = new WorkshopCapability(
+            new[] { "圆罐" }, new[] { "尖罐" }, new[] { "酒" });
+        var rejected = WorkshopRulebook.Evaluate(
+            RuleContext.From(bannedCapability), 3, facts, op, liquids);
+        Assert.Equal(WorkshopRuleDecisionKind.Rejected, rejected.Kind);
+        Assert.Equal("liquid.unavailable", rejected.ReasonCode);
+
+        var missingPredicateStack = new ModifierStack();
+        using (missingPredicateStack.Push(new RequireModifier
+        {
+            Name = "missing-predicate",
+            Source = "test",
+            Text = "external world condition"
+        }))
+        {
+            var unknown = WorkshopRulebook.Evaluate(
+                new RuleContext(capability, missingPredicateStack), 3, facts, op, liquids);
+            Assert.Equal(WorkshopRuleDecisionKind.Undetermined, unknown.Kind);
+            Assert.Equal("modifier.required-predicate-unavailable", unknown.ReasonCode);
+        }
+
+        var failedPredicateStack = new ModifierStack();
+        using (failedPredicateStack.Push(new RequireModifier
+        {
+            Name = "closed-gate",
+            Source = "test",
+            Text = "gate must be open",
+            Violation = () => "gate is closed"
+        }))
+        {
+            var failed = WorkshopRulebook.Evaluate(
+                new RuleContext(capability, failedPredicateStack), 3, facts, op, liquids);
+            Assert.Equal(WorkshopRuleDecisionKind.Rejected, failed.Kind);
+            Assert.Equal("modifier.required-condition-failed", failed.ReasonCode);
+            Assert.Equal("gate is closed", failed.Reason);
+        }
+    }
+
     /// <summary>枚举入口与判定入口必须自洽：<see cref="WorkshopRulebook.Available"/> 恰好是判定为真的那批。</summary>
     [Fact]
     public void AvailableListsExactlyTheAllowedSet()
@@ -155,7 +385,7 @@ public class WorkshopRulebookTests
                     {
                         foreach (var storage in Storages)
                         {
-                            var facts = new JarFacts(shape, liquid, marked);
+                            var facts = DefaultFacts(shape, liquid, marked);
                             var w = Build(cfg, shape, liquid, marked, storage);
 
                             var enumerated = WorkshopRulebook
@@ -180,14 +410,14 @@ public class WorkshopRulebookTests
     }
 
     /// <summary>
-    /// **容量是"每种液体各自"的**：同一种液体到上限就倒不出去，另一种液体不受影响。
+    /// **容量是"每种液体各自"的**：同一种液体到上限时 PourOut 仍执行，但输出会被丢弃；另一种液体的容量不受影响。
     /// （原实现与契约都按这个口径；写成总数会悄悄改掉液池语义。）
     /// </summary>
     [Fact]
-    public void PourOutIsBlockedExactlyWhenThatLiquidStorageIsFull()
+    public void PourOutDiscardsOutputWhenThatLiquidStorageIsFull()
     {
         var cfg = new Cfg { Name = "自由台", Base = new[] { "圆罐" }, MaxLiquids = 3 };
-        var facts = new JarFacts("圆罐", "酒", false);
+        var facts = DefaultFacts("圆罐", "酒", false);
         var op = WorkshopOperation.PourOut();
 
         var justBelow = Build(cfg, "圆罐", "酒", false, new[] { ("酒", 2) });
@@ -195,8 +425,8 @@ public class WorkshopRulebookTests
         Assert.True(Execute(justBelow, op));
 
         var atCap = Build(cfg, "圆罐", "酒", false, new[] { ("酒", 3) });
-        Assert.False(WorkshopRulebook.IsAllowed(atCap.Rules, cfg.MaxLiquids, facts, op, atCap.LiquidStorage));
-        Assert.False(Execute(atCap, op));
+        Assert.True(WorkshopRulebook.IsAllowed(atCap.Rules, cfg.MaxLiquids, facts, op, atCap.LiquidStorage));
+        Assert.True(Execute(atCap, op));
 
         // 另一种液体满了不影响酒：账目里没有蜜，酒只到 2
         var otherFull = Build(cfg, "圆罐", "酒", false, new[] { ("蜜", 3) });
@@ -210,7 +440,7 @@ public class WorkshopRulebookTests
     {
         // 这一台的基础标记是 圆罐，附加标记是 尖罐 ⇒ 圆罐可以改形成尖罐（基础→附加是合法的一跳）
         var cfg = new Cfg { Name = "自由台", Base = new[] { "圆罐" }, Add = new[] { "尖罐" }, MaxLiquids = 3 };
-        var facts = new JarFacts("圆罐", null, false);
+        var facts = DefaultFacts("圆罐", null, false);
         var op = WorkshopOperation.PourIn("酒");
 
         var plain = Build(cfg, "圆罐", null, false, new[] { ("酒", 2) });

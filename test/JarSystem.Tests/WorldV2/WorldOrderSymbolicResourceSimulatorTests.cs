@@ -67,9 +67,9 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
     public void StagingCapacityIsSharedAcrossLiquidsAndOverflowIsDiscarded()
     {
         var firstInput = new WorldOrderSymbolicJarVersion("jar-1", 0, "Master", "圆罐", "酒");
-        var firstOutput = new WorldOrderSymbolicJarVersion("jar-1", 1, "Master", "圆罐", null);
+        var firstOutput = new WorldOrderSymbolicJarVersion("jar-1", 1, "Master", "圆罐", null, isMarked: true);
         var secondInput = new WorldOrderSymbolicJarVersion("jar-2", 0, "Master", "圆罐", "蜜");
-        var secondOutput = new WorldOrderSymbolicJarVersion("jar-2", 1, "Master", "圆罐", null);
+        var secondOutput = new WorldOrderSymbolicJarVersion("jar-2", 1, "Master", "圆罐", null, isMarked: true);
         var first = WorldOrderSymbolicOperationNode.Rule(
             "pour-out-wine", 0, "Master", null,
             Candidate(-1, "圆罐", "酒", "PREPARE_POUR_OUT", "圆罐", null, producedFree: "酒"),
@@ -152,7 +152,7 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
     public void JarInternalLiquidConsumptionDoesNotConsumeFreeLiquidStaging()
     {
         var input = new WorldOrderSymbolicJarVersion("jar-A", 0, "Master", "圆罐", "酒");
-        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null);
+        var output = new WorldOrderSymbolicJarVersion("jar-A", 1, "Master", "方罐", null, isMarked: true);
         var node = WorldOrderSymbolicOperationNode.Rule(
             "reshape-full", 0, "Master", 0,
             Candidate(0, "圆罐", "酒", "RESHAPE_FULL", "方罐", null, consumedJar: "酒"),
@@ -198,4 +198,114 @@ public sealed class WorldOrderSymbolicResourceSimulatorTests
                 new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 },
                 new Dictionary<string, int>()));
     }
+    [Fact]
+    public void RejectedProductionIsDiscardedAndCannotFundTheHandoff()
+    {
+        var result = WorldOrderSymbolicResourceSimulator.Simulate(
+            BProgram(),
+            new WorldOrderSymbolicResourceSimulationRequest(
+                1, 1,
+                new Dictionary<string, int>(),
+                new Dictionary<string, int> { ["酒"] = 1 },
+                masterRejectedLiquids: new[] { "酒" }));
+
+        Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Infeasible, result.Status);
+        Assert.Equal(1, result.Roles["Master"].RejectedFreeLiquidProduction["酒"]);
+        Assert.Equal(1, result.Roles["Master"].DiscardedFreeLiquidProduction["酒"]);
+        Assert.Empty(result.Roles["Master"].FinalFreeLiquid);
+        Assert.False(result.HandoffApplied);
+    }
+
+    [Fact]
+    public void MasterBannedLiquidCannotCrossTheOneTimeHandoff()
+    {
+        var result = WorldOrderSymbolicResourceSimulator.Simulate(
+            EmptyBProgram(),
+            new WorldOrderSymbolicResourceSimulationRequest(
+                1, 1,
+                new Dictionary<string, int> { ["酒"] = 1 },
+                new Dictionary<string, int> { ["酒"] = 1 },
+                masterBannedLiquids: new[] { "酒" }));
+
+        Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Infeasible, result.Status);
+        Assert.Equal("handoff", result.FailureNodeId);
+        Assert.Contains("主台禁止向外传递", result.Reason);
+        Assert.False(result.HandoffApplied);
+        Assert.Empty(result.HandoffTransferredFreeLiquid);
+        Assert.Equal(1, result.Roles["Master"].FinalFreeLiquid["酒"]);
+        Assert.Empty(result.Roles["Slave"].FinalFreeLiquid);
+    }
+
+    [Fact]
+    public void SlaveRejectingTheTransferredLiquidFailsTheWholeHandoffAtomically()
+    {
+        var result = WorldOrderSymbolicResourceSimulator.Simulate(
+            EmptyBProgram(),
+            new WorldOrderSymbolicResourceSimulationRequest(
+                1, 1,
+                new Dictionary<string, int> { ["酒"] = 1 },
+                new Dictionary<string, int> { ["酒"] = 1 },
+                slaveRejectedLiquids: new[] { "酒" }));
+
+        Assert.Equal(WorldOrderSymbolicResourceSimulationStatus.Infeasible, result.Status);
+        Assert.False(result.HandoffApplied);
+        Assert.Empty(result.HandoffTransferredFreeLiquid);
+        Assert.Equal(1, result.Roles["Master"].FinalFreeLiquid["酒"]);
+        Assert.Empty(result.Roles["Slave"].FinalFreeLiquid);
+    }
+
+
+    [Fact]
+    public void FixedSeedSamplesPreserveEveryFreeLiquidUnitAcrossProductionAndAtomicHandoff()
+    {
+        const int seed = 0x51EED;
+        const int sampleCount = 512;
+        var random = new Random(seed);
+        var program = BProgram();
+
+        for (var sample = 0; sample < sampleCount; sample++)
+        {
+            var masterCapacity = random.Next(0, 7);
+            var initialWine = masterCapacity == 0 ? 0 : random.Next(0, masterCapacity + 1);
+            var request = new WorldOrderSymbolicResourceSimulationRequest(
+                masterCapacity,
+                1,
+                initialWine == 0
+                    ? new Dictionary<string, int>()
+                    : new Dictionary<string, int> { ["酒"] = initialWine },
+                new Dictionary<string, int> { ["酒"] = 1 });
+
+            var result = WorldOrderSymbolicResourceSimulator.Simulate(program, request);
+            var replay = WorldOrderSymbolicResourceSimulator.Simulate(program, request);
+
+            Assert.Equal(result.Status, replay.Status);
+            Assert.Equal(result.HandoffApplied, replay.HandoffApplied);
+            Assert.Equal(result.HandoffTransferredFreeLiquid, replay.HandoffTransferredFreeLiquid);
+
+            var master = result.Roles["Master"];
+            var slave = result.Roles["Slave"];
+            var accepted = Amount(master.AcceptedFreeLiquidProduction, "酒");
+            var discarded = Amount(master.DiscardedFreeLiquidProduction, "酒");
+            var transferred = Amount(result.HandoffTransferredFreeLiquid, "酒");
+            var consumedAtSlave = Amount(slave.ConsumedFreeLiquid, "酒");
+
+            Assert.Equal(1, accepted + discarded);
+            Assert.Equal(discarded,
+                Amount(master.RejectedFreeLiquidProduction, "酒") +
+                Amount(master.OverflowDiscardedFreeLiquidProduction, "酒"));
+            Assert.Equal(initialWine + accepted - transferred,
+                Amount(master.FinalFreeLiquid, "酒"));
+            Assert.Equal(transferred - consumedAtSlave,
+                Amount(slave.FinalFreeLiquid, "酒"));
+            Assert.Equal(result.HandoffApplied, transferred == 1);
+            Assert.InRange(master.PeakStagingBalance, 0, masterCapacity);
+            Assert.InRange(slave.PeakStagingBalance, 0, 1);
+            Assert.Equal(result.Status == WorldOrderSymbolicResourceSimulationStatus.Feasible,
+                result.HandoffApplied);
+        }
+
+        static int Amount(IReadOnlyDictionary<string, int> amounts, string liquid) =>
+            amounts.TryGetValue(liquid, out var value) ? value : 0;
+    }
+
 }

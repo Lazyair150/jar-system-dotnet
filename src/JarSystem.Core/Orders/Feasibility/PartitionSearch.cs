@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
+using JarSystem.Core.Solver;
 
 namespace JarSystem.Core.Orders;
 
@@ -35,6 +36,51 @@ public sealed class PartitionSearchOutcome
     public int OperationCount { get; init; }
 }
 
+/// <summary>划分搜索中的一个只读诊断事件；不包含可变 Jar 或液体对象。</summary>
+public sealed record PartitionSearchTraceEvent(
+    int Sequence,
+    string Stage,
+    int Mask,
+    string MasterRequirementSignature,
+    string SlaveRequirementSignature,
+    string? Reason);
+
+/// <summary>一次 B 类漏斗搜索的只读报告，不替代最终计划或资源证明。</summary>
+public sealed class PartitionSearchReport
+{
+    public int MasksVisited { get; }
+    public int UniquePartitions { get; }
+    public int MasterSolveCount { get; }
+    public int SlaveSolveCount { get; }
+    public int MonotonicityPrunedCount { get; }
+    public int DuplicatePartitionPrunedCount { get; }
+    public bool OutcomeFound { get; }
+    public bool IsFeasible => OutcomeFound;
+    public bool IsUndetermined => InconclusiveReason != null;
+    public bool IsInfeasible => !OutcomeFound && InconclusiveReason == null;
+    public string? LastBlockage { get; }
+    public string? InconclusiveReason { get; }
+    public IReadOnlyList<PartitionSearchTraceEvent> Events { get; }
+
+    internal PartitionSearchReport(
+        int masksVisited, int uniquePartitions, int masterSolveCount, int slaveSolveCount,
+        int monotonicityPrunedCount, int duplicatePartitionPrunedCount, bool outcomeFound,
+        string? lastBlockage, string? inconclusiveReason,
+        IEnumerable<PartitionSearchTraceEvent> events)
+    {
+        MasksVisited = masksVisited;
+        UniquePartitions = uniquePartitions;
+        MasterSolveCount = masterSolveCount;
+        SlaveSolveCount = slaveSolveCount;
+        MonotonicityPrunedCount = monotonicityPrunedCount;
+        DuplicatePartitionPrunedCount = duplicatePartitionPrunedCount;
+        OutcomeFound = outcomeFound;
+        LastBlockage = lastBlockage;
+        InconclusiveReason = inconclusiveReason;
+        Events = Array.AsReadOnly(events.ToArray());
+    }
+}
+
 /// <summary>
 /// B 类订单的「需求子集划分」精确搜索（原 <c>FeasibilityChecker.CheckTypeB</c> 的主体，整体迁出以便单独测试）。
 ///
@@ -45,7 +91,7 @@ public sealed class PartitionSearchOutcome
 /// 关键语义（不可改动）：
 /// - 主台交付罐必须原样交付，从台阶段不得再使用（防同一罐子跨阶段重复使用）；
 /// - 从台在 B 类订单开始时必须为空，因此转移预算 = 从台罐位 − 交付罐数；
-/// - 从台液体池只来自主台终态，并按从台容量截断，与执行的「容量感知部分填充」一致；
+/// - 主台终态液体只是从台可用资源来源；最终泵送量由从台路径最低初始需求决定，额外余额不要求进入从台；
 /// - 划分按 <c>mask</c> 升序枚举，失败时保留**最后一次**划分的阻塞原因。
 /// </summary>
 public sealed class PartitionSearch
@@ -54,7 +100,7 @@ public sealed class PartitionSearch
 
     public PartitionSearch(ISolver solver)
     {
-        _solver = solver;
+        _solver = solver ?? throw new ArgumentNullException(nameof(solver));
     }
 
     /// <summary>
@@ -68,13 +114,49 @@ public sealed class PartitionSearch
     /// ② 求解器没按 <see cref="ISolver"/> 契约提供主台**终态** —— 那就无法构造从台池，
     ///    与其静默按"主台原始状态"算错，不如如实报"未判定"（差分测试实测过这个坑）。
     /// </param>
-    public PartitionSearchOutcome? Search(PartitionSearchRequest request, out string? lastBlockage, out string? inconclusiveReason)
+    public PartitionSearchOutcome? Search(
+        PartitionSearchRequest request,
+        out string? lastBlockage,
+        out string? inconclusiveReason) =>
+        Search(request, out lastBlockage, out inconclusiveReason, out _);
+
+    /// <summary>执行与旧 Search 相同的搜索，并额外返回只读、确定性的诊断报告。</summary>
+    public PartitionSearchOutcome? Search(
+        PartitionSearchRequest request,
+        out string? lastBlockage,
+        out string? inconclusiveReason,
+        out PartitionSearchReport report)
     {
+        if (request == null) throw new ArgumentNullException(nameof(request));
+        if (request.Requirements == null || request.MasterInfo == null ||
+            request.SlaveInfo == null || request.MasterJars == null ||
+            request.MasterLiquids == null)
+            throw new ArgumentException("划分搜索请求缺少必要输入", nameof(request));
+        if (request.Requirements.Count > Constants.MAX_ORDER_REQUIREMENTS)
+            throw new ArgumentOutOfRangeException(
+                nameof(request), $"需求数量超过订单领域上限 {Constants.MAX_ORDER_REQUIREMENTS}");
         inconclusiveReason = null;
+        string? diagnosticInconclusiveReason = null;
         var reqs = request.Requirements;
         var masterJars = request.MasterJars;
         var masterLiquids = request.MasterLiquids;
         string? blockage = null;
+        var trace = new List<PartitionSearchTraceEvent>();
+        var masksVisited = 0;
+        var uniquePartitions = 0;
+        var masterSolveCount = 0;
+        var slaveSolveCount = 0;
+        var monotonicityPrunedCount = 0;
+        var duplicatePartitionPrunedCount = 0;
+
+        void Record(string stage, int mask, string masterSignature = "", string slaveSignature = "", string? reason = null) =>
+            trace.Add(new PartitionSearchTraceEvent(
+                trace.Count, stage, mask, masterSignature, slaveSignature, reason));
+
+        PartitionSearchReport BuildReport(bool outcomeFound) => new(
+            masksVisited, uniquePartitions, masterSolveCount, slaveSolveCount,
+            monotonicityPrunedCount, duplicatePartitionPrunedCount, outcomeFound,
+            blockage, diagnosticInconclusiveReason, trace);
 
         // #1（2026-09）主台侧**单调性剪枝**：可行性对"需求集合"单调 ——
         // 若子集 X 在主台上不可行，则任何 X ⊆ Y 的 Y 在主台上也不可行（Y 必须同时满足 X 的要求）。
@@ -97,7 +179,13 @@ public sealed class PartitionSearch
         var masterInfeasible = new bool[1 << reqs.Count];
         for (int mask = 0; mask < (1 << reqs.Count); mask++)
         {
-            if (ContainsInfeasibleSubset(masterInfeasible, mask)) continue;
+            masksVisited++;
+            if (ContainsInfeasibleSubset(masterInfeasible, mask))
+            {
+                monotonicityPrunedCount++;
+                Record("pruned-master-infeasible-subset", mask);
+                continue;
+            }
 
             var mReqs = new List<Requirement>();
             var sReqs = new List<Requirement>();
@@ -107,42 +195,76 @@ public sealed class PartitionSearch
                 else sReqs.Add(reqs[i]);
             }
 
-            var partitionKey = Signature(mReqs) + "" + Signature(sReqs);
-            if (!seenPartitions.Add(partitionKey)) continue;
+            var masterSignature = Signature(mReqs);
+            var slaveSignature = Signature(sReqs);
+            var partitionKey = masterSignature.Length + ":" + masterSignature +
+                slaveSignature.Length + ":" + slaveSignature;
+            if (!seenPartitions.Add(partitionKey))
+            {
+                duplicatePartitionPrunedCount++;
+                Record("pruned-duplicate-partition", mask, masterSignature, slaveSignature);
+                continue;
+            }
 
+            uniquePartitions++;
+            masterSolveCount++;
+            Record("master-solve-started", mask, masterSignature, slaveSignature);
             var mr = _solver.Solve(mReqs, request.MasterInfo, masterJars, masterLiquids);
             if (_solver is IWorkBudgetedSolver mb && mb.BudgetExceeded)
             {
-                inconclusiveReason = mb.InconclusiveReason ?? "分析超出预算";
+                diagnosticInconclusiveReason = mb.InconclusiveReason ?? "分析超出预算";
+                inconclusiveReason = diagnosticInconclusiveReason;
                 lastBlockage = inconclusiveReason;
+                Record("undetermined-master-budget", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
                 return null;
             }
-            if (!mr.Feasible || mr.Path == null) { masterInfeasible[mask] = true; continue; }
+            if (mr.Feasible && mr.Path == null)
+            {
+                diagnosticInconclusiveReason = "求解器报告主台可行，但没有提供可执行路径";
+                inconclusiveReason = diagnosticInconclusiveReason;
+                lastBlockage = inconclusiveReason;
+                Record("undetermined-master-missing-path", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
+                return null;
+            }
+            if (!mr.Feasible)
+            {
+                masterInfeasible[mask] = true;
+                Record("master-infeasible", mask, masterSignature, slaveSignature, mr.Blockage);
+                continue;
+            }
+            var masterPath = mr.Path!;
+            Record("master-feasible", mask, masterSignature, slaveSignature);
 
             // 契约检查：主台终态必须能拿到（FinalJars 或路径末步快照），否则从台池无从构造
-            bool hasFinalState = mr.FinalJars != null
-                || (mr.Path.Count > 0 && mr.Path[^1].After != null);
+            bool hasFinalState =
+                (mr.FinalJars != null && mr.FinalLiquids != null) ||
+                (masterPath.Count > 0 &&
+                 masterPath[^1].After != null &&
+                 masterPath[^1].AfterLiquids != null);
             if (!hasFinalState)
             {
-                inconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
+                diagnosticInconclusiveReason = "求解器未按 ISolver 契约提供主台终态（无法构造从台求解池）";
+                inconclusiveReason = diagnosticInconclusiveReason;
                 lastBlockage = inconclusiveReason;
+                Record("undetermined-master-final-state", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
                 return null;
             }
 
-            List<JarState> masterFinal = masterJars;
-            Dictionary<string, int> masterFinalLiq = masterLiquids;
-            // 主台**终态**优先取求解器的契约字段 FinalJars/FinalLiquids（见 SolverResult.FinalJars 的说明）；
-            // 其次兼容"只填了路径快照"的实现。两者都缺时才会退回主台**原始**状态 ——
-            // 那是一个会静默算错的退化路径（差分测试实测过），因此把它记进 ISolver 的契约要求。
-            if (mr.FinalJars != null)
+            List<JarState> masterFinal;
+            Dictionary<string, int> masterFinalLiq;
+            // 两类终态必须成对来自同一证明：不能把求解后的 Jar 与求解前的液体余额拼接。
+            if (mr.FinalJars != null && mr.FinalLiquids != null)
             {
                 masterFinal = mr.FinalJars;
-                masterFinalLiq = mr.FinalLiquids ?? masterLiquids;
+                masterFinalLiq = mr.FinalLiquids;
             }
-            else if (mr.Path.Count > 0 && mr.Path[^1].After != null)
+            else
             {
-                masterFinal = mr.Path[^1].After!;
-                masterFinalLiq = mr.Path[^1].AfterLiquids ?? masterLiquids;
+                masterFinal = masterPath[^1].After!;
+                masterFinalLiq = masterPath[^1].AfterLiquids!;
             }
 
             // 主台交付罐：主台子集需求在终态中匹配的罐子，转移后必须原样交付，
@@ -168,27 +290,64 @@ public sealed class PartitionSearch
 
             // 转移预算：从台罐位 − 交付罐数（交付罐必转，不可再占预算）
             int budget = request.SlaveInfo.MaxJars - deliverableIds.Count;
-            if (budget < 0) continue;
+            if (budget < 0)
+            {
+                blockage = "从台罐位不足以容纳主台交付罐";
+                Record("slave-jar-capacity-rejected", mask, masterSignature, slaveSignature, blockage);
+                continue;
+            }
 
-            // 液体池：只来自主台终态（按从台每种液体容量截断，与执行部分填充一致）
+            // 液体池只表示主台终态可供选择的来源；实际泵送量由从台路径最低需求计算，
+            // 合计容量则在路径确定后分别按主台“路径 + 终态转出预留”和从台路径峰值校验。
             var tLiquids = new Dictionary<string, int>();
-            foreach (var l in Constants.LIQUIDS)
-                tLiquids[l] = Math.Min(
-                    masterFinalLiq.GetValueOrDefault(l, 0),
-                    request.SlaveInfo.MaxLiquids);
+            var sourceLimit = request.SlaveInfo.MaxLiquidCapacity == int.MaxValue
+                ? request.SlaveInfo.MaxLiquids // 旧直接调用保持单液种兼容
+                : request.SlaveInfo.MaxLiquidCapacity;
+            foreach (var l in request.SlaveInfo.Capability.Liquids)
+                tLiquids[l] = Math.Min(masterFinalLiq.GetValueOrDefault(l, 0), sourceLimit);
 
+            slaveSolveCount++;
+            Record("slave-solve-started", mask, masterSignature, slaveSignature);
             var sr = _solver.Solve(sReqs, request.SlaveInfo, slavePool, tLiquids, budget);
             if (_solver is IWorkBudgetedSolver sb && sb.BudgetExceeded)
             {
-                inconclusiveReason = sb.InconclusiveReason ?? "分析超出预算";
+                diagnosticInconclusiveReason = sb.InconclusiveReason ?? "分析超出预算";
+                inconclusiveReason = diagnosticInconclusiveReason;
                 lastBlockage = inconclusiveReason;
+                Record("undetermined-slave-budget", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
                 return null;
             }
-            if (sr.Feasible && sr.Path != null)
+            if (sr.Feasible && sr.Path == null)
             {
+                diagnosticInconclusiveReason = "求解器报告从台可行，但没有提供可执行路径";
+                inconclusiveReason = diagnosticInconclusiveReason;
+                lastBlockage = inconclusiveReason;
+                Record("undetermined-slave-missing-path", mask, masterSignature, slaveSignature, inconclusiveReason);
+                report = BuildReport(false);
+                return null;
+            }
+            if (sr.Feasible)
+            {
+                var transferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path!, null, request.SlaveInfo.Capability.Liquids);
+                var masterPeak = LiquidRequirementCalculator.ComputePeakCapacity(masterPath, transferLiquids, request.MasterInfo.Capability.Liquids);
+                var slavePeak = LiquidRequirementCalculator.ComputePeakCapacity(sr.Path!, null, request.SlaveInfo.Capability.Liquids);
+                if (masterPeak > request.MasterInfo.MaxLiquidCapacity)
+                {
+                    blockage = "主台订单液体路径及从台交接预留超过总暂存容量";
+                    Record("master-staging-capacity-rejected", mask, masterSignature, slaveSignature, blockage);
+                    continue;
+                }
+                if (slavePeak > request.SlaveInfo.MaxLiquidCapacity)
+                {
+                    blockage = "从台订单液体路径峰值超过总暂存容量";
+                    Record("slave-staging-capacity-rejected", mask, masterSignature, slaveSignature, blockage);
+                    continue;
+                }
+
                 // 转移罐子清单：交付罐 + 从台路径实际使用的主台来源罐子
                 var transferIds = new HashSet<int>(deliverableIds);
-                foreach (var step in sr.Path)
+                foreach (var step in sr.Path!)
                 {
                     if (step.Operation?.JarIndex.HasValue == true && step.Before != null &&
                         step.Operation.JarIndex.Value >= 0 && step.Operation.JarIndex.Value < step.Before.Count)
@@ -199,23 +358,27 @@ public sealed class PartitionSearch
                 }
 
                 lastBlockage = blockage;
+                Record("partition-selected", mask, masterSignature, slaveSignature);
+                report = BuildReport(true);
                 return new PartitionSearchOutcome
                 {
-                    MasterPath = mr.Path,
-                    SlavePath = sr.Path,
+                    MasterPath = masterPath,
+                    SlavePath = sr.Path!,
                     TransferJarIds = transferIds.OrderBy(x => x).ToList(),
-                    TransferLiquids = LiquidRequirementCalculator.ComputeRequired(sr.Path),
-                    DirectCount = mr.Path.Count(s => s.Operation?.Type == "MATCH")
-                                + sr.Path.Count(s => s.Operation?.Type == "MATCH"),
-                    OperationCount = mr.Path.Count(s => s.Operation?.Type != "MATCH")
-                                   + sr.Path.Count(s => s.Operation?.Type != "MATCH")
+                    TransferLiquids = transferLiquids,
+                    DirectCount = masterPath.Count(s => s.Operation?.Type == "MATCH")
+                                + sr.Path!.Count(s => s.Operation?.Type == "MATCH"),
+                    OperationCount = masterPath.Count(s => s.Operation?.Type != "MATCH")
+                                   + sr.Path!.Count(s => s.Operation?.Type != "MATCH")
                 };
             }
 
             blockage = sr.Blockage ?? blockage;
+            Record("slave-infeasible", mask, masterSignature, slaveSignature, sr.Blockage);
         }
 
         lastBlockage = blockage;
+        report = BuildReport(false);
         return null;
     }
 
@@ -227,9 +390,14 @@ public sealed class PartitionSearch
         if (reqs.Count == 0) return "";
         var parts = new string[reqs.Count];
         for (var i = 0; i < reqs.Count; i++)
-            parts[i] = reqs[i].Shape + ":" + (reqs[i].Liquid ?? "");
+        {
+            var shape = reqs[i].Shape;
+            var liquid = reqs[i].Liquid;
+            parts[i] = shape.Length + ":" + shape +
+                (liquid == null ? "N" : "S" + liquid.Length + ":" + liquid);
+        }
         Array.Sort(parts, StringComparer.Ordinal);
-        return string.Join(",", parts);
+        return string.Concat(parts.Select(part => part.Length + ":" + part));
     }
 
     /// <summary>

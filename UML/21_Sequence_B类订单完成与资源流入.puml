@@ -1,3 +1,4 @@
+' HISTORICAL / LEGACY: this diagram records the older OrderExecutionSession/OrderEvent lifecycle. Current World V2 execution, role assignment, exact resource accounts and handoff contracts are documented under docs/world-v2/.
 @startuml
 title B 类订单完成、从台排空与仓库流入（同一 tick）
 skinparam shadowing false

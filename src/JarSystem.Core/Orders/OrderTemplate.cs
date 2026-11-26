@@ -112,6 +112,8 @@ public sealed class OrderTemplateLibrary
         {
             var o = list[i];
             var where = $"订单模板 #{i}";
+            if (o == null)
+                throw new DomainValidationException($"{where}：模板条目不能为 null");
             var name = (o.Name ?? "").Trim();
             if (name.Length == 0)
                 throw new DomainValidationException($"{where}：名字不能为空");
@@ -134,6 +136,8 @@ public sealed class OrderTemplateLibrary
             for (int k = 0; k < reqs.Count; k++)
             {
                 var r = reqs[k];
+                if (r == null)
+                    throw new DomainValidationException($"{where}（{name}）：第 {k + 1} 条需求不能为 null");
                 var shape = (r.Shape ?? "").Trim();
                 if (shape.Length == 0)
                     throw new DomainValidationException($"{where}（{name}）：第 {k + 1} 条需求没有形状");

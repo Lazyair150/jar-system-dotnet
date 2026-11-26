@@ -39,8 +39,39 @@ public sealed class ModifierStack : IIntensitySource
         _view = _active.AsReadOnly();
     }
 
-    /// <summary>当前活跃修饰器（只读视图，活视图）。</summary>
+    /// <summary>
+    /// 从已经在捕获时刻生效的声明式规则构造只读栈。
+    /// 调用方必须先将窗口过滤到当前时刻；冻结副本不再推进自己的时间线。
+    /// </summary>
+    public static ModifierStack CreateReadOnlySnapshot(IEnumerable<IRuleModifier> modifiers)
+    {
+        if (modifiers == null) throw new ArgumentNullException(nameof(modifiers));
+        var snapshot = new ModifierStack(isReadOnly: true);
+        snapshot._active.AddRange(modifiers);
+        snapshot._revision = snapshot._active.Count == 0 ? 0 : 1;
+        return snapshot;
+    }
+
+    /// <summary>Seeds a mutable workshop-owned stack with installed component rules.</summary>
+    public static ModifierStack CreateSeeded(IEnumerable<IRuleModifier> modifiers)
+    {
+        if (modifiers == null) throw new ArgumentNullException(nameof(modifiers));
+        var stack = new ModifierStack();
+        stack._active.AddRange(modifiers);
+        stack._revision = stack._active.Count == 0 ? 0 : 1;
+        return stack;
+    }
+
+    /// <summary>当前活跃修饰器（只读视图，活视图；包含尚未到 From 的未来修饰器）。</summary>
     public IReadOnlyList<IRuleModifier> Active => _view;
+
+    /// <summary>
+    /// 当前时刻真正生效的修饰器副本。与 Active 不同，它排除尚未到 From 的未来修饰器，
+    /// 供世界求解快照捕获，避免把未来规则提前投影到当前求解输入。
+    /// </summary>
+    public IReadOnlyList<IRuleModifier> CaptureEffectiveModifiers() =>
+        _active.Where(m =>
+            IsLive(m) && (m.Window is not { To: { } to } || _now <= to)).ToArray();
 
     /// <summary>是否没有任何活跃修饰器（**热路径**用：空栈一律走直通，连一次分配都不做）。</summary>
     public bool IsEmpty => _active.Count == 0;
@@ -183,6 +214,13 @@ public sealed class ModifierStack : IIntensitySource
         }
         return null;
     }
+
+    /// <summary>
+    /// 是否存在当前生效但没有可执行谓词的 Require。此时不能把规则当作通过，
+    /// 也不能假造拒绝；静态/运行时调用方应保守报告 Undetermined。
+    /// </summary>
+    public bool HasUnresolvableRequirements() =>
+        _active.Any(m => m is RequireModifier require && IsLive(m) && require.Violation == null);
 
     /// <summary>摘除（只供 <see cref="ModifierScope"/> 调用）。</summary>
     internal void Remove(IRuleModifier modifier)

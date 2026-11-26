@@ -23,13 +23,14 @@ namespace JarSystem.Core.Production;
 public sealed class LiquidProduction
 {
     private const int MilliUnit = 1000;
+    private const long MicroUnit = 1_000_000;
 
     private readonly Vocabulary _vocabulary;
     private IIntensitySource? _intensity;
 
     // 键序 = 词表顺序（契约快照按行比较，顺序变了就是一次显式重基线）
     private readonly Dictionary<string, int> _rateMilli = new();
-    private readonly Dictionary<string, int> _accMilli = new();
+    private readonly Dictionary<string, long> _accMilli = new();
     private readonly Dictionary<string, double> _rateView = new();
     private readonly Dictionary<string, double> _accView = new();
 
@@ -48,7 +49,7 @@ public sealed class LiquidProduction
         {
             var rate = defaults != null && defaults.TryGetValue(liquid, out var r) ? r : 1d;
             _rateMilli[liquid] = Milli(rate);
-            _accMilli[liquid] = 0;
+            _accMilli[liquid] = 0L;
             _rateView[liquid] = rate;
             _accView[liquid] = 0;
         }
@@ -71,7 +72,7 @@ public sealed class LiquidProduction
     {
         var rate = _rateMilli.GetValueOrDefault(liquid);
         if (_intensity != null) rate = _intensity.Apply("liquid:" + liquid, rate);
-        return _accMilli.GetValueOrDefault(liquid) + rate >= MilliUnit;
+        return _accMilli.GetValueOrDefault(liquid) + (long)rate * MilliUnit >= MicroUnit;
     }
 
     /// <summary>
@@ -98,22 +99,76 @@ public sealed class LiquidProduction
     /// 推进一个 tick：累加、取整、返回本 tick 真正产出的液体。余数留在累加器里。
     /// 返回顺序 = 词表顺序（确定性：回放与契约快照都依赖它）。
     /// </summary>
-    public List<(string Liquid, int Amount)> Tick()
+    /// <summary>旧 tick 入口：一个 tick 等价于一个逻辑时间单位。</summary>
+    public List<(string Liquid, int Amount)> Tick() => AdvanceLogicalTime(MilliUnit);
+
+    /// <summary>
+    /// 按逻辑时间推进液体产能。时间增量的 1000 表示 1 个逻辑时间单位；
+    /// 速率×时间以百万分之一资源为单位累积，保留不足一份的余数。
+    /// </summary>
+    public List<(string Liquid, int Amount)> AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
+        if (deltaLogicalTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
+
         var produced = new List<(string, int)>();
         foreach (var liquid in _vocabulary.Liquids)
         {
             var rateMilli = _rateMilli[liquid];
             if (_intensity != null) rateMilli = _intensity.Apply("liquid:" + liquid, rateMilli);
-            _accMilli[liquid] += rateMilli;
+            _accMilli[liquid] = checked(_accMilli[liquid] + (long)rateMilli * deltaLogicalTimeMilli);
 
-            var amount = _accMilli[liquid] / MilliUnit;
-            _accMilli[liquid] -= amount * MilliUnit;
-            _accView[liquid] = _accMilli[liquid] / (double)MilliUnit;
+            var amountLong = _accMilli[liquid] / MicroUnit;
+            if (amountLong > int.MaxValue)
+                throw new InvalidOperationException("单次逻辑时间推进产生的液体数量超过可表示范围");
+            var amount = (int)amountLong;
+            _accMilli[liquid] -= amountLong * MicroUnit;
+            _accView[liquid] = _accMilli[liquid] / (double)MicroUnit;
 
             if (amount > 0) produced.Add((liquid, amount));
         }
         return produced;
+    }
+
+    /// <summary>捕获液体产能的运行时速率与定点余数。</summary>
+    public LiquidProductionRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(_rateView, _accMilli);
+
+    /// <summary>校验产能快照与当前词表兼容；不修改当前产能。</summary>
+    public void ValidateRuntimeStateSnapshot(LiquidProductionRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!_rateMilli.Keys.ToHashSet(StringComparer.Ordinal)
+            .SetEquals(snapshot.Rates.Keys) ||
+            !_accMilli.Keys.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(snapshot.AccumulatedMicro.Keys))
+            throw new InvalidOperationException("液体产能快照的液种集合与当前词表不一致。");
+
+        foreach (var item in snapshot.Rates)
+        {
+            if (double.IsNaN(item.Value) || double.IsInfinity(item.Value) ||
+                item.Value < 0 || item.Value > Constants.MAX_PRODUCER_RATE)
+                throw new DomainValidationException("液体产能快照包含无效速率：" + item.Key);
+        }
+        foreach (var item in snapshot.AccumulatedMicro)
+        {
+            if (item.Value < 0 || item.Value >= MicroUnit)
+                throw new DomainValidationException("液体产能快照包含越界定点余数：" + item.Key);
+        }
+    }
+
+    /// <summary>恢复液体产能运行状态；词表和强度修饰器仍由当前世界配置提供。</summary>
+    public void RestoreRuntimeState(LiquidProductionRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        foreach (var liquid in _vocabulary.Liquids)
+        {
+            var rate = snapshot.Rates[liquid];
+            _rateMilli[liquid] = Milli(rate);
+            _rateView[liquid] = rate;
+            _accMilli[liquid] = snapshot.AccumulatedMicro[liquid];
+            _accView[liquid] = _accMilli[liquid] / (double)MicroUnit;
+        }
     }
 
     /// <summary>回到装配时的速率（<see cref="JarSystem.Reset"/> 用）：速率与累加器一起清。</summary>
@@ -131,4 +186,22 @@ public sealed class LiquidProduction
 
     /// <summary>速率 → 定点整数（千分之一）。只在设速率的边界上取整一次。</summary>
     private static int Milli(double rate) => (int)Math.Round(rate * MilliUnit, MidpointRounding.AwayFromZero);
+}
+
+
+/// <summary>液体产能运行时快照；保留可见速率与百万分之一份的未产出余数。</summary>
+public sealed class LiquidProductionRuntimeStateSnapshot
+{
+    public LiquidProductionRuntimeStateSnapshot(
+        IReadOnlyDictionary<string, double> rates,
+        IReadOnlyDictionary<string, long> accumulatedMicro)
+    {
+        Rates = new ReadOnlyDictionary<string, double>(
+            new Dictionary<string, double>(rates, StringComparer.Ordinal));
+        AccumulatedMicro = new ReadOnlyDictionary<string, long>(
+            new Dictionary<string, long>(accumulatedMicro, StringComparer.Ordinal));
+    }
+
+    public IReadOnlyDictionary<string, double> Rates { get; }
+    public IReadOnlyDictionary<string, long> AccumulatedMicro { get; }
 }

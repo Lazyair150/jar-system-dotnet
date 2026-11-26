@@ -41,6 +41,13 @@ public class OrderEvent : ICommandJournal
     public WorkshopSnapshot? MasterSnapshot { get; private set; }
     public WorkshopSnapshot? SlaveSnapshot { get; private set; }
     public bool TransferOccurred { get; private set; }
+    /// <summary>
+    /// A post-publication rollback/projection failure leaves the legacy event's physical and
+    /// ledger state committed or uncertain. Keep the order executing and block further commands;
+    /// callers must surface the fault rather than retry delivery or mark the order failed/succeeded.
+    /// </summary>
+    public bool IsTransactionFaulted { get; private set; }
+    public string? TransactionFaultReason { get; private set; }
     public string CurrentPhase { get; private set; } = Constants.OrderPhase.NONE;
 
     public IReadOnlyList<ExecutionLogEntry> ExecutionLog => _executionLogView;
@@ -80,7 +87,9 @@ public class OrderEvent : ICommandJournal
         Order = order;
         Master = masterWorkshop;
         Slave = slaveWorkshop;
-        Executor = new CommandExecutor(log);
+        Executor = new CommandExecutor(log, () => IsTransactionFaulted
+            ? TransactionFaultReason ?? "订单事务状态不确定，已冻结。"
+            : null);
         _countDiscardedJars = countDiscardedJars;
         _countDiscardedLiquids = countDiscardedLiquids;
         _ledger = ledger;
@@ -89,6 +98,7 @@ public class OrderEvent : ICommandJournal
 
     public bool Start()
     {
+        if (IsTransactionFaulted) return false;
         MasterSnapshot = Master.CreateSnapshot();
         SlaveSnapshot = Slave.CreateSnapshot();
         Master.ClearMarks();
@@ -101,6 +111,8 @@ public class OrderEvent : ICommandJournal
 
     public CommandResult ExecuteCommand(Command command, Workshop workshop)
     {
+        if (IsTransactionFaulted)
+            return new CommandResult { Success = false, Reason = TransactionFaultReason ?? "订单事务状态不确定，已冻结。" };
         bool isMaster = workshop == Master;
         bool isSlave = workshop == Slave;
         if (!isMaster && !isSlave)
@@ -144,11 +156,15 @@ public class OrderEvent : ICommandJournal
     public (bool Success, int ExecutedCount, string? Reason) ExecuteBatch(
         List<Command> commands, Workshop workshop)
     {
+        if (IsTransactionFaulted)
+            return (false, 0, TransactionFaultReason ?? "订单事务状态不确定，已冻结。");
         return Executor.ExecuteBatch(commands, workshop, this);
     }
 
     public CommandResult AdvanceToSlavePhase()
     {
+        if (IsTransactionFaulted)
+            return new CommandResult { Success = false, Reason = TransactionFaultReason ?? "订单事务状态不确定，已冻结。" };
         if (CurrentPhase != Constants.OrderPhase.MASTER)
             return new CommandResult { Success = false, Reason = "不在主台阶段" };
         CurrentPhase = Constants.OrderPhase.SLAVE;
@@ -158,6 +174,7 @@ public class OrderEvent : ICommandJournal
 
     public void RecordTransfer(Jar jar)
     {
+        ThrowIfTransactionFaulted();
         if (jar.Id.HasValue)
             _transferredJarIds.Add(jar.Id.Value);
     }
@@ -171,6 +188,8 @@ public class OrderEvent : ICommandJournal
 
     public (bool Success, string? Reason) Deliver()
     {
+        if (IsTransactionFaulted)
+            return (false, TransactionFaultReason ?? "订单事务状态不确定，已冻结。");
         var check = CheckDelivery();
         if (!check.CanDeliver) return Fail("需求未完全满足");
 
@@ -180,13 +199,24 @@ public class OrderEvent : ICommandJournal
         foreach (var idx in matched)
             if (idx >= 0) jarsToDeliver.Add(deliveryWorkshop.Jars[idx]);
 
-        foreach (var jar in jarsToDeliver)
-            deliveryWorkshop.RemoveJar(jar);
+        if (Order.Type == Constants.OrderType.B)
+        {
+            // Delivery Jar removal is part of the same snapshot/ledger transaction as
+            // returning the remaining Slave resources. A failed rollback must restore
+            // both the delivered Jar and every resource that would otherwise return.
+            RollbackSlaveToMaster(jarsToDeliver
+                .Select(jar => jar.Id ?? 0)
+                .ToArray());
+        }
+        else
+        {
+            foreach (var jar in jarsToDeliver)
+                if (deliveryWorkshop.RemoveJar(jar) == null)
+                    throw new InvalidOperationException($"订单交付罐 #{jar.Id} 无法从工作台移除");
+        }
+
         _deliveredJars.Clear();
         _deliveredJars.AddRange(jarsToDeliver);
-
-        if (Order.Type == Constants.OrderType.B)
-            RollbackSlaveToMaster();
 
         Master.ClearMarks();
         Slave.ClearMarks();
@@ -196,9 +226,14 @@ public class OrderEvent : ICommandJournal
 
     public (bool Success, string? Reason) Fail(string? reason)
     {
+        if (IsTransactionFaulted)
+            return (false, TransactionFaultReason ?? "订单事务状态不确定，已冻结。");
+        // Rollback captures the pre-failure Jar/mark state. Clear marks only after the
+        // physical accounts and ledger batch commit; otherwise a failed rollback would
+        // restore an already-cleared snapshot and lose the original execution state.
+        RollbackSlaveToMaster();
         Master.ClearMarks();
         Slave.ClearMarks();
-        RollbackSlaveToMaster();
         Order.MarkFailed();
         return (false, reason);
     }
@@ -207,9 +242,33 @@ public class OrderEvent : ICommandJournal
     /// 把从台剩余罐子与液体全部退回主台（主台接不下的直接丢弃）。
     /// 语义细节全部移入 <see cref="SlaveRollback"/>（全集排空 / 禁令边界 / 容量丢弃三件事一处说清）。
     /// </summary>
-    public void RollbackSlaveToMaster() =>
-        _rollback.Execute(Master, Slave, AppendLog, _countDiscardedJars, _countDiscardedLiquids,
-            _ledger, _tickOf);
+    public void RollbackSlaveToMaster(IReadOnlyCollection<int>? deliveredJarIds = null)
+    {
+        ThrowIfTransactionFaulted();
+        try
+        {
+            _rollback.Execute(
+                Master, Slave, AppendLog, _countDiscardedJars, _countDiscardedLiquids,
+                _ledger, _tickOf,
+                operationId: _ledger == null ? null :
+                    "legacy-order:" + Order.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                    ":slave-rollback",
+                deliveredJarIds: deliveredJarIds);
+        }
+        catch (SlaveRollbackTransactionException exception)
+        {
+            IsTransactionFaulted = true;
+            TransactionFaultReason = exception.Message;
+            throw;
+        }
+    }
+
+    private void ThrowIfTransactionFaulted()
+    {
+        if (IsTransactionFaulted)
+            throw new InvalidOperationException(
+                TransactionFaultReason ?? "订单事务状态不确定，已冻结。");
+    }
 
     public Dictionary<string, object?> GetReport()
     {
@@ -220,6 +279,8 @@ public class OrderEvent : ICommandJournal
             ["master"] = Master.Name,
             ["slave"] = Slave.Name,
             ["transferOccurred"] = TransferOccurred,
+            ["transactionFaulted"] = IsTransactionFaulted,
+            ["transactionFaultReason"] = TransactionFaultReason,
             ["deliveredCount"] = DeliveredJars.Count,
             ["log"] = ExecutionLog,
             ["errors"] = Errors,

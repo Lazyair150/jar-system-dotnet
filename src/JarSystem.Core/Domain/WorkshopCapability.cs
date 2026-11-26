@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using JarSystem.Core.Config;
 
@@ -10,9 +11,11 @@ namespace JarSystem.Core.Domain;
 /// <see cref="Workshop"/>、<see cref="WorkshopSnapshot"/>、<c>Solver.WorkshopInfo</c>
 /// 可以**共用同一份**，不必三处各存一份标记表（S1：消除重复）。
 ///
-/// 语义（与重构前逐字一致，勿改）：
+/// 语义：
 /// <list type="bullet">
 /// <item>禁令在构造时规范化为**裸液体名**（去掉「禁」前缀），避免 "酒" 与 "禁酒" 两种写法并存；</item>
+/// <item>Ban 只约束工作台游离液体暂存区，不推导或限制 Jar 内部液体极性；</item>
+/// <item>Jar 内液体极性由 World Vocabulary 决定；工作台 Ban 不限制 Jar 持有、操作或自耗；</item>
 /// <item>形状转换**公式**属于核心（在 <see cref="ShapeRules"/>），本类只提供**参数**；
 /// 因此加/减形状不需要改规则引擎，只需换一份 <see cref="WorkshopCapability"/>。</item>
 /// </list>
@@ -26,6 +29,7 @@ public sealed class WorkshopCapability
     private readonly List<string> _baseMarks;
     private readonly List<string> _additionalMarks;
     private readonly List<string> _ban;
+    private readonly Vocabulary _vocabulary;
 
     private readonly IReadOnlyList<string> _baseMarksView;
     private readonly IReadOnlyList<string> _additionalMarksView;
@@ -43,8 +47,10 @@ public sealed class WorkshopCapability
     public WorkshopCapability(
         IEnumerable<string>? baseMarks = null,
         IEnumerable<string>? additionalMarks = null,
-        IEnumerable<string>? ban = null)
+        IEnumerable<string>? ban = null,
+        Vocabulary? vocabulary = null)
     {
+        _vocabulary = vocabulary ?? Vocabulary.Default;
         _baseMarks = new List<string>(baseMarks ?? []);
         _additionalMarks = new List<string>(additionalMarks ?? []);
         _ban = NormalizeBan(ban);
@@ -53,11 +59,49 @@ public sealed class WorkshopCapability
         _banView = _ban.AsReadOnly();
     }
 
+    public WorkshopCapability WithVocabulary(Vocabulary vocabulary) =>
+        new(_baseMarks, _additionalMarks, _ban, vocabulary);
+
     public bool IsBaseMarked(string shape) => BaseMarks.Contains(shape);
 
     public bool IsAdditionalMarked(string shape) => AdditionalMarks.Contains(shape);
 
     public bool IsBanned(string liquid) => Ban.Contains(liquid) || Ban.Contains("禁" + liquid);
+
+    /// <summary>Liquid identities known to this World; Ban is a staging-account policy only.</summary>
+    public IReadOnlyList<string> Liquids => _vocabulary.Liquids;
+
+    /// <summary>Exact immutable vocabulary owned by this capability's World.</summary>
+    public Vocabulary Vocabulary => _vocabulary;
+
+    /// <summary>World-owned immutable liquid identity-to-polarity contract.</summary>
+    public IReadOnlyDictionary<string, LiquidPolarity> LiquidPolarities => _vocabulary.LiquidPolarities;
+
+    public JarPolarity ResolvePolarity(string? liquid)
+    {
+        if (liquid is null) return JarPolarity.Neutral;
+        return _vocabulary.ResolveLiquidPolarity(liquid) == LiquidPolarity.Cathode
+            ? JarPolarity.Cathode
+            : JarPolarity.Anode;
+    }
+
+    /// <summary>
+    /// Kept as a compatibility projection. A liquid Ban does not define a Jar-operation
+    /// polarity restriction, so workshop polarity remains unrestricted.
+    /// </summary>
+    public WorkshopPolarityMode PolarityMode => WorkshopPolarityMode.Unrestricted;
+
+    /// <summary>Ban never restricts possession or operation of a Jar's internal liquid.</summary>
+    public bool CanOperateJar(JarPolarity polarity) => true;
+
+    public static bool CanOperateJar(WorkshopPolarityMode mode, JarPolarity polarity) => mode switch
+    {
+        WorkshopPolarityMode.Unrestricted => true,
+        WorkshopPolarityMode.NeutralOnly => polarity == JarPolarity.Neutral,
+        WorkshopPolarityMode.Cathode => polarity is JarPolarity.Neutral or JarPolarity.Cathode,
+        WorkshopPolarityMode.Anode => polarity is JarPolarity.Neutral or JarPolarity.Anode,
+        _ => false
+    };
 
     /// <summary>本能力下，形状 <paramref name="shape"/> 可以变成哪些形状（委托 <see cref="ShapeRules"/>）。</summary>
     /// <param name="extraAdditionalMarks">额外附加标记（Case2 作用域内的临时标记；null/空视为无）。</param>

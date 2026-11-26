@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace JarSystem.Core.Config;
@@ -23,8 +25,17 @@ public sealed class WorldOptions
     /// <summary>形状目录（**唯一权威**；顺序会影响契约快照里相关键的出现顺序）。</summary>
     [JsonPropertyName("shapes")] public List<string> Shapes { get; set; } = new();
 
-    /// <summary>液体目录（**必须恰好两个**——这是玩法语义；此处只承载它们的名字与顺序）。</summary>
+    /// <summary>液体身份目录（恰好两个；顺序只用于稳定投影，不代表极性）。</summary>
     [JsonPropertyName("liquids")] public List<string> Liquids { get; set; } = new();
+
+    /// <summary>世界显式定义的液体身份→极性映射；必须一一覆盖 Liquids。</summary>
+    [JsonPropertyName("liquidPolarities")]
+    public Dictionary<string, LiquidPolarity> LiquidPolarities { get; set; } =
+        new(StringComparer.Ordinal)
+        {
+            [Constants.LIQUIDS[0]] = LiquidPolarity.Cathode,
+            [Constants.LIQUIDS[1]] = LiquidPolarity.Anode
+        };
 
     /// <summary>工作台默认罐位上限（未在工作台条目里指定时使用）。</summary>
     [JsonPropertyName("defaultMaxJars")] public int DefaultMaxJars { get; set; } = Constants.DEFAULT_MAX_JARS;
@@ -97,7 +108,7 @@ public sealed class WorldOptions
     }
 
     /// <summary>由本配置构造词表（形状/液体目录的唯一权威由此产生）。</summary>
-    public Vocabulary BuildVocabulary() => new(Shapes, Liquids);
+    public Vocabulary BuildVocabulary() => new(Shapes, Liquids, LiquidPolarities);
 
     /// <summary>
     /// 深拷贝配置。世界装配时用它隔离调用方持有的可变 POCO；对外读取 <c>JarSystem.World</c> 时
@@ -107,6 +118,7 @@ public sealed class WorldOptions
     {
         Shapes = new List<string>(Shapes),
         Liquids = new List<string>(Liquids),
+        LiquidPolarities = new Dictionary<string, LiquidPolarity>(LiquidPolarities, StringComparer.Ordinal),
         DefaultMaxJars = DefaultMaxJars,
         DefaultMaxLiquids = DefaultMaxLiquids,
         Flow = new FlowOptions
@@ -119,6 +131,7 @@ public sealed class WorldOptions
         Producers = Producers.Select(p => new ProducerOptions
         {
             Name = p.Name,
+            ProducerInstanceId = p.ProducerInstanceId,
             Rates = new Dictionary<string, double>(p.Rates)
         }).ToList(),
         ProducerSlots = ProducerSlots,
@@ -127,11 +140,13 @@ public sealed class WorldOptions
         Workshops = Workshops.Select(w => new WorkshopOptions
         {
             Name = w.Name,
+            OwnedInstanceId = w.OwnedInstanceId,
             BaseMarks = new List<string>(w.BaseMarks),
             AdditionalMarks = new List<string>(w.AdditionalMarks),
             Ban = new List<string>(w.Ban),
             MaxJars = w.MaxJars,
-            MaxLiquids = w.MaxLiquids
+            MaxLiquids = w.MaxLiquids,
+            LiquidStagingCapacity = w.LiquidStagingCapacity
         }).ToList(),
         OrderTemplates = OrderTemplates.Select(t => new OrderTemplateOptions
         {
@@ -171,18 +186,21 @@ public sealed class WorldOptions
         foreach (var s in Shapes) if (IsBadName(s)) r.Errors.Add("shapes 含非法名称（空/空白或含控制字符）: " + Describe(s));
         foreach (var l in Liquids) if (IsBadName(l)) r.Errors.Add("liquids 含非法名称（空/空白或含控制字符）: " + Describe(l));
 
-        // ⚠️ 已知边界（有意为之，不是遗漏）：**液体名字目前不可改**。
-        // 求解器/执行器/切换/可行性里仍有 10 处按内置液体名遍历（且遍历顺序会影响选出的路径），
-        // 因此这里**显式拒绝**与内置不一致的液体名，避免"配置改了但没人理它"这种静默不一致。
-        // 将来要支持改名，得先把词表穿到那 10 处，并保持顺序 —— 见 13_全局审视 §7。
-        for (int i = 0; i < Liquids.Count && i < Constants.LIQUIDS.Count; i++)
+        // 极性是世界结构数据，不从液体名称或数组顺序推断。
+        if (LiquidPolarities == null || LiquidPolarities.Count != 2)
+            r.Errors.Add("liquidPolarities 必须为两种液体分别指定极性");
+        else
         {
-            if (Liquids[i] != Constants.LIQUIDS[i])
-            {
-                r.Errors.Add("liquids 目前不支持改名/改序（求解与执行仍按内置液体名与顺序工作），"
-                    + "请保持与内置一致: " + string.Join(", ", Constants.LIQUIDS));
-                break;
-            }
+            foreach (var liquid in Liquids)
+                if (!LiquidPolarities.ContainsKey(liquid))
+                    r.Errors.Add("liquidPolarities 缺少液体身份: " + liquid);
+            foreach (var liquid in LiquidPolarities.Keys)
+                if (!Liquids.Contains(liquid))
+                    r.Errors.Add("liquidPolarities 含世界词表之外的身份: " + liquid);
+            var cathodeCount = LiquidPolarities.Values.Count(x => x == LiquidPolarity.Cathode);
+            var anodeCount = LiquidPolarities.Values.Count(x => x == LiquidPolarity.Anode);
+            if (cathodeCount != 1 || anodeCount != 1)
+                r.Errors.Add("liquidPolarities 必须恰好包含一个 Cathode 和一个 Anode");
         }
 
         // ---- 容量与流入 ----
@@ -213,8 +231,18 @@ public sealed class WorldOptions
         // ---- 生产者 ----
         var producerNames = new List<string>();
         var producedShapes = new List<string>();
+        var producerInstanceIds = new List<string>();
         foreach (var p in Producers)
         {
+            if (p.ProducerInstanceId is { } producerInstanceId)
+            {
+                if (IsBadName(producerInstanceId) || !string.Equals(producerInstanceId, producerInstanceId.Trim(), StringComparison.Ordinal))
+                    r.Errors.Add("生产者 " + p.Name + " 的 ProducerInstanceId 无效");
+                else if (producerInstanceIds.Contains(producerInstanceId, StringComparer.Ordinal))
+                    r.Errors.Add("ProducerInstanceId 重复: " + producerInstanceId);
+                else
+                    producerInstanceIds.Add(producerInstanceId);
+            }
             if (string.IsNullOrWhiteSpace(p.Name)) r.Errors.Add("生产者缺少 name");
             else if (producerNames.Contains(p.Name)) r.Errors.Add("生产者名重复: " + p.Name);
             else producerNames.Add(p.Name);
@@ -239,8 +267,18 @@ public sealed class WorldOptions
 
         // ---- 工作台 ----
         var workshopNames = new List<string>();
+        var workshopInstanceIds = new List<string>();
         foreach (var w in Workshops)
         {
+            if (w.OwnedInstanceId is { } ownedInstanceId)
+            {
+                if (IsBadName(ownedInstanceId) || !string.Equals(ownedInstanceId, ownedInstanceId.Trim(), StringComparison.Ordinal))
+                    r.Errors.Add("工作台 " + w.Name + " 的 OwnedInstanceId 无效");
+                else if (workshopInstanceIds.Contains(ownedInstanceId, StringComparer.Ordinal))
+                    r.Errors.Add("OwnedInstanceId 重复: " + ownedInstanceId);
+                else
+                    workshopInstanceIds.Add(ownedInstanceId);
+            }
             if (string.IsNullOrWhiteSpace(w.Name)) r.Errors.Add("工作台缺少 name");
             else if (workshopNames.Contains(w.Name)) r.Errors.Add("工作台名重复: " + w.Name);
             else workshopNames.Add(w.Name);
@@ -258,6 +296,8 @@ public sealed class WorldOptions
             foreach (var l in w.Ban) if (!NormalizedBan(l, Liquids)) r.Errors.Add("工作台 " + w.Name + " 的禁令含未知液体: " + l);
             if (w.MaxJars is <= 0) r.Errors.Add("工作台 " + w.Name + " 的 maxJars 必须为正数");
             if (w.MaxLiquids is <= 0) r.Errors.Add("工作台 " + w.Name + " 的 maxLiquids 必须为正数");
+            if (w.LiquidStagingCapacity is < 0)
+                r.Errors.Add("工作台 " + w.Name + " 的 liquidStagingCapacity 不能为负数");
         }
 
         // ---- 名字池 ----
@@ -399,6 +439,11 @@ public sealed class ProducerOptions
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
 
+    /// <summary>稳定生产者实例身份；不使用显示名称或配置列表位置推断。</summary>
+    [JsonPropertyName("producerInstanceId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProducerInstanceId { get; set; }
+
     /// <summary>键 = 形状名，值 = 每 tick 产出速率。</summary>
     [JsonPropertyName("rates")] public Dictionary<string, double> Rates { get; set; } = new();
 }
@@ -407,10 +452,16 @@ public sealed class ProducerOptions
 public sealed class WorkshopOptions
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
+    /// <summary>稳定工作台实例身份；与可变主从角色及显示名称无关。</summary>
+    [JsonPropertyName("ownedInstanceId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OwnedInstanceId { get; set; }
     [JsonPropertyName("baseMarks")] public List<string> BaseMarks { get; set; } = new();
     [JsonPropertyName("additionalMarks")] public List<string> AdditionalMarks { get; set; } = new();
     [JsonPropertyName("ban")] public List<string> Ban { get; set; } = new();
     [JsonPropertyName("maxJars")] public int? MaxJars { get; set; }
+    /// <summary>新订单暂存区全液种合计容量；省略时回退到 maxLiquids/defaultMaxLiquids。</summary>
+    [JsonPropertyName("liquidStagingCapacity")] public int? LiquidStagingCapacity { get; set; }
     [JsonPropertyName("maxLiquids")] public int? MaxLiquids { get; set; }
 }
 

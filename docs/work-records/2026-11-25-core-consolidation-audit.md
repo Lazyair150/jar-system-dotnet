@@ -1,0 +1,1075 @@
+# 2026-11-25 Core 多角度审查与 Space 收敛启动记录
+
+## 目标
+
+按既有工程规范完成 Jar Core 全面设计检查；将 Space 所需的 Core 能力收敛到最新 Jar Core；修正液体身份与二元极性硬编码；清理被取代的 GitHub PR/分支与过期文件；建立 ignore 和工作记录专区。
+
+## 起始基线
+
+- Core 默认 main：`40e578e6e32472549d647ed903ef98cc98028bb6`
+- Core World V2 最新候选：`3c38a3fab85cf7fde8cf943a3e9ea592a7117f5d`
+- Core 工作分支：`architecture/core-liquid-identity-consolidation`
+- Space PR #2：`5a03c259f733eb1ef9f06439ff8f0a805d8e42c0`
+- Space 集成记录中的 Core pin：`b342259fe04363386085dc9a4ca995112954ed43`
+- Core PR #60/#61/#62 均仍处于开放堆叠状态；PR #62 的旧 CI run 失败，不能作为当前分支通过证据。
+
+## 已完成的实际动作
+
+1. 建立 Core 整合分支，起点为 World V2 候选 head。
+2. 审查 `JarPolarityResolver`、`WorkshopCapability.PolarityMode`、`WorldOptions.Validate`、`Constants.LIQUIDS`、`WorkshopRulebook`、`LiquidRequirementCalculator`、`GreedyPlanBuilder` 等源码。
+3. 确认液体名称与极性类别、默认配置、求解遍历仍存在耦合；详细事实见架构审查报告。
+4. 修复 CI 已报告的 xUnit2029：将 `Assert.Empty(newMaster.LiquidStorage.Where(...))` 改为 `Assert.DoesNotContain(newMaster.LiquidStorage, ...)`。
+   - 提交：`6a2a954b8fc512c1e7bd26a4f218a4293038fa20`
+   - 文件：`test/JarSystem.Tests/WorldV2/WorkshopReplacementTests.cs`
+   - 尚待在新 head 上重新执行 CI。
+5. 更新 Core 根 `.gitignore`，忽略 Godot 编辑器缓存和本机诊断文件；保留源文件、契约基线、文档和工作记录。
+   - 提交：`e61d75fecf92bf4954896797582897556aa18e7d`
+6. 新增本审查报告与工作记录专区。
+
+## 重要审查发现
+
+- Core 当前将 `酒` 固定为 Cathode、`蜜` 固定为 Anode。
+- 工作台 Ban 的极性模式也直接查询这两个名字。
+- `WorldOptions.Liquids` 虽是 List，但校验仍拒绝名称和顺序变化。
+- Solver/Executor/Rulebook 多处仍枚举静态液体常量。
+- Jar 的极性由无 World 上下文的静态 resolver 从名称推导。
+- 这与“液体是某些操作的消耗品，世界定义两种相互排斥类型”的概念不一致。
+
+## 规范映射
+
+审查沿用 Space 工程规范的分层依赖、稳定契约、状态所有权、可观察失败、不可变快照、真实行为测试等原则。阿里巴巴 Java 开发手册只作为通用工程原则映射，不机械套用语言专属规则。
+
+## 验证状态
+
+- 已读取 GitHub 上的源码、PR 元数据、分支元数据和 CI 日志。
+- 当前分支的新 CI 尚未取得结果。
+- 尚未在本地执行 .NET build/test。
+- 尚未做 Godot GUI 验收。
+- 不声称本轮整合已经完成或 PR 已合并。
+
+## 下一步
+
+1. 继续全 Core 源码/测试/配置的液体身份引用审计。
+2. 冻结显式二元液体目录与极性映射 API，明确 Jar 对 World 词表的上下文归属。
+3. 批量替换静态液体常量遍历与默认资源硬编码。
+4. 添加液体身份重命名同构、极性映射交换、Ban scope、资源守恒和多 World 隔离测试。
+5. 将 main 的独有提交纳入整合分支。
+6. 将 Space 的 Core 引用改为统一 Jar Core 源。
+7. 建立一个完整整合 PR，待验证后再清理 superseded PR 与分支。
+
+## 2026-11-25 第二轮：二元液体模型与 Ban 语义解耦
+
+### 新确认的领域错误
+
+审查发现旧 Core 还把 `WorkshopCapability.Ban` 推导为 `WorkshopPolarityMode`，并据此拒绝某些 Jar 内部液体操作。该逻辑不符合“Ban 只管工作台游离液体暂存区”的既定规则。已将其从领域决策中拆除：
+- Ban 仍限制游离液体 staging 的支付/接收/迁移。
+- Ban 不再限制 MATCH、Jar 内液体自耗或 Jar 的物理迁移。
+- PourOut 可以完成 Jar→输出边界；输出是否进入暂存区仍由 staging Ban/容量决定，拒收按显式丢弃边界处理。
+- RuleContractVersion 升为 5；PourOut v3、ReshapeFull v4、MATCH v5。
+
+### 已实施代码范围
+
+- 新增 `LiquidPolarity` 配置值类型。
+- `WorldOptions` 增加 `liquidPolarities` 显式映射、完整性验证、Clone 和 JSON 字符串枚举序列化。
+- `Vocabulary` 保存只读映射；自定义两种身份必须显式指定 Cathode/Anode；只对旧默认词表保留兼容映射。
+- `Jar` 的液体验证和极性解析绑定其 World Vocabulary。
+- `WorkshopCapability` 的 Ban 不再派生 Jar 操作极性；`Workshop.ReplaceCapability` 保留所属 World Vocabulary。
+- `JarFacts`/transition snapshot 传递显式极性事实；detached snapshot 验证三态结构，不根据液体名字猜测。
+- 移除 SolverContracts 中无 World 上下文的 JarState/Requirement 极性属性；Solver 通过所属 Workshop capability 映射求值。
+- Solver、Precheck、StateSpace、PartitionSearch、SwitchCases、ResourceTransferrer、OrderExecutionSession、WorldOrderRuleCandidateProfile、GreedyPlanBuilder 改为使用 World liquid vocabulary/account keys。
+- `LiquidRequirementCalculator` 增加 World vocabulary 参数，B 类需求和容量路径传入所属角色的词表。
+- 新增 `BinaryLiquidVocabularyTests`；调整 Ban/Polarity/transition 相关既有测试。
+- Core 默认 `config/world.json` 增加显式默认映射。
+
+### 验证与失败记录
+
+- Core run `45574305499`：失败，最初只报告编译错误（SolverContracts context-free polarity 和 order-scoped transition 调用签名）；已修复。
+- Core run `45575129154`：失败，测试/参考求解器仍依赖旧的 context-free Resolver 与 JarState/Requirement.Polarity；已将测试和 ReferenceSolver 改为显式 World context，并更新 Ban 派生极性测试。
+- Core run `45575641509`：提交 `214f472b4083ecbe1b01a4d681199daab19188b8`，执行中后报告失败；已调整 transition snapshot 测试，不再把 liquid name 当作极性语义。
+- 当前最新 Core head 在此记录更新时为 `e173cb759fb9f0118388664307c252d1dfdff257`，对应 run `45576014434` 执行中，尚无最终结论。
+- 所有上述 CI 失败均已逐条读日志，不把“已修复”写成“CI 已通过”。
+
+### Space 实际世界配置修正
+
+截图中的 `燃料` 故障根因已在 Space 资源中定位：`data/hangar/demo_catalog_bundle.tres` 的两个战斗 World 使用 `冷却液`、`燃料`，却没有显式极性映射。Space 已在两个配置中声明：
+- `冷却液 → Cathode`
+- `燃料 → Anode`
+
+Space profile 验证要求所有自定义身份都有完整映射；Frozen Loadout schema 升为 3。schema 2 只允许精确的旧 Space 身份集合 `{冷却液, 燃料}` 迁移，其他任意身份不自动猜测。新增 Probe 覆盖成功迁移和未知身份 fail-closed。
+
+Space 相关提交：`851a0c9d20374a99c90bdfcb801dd83181c08813`、`c74c29b96c46b800389bbd0a1d0229f123b7ef53`、`03b8b1dcbee4b3f42058801dd7ec7d5f730f4631`、`4f5a84ebf63b96be0f1f2e9b29f4fcfd87677aab`、`f5fdffe9e958422f0c3c6612b22d75ead3ae5561`、`0a3454a59b22285368cfacea3a08db3b5221ae4a`。
+
+### 当前状态
+
+Core 与 Space 的配置/模型修正均已进入各自分支；Core 最新 CI 和 Space 跨仓库 CI 尚待最终结果。PR #63 保持 Draft。旧堆叠 PR 和远端分支暂不删除，直到 #63 合并并确认其内容完整覆盖。
+
+
+## 2026-11-25 第三轮：主线基线与固定 Seed 分支收敛
+
+### 已执行的 Git 图谱整合
+
+- 比较 main 与整合分支时发现整合分支落后 main 2 个提交，且有 2 个只存在于 main 的资源模拟文档/测试文件。
+- 将这两个文件按 main 当前内容同步到整合分支，并创建双父 merge commit：69cafecd7f6c5c421a73f7028c91d81b4020ca80。第一父提交 59e20847eb90e44055974d4d060db8574c469629；第二父提交 40e578e6e32472549d647ed903ef98cc98028bb6（main）。
+- 再比较后，整合分支相对 main 为 ahead 2124 / behind 0，状态 ahead。最新 main 的两个提交已进入整合分支历史。
+- PR #61 固定 Seed 扩展包含 2 个提交；已同步新增文档和更新后的 WorldOrderSymbolicResourceSimulatorTests.cs，并创建双父 merge commit 92597214bb0d2019acf9d018d0fc821c849994e2，第二父提交 9d45a9cc618186e3fbf60adb83beea35cc0b0caa。
+- PR #62 head 3c38a3fab85cf7fde8cf943a3e9ea592a7117f5d 已是整合分支祖先。PR #60 仍有文档与 ignore 独有差异，暂不关闭，待单独核对。
+
+### 本轮编译反馈与修正
+
+- JarFacts 不再提供 context-free 默认极性推导；构造时必须提供 JarPolarity。
+- CI 定位到 StateSpaceSolver 和 WorldOrderRuleCandidateProfile 两处漏传 polarity，现已修正：74f933ea7b16d968d46152c13819f2d0d58bf4d5、449903b1b8779931963eff3fd83856afa8fb03c4。
+- 测试中的 JarFacts 断言改为显式提供默认世界 Neutral/Cathode/Anode：81958bb42503184d5703f9efb21092a2f02b4f3a。
+- ReferenceSolver 的空罐匹配与操作入口改为使用所属 Workshop capability 的 World polarity：ce899bd17f82ea747a99eec494f672b6e55fdc0d。
+- 修正后的 Core CI run 45577267527（head 81958bb42503184d5703f9efb21092a2f02b4f3a）尚在执行；后续提交的 run 也仍在执行，不能宣布 Core 全套通过。
+
+### 当前分支基线
+
+- 整合分支与 main 对齐，behind 0。
+- 当前仍是 PR #63 Draft，不合并 main。
+- PR #60/#61/#62 保持开放；#61 内容已作为 merge parent 纳入整合分支，但待整合 PR 验证完成后再关闭旧 PR，避免过早丢失审计入口。
+
+
+## 2026-11-25 第四轮：World V2 真正装配边界与历史 PR 收敛
+
+### World V2 映射链补齐
+
+- 二次检查发现旧版 WorldOptions 已有 LiquidPolarities，但 Space 实际调用的 WorldV2Options / WorldV2Factory 仍只把 Shapes、Liquids 传给 Vocabulary；因此 Space 的自定义映射在真实 World V2 装配边界还没有贯通。
+- WorldV2Options 现已增加 liquidPolarities、完整性/互斥校验；WorldV2Factory 已把映射传给 Vocabulary；WorldV2ConfigurationFingerprint 的 canonical JSON 包含该属性。
+- 新增 WorldV2FactoryTests：自定义 fuel/coolant 能装配、JSON 往返保留映射、映射交换改变配置指纹、缺少映射时 fail-closed。
+- 提交：9b3f5d3a314932c466a6ab0be899abd882179f51、df51c40968402c593569de3512b14c40f4f466b4。
+
+### JSON 枚举序列化纠正
+
+- 发现 JsonStringEnumConverter 被错误标注在 Dictionary<string, LiquidPolarity> 属性上，而不是枚举类型上。已把转换器标注移到 LiquidPolarity enum，移除 WorldOptions 与 WorldV2Options 字典属性上的错误标注，确保字典值以稳定字符串枚举序列化。
+- 提交：5fb98b11cf0284969ccfd7e81c2c10190983f7dc、b8a38bba88b6f2557b8ab2438ed192151eeb4c90、17b50dec9764a9437c30f863a77a27befd2bfa29。
+
+### Ban 与自耗回归
+
+- 新增自定义液体身份的回归：工作台 Ban 燃料时，Jar 内燃料仍可执行 POUR_OUT；输出因 staging Ban 被拒绝并明确记为 discarded，不进入 staging。
+- 提交：7d5e898b2ed8caaec022b1f1cf903545a1676b9e。
+
+### GitHub 堆叠 PR 历史
+
+- PR #60 的唯一文件差异已按语义吸收：.gitignore 补充 IDE、测试、日志、临时与构建产物规则；旧 2026-11-24 work-status ledger 保留原始历史，并追加 supersession note 指向当前工作记录与 ADR。
+- 创建双父 merge commit 87296a754954f931a10394280b128b87098ac4d5，第二父提交为 PR #60 head 4358d19ebb8c583c12e07b9e1d86a716b10c4d45。
+- 对照确认整合分支包含 PR #60、#61、#62 的各自 head，且相对 main ahead 2160 / behind 0。PR #60/#61/#62 暂不关闭，等整合 head CI 绿色后统一关闭，避免在验证前清理入口。
+
+### 验证状态
+
+- 当前整合 head 为 87296a754954f931a10394280b128b87098ac4d5。
+- 对应 Core verify run 45578694767 与另一个工作流 run 45578686050 均在执行；之前多条 run 仍在执行或失败，不能以其中任何一个旧 SHA 代表当前 head。
+- Space 当前分支 head a8daee73df55bf30125960a9a6231ea93e706d4f 的 CI run 45577582987 成功；但其跨仓库 Core pin 仍需在 Core 整合 head 通过后更新并重跑。
+
+
+## 2026-11-25 第五轮：旧 B 类分支的缺失不变量回收与文档纠偏
+
+- PR #53 的 head 曾有 4 个提交不在整合分支祖先链中。逐项检查后确认其关键缺口是“从台不能携带订单开始前的 Jar/游离液体库存”；生产枚举器当前已有该拒绝条件，但测试和阶段文档未完整保留。
+- 补回回归测试 BClassCannotUsePreExistingSlaveInventory，并补充 B 类空从台初始库存约束文档；创建双父 merge commit `9ba16082e1992a76064e3129a8bd0404f455fc64`，第二父为 PR #53 head `8ae1d89f14404682bcb497ac2458e6a979929e4a`。比较确认 PR #53 head 已是整合分支祖先。
+- 清理旧文档中的错误语义：Ban 不再被描述为 Jar 操作极性门禁。更新 phase-4.10b-9l-ban-storage-invariant、order-funnel、solver-integration-audit 与 World V2 README；历史阶段结论明确标为被 ADR-0006 修正。
+- World V2 README 已加入 ADR-0006 索引。
+- 当前 Core 最新相关 verify run `45579355853` 对提交 `37873ee08d2e74e425bf1d490c30468e6f257a6d` 尚在执行；该 SHA 之后仍有文档提交，因此最终必须以最终 head 的精确 CI 结果验收。
+
+
+## 2026-11-25 第六轮：A 类旧栈收敛与过期 PR 关闭准备
+
+- PR #52 有 11 个 head-only commits。核对后确认其关键实现已在当前树中：A 类具体分支入口、Master 输出 Jar 与 Slave 操作 Jar 的单次 handoff、Jar revision dependency，以及对应的 preparatory program 回归测试均已存在。
+- 创建双父 merge commit `61f1da1108c0c32457f9a0947fe32cb254687740`，第二父为 PR #52 head `6fc93a10aee3d0ea682c32f3fc5899bba8a37415`。比较确认 PR #52 head 已进入整合分支祖先链。
+- 目前已确认以下旧 PR head 均是整合分支祖先，可标记为被 PR #63 替代：#1–#20（#21 除外）、#22–#49（#50/#51 除外）、#52–#62（不含 #63）。其中 #21、#50、#51 的 head 不在整合分支祖先链中，暂时保留，避免误关仍有独有提交的分支。
+- 计划将所有已确认祖先的旧 Draft PR 关闭为 Superseded；不会删除分支、提交或测试文件。历史内容已由 PR #63 的多父提交链保留。
+- 关闭动作不代表 PR #63 已通过 CI 或已合并 main；PR #63 仍 Draft/Open，等待精确 head 的全量验证。
+
+
+## 2026-11-25 第七轮：Ban staging-only 语义落到核心执行与求解路径
+
+- 复查 CI `45581332967` / `45581325843` / `45581319193`，确认旧测试仍大批断言 Ban 派生 Cathode/Anode 工作台权限；同时定位 `SolverPrecheck.CanServe` 将被 Ban 的 Jar 内液体误判为不可 POUR_OUT，及 `MatchingSolver` 的来源/操作检查残留 `CanOperateJar`。
+- 修正 `SolverPrecheck`：Jar 操作候选不再调用工作台极性许可；满 Jar RESHAPE 自耗不查 Ban；POUR_OUT 即使产液被 Ban 拒收，也可清空 Jar 并满足空 Jar 需求。修正 `MatchingSolver`：Jar 操作不再依赖 `CanOperateJar`，但只有未被 Ban 的 POUR_OUT 产液才可进入 staging 并作为后续游离液体供给。
+- 修正 `Workshop.PourOut(Jar)`：执行 Jar 状态转换后再尝试 AddLiquid；Ban/容量拒收仅丢弃产液，不回滚 Jar 操作。订单范围 PourOut 原有 receipt 继续记录 Requested/Accepted/Discarded。
+- 新增/调整回归：普通 PourOut Ban 丢弃；订单 PourOut Ban 丢弃；跨三个求解器验证 Ban Jar 液体可自耗；World A/B solver 与候选枚举器不因 Ban 拒绝 Jar 操作；工作台替换后接收台可操作迁移 Jar；允许重命名/重排两种液体，只要求显式映射；默认世界审批快照增加 liquidPolarities。
+- 当前待精确验收的 workflow 已触发于连续提交 `3c6af817...`、`2d2eff4c...` 等；需等最新 branch head 的全部 workflow 完成并继续修复失败项。此轮尚未宣称 CI 通过。
+
+
+## 2026-11-25 第八轮：StateSpaceSolver 产液路径纠偏与测试夹具迁移
+
+- CI run `45583163015` 在 853 项测试中暴露 18 项失败；除旧测试语义外，定位到 `StateSpaceSolver.Apply` 对 `ProducedFreeLiquid` 无条件 `AddLiquid`，会把被 Ban 的 POUR_OUT 产液重新记入工作台池，违背“拒收即丢弃、Jar 操作仍提交”的规则。现改为仅在目标 staging 未 Ban 时增加游离液体，Jar 状态转换始终继续。
+- 更新 `ProducerSlotTests` 与 World V2 WorkshopReplacement 测试夹具：所有非默认 Vocabulary 必须提供恰好两种身份和显式 Cathode/Anode 映射，不再用单液体/无映射构造绕过新世界契约。
+- 更新液体身份重命名测试：同步替换库存、流入速率、Ban 与订单模板中的身份键，验证完整 World 配置在显式映射下合法，而不只是修改词表数组。
+- 修订 B 类角色测试：Ban 不再让 Slave 缺少 Jar 操作候选；同一 Jar 可在交接后被从台操作。A/B partition differential 的预期已调整为允许 Jar 自耗，具体结果待最新 CI 复验。
+- 最新代码提交 `549afcd1efff5b909ad6b581212bc6052506ffff` 已触发 Core verify workflow；仍在执行，尚未标记通过。
+
+
+## 2026-11-25 第九轮：检查点极性映射闭环与 B 类角色测试对齐
+
+### CI 证据与根因
+- PR #63 初始整合 head `2a4b306b83328909c930707fbd2737b4e9012008` 的 verify run `45584186423` / `45584176474` 完成失败：Release build 通过，853 项 xUnit 中 5 项失败。
+- 日志确认 2 项失败是旧测试仍构造单液体 World；2 项 B 类执行测试与枚举器明确的 Slave-first 角色优先策略不一致；另 1 项 B 类分支测试错误地强制要求 MasterSteps。
+- 逐项读取测试和执行器源码后，未通过删除回归、降低约束或修改生产求解器来消除断言。
+
+### 发现并修复的真实数据生命周期缺陷
+- WorldV2Context 捕获检查点时只保存 Shapes/Liquids，恢复时使用 `new Vocabulary(checkpoint.Shapes, checkpoint.Liquids)`，丢失 World-owned 的 LiquidPolarity 映射。
+- 根级 World V2 checkpoint wire DTO 也未序列化该映射；自定义液体身份或反序映射可能无法 JSON 往返/恢复。
+- 现已贯通 WorkshopCapability → WorldV2Context → WorldV2ExecutionResourceCheckpoint → WorldV2ExecutionCheckpointWireDto → JSON encode/decode → restore 的显式映射。
+- 恢复前同时校验词表与映射和当前目标 World 完全一致；不对未知身份、旧自定义映射或缺失映射猜测极性。
+- checkpoint JSON schema 从 2 升为 3；旧 schema 2 不被静默解释为新格式。
+- 新增 WorldV2FactoryTests：自定义 fuel/coolant 映射经过完整 checkpoint JSON round-trip 后仍保持 fuel→Anode、coolant→Cathode，并可恢复到同配置 Context。
+- 更新所有手工构造 checkpoint 的测试夹具，使映射成为显式字段。
+
+### 失败测试修正
+- ProducerSlot fixture 改为合法二元液体世界，不再构造单液体 WorldOptions。
+- B 类执行测试按生产枚举器既有 Slave-first 策略检查：Jar 先从 Master 转移，再由 Slave 执行 MATCH；Ban 仍只作用于游离液体 staging。
+- 多 Jar handoff fault test 现在从 Transfer 阶段验证第二次物理移动失败时会话失败、Jar 身份回到 Master、Slave 为空、Mark 清理、Reservation 释放，且未提交 Transfer/Return 账目。
+
+### 本轮提交与验证边界
+- 相关连续提交：`b855198b94478be9bf9de5ef716b36d2a3832db7`、`9e5b34355e1df5a22e25988753f042e3a991aa68`、`2e059b27f8330d4903f9890d1917c1f6bb1cefcd`、`f943bf5591e7107ca51df3373a9bcf0beecd1533`、`5e676e14b969738fa6ec44c24588f2a5cafc2d0f`、`f8167a8430893c4e529e1e981c15d2e02b8bbba5`、`1e42ec26810e2abb551444494ab88dfd40812514`、`ec6218fec00587b8fe79118f76239488b04480cc`、`adcec987d927ef50ed2e0f50fa51b96b6c15b23b`、`ea8af5906af986c26a5ed4f0c9a76a7ac560b97a`、`9afabdefb9d989f91ec57600cbc2fae09c1babc8`、`bd6b1437ba454f367301f1b26699727bd5732e70`、`ee37b8595474c228039727fe573d823aad1d3a41`。
+- head `ee37b8595474c228039727fe573d823aad1d3a41` 的 verify runs `45586817186` / `45586828250` 在记录时仍执行中；不得写为通过。
+- Space PR #2 当前仍使用 sibling ProjectReference，但 cross-repo workflow 固定 pin 仍是旧 Core SHA `b342259fe04363386085dc9a4ca995112954ed43`。待 Core 精确 head 绿色后，必须将 Space workflow 的 Core checkout 和 `CORE_EXPECTED_SHA` 同步到该精确 head，再跑完整 Godot 4.7.1 cross-repo 验证。
+- PR #63 继续 Draft/Open；Core main 不直接修改。旧 PR 仅保留关闭状态与历史分支，不删除历史证据。
+
+
+## 2026-11-25 第十轮：首个完整绿色 Core head 与 World 单一词表约束
+
+- Core head `0ff648ea7f3f05489f04c278f75039de8271985d` 的两个 verify runs `45587335108`、`45587347149` 均完成 SUCCESS；854 项 xUnit 全部通过，0 errors、0 failed、0 skipped。完整验证回路中的 build、World V2 Host、随机/容量/确定性资源样本、契约快照、schema 与配置世界等价检查均通过。
+- 成功 head 之后继续审查公开的 `WorldV2Context.Create` 装配入口，发现它此前允许主/从/备用工作台分别携带不同的液体极性词表；这会导致同一个 Jar 在同一 World 内出现语义分裂。
+- 现已在 Context 装配边界强制所有工作台的液体身份集合与极性映射完全一致，并要求 Context 的液体目录与工作台目录一致；新增反向映射冲突测试，验证装配 fail-closed。
+- 最新 Core head 为 `fd0b3761babe3af7f7d770483004ef1a454021f8`，对应 verify runs `45587631031` / `45587642292` 在记录时仍执行中。前述 854/854 绿色不能替代此新 head 的精确验收。
+- Space PR #2 的当前 head 为 `a8daee73df55bf30125960a9a6231ea93e706d4f`，旧 Core pin `b342259fe04363386085dc9a4ca995112954ed43` 的 cross-repo run `45577582987` 成功；该结果不验证本次新 Core。待 `fd0b...` 精确 Core head 绿色后，更新 Space workflow checkout 与 `CORE_EXPECTED_SHA` 并重跑。
+
+
+## 2026-11-25 第十一轮：Core 精确源版本绿色并接入 Space 跨仓库验证
+
+- Core 生产代码与测试 head `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7` 的两个 verify runs `45588065611`、`45588076128` 均 SUCCESS。该 head 包含 854 项回归、World V2 单一词表/映射装配约束、checkpoint schema v3、自定义映射 checkpoint round-trip，以及旧 schema v2 缺少映射时的明确拒绝测试。
+- Space PR #2 的 cross-repo workflow 已固定到 Core SHA `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`；checkout ref 与 `CORE_EXPECTED_SHA` 一致。
+- Space PR #2 代码 head `a19a6afcf47d06bf500764407bad63e8f6bd5dde` + Core source `5023b38b75ad4cf66d953e3bb3fa4c490076d4d7` 的联合 run `45588639250` 已完成 SUCCESS。
+- Core Bridge / Space .NET 两次 build succeeded；Godot 4.7.1 import/parse succeeded；HUD 21 checks / 0 failures；Hangar catalog/owned assembly/progression migration、domain contracts、parser ingress、World V2 runtime/lifecycle/fault/disposed/faulted commands/snapshot isolation、battle pause/navigation 全部 probe passed。
+- 最终 marker：`CROSS-REPO-WORLD-V2-OK core=5023b38b75ad4cf66d953e3bb3fa4c490076d4d7`。日志中 overflow fault 与缺失主菜单资源为故意注入的负向测试，相关 probe 均以 passed 结束，非 CI 失败。
+- 前一轮 Space run `45588471573` 在 Core source `fd0b3761babe3af7f7d770483004ef1a454021f8` 下也成功；最终验收以当前 `5023...` pin 的 run 为准。
+- GitHub 当前仅保留两个 Open Draft PR：Jar Core #63 与 Space #2；所有已确认 superseded 的旧 PR 已关闭，历史分支保留作审计证据。
+
+
+## 2026-11-25 第十二轮：Core 概念体系与规则正式化
+
+### 起始状态
+- Repository：Lazyair150/jar-system-dotnet
+- Branch：architecture/core-liquid-identity-consolidation
+- 本轮文档前起始 HEAD：4270dd3669a12cbc8cb15bfeaa4b0e41a702ecde
+- PR #63：Open / Draft；未合并。
+- 前一轮 Core/Space 精确集成证据为 Core 5023b38b75ad4cf66d953e3bb3fa4c490076d4d7 与 Space run 45588639250。本轮文档提交不自动继承旧 head 的 CI 结论。
+
+### 本轮源码审查事实
+- 已有：World-owned Vocabulary 与明确液体极性映射；RuleContribution / EffectiveRuleProfile；RuleContext；Allowed/Rejected/Undetermined；资源效果契约；候选 Profile、符号解与资源模拟等结构。
+- 缺口 A：WorldOrderRuleCandidateCatalog.Build 仍以 Constants.SHAPES 初始化候选形状空间；候选生成尚未完全使用 World-owned shape vocabulary。
+- 缺口 B：WorkshopRulebook 仍以 WorkshopOperationKind + DefinitionFor + 多处 switch 实现固定算子；这是受控内建规则，但还不是统一 Rule Registry/Interpreter 驱动的规则目录。
+- 缺口 C：RuleContext.From(EffectiveRuleProfile) 仍以 RuleContributionEffect switch 解释贡献；Effect schema/参数默认值/unsupported handling 需要集中化、强类型化和版本化。
+- 缺口 D：WorldOrderAClassBranchEnumerator / WorldOrderBClassBranchEnumerator 直接知道 Master/Slave、订单 A/B 与交接阶段；这些领域策略必须保留语义但从通用搜索算法移出。
+- 缺口 E：候选操作字符串、岗位角色字符串和固定预算/上限散布在不同类；需区分协议身份、默认策略、安全护栏和真实玩法硬编码，不能简单删除全部常量。
+- 缺口 F：WorldSnapshot 已区分 RuleSetVersion / WorkshopProfileVersion / ResourceVersion，但没有把 World shape vocabulary 作为候选枚举唯一输入显式传递；需补齐快照及其指纹。
+- 缺口 G：已有结构候选与资源模拟，但完整 SolveProblem / policy / proof-completeness / dependency footprint 契约尚未成为所有 Solver 的唯一入口。
+
+### 本轮架构裁决
+- 新增 docs/architecture/core-conceptual-model-and-formal-rules.md，作为规范性目标架构。
+- 新增 docs/decisions/0007-core-rule-system-and-solver-decoupling.md，确定 Rule Registry/Interpreter、SolveProblem、OrderPolicy、结构解与资源绑定分离方向。
+- 保留电路板模型、Jar/液体资源语义、Ban staging scope、A/B 单向交接、Mark 生命周期与失败代价；不允许为通用化改写语义。
+- 不允许任意动态代码插件成为持久化规则；声明式贡献由 Core 受控解释器执行，未知规则 fail-closed/Undetermined。
+- 不允许把算法预算、候选顺序或启发式变成玩法规则。
+
+### 本轮变更文件
+- docs/architecture/core-conceptual-model-and-formal-rules.md
+- docs/decisions/0007-core-rule-system-and-solver-decoupling.md
+- docs/work-records/README.md
+- docs/architecture/2026-11-core-multi-angle-audit.md
+- docs/work-records/2026-11-25-core-consolidation-audit.md
+
+### 验证
+- 本轮为文档/架构决策提交；没有宣称生产代码已完成去硬编码。
+- 本轮精确新 commit 的 CI 尚待执行。
+- 后续代码阶段必须验证 rename-isomorphism、polarity swap、multi-world isolation、unsupported fail-closed、solver differential、resource conservation、Ban scope、Mark lifecycle、admission atomicity、replay、checkpoint。
+
+### 下一步
+1. 将 World shape/liquid vocabulary 作为 SolveProblem / WorldSnapshot 显式输入，移除候选生成对 Constants.SHAPES 的依赖。
+2. 盘点固定算子字符串、角色字符串和 RuleContributionEffect 分支，建立唯一注册/解释入口。
+3. 将 A/B 与 Master/Slave 迁移为显式订单/交接策略，先保持旧实现对拍，不一次性替换。
+4. 将统一规则 evaluator 的结果贯穿候选生成、资源模拟、Admission 与 Executor。
+5. 完成后再做多算法对拍与大规模固定 Seed 资源守恒样本。
+
+
+## 2026-11-25 第十三轮：World Vocabulary 贯穿快照、规则上下文与候选求解
+
+### 起始与结果
+- 本轮最终代码 head：b11d9a51f7e8a18df3bb0ff3545d1af949dffa12
+- 两条精确 head 验证：45592984647 SUCCESS、45592974637 SUCCESS。
+- xUnit：861 total / 0 errors / 0 failed / 0 skipped。
+- 资源样本：2,000 random + 3,000 capacity + 32 deterministic，0 bugs。
+- Release build、contract/schema、配置等价验证均通过。
+
+### 实施内容
+1. Workshop 增加只读 KnownShapes，直接暴露所属不可变 Vocabulary 的形状目录。
+2. WorkshopSolveSnapshot 捕获 Shapes；WorldSnapshot 的 WorkshopProfile fingerprint 纳入 shape directory。
+3. WorldSnapshotFactory.Capture 检查同一求解 World 内所有 Workshop 的 shape directory、liquid identity set 与 polarity mapping 一致。
+4. WorldOrderRuleCandidateCatalog 不再从 Constants.SHAPES 初始化候选空间，改用 workshop snapshot 的 Shapes。
+5. WorkshopCapability 暴露其不可变 Vocabulary；RuleContext.From 增加 Vocabulary 注入入口。
+6. WorkshopSolveSnapshot.CreateRuleContext / CreateWorkshopInfo 将所属 World Vocabulary 传入 RuleContext，确保 rules.Liquids 与 ResolvePolarity 不会退回 Vocabulary.Default。
+7. WorldV2Context.Create 默认从主工作台 World Vocabulary 获取 shapes/liquids，不再从 Producer Generator / LiquidProduction rate key 推断目录；并验证所有工作台共享形状目录、液体身份与映射。
+8. 新增测试：自定义 shape snapshot capture、不同 shape vocabulary 装配拒绝、World V2 默认词表来源、World V2 shape vocabulary 不一致拒绝、候选生成使用自定义 shape/liquid/polarity。
+
+### CI 失败与修复留痕
+- run 45591775950 / head a2a61d5：860 项中 1 项失败，原因是新增 shape vocabulary 约束后原有液体映射测试的诊断文本断言不再匹配。保留原液体诊断子串并扩展形状说明，修复于 92a72c49df209294dfeae33727f35000af78b788；对应 runs 45592220260 / 45592233519 SUCCESS，860/860。
+- run 45592611139 / head d0dc53a：测试代码缺少 Abstractions / World.Solving 命名空间导入，构建失败；不是生产代码错误。依次补齐 using，最终 b11d9a5 精确 head 两条 CI 均通过。
+- 以上失败均保留，不以绿色提交覆盖失败历史。
+
+### 本轮完成边界
+- 已消除求解候选对默认 shape list 的直接依赖，并修复自定义 World Vocabulary 在 RuleContext 重建时丢失的问题。
+- 尚未完成：所有 Core 生产路径对默认 shape/liquid 常量的全量扫描；RuleContribution Effect schema 的严格验证；统一 Rule Registry/Interpreter；候选算子注册化；A/B 与 Master/Slave 策略解耦；通用 SolveProblem。
+- 本轮不是“所有硬编码已消除”的声明。
+
+### 下一步
+1. 全量盘点 RuleContribution Effect/参数 fallback，未知 Effect 与非法参数必须 fail-closed；ModifyCapacity 等当前不支持的规则必须保持 Undetermined。
+2. 将规则候选的固定操作列表从 WorldOrderRuleCandidateCatalog 拆成有稳定身份/版本的内建 Rule Operator Provider Registry。
+3. 将 A/B 与 Master/Slave 交接差异抽为 OrderPolicy / WorldTransferPolicy，保留原行为并对拍。
+4. 将 StructuralSolution 与 ResourceBinding/Readiness/Admission 的 fingerprint 依赖完整分离。
+
+
+## 2026-11-25 第十四轮：RuleContribution Schema Registry 与 fail-closed 规则投影
+
+### 当前代码源
+- Code head：0989a2bf28ae1e2d106629ade44aef78f6f2cf93
+- PR #63：Open / Draft / unmerged。
+- 精确代码 head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 的 runs 45595570171、45595555177 均 SUCCESS。
+- 最近已完整绿色的 Vocabulary head：b11d9a51f7e8a18df3bb0ff3545d1af949dffa12，runs 45592984647 / 45592974637，861/861。
+
+### 代码变更
+- 新增 RuleContributionSchemaRegistry 与 RuleContributionEffectSchema，集中定义各 Effect 的 required/optional parameter、静态求解支持能力和参数格式验证。
+- RuleContribution.Validate 在 Profile 装配时调用 schema registry；未知 Effect、未知参数、缺失必填参数、非法 ticksPerStep/factorPerMille、错误时间窗口均 fail-closed。
+- RuleContext 删除对应参数默认值回退；已验证参数缺失时不再静默替换成默认语义。
+- RuleContext 对 GrantBaseMark / BanLiquid 明确标记为已投影进 WorkshopCapability 的 Effect；ModifyCapacity 保留但声明为当前静态 Solver 不支持，返回 Undetermined；未知 Effect 有显式异常保护。
+- HasUnresolvableRequirements 根据 Effect Schema 的 SupportsStaticSolverProjection 判断，而不是在 Solver 中硬编码单个 Effect 名称。
+- 更新 EffectiveRuleProfileTests 的旧 fixture：GrantAdditionalMark 的目标形状属于 Target，不应重复塞入未定义的 shape 参数；SourceRevision 测试只改变 revision，不伪造不符合 Effect schema 的 strength 参数。
+- 新增未知 Effect、Retime 缺参/非法数值、Intensity 负值测试。
+
+### 验证结果与失败修复留痕
+- head 320b50eb17ea246ed2cb0911c5dcf16a1eedf352：两条 verify runs 45594046566 / 45594033707 失败。最初实现漏掉了 GrantBaseMark / BanLiquid 已投影到 Capability 的显式 switch case，造成 174 项测试失败；在 dad8488997c640c46e2f96875165db1abd03c31c 增加显式 no-op projection case。
+- head dad8488997c640c46e2f96875165db1abd03c31c：两条 runs 45594961966 / 45594975018 失败，主要集中在 EffectiveRuleProfileTests 的 6 项 fixture 不符合新 schema；随后移除 helper 中冗余 shape 参数，并让 SourceRevision 测试只改变 revision。
+- head 3c3b68a3e9c2c0b096b164da3b3905d1eb30f13c 还修复了 schema collection 返回类型与残留 Parameter fallback 调用；对应 runs 45594448093 / 45594458923 仍失败，原因见前述规则投影/fixture问题。
+- head 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 是当前修复后代码源；两条精确 head CI 均 SUCCESS：864 total / 0 errors / 0 failed / 0 skipped，2,000 random + 3,000 capacity + 32 deterministic 资源样本均 0 bugs，Build succeeded，contract/schema 检查通过。
+
+### 尚未完成
+- RuleContributionSchemaRegistry 的 schema/interpreter version 尚需纳入 EffectiveRuleProfile 与 World RuleSet fingerprint。
+- RuleId/version 尚未形成统一 RuleDefinition Registry；Effect schema 只是参数契约，不等于完整规则目录。
+- WorkshopRulebook 固定操作 switch、WorldOrderRuleCandidateCatalog 固定候选操作集合、A/B Branch Enumerator 的岗位/流程耦合仍待拆分。
+- 下一步先等待 0989 精确 CI，修复所有失败；随后完成 schema version fingerprint，再建立 RuleOperator Provider Registry 与 OrderPolicy。
+
+
+### 第十四轮验收补记
+- 0989a2bf28ae1e2d106629ade44aef78f6f2cf93 精确代码 head 已由 runs 45595570171 与 45595555177 双绿验证。
+- xUnit 864/864；资源守恒样本 5,032 组无错误；Core build 成功。
+- 本次记录提交只更新工作记录/架构审查/规范状态，不改变生产代码。后续精确验证以该代码 head 为依据。
+
+
+## 2026-11-25 第十五轮：规则 Schema 版本进入语义指纹
+
+- 代码 head：d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed。
+- RuleContributionSchemaRegistry 新增 CurrentVersion；该版本表示 Effect 参数 schema 与投影语义契约版本，任何兼容性/解释语义变更必须递增。
+- EffectiveRuleProfile fingerprint 同时纳入 Profile schema version 与 RuleContributionSchemaRegistry.CurrentVersion。
+- WorldSnapshot RuleSetVersion 纳入 RuleContributionSchemaRegistry.CurrentVersion，确保 schema/interpreter 语义变化使结构候选缓存失效。
+- 新增测试：所有 RuleContributionEffect 必须有 schema；ModifyCapacity 明确不支持静态 Solver 投影；该 Effect 必须保留为 unresolvable，而不是被静默忽略。
+- 精确代码 head d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed 的 runs 45596511987 / 45596522515 均 SUCCESS：866/866 xUnit、0 errors / 0 failures / 0 skipped；2,000 random + 3,000 capacity + 32 deterministic 资源样本 0 bugs；Core Build succeeded。
+- 下一步：将固定 Jar 候选操作从 Catalog 中抽为版本化 RuleOperator Provider Registry，再将 A/B 与岗位交接流程迁移为 OrderPolicy。
+
+
+### 第十五轮验收补记
+- RuleContribution Schema Version 指纹代码 head d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed 两条精确验证 45596511987 / 45596522515 均 SUCCESS。
+- xUnit 866/866；资源样本 5,032 组无错误；Core build 成功。
+- 最新工作记录更新为文档提交；代码验证证据对应 d9f9dd4b18666dd9fdb2da75b27e804c6a89e0ed。
+
+
+## 2026-11-25 第十六轮：候选算子 Provider Registry 化
+
+### 代码源与验证
+- 代码 head：18a0b26407ee51c6df722f093165c3b3770c31a7。
+- 精确 runs：45597874582 SUCCESS、45597884119 SUCCESS。
+- xUnit：868 total / 0 errors / 0 failed / 0 skipped。
+- 资源样本：2,000 random + 3,000 capacity + 32 deterministic，0 bugs；Core build succeeded。
+
+### 实施
+- 新增 IWorldOrderRuleCandidateProvider、WorldOrderRuleCandidateProviderRegistry。
+- 将 MATCH、POUR_IN、POUR_OUT、RESHAPE_EMPTY、RESHAPE_FULL、PREPARE_POUR_OUT 拆为独立 Provider。
+- WorldOrderRuleCandidateCatalog 只负责遍历来源形状、需求和注册的 Providers，不再直接持有每种算子的候选生成分支。
+- 新增 WorldOrderRuleCandidateFactory，所有 Provider 仍必须通过统一 WorkshopRulebook 和 staging/admission 规则进行候选评估，不能自行伪造合法转移。
+- Provider 的 ProviderId、Version、Order 进入 Registry fingerprint；Registry fingerprint 进入 specification fingerprint 与 CandidateBook cache key。
+- WorldOrderRuleCandidateBook 支持注入 immutable registry；默认使用 Core 内建注册表。
+- 新增重复 ProviderId 拒绝、Provider 版本/顺序改变会改变候选规格指纹的测试。
+- 保留旧候选顺序：来源形状优先，其次 MATCH / POUR_IN / POUR_OUT / RESHAPE_EMPTY / RESHAPE_FULL；预备 POUR_OUT 单独生成。
+
+### 验证失败与修复
+- 初版 head d8da461a79eaa3d6f74e99ce24b9089186862d1b 的两条 CI 45597443073 / 45597455088 失败，失败点为新测试构造自定义 Vocabulary 时没有提供非默认液体的极性映射；这是测试夹具错误，不是 Provider 实现错误。
+- 为测试补齐 fuel=Anode / coolant=Cathode 映射后，head 18a0b26407ee51c6df722f093165c3b3770c31a7 两条精确 CI 均 SUCCESS。
+
+### 尚未完成
+- Provider 是可信 Core 算法扩展，不是可持久化的任意组件代码；组件 RuleContribution 仍只能声明式配置已知 Effect。
+- WorkshopRulebook 仍持有基础操作解释逻辑；下一步需把规则本体表达为 versioned RuleDefinition / RuleProgram，Candidate Provider 应逐步从手写操作循环改为消费规则声明的 predecessor projection。
+- A/B Branch Enumerator 仍分别绑定 Master/Slave 流程；下一步是 OrderPolicy / RolePlan 解耦。
+
+
+## 2026-11-25 第十七轮：Jar 个体、区域接口与自机电路通路
+
+### 目标
+将用户最新确认的世界模型正式化：工作台作为独立个体拥有液体暂存区和 Jar 存储区；自机电路板包含生产区、工作台区、订单区和独立自机液体存储区；各资源区域通过输入/输出接口连接；固定配置形成从资源源端到订单目标端的通路。
+
+### 起始代码源
+- Repository：Lazyair150/jar-system-dotnet
+- Branch：architecture/core-liquid-identity-consolidation
+- 起始 HEAD：dcb94676ec9c9564440161cb2222753f75046faa
+- PR #63：Open / Draft；当前分支不是已合并主线。
+- 起始 HEAD 精确 CI：45598397712、45598387846 均 SUCCESS。
+
+### 概念裁决
+- Workshop Owned Instance 独立拥有 Jar Storage 与 Liquid Staging 两个区域；主台/从台是 Board Slot Role，不是 Workshop 固有身份。
+- Ship/Circuit Board 拥有 Production / Workshop / Order 三类结构区域；Ship Liquid Inventory 是 Ship 自己的资源账户，不属于工作台。
+- Area、Port、Connection、Route 分离：Area 定义资源/职责边界；Port 定义有类型输入/输出；Connection 显式连接 Output -> Input；Route 是连接与规则转换构成的有界图路径。
+- 订单源边界为 Ship Liquid Inventory Output 和进入 Master Workshop Jar Storage 的 Jar Input；订单需求/交付端为 Route Tail。
+- 固定的是冻结结构、实例成长快照、端口连接和规则版本产生的 Circuit Image；订单目标与资源余额用于求具体路径/Readiness，不能将“固定”误解成单条硬编码线性步骤。
+- Production Area 只有在生产元件显式声明输入/输出、并存在连接与接收准入后才进入资源通路；不能与工作台账户隐式共享。
+- 资源转移必须经过源 Output、目标 Input、规则判定和 ResourceEffect/Receipt；任何账户不允许跨边界直接写入。
+
+### 源码核对
+- Workshop.cs：已有独立 _jars、_liquidStorage、只读视图和 AddJar/RemoveJar/TransferOut/TransferIn、AddLiquid/RemoveLiquid/TryReceiveLiquid/DrainLiquid 等领域方法。
+- WorldSnapshot.cs：已区分 ShipLiquidInventory、Master/Slave Workshop SolveSnapshot 和 ResourceVersion。
+- WorkshopRulebook.cs：现有操作规则仍是明确的 Jar 转换语义，不应为了抽象而删除。
+- 当前未完成：统一 Area/Port 类型、端口注册与连接、Board Production/Workshop/Order 通用区域拓扑、Circuit Image Compiler、所有跨区转移统一端口化。
+
+### 改动文件
+- 新增 docs/world-v2/jar-individual-area-port-and-circuit-route-model.md。
+- 更新 docs/world-v2/circuit-system-model-and-bounded-resource-routing.md，补充基础个体/端口模型入口。
+- 更新 docs/world-v2/README.md，加入规范索引。
+- 更新 docs/architecture/core-conceptual-model-and-formal-rules.md，新增第 20 节。
+- 更新 docs/architecture/2026-11-core-multi-angle-audit.md，追加第十七轮审查。
+- 更新本工作记录，保留精确源码起点与验证证据。
+
+### 验证
+- 文档/源码映射核对：Workshop 区域与 API、WorldSnapshot Ship Liquid Inventory、Board/Owned Instance 概念已逐项对照。
+- 本次仅新增/更新文档，无生产代码改动；文档提交会触发仓库 CI，需以新提交精确 head 的 run 结果作为本轮验证，不以起始 head 绿色代替。
+- 尚未执行统一 Area/Port API 生产实现；不宣称接口抽象已落地。
+
+### 下一步
+1. 定义 Area/Port/Connection/Transfer Receipt 的 Core 最小类型，不先重写 Workshop。
+2. 为 Workshop Jar Storage、Liquid Staging、Ship Liquid Inventory 建三个 Port Adapter，并以旧领域方法做差分测试。
+3. 将 Board Production/Workshop/Order 区域及 Slot Assignment 映射到不可变 Circuit Image。
+4. 再把订单结构解从现有 A/B 策略中抽出，形成通用多资源端口路径求解。
+
+
+### 第十七轮源码深挖补记：液体账户不能被抽象合并
+
+进一步核对 LiquidResourceAccounts.cs、ResourceArea.cs、OrderDemandBoard.cs、OrderDemandArea.cs 与 order-funnel contract，发现“工作台液体区”在现有实现中并非单一无差别余额：
+- Workshop 普通游离液体库存按液体身份计数，容量语义为每液体 MaxLiquids。
+- WorkshopLiquidStaging 是订单范围暂存，容量为工作台聚合容量，内部按 OrderId 隔离，并有独立主台预置余额/容量预留。
+- ShipLiquidInventory 是自机账户，生产、扣款、返还与预置转移具有独立收据/事务。
+- Jar 内部液体又是 Jar 个体账户。
+因此 Area 是所有权与访问边界；Area 内可以有多个具有不同生命周期和容量语义的账户/子作用域。端口不能把这些账户合并为“工作台总液体”。
+
+同时核对到 ResourceArea 已组合 Jar Producer/Warehouse、LiquidProduction 和 ShipLiquidInventory；Jar 生产入仓库后按流率进入主台，液体生产进入自机液库，不自动灌入工作台。OrderDemandBoard/OrderDemandArea 管理主动/被动需求归属、顺序、成功保留策略和冷却，不负责求解/执行。这些既有边界必须被未来 Circuit Image 显式引用，而不是重造第二份资源状态。
+
+
+### 第十七轮架构裁决补记：ADR 0008
+
+新增 ADR 0008，正式决定 Area/Port/Connection/Route 的职责、资源账户不可合并规则、端口预检与跨账户原子转移协议，以及 Circuit Image / Solver / Binder / Admission / Executor 的依赖边界。
+
+特别明确：CanReceive / CanWithdraw 是纯预检；跨区域提交必须由 Transfer Coordinator 同时验证源 Output 与目标 Input，不能让调用方分别调用两个独立写接口造成半提交。部分接收必须有明确保留/丢弃结果，版本冲突不得重复扣款。
+
+
+
+### 第十七轮跨仓库映射补记：Space Board 区域标识待裁决
+
+检查 Space PR #2 分支 world-v2/phase-4.10b-hangar-ui，当前 branch head 8b70979d5f56f559f69f55842790b520236a5aa。SpaceHangarBoardSlotDefinition 的 area_id 枚举包含 workshop、decomposition、orders、production；SpaceHangarBoardDefinition 的 runtime projection 要求一个 ore_parser 槽位，demo_board.tres 将其放在 decomposition，而 production_device 放在 production。
+
+用户最新概念确认的是生产区、工作台区、订单区三个顶层区域。当前实现把 decomposition 与 production 分成两个 area_id，不能擅自认定二者是同一层级，也不能擅自增加第四个领域区域。需由用户裁决：decomposition 是否作为 Production Area 的子区域（建议保留 parser 专属子区域身份，但挂在生产区下），还是维持独立第四区域。裁决前不改 Space schema、不做破坏性重命名。
+
+其他映射事实：
+- SpaceHangarBoardDefinition 是结构蓝图；SpaceHangarBoardAssignment 是玩家的安装映射，校验 Owned Instance 唯一性、Definition 版本和 progression revision。
+- SpaceBoardRuntimeProfileSet 是按组件类别将冻结 assignment 路由给 Core Workshop、Space Parser、Space Skill 等消费者的 profile manifest；其源码明确不是规则解释器。
+- demo_board.tres 当前有 Master/Slave Workshop、Parser、Active/Passive Order slots；未配置 production_device slot。
+
+
+## 2026-11-25 第十八轮：区域层级裁决与最小拓扑契约
+
+### 用户确认
+- 用户明确认可：原石分解区属于生产区的功能子区域，保留独立身份，但不是第四个顶层区域。
+- Circuit Board 顶层区域固定为 Production / Workshop / Order。
+- 原石解析器与生产设备仍是不同组件类型、独立拥有实例和独立功能；层级归属不意味着合并其规则或库存。
+
+### GitHub 起始状态
+- Core PR #63：`architecture/core-liquid-identity-consolidation`，本轮读取时 HEAD 为 `a11f14d36ae2ca68d2f56a93e23600ed9e5e6c22`，Open / Draft。
+- Space PR #2：`world-v2/phase-4.10b-hangar-ui`，本轮读取时 HEAD 为 `8b70979d5f56f559f69f55842790b520236a5aa4`，Open / Draft。
+- 两个 PR 均未合并；本轮提交均直接进入各自现有工作分支。
+
+### Core 最小结构契约
+- 新增 `CircuitTopology.cs`：`CircuitAreaDefinition`、`CircuitPortDefinition`、`CircuitConnectionDefinition`、`CircuitTopology`。
+- Area 明确 AreaId、OwnerIndividualId、ParentAreaId、AreaKindId 与是否持有资源。
+- Port 明确方向、Jar/Liquid 资源类别、身份约束、策略身份与版本。
+- Connection 只允许 Output -> Input，校验资源类别一致，并在双方都有限定身份时要求身份集合存在交集。
+- CircuitTopology 校验 Area/Port/Connection 身份唯一、端口 Area 引用有效、嵌套 Area 父级存在且属于同一 Individual、父级无环。
+- 该模型是冻结结构元数据，不复制 Workshop、Jar、Warehouse、ShipLiquidInventory 的权威余额；Connection 不表示资源已经转移。
+- 新增 `CircuitTopologyTests.cs`，覆盖生产区包含分解子区、父级所有权、父级环、端口方向/资源类别、身份约束不相交。
+- 仍未实现运行时 Port Adapter、Transfer Coordinator 或账户原子提交；不能将结构契约误报为资源转移已端口化。
+
+### Space Board 层级迁移
+- `SpaceHangarBoardSlotDefinition.gd`：顶层 `area_id` 收敛为 workshop/orders/production，新增 `sub_area_id`（当前 none/decomposition）。
+- Parser 槽位改为 production/decomposition；Production Device 为 production/none。
+- `SpaceHangarBoardDefinition.gd` 的 slot index 与 frozen snapshot 同时保留 areaId/subAreaId。
+- `SpaceHangarBoardAssignment.gd` 将 areaId/subAreaId 纳入精确安装记录与验证，防止 assignment 与 Board 层级不一致。
+- `demo_board.tres` 的原石解析器迁移为生产区的分解子区域。
+- `SpaceHangarBoardDefinitionProbe.gd` 增加冻结快照层级、生产区槽位归属、错误 Area tampering 和多 Parser 子区域夹具检查。
+
+### 文档同步
+- 更新 `docs/world-v2/jar-individual-area-port-and-circuit-route-model.md`，删除“等待用户裁决”的旧文字，正式记录三层级裁决。
+- 更新 ADR 0008，补充顶层区域与功能子区域决策。
+- 更新 Core 概念模型，记录 Board Area 层级。
+- 本工作记录保留本轮起始精确 HEAD 与迁移范围。
+
+### 验证边界
+- 本轮代码/文档已写入 GitHub 分支。
+- 尚未取得本轮最新 Core/Space 提交的 CI 结果；不得把此前提交的绿色验证套用到本轮。
+- Space 侧还需确认所有运行时投影与展示消费者均读取新的 areaId/subAreaId；Probe 已更新但未执行。
+- Core 新拓扑契约需在精确新 HEAD 上完成 Release Build 与 xUnit；随后再开始 Workshop/Ship 的只读 Port Adapter 和差分测试。
+
+### 下一步
+1. 审查本轮 Space 修改的所有消费者，确保冻结 Board/Assignment 指纹包含 areaId/subAreaId，且旧 decomposition 顶层值不再进入生产投影。
+2. 在 Core 新 HEAD 上运行 CI，修复编译/测试问题。
+3. 为 Workshop Jar Storage、Workshop Liquid Resource Area、Ship Liquid Inventory 建只读 Port Adapter；每个 Adapter 仅调用现有权威领域方法做预检，不直接暴露容器。
+4. 明确 Transfer Request / Preflight / Receipt 的纯值契约，再实现事务协调器；不在本轮把独立 TryReceive/TryWithdraw 伪装成原子跨区转移。
+
+
+### 第十八轮精确验证补记
+
+#### Core
+- 最终代码/文档 HEAD：`8df3de5e8ba06012cadaa2c6288a4b7f3941d8a3`。
+- GitHub Actions run `45612299720`：SUCCESS。
+- Release/验证构建：Build succeeded，0 Error(s)。
+- xUnit：873 total / 0 errors / 0 failed / 0 skipped。
+- 本轮新增的 CircuitTopology 测试已包含在该精确 HEAD 的 873 项测试中。
+
+#### Space
+- 本轮最终 Space HEAD：`8ad262ab8e42801af1e782c29becb59b5ce65bc6`。
+- GitHub Actions cross-repository integration run `45613042211`：SUCCESS。
+- Core Bridge 与 Space .NET 构建、Godot 4.7.1 项目导入/GDScript 解析、集成 Probe 均通过。
+- SpaceHangarBoardDefinitionProbe 通过：区域投影、多重性、默认装配、Board Assignment、冻结快照、Owned Assembly、篡改拒绝、Parser 规则隔离、Profile 路由。
+- 失败修复留痕：
+  1. run `45612522311` 发现 OwnedLoadoutAssembler 仍只接受 Board Assignment schema v1；已升级为同时验证 v1 兼容与 v2 层级契约。
+  2. run `45612793454` 发现 GDScript 第二个循环作用域错误引用前一循环的 area_id/sub_area_id；改为从当前冻结 Slot 读取后修复。
+  3. run `45613042211` 对最终精确 HEAD 完整通过。
+- 日志中出现的若干预期 ERROR 来自负向/拒绝路径 Probe（例如无效资源、篡改快照、缺失场景等），工作流结论为 SUCCESS，不能将这些测试日志误报为 CI 失败。
+
+#### 本轮完成边界更新
+- 顶层区域/子区域层级已进入 Core 结构契约和 Space 冻结 Board/Assignment/Runtime Profile 路由。
+- Area/Port/Connection 是 Core 的结构元数据契约；尚未建立资源账户运行时 Adapter，也尚未建立跨账户原子 Transfer Coordinator。
+- 通过的自动化验证不等于真实 GUI 试玩验收；Space PR #2 仍为 Draft/Open，Core PR #63 仍为 Draft/Open，均未合并。
+
+
+## 2026-11-25 第十九轮：端口预检与资源转移审计契约
+
+### 新增 Core 纯值契约
+- 新增 `ResourcePortTransferContracts.cs`：
+  - `ResourcePortPreflight`：单端口 Allowed / Rejected / Undetermined 预检结果，携带稳定 ReasonCode、权威账户、资源身份、数量与观察版本。
+  - `ResourceTransferRequest`：明确 OperationId、ConnectionId、源/目标端口、资源类别/身份/数量、源/目标权威账户及预期版本。
+  - `ResourceTransferReceipt`：明确 Transferred / PartiallyTransferred / Rejected / Undetermined，并记录 Transferred、RetainedAtSource、Discarded 三种数量。
+- 强制数量守恒：Requested = Transferred + RetainedAtSource + Discarded。
+- Rejected / Undetermined 必须完整保留源资源且两端版本不变。
+- 新增 `ResourcePortTransferContractTests.cs`，覆盖跨端口/账户、拒绝保留、部分接收守恒和 Undetermined fail-closed。
+
+### 边界
+- 以上为纯值协议契约，不执行资源扣款/收款。
+- Transfer Coordinator 尚未实现；不允许通过分别调用两端独立写接口冒充原子转移。
+- 下一步必须先实现并验证现有账户的只读 Port Adapter，再设计适配现有事务能力的提交/回滚参与者。
+
+### 文档
+- 更新 `jar-individual-area-port-and-circuit-route-model.md`，正式记录 Preflight / Request / Receipt 的三段协议及守恒式。
+
+
+### 第十九轮版本令牌修订
+- 审查现有 Workshop、ShipLiquidInventory 与订单暂存实现后确认：现有权威账户没有统一的单调整数 Area Version。
+- 因此新 Transfer Request / Preflight / Receipt 使用不透明版本令牌字符串，而不伪造一个当前账户并不存在的整数版本计数器。
+- 令牌后续由账户 Adapter 根据权威账户纯值快照产生，并在提交前重新计算/比较；静态策略版本仍由 Port Definition 单独携带。
+- 已同步更新 `ResourcePortTransferContracts.cs` 与测试夹具；账户版本冲突的运行时处理仍待 Adapter/Coordinator 阶段实现。
+
+
+### 第十九轮端口约束补记
+- `CircuitPortDefinition` 增加可选 `MaxAmountPerTransfer` 与 `MaxAmountPerLogicalTimeMilli`，分别表达单次传输上限和逻辑时间吞吐上限；未配置表示不由该端口施加对应上限。
+- 负值配置在构造边界拒绝；零值可用于表达当前关闭的端口能力。
+- `CircuitTopologyTests` 增加端口吞吐契约测试。
+- 当前 Core 最新代码 HEAD：`476956eea99c96dc4fc567ed3073da703acf2d80`；精确 CI 正在执行，结果待补。
+
+
+## 2026-11-25 第二十轮：第一批只读 Port Adapter
+
+### 新增实现
+- `ResourcePortAdapters.cs`：
+  - `IResourcePortAdapter`：只暴露 Account + Preflight，不提供单边写入，防止将半转移误认为已提交。
+  - `WorkshopFreeLiquidPortAdapter`：绑定精确 OwnedInstanceId，复用 Workshop `CanStoreLiquid` / `CanUseLiquid`，只作用于游离液体账户。
+  - `WorkshopOrderLiquidPortAdapter`：绑定精确 Workshop + OrderId 子账户，复用订单暂存 `CanAcceptOperation` / `CanConsume`，并把共享容量、占用、预留纳入版本令牌。
+  - `ShipLiquidInventoryPortAdapter`：绑定自机 Individual 身份，使用跨液种共享容量检查输入、指定液种余额检查输出。
+- 版本令牌使用规范化排序状态的 SHA-256，不假设账户已有统一整数版本。
+- 不支持的策略版本、Area 不匹配和逻辑时间吞吐限制均 fail-closed；吞吐限制在 Scheduler Window 未接入前返回 Undetermined。
+- 预检是只读操作，没有写入/提交接口；未实现 Transfer Coordinator。
+
+### 测试
+- 新增 `ResourcePortAdapterTests.cs`，覆盖 Ban、余额不足、容量不足、订单子账隔离、共享容量、自机总容量、资源白名单、单次数量上限、未知策略、错误 Area、吞吐未知状态和预检无副作用。
+- 本轮修订：所有 Adapter 在检查 Area/Policy 前先验证正数量和非空资源身份；订单预置事务忙碌/不可用时由预检返回 Undetermined。
+
+### 语义边界
+- Workshop Free Liquid 与 Workshop Order Liquid 是两个独立权威账户，不共享余额。
+- Ban 继续通过各自账户既有规则执行；Jar 内部液体不经过这些 Adapter。
+- Ship Liquid Inventory 不套用 Workshop Ban。
+- 目前只完成只读预检，不执行跨账户扣款/收款，不得称为端到端转移已完成。
+
+
+### 第二十轮扩展：预置账户与离散 Jar Storage
+- 在 `ResourcePortAdapters.cs` 增加 `WorkshopPrefillLiquidPortAdapter`：预置余额有独立 AccountKind，不与订单子账余额合并；输入检查共享容量与 Ban，输出只检查预置余额。
+- 增加 `WorkshopJarStoragePortAdapter`：Jar 以正整数实例 ID 为资源身份，数量必须为 1；输入检查罐位与重复归属，输出检查该 Jar 是否确属当前 Workshop。
+- 明确 Jar Storage 不检查 Jar.Liquid 的 Workshop Ban；Ban 不会因 Jar 内部液体身份而阻止 Jar 本体迁移。
+- Jar 端口若声明逻辑时间吞吐限制，在 Scheduler Window 未接入前返回 Undetermined。
+- 版本令牌的多值字段改用长度前缀规范化编码，避免液体身份包含分隔符导致拼接歧义。
+- 扩展测试覆盖预置账户与订单子账隔离，以及含 Ban 液体的 Jar 仍可作为 Jar 资源被识别/迁移。
+
+
+### 第二十一轮验证与第二十二轮扩展：Production Warehouse
+- 第一批五种 Adapter 与测试在代码 HEAD `0a18fb10c7a4724f5eb6a46b06a4df7620ad7386` 通过完整验证：Run `45615937262` SUCCESS，Build succeeded / 0 Error(s)，xUnit 887 total / 0 errors / 0 failed / 0 skipped。
+- 仅工作记录更新后的 HEAD `89ca4da5335d824371302c2142d88e903ede9a75` 再次通过完整验证：Run `45615978354` SUCCESS，Build succeeded / 0 Error(s)，xUnit 887 total / 0 errors / 0 failed / 0 skipped。
+- 新增 `WarehouseJarStoragePortAdapter`：以 Production Individual 身份绑定中央仓库 Jar 账户，按离散 Jar ID 检查库存归属、重复身份和仓库容量。
+- 新增 `WarehouseLiquidStoragePortAdapter`：以 Production Individual 身份绑定旧版中央仓库液体账户，检查词表身份、逐液种容量和余额；不套用 Workshop Ban。
+- 新增测试覆盖仓库 Jar 身份规范化、液体容量与未知词表身份。
+- 注意：第二十二轮 Warehouse Adapter 的新增代码在本补记时尚未获得最新 HEAD CI 结果，不能沿用上一轮 887 项测试的通过结论。
+
+
+### 第二十二轮 CI 失败定位与分层修正
+- Core 精确 HEAD `7c27c6663c5a5f8fe2f9e0ec9333fa9d1575d246` 的验证 Run `45616813861`：Build、两个 Godot Host Build、随机/确定性基线、StrategyExperiment、契约快照/schema、World 配置等价、协议守卫、求解器差分、Session Replay、安全依赖与 Secret 扫描均通过。
+- xUnit 889 项中 1 项失败：`ArchitectureTests.CoreLayersOnlyDependDownward`；失败原因是 `Domain/ResourcePortAdapters.cs` 在 Domain 圈层引用了更高层的 `Production`。
+- 修正：将 Adapter 实现命名空间迁移到 `JarSystem.Core.Production`，显式引用低层 `JarSystem.Core.Domain` 契约；测试改为导入 Production Adapter 命名空间。没有修改架构测试规则，也没有放宽层级表。
+- 修正提交：Adapter namespace commit `b828f376fcc590bbb080a1eb735d53fc03db1d9a`；测试 import commit `66aae9c73b1d696b1a345aa9df3e79711cff5a51`。
+- 新提交的完整验证结果尚待 CI；在新 HEAD 的架构测试通过前，不将该修正记为验证完成。
+
+### 事务参与者审计（设计前置）
+- 已审阅 `Orders/Switching/ResourceTransferrer`：它会直接移动 Workshop 资源，且副作用（账本、统计、对象池 Return）被延迟到 CommitEffects；其注入回调明确要求非抛异常，副作用部分完成后不能安全自动回滚。因此不能直接包装成通用跨账户原子参与者。
+- 已审阅 `World/Execution/OrderTransferService`：它先完成完整预检，再触发 `commitStarted`，逐个移动 Jar、执行液体批次转移、验证精确归属并批量写入幂等账本；这是较完整的现有事务边界，但它包含 B 类订单租约/Manifest/RuleTransition 语义，不应被误用为通用账户转移实现。
+- 下一步继续定位底层 `OrderLiquidTransfer`、Workshop prefill 和 Ship Inventory 的实际提交/撤销 API；只有能证明准备、版本复核、提交、补偿/回滚和幂等收据的路径才可成为事务参与者。暂不实现顺序调用两端 mutator 的伪协调器。
+
+
+### 第二十三轮：订单液体 Port 事务参与者首个可执行路径
+- 新增 `src/JarSystem.Core/Production/OrderLiquidPortTransfer.cs`，以既有 `OrderLiquidTransfer.TryExecute` 为唯一物理提交实现，未另造一套液体账户 mutator。
+- `OrderLiquidPortTransfer.Prepare` 校验 Connection、Output → Input 方向、资源类型、精确账户身份、同一订单 ID 与两侧预检；Prepare 只读，不预留、不扣款。
+- `PreparedOrderLiquidPortTransfer.Commit` 在提交时重新读取两端账户版本；任一版本与请求期望不一致时返回 Undetermined，不修改账户。任一端 Ban/容量/库存拒绝时返回 Rejected。
+- 实际提交仍走既有 `OrderLiquidTransfer.TryExecute`，它在两端同步捕获订单子账，执行整批扣出/接收，并在异常时恢复两端精确余额；补偿失败会抛出 AggregateException，参与者标记 Faulted 并禁止重试。
+- 成功回执记录两端提交前后版本，数量守恒为 Requested = Transferred + Retained + Discarded；当前路径是全有或全无，不伪装成部分接收。
+- 参与者对象自身的 Commit 重复调用返回同一回执；Cancel 在提交前幂等。**跨实例/进程 OperationId 去重尚未接入持久化操作日志**，因此本类不宣称具备持久幂等性；后续总执行入口必须先接入 durable receipt journal，再允许同一 OperationId 的新实例重放。
+- 新增 `test/JarSystem.Tests/OrderLiquidPortTransferTests.cs`，覆盖成功转移与回执、Prepare 后版本变化、目标 Workshop Ban、提交前取消、Connection/账户身份不匹配。
+- 该路径只针对 Workshop 订单子账到另一 Workshop 同一订单子账；不触及 Workshop 游离液体、预置液体、Ship 库存、Warehouse 或 Jar 账户，也不合并这些账户。
+- 提交：实现 `e04ca3734379eda491d497e5dccff86769e94805`；测试 `c8f2e8d8b9b7c717740f250f315c562783e15e20`；取消幂等语义提交 `44d5c3461ca2d34df1f72120528efcb1111d92d4`；测试调整提交 `651b915685d4401bf759707250d67023fa0ae152`。
+- 验证 Run `45620718472` 正在执行，结果待记录。
+
+- 首轮事务参与者验证 Run `45620718472`：Build 通过，但 xUnit 894 项中 1 项失败，失败测试为 `CancelBeforeCommitIsTerminalAndDoesNotMoveResources`。失败原因是测试把第二次 Cancel 放在 Commit 完成之后，而契约只承诺提交前重复 Cancel 幂等；提交完成后取消应被拒绝。实现行为正确，测试调用顺序错误。
+- 已将重复 Cancel 移至 Commit 前，验证其幂等性；提交 `5b452f9deeda290c7ee5c7258fd526f9bf1f49f2`。新 CI 待完成，不能把上一轮失败运行算作通过。
+
+- 第二次审查发现一个需要提前封堵的绑定风险：Prepare 同时接收 Adapter 与 staging 参数，若调用方误把 Adapter A 与 staging B 配对，预检会读 A、物理提交却写 B。已为订单 Adapter 暴露只读 OrderId 和内部精确实例绑定检查，并在 Prepare 强制验证两者；新增错配实例测试。提交：`e8d441f5a632f2638d321f8908abc8930a203263`、`5f07fb57b77a15bdc7492393a8f685bf6e617a8f`、`76bfa86740063f9c7220f6b36854ee3b982dbccf`。这项修正是提交前一致性要求，避免“预检账户”和“实际变更账户”分离。
+- 先前测试修正后的 Run `45621317001` 尚在运行；其代码快照不包含上述绑定风险修正，最终验证必须以之后的最新 HEAD 为准。
+
+- 事务参与者二次审查：回执的 `ReasonCode` 必须是稳定机器码，不能拼接底层 `OrderLiquidTransfer` 的动态诊断文本。已移除诊断文本拼入 ReasonCode 的做法，底层拒绝统一映射为 `transfer.precondition.rejected`，版本竞态映射为 `account.version.changed`。提交 `e37e2a88c14288a97e0967f95b276588cad3cae3`。
+
+- 测试修正后的 Run `45621317001`（提交 `5b452f9deeda290c7ee5c7258fd526f9bf1f49f2`）完成：Build 成功；xUnit 894 / 0 errors / 0 failed / 0 skipped；Solver Differential compared=4004、agree=4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+- 精确 Adapter↔staging 实例绑定修正与稳定 ReasonCode 修正发生在该成功快照之后；对应最新 Run `45621807840` 仍在执行，不能将旧快照的通过结果等同于最新 HEAD 验证。
+
+- 精确 Adapter↔staging 绑定修正后的 Run `45621575330`（提交 `76bfa86740063f9c7220f6b36854ee3b982dbccf`）通过：Build 成功；xUnit 895 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+
+- 并发边界已明确写入架构文档：当前订单液体参与者提供同步补偿，不自行建立跨线程锁；Commit 必须运行在权威 World 串行命令执行边界内。若将来启用并行账户写入，必须补充跨账户隔离/锁定，不能把乐观版本令牌误当成锁。
+
+- 稳定 ReasonCode 修正后的 Run `45621807840`（提交 `e37e2a88c14288a97e0967f95b276588cad3cae3`）通过：Build 成功；xUnit 895 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+- 第二条事务路径开始：新增 `WorkshopLiquidStaging.BeginPrefillTransferFromShip`，只接受单一液种与精确数量，预先校验 Ban/库存/容量，调用 Ship 的回滚容量预留，再把液体写入独立 Prefill 账户；返回既有 `WorkshopPrefillTransaction`，由调用方 Commit/Rollback。准备阶段失败会补偿已应用的预置余额与 Ship 预留。
+- 新增 `ShipPrefillPortTransfer` / `PreparedShipPrefillPortTransfer`，只连接 Ship Liquid Output 到 Workshop Prefill Input；复用 Ship 预留与 WorkshopPrefillTransaction，不经过订单子账或游离液体账户。新增测试覆盖精确转移、目标 Ban、版本竞态、容量不足、取消和适配器实例错配。
+- 第二条路径代码提交：`23f4f974464273bc33ff677cdff0e649824013cc`、`edfeb46eb88d746c2040b1fe66eb3d1e51f31052`、`b3ab3d5856e66bdabc43b81fa7c9c1a04e41cc54`、`cd2b927ddc712b6ef30b2baff8fcf215d651b464`、`b438235f55fd6bc69af3b9d80354038d128b5489`、`0726f124855962529e4ee1e0c16a99438a1b9470`。
+- 第二条路径验证 Run `45622714477` 正在执行；结果待记录。
+
+- 为第二条路径补充了直接领域事务回滚测试：验证 Begin 后 Ship 已扣款且预留回库容量、Workshop Prefill 已临时入账并锁定暂存区；Rollback 后两端精确恢复，预留归零、暂存区占用归零。测试提交 `7392edbead413d00561b11f8b3f59b0f054a3724`。
+
+- 第二条 Ship→Prefill 参与者首轮 Run `45622714477`（提交 `0726f124855962529e4ee1e0c16a99438a1b9470`）通过：Build 成功；xUnit 901 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该快照不含随后新增的直接 Rollback 测试；含新增测试的 Run `45623056208` 正在执行。
+
+- 将两条参与者接入现有 `ResourceLedger.RecordBatchOnce`，避免再造独立去重系统：订单子账转移记录 `transfer/liquid`，Ship→Prefill 记录 `flow/liquid`；均由调用方提供逻辑 Tick Provider。账本快照已包含 OperationIds，因此提供账本时可跨 Prepared 实例/进程阻止重复 OperationId 在物理提交前再次执行。
+- 重复 OperationId 不伪造“源端仍保留全部数量”的拒绝回执，而是抛出明确的重复提交异常，要求调用方依据账本与权威状态对账；ResourceLedger 当前不缓存完整 TransferReceipt。若未提供 ResourceLedger，则仍只有 Prepared 实例内幂等。
+- 订单参与者账本集成提交：`f95b1a4258fe944786cea428c938f684d8453521`、`07a821295a8af4b0c3a70e2bad433bd6f984dccd`、`24d376a5f2e9baae9a0f9a69a15b7895c10de51e`。Ship→Prefill 账本集成提交：`d15ac685c5bbe7ccd3fe84328ff4b75fcd56198e`、`270ac44845a6a47a1463b488aac2f1cc0b8d86b1`。文档提交：`87924e189d3a789cae9e17197395dff2062cad73`。
+- 包含 Rollback 测试的旧快照 Run `45623056208` 与账本集成后的最新验证尚待完成；当前不能声称这批新代码已通过 CI。
+
+- 第二条 Ship→Prefill 路径加入直接双账户 Rollback 测试后的 Run `45623056208`（提交 `7392edbead413d00561b11f8b3f59b0f054a3724`）通过：Build 成功；xUnit 902 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+
+- ResourceLedger 集成首轮 Run `45623969688` 在 Build 阶段失败，原因不是领域代码编译错误，而是两条新增测试违反 xUnit Analyzer `xUnit2013`：使用 `Assert.Equal(1, collection.Count)` 检查集合长度。已按规范改为 `Assert.Single(collection)`，分别提交 `8367385281826e1408a179ec50815a771d09d18d`、`0e41f0bb0057198af96b92fe8fd885daae0b57db`。最新验证待完成。
+
+- 对持久账本检测到的重复 OperationId，Prepared 参与者进入终态 Duplicate；后续 Commit 与 Cancel 均拒绝，防止把重复执行状态伪装成普通可取消准备态。补充两条路径的终态测试；相关提交：`70f80a19c616dcb35599857a44635b60d95458a2`、`567ed788dd903c41897644092936b0451ab16e45`、`50a2510bf50477d75d2abf40bf7926bbbd1b0853`、`8cb6479f01e9a598e44e981343cd98b2084c7eab`。
+
+- 持久去重依据已核实：`WorldV2Context.CaptureExecutionResourceCheckpoint` 捕获 `ResourceLedger.Capture()`；恢复路径先 `ResourceLedger.Restore(checkpoint.ResourceLedger)` 校验，再 `ResourceLedger.RestoreFrom` 装载；`ResourceLedgerSnapshot` 包含 OperationIds。因此传入 World 持有的同一 ResourceLedger 时，操作去重标记确实进入执行检查点，而非仅存在于临时对象内。
+
+### 第二十四轮：收敛事务预检与账本发布原子边界
+
+- 对两条已实现参与者进行失败窗口复审，发现此前两者都在物理账户提交完成后才调用 `ResourceLedger.RecordBatchOnce`。若账本发布因重复 ID 或其他异常失败，物理资源可能已经移动，参与者只能标记 Faulted，不能自动恢复；这不满足本阶段要求的失败原子性。
+- 修正订单液体转移：`OrderLiquidTransfer.TryExecute` 增加提交前置回调，回调在双账户快照保护的 try/catch 内执行。账本发布失败时，源/目标订单子账恢复到精确快照；账本成功后不再执行可能失败的领域操作。
+- 修正 Ship→Prefill：`WorkshopPrefillTransaction.Commit(Action)` 在提交前验证 Ship 回滚容量预留和 Workshop pending 标志，再调用账本发布回调；回调失败时事务仍未完成，Prepared 参与者会调用 Rollback，恢复 Prefill 与 Ship 两端。预留释放和 pending 清除只在回调成功后执行。
+- 新增失败注入测试：订单账本发布失败必须恢复双订单账户；Prefill 账本发布失败必须保持事务可回滚，回滚后 Ship 原余额、预留容量和 Prefill 账户全部恢复。
+- 两条参与者的版本令牌复核、Ban/容量判定和重复 OperationId 检查收敛至 `ResourcePortTransferGuards.EvaluateCommitPreflight`；Prepare 的账本与 Tick Provider 配对校验也收敛至同一 helper。账户各自保留领域提交方法，不把不同账户语义抹平。
+- 关键提交：`e32a4c271c83f952c6e7358651ace4842718f26a`（领域事务回调及预留验证）、`5a6f27610b53d4fed2290c35f78703285413085e`、`49f6c9876f8073ce54a2ae463873a2e419516d70`（两条参与者接入原子回调）、`7b9e8907ce24ba20920a9d3c5c7d9b07c388aeda`、`e18164d747dc2420f7911edaaac38b36063ec8e3`（失败注入测试）、`45c73ad5640a2d1f6adf463cc3376bfc9fcad072`、`eebf435e6d213e60b3e5008df30c0673b888a145`、`a43a975f7e743cee833914fcd4149548f3e9d740`、`f7d7cbf9fe27cf5f6cb8d8dacce8f828cfe56a67`（共享预检与幂等守卫）、`9fa18da74480faf46cf17db4062f90143898557a`（架构文档）。
+- 本轮新代码尚未获得当前 HEAD 的完整 CI 结果；必须在最新 Run 结束后记录 Build、xUnit、Solver Differential、安全扫描和质量门禁结果。PR #63 仍保持 Draft，不合并。
+
+- 原子账本回调与共享版本守卫的基线 Run `45626669362`（提交 `f0e91afff6a265174867c84a3ae9a751e4216e28`）通过：Build 成功；xUnit 906 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该快照包含两条既有参与者的账本原子边界修复、共享预检守卫和账本批次预分配，但不包含后续 Warehouse→Workshop 第三条参与者。
+- 第三条账户路径开始：新增 `WarehouseWorkshopLiquidPortTransfer`，只连接 Production Warehouse Liquid Output 与 Workshop Free-Liquid Input；通过 `Warehouse.TryWithdrawLiquidExact` 和 Workshop `AddLiquid` 精确全量转移。Warehouse 新增精确扣款与单余额恢复接口；两个 Adapter 新增精确实例绑定校验。
+- 第三条路径明确保持既有语义：Workshop Ban/容量拒绝时液体留在 Warehouse；不调用旧 `FlowToMaster` 的多液种部分接收、不移动 Jar、不写入 Prefill 或订单子账。账本使用 `flow/liquid`，并在双账户补偿边界内发布；失败恢复 Warehouse 原余额和 Workshop 游离液体快照。
+- 新增 `WarehouseWorkshopLiquidPortTransferTests`，覆盖精确转移、Ban、容量不足、Prepare 后版本变化、账本 OperationId 检查点恢复去重、账本发布失败补偿、Adapter 绑定错配。
+- 第三条路径相关提交：`26fa5244b0ee7e62a2bb121dc6035c13deba95ad`、`f0e91afff6a265174867c84a3ae9a751e4216e28`、`dbe07f161c0edd1a134bc174e82d1fd604434f63`、`7ad92e3a2e336b864a95968074c390730f35854c`、`066872d5886e1d48021c103ebc614d07e97999e7`、`4f1e305feadd34856ff87177541fe8746cba7592`、`a5f16fe4ae2628a0a3f91b6da77044af68a5abbc`。
+- 当前 HEAD 的 Run `45627124181` / `45627111486` 正在执行；本次新测试尚未得到最终 CI 结果。PR #63 仍 Open、Draft、GitHub API mergeable=true；没有合并。
+
+- Warehouse→Workshop 游离液体路径的 Run `45627124181`（提交 `a5f16fe4ae2628a0a3f91b6da77044af68a5abbc`）Build 成功，xUnit 913 项中 1 项失败：`WorkshopWritersTests.EveryWorkshopWriterIsOnTheList`。失败是架构写入者白名单未登记新增事务参与者，不是业务断言或编译错误。已登记 `Production/WarehouseWorkshopLiquidPortTransfer.cs` 与 `Production/WarehouseWorkshopJarPortTransfer.cs` 两个新写入主体，并说明其权限依据；提交 `ca0095efbce0b1cec24d91db661e6b9eebe56890`。
+- 第四条路径开始：新增 `WarehouseWorkshopJarPortTransfer`，JarId 是规范化正整数，数量固定为 1；从 Warehouse 取出原 Jar 实体并把同一对象引用交给 Workshop，失败时原对象回到 Warehouse，不克隆、不回收。
+- 明确验证领域边界：Jar 内部液体不会触发 Workshop 游离液体 Ban。新增测试以“蜜”作为 Jar 内液体、目标 Workshop Ban 同样禁止“蜜”，仍允许 Jar 个体转移；这不是绕过 Ban，因为转移对象是 Jar，而非将液体写入游离暂存区。
+- 第四条路径测试覆盖精确对象身份、Ban 与 Jar 存储相互隔离、Jar 位容量、版本变化、账本 OperationId 检查点恢复去重、账本发布失败时恢复实体归属、Adapter 实例绑定错配。
+- 第四条路径及写入者清单相关提交：`4bbca356c67cb4a5e6e3ba1c9939b46f9f7090fc`、`89e5c4253ffe034aa0c38ecedb371c22f6ade69f`、`f4242e01841b0ba1abd6335106a259a06299de63`、`7e901367205e39832981eedd5d7e68ed5be3a82c`、`540996b51ccb304718005288c843e9f2518c8682`、`ca0095efbce0b1cec24d91db661e6b9eebe56890`、`0169e8d0cd8524f29bbd6981db04e03437856ad4`。
+- 第三条 Warehouse→Workshop 液体路径与第四条 Jar 路径的新 CI 尚待最终确认；不把旧的 906 项成功结果当作本轮最终验证。
+
+- 第四条 Jar 路径的早期 Run `45627839131` 在 Core Build 失败：`WarehouseWorkshopJarPortTransfer.cs` 误带测试专用 `using Xunit;`，导致 Core 项目找不到 Xunit namespace。已移除该引用，提交 `64c8999dc96a556207c5a1b7452bac5e3d5a3189`。这不是领域编译问题，但必须以当前提交重跑全验证。
+
+- 第四条 Warehouse→Workshop Jar 路径在修复 Xunit 引用及写入者白名单后通过 Run `45628217156`（提交 `fd8359c7401627140fb1de33ec640297881eaee3`）：Build 成功；xUnit 919 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该 Run 已覆盖第三条 Warehouse→Workshop 游离液体路径、第四条 Jar 实体所有权路径及其测试。
+- 第五条路径开始：新增 `WorkshopFreeLiquidPortTransfer`，连接两个不同 Workshop 的游离液体账户。复用 `LegacyWorkshopLiquidTransfer` 的双工作台快照补偿，并把账本回调放入同一补偿边界；仅支持单液种精确全量转移，Ban/库存/容量仍由两个 Workshop Adapter 决定。
+- 第五条测试覆盖成功转移、目标 Ban、源库存不足、目标容量不足、Prepare 后版本变化、账本 OperationId 恢复去重、账本发布失败双侧恢复、Adapter 实例错配。文档已补充 3.10。
+- 第五条路径相关提交：`8f4da38c0356762f785e6778bcdb67c95aa7b14d`、`382ab676701fd6e572716ba16bf2084e40cf539d`、`6a9b230f21e480e8b8707f1afa9105df83df4c2c`、`6d33eb42b26a6968ec82560120b5fb88e43d1e4e`。其最新 CI Run `45628744479` 正在排队，测试结果待记录。
+
+- 第六条路径开始：新增 `WorkshopJarPortTransfer`，连接两个不同 Workshop 的 Jar Storage 账户。按 JarId/数量 1 处理；移动同一 Jar 对象引用，不克隆、不修改 Jar 内部液体或标记。
+- 失败补偿捕获两端 `WorkshopSnapshot`，并按目标先恢复、来源后恢复，利用快照中的原始 Jar 引用恢复实体身份；账本写入 `transfer/jar`，仍通过共享版本守卫和 ResourceLedger OperationId 去重。
+- 新增测试覆盖同一实体引用转移、Jar 内蜜不受游离 Ban 约束、目标 Jar 容量拒绝、Prepare 后版本变化、账本持久去重、账本发布失败双快照恢复、Adapter 实例错配；并将新写入主体登记进 `WorkshopWritersTests.AllowedWriters`。
+- 第六条相关提交：`829e44a1f442151fe671870fb31f3bf7c600ffb9`、`262c0460ea4849f504a7da04c93fc319fd7d25e9`、`ce84c070e1f8bba96c2c79e623551853d44d5642`、`c55cc6211e253f13436dc194c7349d2414c5a960`。
+- 第五条 Workshop→Workshop 游离液体路径 Run `45628744479` / `45628759676` 仍在执行；第六条新增代码当前 CI 尚未完成。后续以最新 HEAD 的验证结果为准。
+
+- Jar 回滚复审发现一个非数量型状态：Warehouse 的 Jar 列表顺序会影响后续 `FlowToMaster` 选罐顺序。最初补偿只把 Jar 追加回仓库，虽恢复了所有权和实体引用，却可能改变列表位置。现 `TryTakeJarExact` 返回原始索引，`RestoreJarExact` 按该索引插回；新增失败注入测试验证多罐仓库在回滚后逐项保持同一引用与原顺序。提交：`ff78355892a22cb1d4a4b5b2bc7d575426490f41`、`54cdc8df776fbff776709cb72dc903ec38f68eda`、`66ae69e59fa7aee0293ea37cfe0359b818be0edb`、`ac6c9e08e752f2c6a0b68fc0edf2de2da6a28823`。
+
+- 第五条 Workshop→Workshop 游离液体与第六条 Workshop→Workshop Jar 参与者，在当前 Jar 顺序补偿修正之前的快照 Run `45629276410`（提交 `c55cc6211e253f13436dc194c7349d2414c5a960`）通过：Build 成功；xUnit 933 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该结果覆盖第五、第六条路径与对应测试，但不含随后新增的 Warehouse Jar 原索引回滚测试。
+- 当前最新 HEAD `53083a06a5707a215119b71754e0a8a547bca310` 的 Run `45629635494` 正在执行；PR #63 Open、Draft、GitHub API mergeable=true / mergeable_state=unstable（检查仍运行），未合并。
+
+- 补充共同边界审计：ResourceLedger 的事件列表有界，但 OperationIds 为防止事件裁剪后重放而不裁剪，因此去重集合随世界生命周期增长；不能简单按事件窗口清理。未来需引入可验证的 OperationId epoch/序列水位或独立持久索引。
+- 当前 ResourceLedger 是内存账本，通过 World 执行检查点捕获/恢复 OperationIds；不是外部数据库事务。参与者的账本参数仍可选，但正式 World 执行入口必须注入 World 自己持有的账本与 Tick Provider。账本不存完整 TransferReceipt，重复 OperationId 被拒绝后由调用方对账。
+- 当前六条事务参与者不等于全仓库转移入口已统一；旧批量路径、统一调度器、跨线程隔离/锁、完整 Receipt Journal 和 OperationId 安全压缩仍是后续工作。已将边界写入架构文档 3.12。
+
+- 最新完整代码快照（包含六条参与者、Warehouse Jar 原索引回滚及 934 项测试）的 Run `45629635494`（提交 `53083a06a5707a215119b71754e0a8a547bca310`）通过：Build 成功；xUnit 934 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。此 Run 已证明原索引补偿测试通过。
+
+- 对第五条 Workshop 游离液体路径补充来源端 Ban 测试：使用内部快照恢复入口构造“历史/异常状态中来源台已禁用但仍有旧余额”的情况，验证 Output Adapter 仍会拒绝提取，液体留在来源账户。提交 `c47b5965c3f18bad7772abae73ec46fe35bea5b2`。此测试不改变 Ban 语义，只验证端口预检在异常旧状态下仍 fail-closed。
+
+- 文档与 ResourceCauses 词表说明更新后的完整 Run `45630249477`（提交 `6df684df084f6237cbfa566a13b750ec511d1a3d`）通过：Build 成功；xUnit 934 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。该结果覆盖六条参与者、账本批次预分配、Jar 顺序补偿和 3.12 共同边界文档。
+
+- 再核对 JSON 持久化链：`WorldV2ExecutionCheckpointWireDto.ResourceLedger` 使用 `ResourceLedgerWireDto`，其 `OperationIds` 字段由 `FromSnapshot` 复制、在 `Validate` 中校验非空/唯一，并由 `ToSnapshot` 还原。因此去重标记不仅存在于内存检查点，也进入版本化 JSON checkpoint wire payload。
+
+- 继续事务最终提交审查：Run `45630266343` 对提交 `6df684df084f6237cbfa566a13b750ec511d1a3d` 验证通过：Build 成功；xUnit 934 / 0 errors / 0 failed / 0 skipped；Solver Differential 4004/4004；SEC-OK（6 projects、0 vulnerable）；QUALITY-OK / VERDICT=OK。
+- 源码复核发现 `src/JarSystem.Core/Production/WarehouseWorkshopJarPortTransfer.cs` 的 namespace 错误地写成 `JarSystem.Tests`，使生产转移实现泄漏到测试命名空间。已修正为 `JarSystem.Core.Production`，并删除无意义的同命名空间 using。提交：`a54ac39c346572323621c2c4f53cef8ebf99865b`。该修正后的 CI 尚待确认。
+- 事务一致性审查结论：当前参与者在领域补偿回调内写入 `RecordBatchOnce`，但成功回执是在回调返回、物理事务完成后才构造。需要把“构造并验证成功回执 + 账本 OperationId/事件提交”移入领域补偿边界；否则提交后的回执构造异常会形成已变更资源/已写账本、调用方却没有确定回执的窗口。
+- 当前账本 `RecordBatchOnce` 已先验证并构造整批事件，再 EnsureCapacity，最后写入 OperationId 与事件；但只保存 OperationId，不保存成功 TransferReceipt，因此跨实例重复请求只能被拒绝，不能返回同一历史回执。下一步应把成功回执并入账本提交和检查点 Wire DTO，形成 OperationId → Receipt 的可恢复映射；旧的纯事件批次接口继续用于非端口结算，不能伪造回执。
+
+- 将六条参与者统一到 `ResourcePortTransferGuards.CreateCommittedReceipt`：每个物理事务的补偿回调中先读取两端提交后版本令牌，构造并 Validate 完整成功回执，再执行 `ResourceLedger.RecordBatchOnce`。因此回执验证失败或账本发布失败都会发生在物理事务仍可补偿的阶段；只有两者成功后，领域事务才执行不可逆封口。订单、Prefill、Warehouse 液体、Warehouse Jar、Workshop 液体、Workshop Jar 六条路径均已核对使用该顺序。
+- 此修正由共享 helper 提交 `45efeb68c9bdb7d5bee6c18749efd7b451e1b8be` 及参与者接入提交完成；架构文档更新提交 `02189613150bcab60d791cbfcd1a6a607bf07394`。最新 HEAD 的完整 CI 仍待结束。
+
+- 事务最终提交继续收敛：新增 `ResourceLedger.RecordTransferOnce`，把已验证成功回执、事件批次、OperationId 在同一账本锁内作为一次提交发布；先校验 receipt 与操作 ID、资源量纲、液体身份/Jar 单位、来源/目标账户和事件总量，再预分配三个 backing store，最后发布。事件裁剪不会清除 OperationId 或回执。
+- 新增 `ResourceLedger.TryGetTransferReceipt`。Commit 前先检查已提交回执：OperationId、Connection、端口、资源类型/身份、数量、账户及 Prepare 前版本全部一致才返回历史回执；同 ID 不同请求拒绝。若 OperationId 已存在但没有 transfer receipt（例如旧事件批次），仍拒绝，不会猜测成功。
+- `ResourceLedgerSnapshot` 和 `ResourceLedgerWireDto` 增加 TransferReceipts；Restore 校验每张回执均有对应 OperationId 且唯一，wire DTO 也执行同样检查。检查点 JSON 因而可恢复 OperationId→Receipt 映射。
+- 六条参与者统一使用 `ResourcePortTransferCommitCoordinator.Finalize`，并在物理领域事务的补偿回调中先构造/验证 receipt，再调用 `RecordTransferOnce`；回执发布失败时仍能回滚物理账户。Coordinator 对无 Ledger 的测试/兼容调用保持可用，但正式 World 路径仍必须注入账本。
+- 新增测试：账本回执与 OperationId 的 snapshot + wire JSON round-trip、不同请求载荷的 OperationId 冲突、事件端点与回执账户不匹配拒绝；六条参与者的跨实例/恢复后重放测试改为验证返回同一历史回执且不再次移动资源。
+- 相关提交：`55262de12ebb05f4e3c64d68490acef50df87de5`、`478e0d6a330475f4966396d803f0108af6caa51d`、`253517c9f88a871b3b120717c1b3b0c759acbed2`、`e067f283677a1f8f5c1019b42980ef6e8a1325f9`、`b9adfcc195a353a2b6117e1f2e928e0fe3e3cd3e`、`934d19c0064f1c45c1326e84730a466f84746313`、`5a15ea6868955c013ed3456af31bf4b0b9845183`、`e1d3127827bc5e6128390763774ae989a34bde51`、`d86a09a0c99a02209e137cdc31c67467538e6f5c`、`b671ea1fab0b68c24a26529b7af4e0dfaaba37ab`、`bff00261e3c6cbf61f9ba02d9d4af815f2c238fb`。
+- 当前最新 HEAD `bff00261e3c6cbf61f9ba02d9d4af815f2c238fb` 的 Run `45633354091` 正在执行；PR #63 仍 Open/Draft。GitHub 当前暂报 mergeable=false（验证尚未结束），不合并、不把未完成 CI 记作通过。
+
+- 统一提交协调器 `ResourcePortTransferCommitCoordinator` 已接入六条资源路径：Warehouse→Workshop 液体、Warehouse→Workshop Jar、Workshop→Workshop 游离液体、Workshop→Workshop Jar、订单子账液体、Ship→Workshop Prefill 液体。各路径都在原有物理补偿回调内调用协调器；协调器先读取提交后版本并构造/验证回执，再将事件批次、OperationId 和回执交给 `ResourceLedger.RecordTransferOnce` 最终发布。
+- 新增最终回执账本：`ResourceLedgerSnapshot`、`ResourceLedgerWireDto`、World V2 checkpoint JSON wire 均保存 `TransferReceipts`；OperationId 匹配相同请求时可返回历史回执，匹配到不同连接/端口/资源/数量/账户/提交前版本时拒绝。账本批次还验证资源种类、液体身份、数量、来源/目标账户与回执一致。
+- 账本并发/恢复审查补强：统一 `_gate` 保护事件、去重索引、回执索引和检查点捕获/恢复；事件读取提供只读副本；`RestoreFrom` 预留所有集合容量后再在锁内替换状态；回执克隆和事件/OperationId/回执索引在可见修改前完成预分配。新增同 OperationId 并发 32 次发布只产生一组事件/一份回执的测试。
+- 新增测试覆盖：成功回执/OperationId/事件一起恢复、World checkpoint JSON wire 往返、同 ID 不同回执拒绝、账本事件端点与回执账户不一致拒绝、空批次不占用 ID、事件集合只读、重复 ID 快照验证、并发幂等发布。
+- 验证过程中发现并修复 xUnit analyzer 错误 `xUnit2013`：集合计数断言改为 `Assert.Single`。该失败只发生在测试分析阶段，构建主项目、Godot Host、协议/配置检查、求解器差分、回放和安全扫描均已通过；不得把该失败的 Run 计作通过。
+- 幂等存储取舍已写入架构文档 3.13：当前保留 World 检查点生命周期内的全部 OperationId tombstone 和成功回执，事件历史仍有界；明确指出索引/回执内存随成功转移次数增长，未来长时在线需持久化唯一索引/归档或有证明的 epoch 水位压缩。另明确账本锁不等于账户联合锁：现阶段物理账户仍由 World 单写者命令序列执行，未来并发必须按稳定账户 ID 顺序锁住两端并覆盖整个提交窗口。
+- 当前代码分支 HEAD 包含回执预克隆、原子 RestoreFrom、六路径协调器、账本端点校验和并发幂等测试；最新 HEAD 的 CI 尚在运行，必须以其最终 Run 结果更新本记录。PR #63 继续 Open / Draft，未合并。
+
+- Receipt Journal 第一轮验证 Run `45633568146` 在测试项目 Build 阶段失败：`ResourceLedgerSnapshotTests.cs` 的 using 列表重复引入 `JarSystem.Core.World`，同时遗漏 `System.Text.Json`，导致 CS0105/CS0103。当前分支已修正 using（文件头为 System.Text.Json、Domain、Production、World、Xunit），并继续验证后续提交；这不是账本逻辑失败。
+- 增加账本并发发布测试：多个线程对同一 OperationId 竞争 `RecordTransferOnce` 时，账本锁确保仅发布一份事件和回执；后续还需注意该保证只覆盖账本，不替代 World 对物理账户的单写者命令边界。
+
+- 持久化/构建复核补充：最新回执账本测试实际走两条恢复链：`ResourceLedger.Capture/Restore` 快照链，以及 `ResourceLedgerWireDto` + `WorldV2CheckpointJsonCodec.Encode/Decode` 的 JSON 检查点链；验证恢复后 OperationId、TransferReceipt 与 LastSeq 同时存在，旧 OperationId 重放不再新增事件。
+- 对应 CI 曾暴露测试文件自身的三个编译/分析问题：重复 `using JarSystem.Core.World`、缺少 `System.Text.Json`、集合计数使用 `Assert.Equal` 触发 xUnit2013。已在提交 `939c22ff1e52d9fc5c509a15e20f03c35f47f60c` 上修正为唯一 using、补齐 JSON 命名空间并改用 `Assert.Single`；之前失败 Run `45633556556` 不作为通过依据。
+- 当前 PR HEAD 已推进至 `939c22ff1e52d9fc5c509a15e20f03c35f47f60c`，PR #63 仍 Open / Draft / mergeable=true。针对该 HEAD 的 Run `45634097224` 与 `45634082317` 仍在执行，Build、xUnit、Solver、Security 与 Quality 最终状态尚未确认。不得用此前 HEAD 的验证结果替代。
+- 持久化结构复核：`ResourceLedgerWireDto.Validate` 校验事件容量、事件序号递增及 LastSeq 尾部一致性；OperationIds 非空且唯一；TransferReceipts 必须对应 OperationId 且不能重复；每张回执还必须通过 `ResourceTransferReceipt.Validate` 且为已提交结果。`ToSnapshot` 再交由 `ResourceLedger.Restore` 执行领域快照验证。
+- Receipt Journal 初次接入的 Run `45631671624` Build 成功，但 xUnit 938 项中 14 项 WorldV2 checkpoint/JSON restore 测试失败。复核发现新增的 `ResourceLedgerSnapshot.TransferReceipts` 在构造函数中没有初始化，导致旧的 checkpoint capture/restore 路径拿到空回执集合；已补齐只读回执快照、Restore/RestoreFrom 复制和 Wire DTO round-trip，并增加专门测试。后续最新 HEAD CI 正在重新验证该修复。
+
+- Receipt Journal 第二轮 Run `45634212889`（提交 `605316dafa6cf7b7910ce2f43f73b74016e4867b`）Build 成功，xUnit 945 项中 15 项失败。失败分成两类：14 项 WorldV2/WorkshopReplacement checkpoint 测试来自 `ResourceWorldRuntime` 在“退休主台没有任何可返还/丢弃液体”时仍调用 `RecordBatchOnce` 发布空批次；账本现明确拒绝空批次，故调用方应跳过无资源变化的操作。已修正为仅在 `mutations.Count > 0` 时记账。另 1 项账本回执冲突测试没有填写 From/To，违反新加的回执账户端点一致性校验；测试数据已补齐来源/目标账户 ID。
+- 对应修复提交：`00a9d3004acb673d9af34652c82343d6353192e9`；测试端点补齐由并行提交 `f0584f4e0aad1333bae5cb47b01c010a2110fb78` 完成。最新 HEAD Run `45634966051` 正在执行，待确认上述 15 项回归是否清零。
+
+- 最终回执提交后的 CI 回归复核：Run `45634539216`（提交 `3c85b7e5cfe50b1f6a1125de66635342accdf585`）xUnit 946 项中 15 项失败。失败集中在 World V2 订单结算/检查点恢复与一项账本 OperationId 冲突测试；构建、Godot Host、协议/配置、求解器差分、回放和安全扫描均通过。
+- 复核发现 `RecordBatchOnce` 的空批次不是无效操作：旧订单结算即使没有液体返还/丢弃事件，也需要写入 OperationId 以保证“零资源变化结算”不被重复执行。先前把空批次拒绝是对旧接口语义的破坏，已撤销；新增 `EmptyOperationBatchStillDeduplicatesZeroResourceSettlement` 验证空批次不增加事件 Seq，但仍记录并去重 OperationId。严格的非空/数量一致约束只保留在新 `RecordTransferOnce` 转移提交接口。
+- 同一失败 Run 中 `TransferReceiptJournalRejectsOperationIdPayloadCollision` 的首次账本写入没有填 From/To，违反新回执端点校验；测试现已补齐与 Receipt Source/Target OwnerId 一致的端点值。此处修的是测试输入，不放宽生产账本校验。
+- 新增最终回执协调器的提交后端点身份复核：对提交后 Source/Target Preflight 再 Validate，并要求 PortId、Account、ResourceKind、ResourceIdentity、Amount 与 Prepare 请求完全一致；漂移会在物理补偿窗口内失败。新增对应合同测试。
+- 上述修复相关提交：`c3be4bce76c15ba48cd31b7fa0794660b0a5b369`、`b524644a49e56c663269682108806528885de5d0`、`cbaf2cfd22bba6ac75d40734f472f7cc7d6690fd`、`f0584f4e0aad1333bae5cb47b01c010a2110fb78`、`9ed78ec22c6ca7148d3478c49114eaeafcb5ec2e`、`75db77ee3f1c9cfe3e07319fe82c0aa0b36957b7`、`fb9c71da3887148f070d2ede61dd5284bfb964ea`。
+- 当前最新 HEAD 包含零资源结算兼容、回执冲突测试端点修正、提交后端点复核和 RestoreFrom 回执索引测试；最新 CI Run `45635278057` 正在执行，最终状态待确认。PR #63 继续 Open / Draft / 不合并。
+
+- 从 Run `45635042259` 的归档 `_verify_output.txt` 读取完整异常栈后，确认 10 项剩余失败的真正共同根因不是 `ResourceWorldRuntime`，而是 `OrderResourceSettlementService.SettleAndRelease` 在“Accepted 与 Discarded 都为空”时仍调用 `RecordBatchOnce`。该路径在订单失败终止/预留释放中被多个 WorldV2 测试覆盖。已将惰性枚举物化为数组，仅在长度大于 0 时发布账本批次；无资源变化仍继续执行 fault hook 与 `MarkSettlementLedgerRecorded`，保持 Settlement Lease 状态机不变。提交 `a9476c0372786901e221e08009764d5b2b47677c`。
+
+
+### 第二十五轮：Receipt Journal 保留边界与零资源结算状态机复核（2026-11-25）
+
+**起始代码状态**
+
+- 仓库：`Lazyair150/jar-system-dotnet`
+- 分支：`architecture/core-liquid-identity-consolidation`
+- 本轮起始 HEAD：`e788cd3bb687ab87f7075d27845da88ba7385dcf`
+- 本轮测试修复提交：`45494a9e652fdea90a425a420fce842f89f07c69`
+- PR #63：Open / Draft；本轮没有合并。
+
+**源码复核事实**
+
+1. `ResourceLedger` 将三种状态分开保存：有界事件窗口 `_entries`、OperationId tombstone 集合 `_operationIds`、成功转移回执索引 `_transferReceipts`。事件裁剪只修改 `_entries`；不会清理 OperationId 或 Receipt。
+2. `Capture/Restore`、`ResourceLedgerSnapshot`、`ResourceLedgerWireDto` 与 World V2 JSON checkpoint 保留 OperationId 和 TransferReceipt。Restore 验证每张 Receipt 都对应一个 OperationId、身份唯一且满足领域回执约束。
+3. `RecordTransferOnce` 要求非空正数量事实批次；校验资源种类、端点账户、数量合计与回执一致。Jar 资源进一步要求 canonical 正整数 JarId、请求数量 1、实际转移数量 1，不允许部分 Jar 转移。
+4. 零资源订单结算仍然是有效的生命周期状态变化：必须保存结算收据并推进 Lease 的 SettlementStage，但当 Accepted 与 Discarded 都没有正数量时，不应伪造 ResourceLedger 事件，也不应通过结算路径写入一个没有资源事实的转移 OperationId。
+5. 有实际返还或丢弃数量的结算，若 Lease 已标记 LedgerRecorded，则必须同时具备对应的账本 OperationId；零资源结算的 LedgerRecorded 状态只要求存在有效结算收据。两者是不同的恢复不变量。
+6. 账本锁只保护账本三类索引和事件，不是源/目标物理账户联合锁。当前物理转移仍依赖 World 单写者命令边界；多线程账户写入尚未被本轮证明安全。
+
+**CI 失败证据与修正**
+
+- Run `45636823273`（HEAD `22f36780`）：951 项 xUnit 中 2 项失败。失败分别为零资源结算重试测试取不到 Lease，以及恢复测试没有真正构造有资源事实的 SettlementReceipt。
+- Run `45637138692`（HEAD `e788cd3`）：951 项中仍有 1 项失败。日志显示 `ZeroResourceSettlementCanRetryAfterLedgerStageWithoutPhantomOperationId` 在 `FindLease` 得到 null。
+- 根因：测试用 `TryStartActiveDemand` 启动仅需直接 MATCH 的订单。该路径允许执行会话在调用返回前同步完成并释放 Lease；随后测试调用结算服务时，已没有活动 Lease。此前仅把断言类型从旧类型改成 `OrderResourceLease`，没有修正测试生命周期前提。
+- 修正：测试改为先调用 `RunSchedulingPass` 刷新主动订单的求解结果，再显式调用 `Admission.TryAdmit` 建立仍然活动的 Lease。这样测试专注于 SettlementService 的故障注入与重试，不再把“同步执行是否已结束”混入被测条件。提交：`45494a9e652fdea90a425a420fce842f89f07c69`。
+- 另一项恢复测试已在提交 `1a041a496c8561fbba0d2d1d5768c90b04d8c6aa` 修正：使用真实非空 Requested/Accepted 收据，先验证暂存账户未清空时拒绝恢复，再清空账户并标记 LedgerRecorded，最后验证缺少账本 OperationId 时拒绝结算。
+- 零资源恢复语义在提交 `5924d8479cbf5482bca4d750ec7315136ed80be4` 收敛；事件窗口裁剪后 Receipt/Tombstone 仍保留的测试在 `a412792f4958aae98bb10445e0a8031e734ae0ae`；Jar 单位与 canonical ID 校验在 `26aecf4464c711d38a4638e829b0f159769aebba`。
+
+**当前验证状态**
+
+- 最新 HEAD：`45494a9e652fdea90a425a420fce842f89f07c69`
+- Run `45638134486`、`45638118727`：本轮查询时均为 In Progress；不得记录为通过。
+- 前一 HEAD `7a94b1b704325144bf7315bf571653f592b5308c` 的 Runs `45637619130`、`45637605494` 为 Success，但它们不包含本轮测试夹具修正，不能替代最新 HEAD 的验证。
+- PR #63 保持 Open / Draft；没有进行合并。
+
+**本轮结论与未完成项**
+
+- Receipt Journal 的事件保留与幂等 tombstone 保留语义已经在代码中分离；事件有界不意味着幂等证据也可以被裁剪。
+- 零资源结算不等于没有结算：Receipt 与 Lease 阶段仍须持久化；但不得制造虚假的资源事件/转移记录。
+- OperationId 与 Receipt 当前随 World 检查点保存，长期运行的索引增长仍未解决。未来必须选择可证明安全的 epoch/水位压缩或独立持久索引；不能按事件窗口简单删除 tombstone。
+- 下一步先等待最新 HEAD 两条 CI 结束；若失败，读取归档日志逐项修复。通过后继续审查 Settlement Receipt 与 Resource Ledger 的恢复一致性、旧批量转移入口收敛，以及 World 单写者边界是否在所有宿主入口得到强制执行。
+
+
+### 第二十五轮补充：测试夹具修正的二次审计（2026-11-25）
+
+- 第一次测试修改提交 `45494a9e652fdea90a425a420fce842f89f07c69` 没有正确定位目标方法：相同的启动代码片段首次出现在 `ExecutionResourceCheckpointCapturesDetachedLiquidScopesReservationsLedgerClockAndSessionProgress`，修改误落在该测试，导致它不再创建执行会话；并且目标零资源结算回归测试没有保留在提交后的文件中。
+- Run `45638134486` / `45638118727` 因此在 `ExecutionResourceCheckpointCapturesDetachedLiquidScopesReservationsLedgerClockAndSessionProgress` 失败（950 项中 1 项失败，`first.Sessions` 为空）。这是测试夹具修改错误，不是生产运行时回归。该提交不作为修复完成依据。
+- 已从明确的历史提交 `e788cd3bb687ab87f7075d27845da88ba7385dcf` 恢复该测试文件，再以目标方法名限定替换范围；只修改 `ZeroResourceSettlementCanRetryAfterLedgerStageWithoutPhantomOperationId`，并恢复 Execution Resource Checkpoint 测试原有的 `TryStartActiveDemand` 执行会话路径。
+- 修正提交：`5a578f3df20527ad94e8fd19ef45e27031fe5c7c`。随后读取该精确提交的文件，确认零资源结算测试仍存在且使用 RunSchedulingPass + Admission.TryAdmit；Execution Resource Checkpoint 测试保留原始同步启动代码。
+- 文档提交链：工作记录 `37a00e794f52f906461ddc0501c18c393411179c`；架构规范 `f070c9ec62375465edda8c849533682937049bc0`；工作记录索引 `0be6ddff332ea089b31a3a41d0a31383a32ca1d0`；ADR 0009 `d6d26d5e05e6c27d37a369d6db3630973b61fcb3`。
+- 当前最新代码 HEAD 已推进至 `5a578f3df20527ad94e8fd19ef45e27031fe5c7c`；针对该精确 HEAD 的 CI 尚待查询/完成。之前 HEAD 的失败和绿色结果均不替代本次验证。
+
+
+### 第二十六轮：B 类复合交接与资源事实身份审查（2026-11-25）
+
+**起始与验证基线**
+
+- 仓库：Lazyair150/jar-system-dotnet
+- 分支：architecture/core-liquid-identity-consolidation
+- 本轮审查基线：19297beb2b64ff7eb9d8f8a90ba5dfc1b151f94f
+- PR #63：Open / Draft / mergeable=true；未合并。
+- 精确 HEAD 的两条 CI：Run 45639075910、45639062873，均为 Success。此前错误测试夹具提交的失败 Run 保留，不作为本轮通过依据。
+
+**审查对象与源码事实**
+
+1. 六条 Resource Port participant 已统一使用 ResourcePortTransferCommitCoordinator 和单资源 ResourceTransferReceipt；但 B 类订单真实交接仍走 WorldOrderExecutionSession.TransferToSlave -> OrderTransferService.Transfer。
+2. B 类交接一次可能包含多只 Jar 和多种液体；Jar Storage 与订单液体 Staging 是不同权威账户。当前服务先移动 Jar，再迁移液体，最后验证精确身份/RuleTransition 并用 RecordBatchOnce 发布混合账本批次。这是一个复合事务，不等同于六条单资源端口参与者中的任意一条。
+3. OrderTransferService 的 Jar 账本事实目前使用 ResourceKinds.Jar + jar.Shape + amount=1；新端口 Jar 回执却以 canonical JarId 作为 ResourceIdentity。Jar Shape 是属性/展示标签，不是 Jar 个体身份。
+4. ResourceLedgerMutation 当前字段只有 Cause、Kind、Name、Amount、From、To、Reason；没有独立 ResourceIdentity。对于 Jar，ResourceTransferReceipt.ResourceIdentity 与事件 Name=jar.Shape 没有强类型关联。
+5. ResourceEvent 当前没有 OperationId；RecordTransferOnce 虽在同一锁内发布事件、OperationId 与 Receipt，但事件本身没有 OperationId 或 Seq range 回指，不能直接从任一事件追溯到产生它的提交操作。对于多事件复合批次，这个缺口更明显。
+6. B 类旧路径的账本 From/To 使用 master.Name / slave.Name，是显示名称而非稳定账户身份；工作台重命名后，同一权威账户的历史端点表达会变化。新端口参与者使用 RuleResourceAccount.OwnerId，两套端点语义尚未统一。
+7. B 类旧路径在账本发布前检查 OperationId 是否存在，并在全部物理交接后用 RecordBatchOnce 写批次；它没有持久化复合 Receipt，也不能像单资源 participant 一样按完整请求返回同一历史回执。
+8. World V2 当前依赖单写者命令序列保护多个物理账户的联合窗口。ResourceLedger 的内部锁不构成 Jar Storage 与 Liquid Staging 的联合锁。
+
+**正式概念边界**
+
+- Resource Identity：资源个体/类型的机器身份。Jar 必须是 JarId；液体必须是 World Vocabulary 中的液体身份。
+- Display Attribute：供 UI/日志展示的名称或属性。Jar Shape 不可替代 JarId；Workshop.Name 不可替代账户 OwnerId。
+- Transfer Leg：一条明确的 Source Account/Output Port -> Target Account/Input Port 资源变化，携带 Kind、Identity、Amount 和端点版本。
+- Compound Transfer：多个 Transfer Leg 组成一个具有共同 OperationId 和提交边界的操作；B 类主从交接属于此类。所有 Leg 必须一起提交或一起补偿，不能拆成多个独立已提交操作。
+- Route：由 Connection 与规则转换构成的结构路径；它可以承载一个或多个 Transfer Leg，但不等于事务批次。
+- Ledger Event：资源变化事实，必须能关联其 OperationId、ResourceIdentity 和稳定账户端点；显示属性仅用于解释，不参与身份判断。
+
+**本轮决策方向**
+
+- 新增 ADR 0010，冻结复合转移与资源事实身份/关联契约。
+- 保留单资源 ResourceTransferReceipt 作为单腿操作的兼容形式；未来复合操作使用包含多腿和多账户版本信息的批次回执。不能把 B 类交接伪装成一个 Jar 或一种液体的单资源回执。
+- 账本事实需要独立 ResourceIdentity，并以 OperationId 关联批次中的每条事件；显示名、Jar Shape、Workshop.Name 不再充当机器身份。
+- 先建立复合回执与 Wire/checkpoint 契约及差分测试，再迁移 OrderTransferService；不直接将现有 B 类服务拆成多次独立 Port Commit。
+- 迁移前保留 B 类交接既有语义：从台必须为空；Jar 同一实体引用；Jar 内液体不受游离 Ban；游离液体仍受主台 Output 与从台 Input Ban；交接原子失败必须恢复两侧 Jar 顺序/引用与液体子账。
+
+**后续工作**
+
+1. 定义 ResourceTransferBatchRequest/Receipt（命名暂定）：OperationId、Batch/Policy identity、Leg 集合、稳定账户身份、预期版本、提交后版本与完整性校验。
+2. 为 ResourceLedgerMutation / ResourceEvent 增加独立资源身份与 OperationId 关联，并制定 Wire Schema 版本迁移策略。
+3. 对 B 类交接建立多账户 Prepare/Commit/Compensate 参与者，统一 Jar Storage 与 Order Liquid Staging 的联合补偿窗口。
+4. 增加故障注入：第 N 只 Jar 移动失败、液体批次提交失败、RuleTransition 后置校验失败、账本发布失败、检查点恢复后相同 OperationId 重放、不同请求载荷冲突。
+5. 验证同一批次中的 JarId/液体身份、数量守恒、端点 OwnerId、事件 OperationId 与回执 Legs 完全一致。
+
+本轮只完成源码审计和规范决策，没有声称复合转移实现已经完成，也没有改变 B 类运行行为。
+
+### 第二十六轮补充：跨仓库基线与最新文档验证状态（2026-11-25）
+
+**Core 当前提交链**
+
+- 第二十六轮工作记录：20d41b58894ffee40f2f1e97c5ef32b02b13e8ab
+- Core 架构规范第 22 节：112e4da641dd821209062dd712a61cd3f8457886
+- 工作记录索引：232596c5ccceb330cef928afa0754833f012658b
+- ADR 0010：c26c7b2e51c31f86521106892b12a2ef8e15bc77
+- 当前 Core PR #63 HEAD：c26c7b2e51c31f86521106892b12a2ef8e15bc77
+- 当前 HEAD 对应 Run 45640405208、45640395128 查询时均为 In Progress；此前 19297beb 的两条 CI（45639075910、45639062873）均 Success。不得把旧 HEAD 的成功结果冒充新文档 HEAD 的验证结果。
+
+**Space 跨仓库基线复核**
+
+- Space PR #2 HEAD：8ad262ab8e42801af1e782c29becb59b5ce65bc6，Open / Draft。
+- 当前 Space workflow `.github/workflows/world-v2-cross-repo.yml` 精确固定 Core SHA：18a0b26407ee51c6df722f093165c3b3770c31a7。
+- Space Run 45613042211 成功，但它验证的是上述旧 Core SHA，不是当前 Core PR #63 的 c26c7b2。
+- 因 Core PR #63 尚未合并，当前不提前把 Space workflow 改指向一个未合并、尚未完成最终验收的 Core HEAD。Core 完成并确定集成基线后，再更新 Space 的 CORE_EXPECTED_SHA 并执行完整跨仓库验证。
+- 真实 Godot GUI 试玩仍未完成；Headless/CI 成功不能代替启动、机库交互、进入战斗、暂停、返回主菜单与连续开战验收。
+
+**本轮阶段边界**
+
+ADR 0010 已冻结 Transfer Leg / Compound Transfer / ResourceIdentity / OperationId event correlation 的目标契约；本轮没有实现这些新字段或迁移 B 类交接。下一轮先完成当前精确 Core HEAD CI，再按 ADR 0010 顺序实现账本事件身份与操作关联、Wire/checkpoint 兼容迁移、复合批次回执，最后迁移 OrderTransferService 并更新 Space 精确 Core pin。
+
+### 第二十七轮：最新 Core CI 收敛与账本事件身份实现前置检查（2026-11-25）
+
+**验证基线**
+
+- 仓库：`Lazyair150/jar-system-dotnet`
+- 分支：`architecture/core-liquid-identity-consolidation`
+- 检查起始 HEAD：`b1ccfcca019f51667c4179a9eac247f1b23b8c72`
+- PR #63：Open / Draft；本轮不合并。
+- 前一轮待确认的 Run `45640869568` 已完成，结论为 Success；其 head_sha 精确等于 `b1ccfcca019f51667c4179a9eac247f1b23b8c72`。这确认第二十六轮架构文档、ADR 与工作记录提交通过当前 verify workflow。
+
+**对实际代码与 Wire 路径的复核**
+
+本轮读取精确 HEAD 中以下源文件，而非根据旧工作记录推测：
+
+- `src/JarSystem.Core/Production/ResourceLedger.cs`
+- `src/JarSystem.Core/World/Execution/OrderTransferService.cs`
+- `src/JarSystem.Core/World/WorldV2ExecutionCheckpointWireDto.cs`
+- `src/JarSystem.Core/Production/OrderLiquidPortTransfer.cs`
+- `src/JarSystem.Core/Production/WorkshopJarPortTransfer.cs`
+- `src/JarSystem.Core/Production/WarehouseWorkshopJarPortTransfer.cs`
+- `test/JarSystem.Tests/ResourceLedgerSnapshotTests.cs`
+
+确认的实现细节：
+
+1. `ResourceEvent` 与 `ResourceLedgerMutation` 当前都只有 `Name`，没有独立 `ResourceIdentity`；`ResourceEvent` 也没有 `OperationId`。因此 ADR 0010 所要求的“每条事件可回溯所属操作”尚未落到代码。
+2. `RecordBatchOnce` 在锁内把 OperationId 加入 tombstone，再追加整批事件；但是每条事件没有记录该 OperationId。它对已有 OperationId 直接返回 false，也没有像 Receipt Journal 一样比较完整的批次请求载荷。
+3. `RecordTransferOnce` 对液体通过 `Name == receipt.ResourceIdentity` 校验；对 Jar 只校验 kind、amount=1 与 receipt 的 canonical JarId 格式，尚未校验事件事实中存在相同 JarId。当前 Jar mutation 仍可能以 Shape 作为 Name。
+4. `ResourceLedgerSnapshot` 的事件克隆路径逐字段复制现有字段；增加事件身份字段时，必须同时更新 Capture/Restore/Clone/Snapshot 构造器，否则内存快照与恢复会静默丢字段。
+5. `ResourceLedgerWireDto` / `ResourceEventWireDto` 是独立 JSON 映射：FromSnapshot、ToSnapshot、Validate、FromEvent、ToEvent 都逐字段映射。只修改领域类型会造成 checkpoint JSON 丢失新身份字段。
+6. 当前 `WorldV2ExecutionCheckpointWireDto` 根对象没有独立 Ledger Schema Version。旧 JSON 缺少新增字段时，兼容语义必须显式定义；尤其不能用 Shape 或 Workshop.Name 回填 JarId / OwnerId。
+7. B 类 `OrderTransferService` 仍将 Jar Shape 写入 Name、将 Workshop.Name 写入 From/To，并通过 `RecordBatchOnce` 写入复合事实；它尚未迁移到复合 Receipt Journal。六条单资源端口参与者不能替代该批次语义。
+
+**实施边界与风险控制**
+
+本轮没有只给领域事件增加两个属性就提前提交：那样会留下 Clone/Wire 丢字段、旧 checkpoint 语义不明、Jar 事件无法绑定 receipt identity，以及批次 OperationId payload 冲突未处理等半迁移状态。也没有改写 B 类物理交接或 Space Core pin。
+
+下一次代码变更应作为一个完整、可编译的最小垂直切片完成：
+
+1. 定义显式 Ledger Schema Version 与 Legacy event 语义；旧事件允许身份未知，但不得伪造身份。
+2. 增加 ResourceIdentity / OperationId 到 Mutation、Event、Snapshot、Wire DTO 的完整往返映射；RecordBatchOnce 和 RecordTransferOnce 生成的每条事件必须绑定 OperationId。
+3. 单资源 Jar receipt 对应的账本事实必须携带与 receipt 相同的 canonical JarId；Shape 只保留在 DisplayName/Name。
+4. 同步修改所有 Jar port participants 和 B 类账本事实生产点，使用稳定 AccountId/OwnerId，不再使用 Workshop.Name 作为机器端点。
+5. 为同形不同 JarId、Shape 变化、批次多事件 OperationId、事件裁剪后 tombstone、旧 Wire checkpoint 与同 ID 不同 payload 冲突建立有针对性的测试。
+6. 在该切片完整后再进入 ResourceTransferBatchRequest/Receipt 和 B 类联合提交/补偿实现。
+
+**验证状态**
+
+- Run `45640869568`：Success，HEAD 精确匹配。
+- 本轮只进行了源码检查与工作记录更新，没有声称 ResourceIdentity / OperationId 事件关联已经实现，也没有触发无信息量的重复 CI。
+- PR #63 保持 Open / Draft；Space PR #2 与其 Core SHA pin 未修改。
+
+
+### 第二十八轮：账本事实身份、操作指纹与 Jar 出生身份贯通（2026-11-25）
+
+**起始与验证基线**
+
+- 仓库：`Lazyair150/jar-system-dotnet`
+- 分支：`architecture/core-liquid-identity-consolidation`
+- 起始代码 HEAD：`69c3f72ae4bffc1874cff1c0848d831fd2aa2139`
+- PR #63：Open / Draft；没有合并。
+- 第二十七轮记录确认的 Run `45640869568`（HEAD `b1ccfcca`）为 Success；它只验证上一轮架构/记录提交，不替代本轮代码验证。
+
+**实现内容**
+
+1. `ResourceEvent` 增加 nullable `ResourceIdentity` 与 `OperationId`；普通 `Record` 事件没有操作 ID，旧历史事件允许两个字段为空。
+2. `ResourceLedgerMutation` 增加独立 `ResourceIdentity`。当前 World Vocabulary 的液体 identity 是 canonical vocabulary key；对旧调用方的液体 Mutation，在进入账本时按该词表键归一化。Jar 不做此类推断，必须显式提供 canonical positive JarId。
+3. `RecordBatchOnce` 与 `RecordTransferOnce` 为批次中的每条新事件写入 OperationId。Jar 事件要求 amount=1 且 ResourceIdentity 为 canonical positive JarId；单资源 Transfer 事实还必须与 receipt 的 ResourceIdentity 完全相同。
+4. 新增 OperationId -> SHA-256 payload fingerprint journal。指纹覆盖有序 Mutation 列表（包括 Cause、Kind、Display Name、ResourceIdentity、Amount、From、To、Reason）及 Transfer Receipt（若有）；tick 不参与指纹，因为相同逻辑操作在重放时不应因当前 tick 改变而成为新操作。
+5. 相同 OperationId、相同 fingerprint 是幂等 no-op；相同 OperationId、不同 fingerprint 拒绝。旧 checkpoint 中没有 fingerprint 的 tombstone 保留旧版 no-op 行为，不伪造历史 fingerprint。
+6. Fingerprint 与 OperationId、Receipt 分开于有界 Event Window 保存；事件裁剪不裁剪 fingerprint/tombstone/receipt。
+7. `ResourceLedgerSnapshot`、Clone、Capture、Restore、RestoreFrom、`ResourceLedgerWireDto`、`ResourceEventWireDto` 全部增加字段往返映射。Restore 校验 fingerprint key 必须属于 OperationIds，值必须是 64 位十六进制 SHA-256，事件 OperationId 必须存在于索引。
+8. World V2 checkpoint envelope 当前 schema 从 3 升为 4；Decode 同时接受 schema 3 与 4。Schema 3 缺失的身份/操作指纹字段保持 null/empty，代表 Legacy Unknown；禁止从 Jar Shape 或 Workshop.Name 推断机器身份。
+9. `WorkshopJarPortTransfer` 与 `WarehouseWorkshopJarPortTransfer` 的 Jar facts 现在显式传递 Request.ResourceIdentity，而 Shape 只用于 Name 展示字段。B 类 `OrderTransferService` 每只 Jar 事件使用 JarId；液体事件使用液体词表 identity。
+10. 外部生产 Jar 导入不再以 Shape 聚合为 amount=N 的 Jar 事实。每只被存入或因容量溢出被丢弃的 Jar 都先获得独立 JarId，并以 amount=1 写入账本；存储 Jar 与丢弃 Jar 的实体身份都可单独追溯。
+11. Warehouse 对新收货 Jar 分配稳定 ID；旧 checkpoint 中尚无 ID 的 Warehouse Jar 在恢复时获得新 ID。Warehouse 与 Workshop 的 ID generator 在 checkpoint 恢复前推进到所有已保存 JarId 的 high-water mark，避免恢复后复用已存在身份。
+12. World 初始液体库存与主台替换返还/丢弃液体事件均携带 vocabulary identity。
+
+**CI 失败证据与修复**
+
+- 精确 HEAD `83aa7a4d6d75bbba8ed578a1235689b2e65f3b9e` 的 Run `45645345624`：Build 成功（0 Warning / 0 Error），xUnit 954 项中 5 项失败。
+- 失败原因经归档 `_verify_output.txt` 精确确认：
+  - 2 项 checkpoint schema 测试仍硬编码 schemaVersion=3 / 原先把 4 当作不支持版本；已更新为当前版本 4，并将不支持版本改为 5。
+  - 3 项 `ExternalProducedJarImport...` 测试揭示外部生产 Jar 尚无 JarId，但账本事实已要求独立 Jar identity。修复不是放宽账本校验，而是在实体出生/入仓前分配 JarId，并按单只 Jar 记录事实。
+- 上述失败不作为通过证据；后续提交针对这些具体失败进行了修正。
+
+**新增针对性测试**
+
+- 多事件批次的每条事件均绑定同一 OperationId 和各自 ResourceIdentity。
+- Operation fingerprint 通过 checkpoint Wire 往返后仍能拒绝同 ID 不同 payload。
+- 同形 Jar 的账本显示名称与 JarId 分离；receipt 和 event identity 必须一致。
+- Schema 3 的旧账本 Wire 可读，历史 ResourceIdentity / OperationId 保持 null，不猜测。
+- 外部生产 Jar 导入的每只 Jar（包括容量溢出 Jar）均有唯一身份事实。
+
+**当前代码与验证状态**
+
+- 当前分支 HEAD：`b22aa17468b2373cebc022ba2f3136c2bfdfc803`。
+- 当前 HEAD 对应 Verify Runs `45647638317` 与 `45647625279` 查询时均为 In Progress；不得记录为通过。
+- 更早的同分支提交也触发了 push 与 pull_request 两条重复 workflow；不把较早 SHA 的结果代替当前 HEAD。
+- PR #63 保持 Open / Draft；Space PR #2 与其 Core SHA pin 未修改。
+
+**尚未完成 / 下一道门**
+
+1. 等待当前精确 HEAD 的 CI；失败时读取 artifact 日志逐项修复。
+2. 全量盘点所有 ResourceEvent 生产路径，确认不存在新建 Jar 事实仍以 Shape 代替 JarId、或新事件缺少可用 ResourceIdentity 的路径。
+3. 为旧 Warehouse Jar identity migration、跨账户 JarId allocator 共享约束和自定义 generator 恢复能力补充专门测试。
+4. 完成稳定 AccountId/OwnerId，不再让 B 类交接使用 Workshop.Name 作为机器端点。
+5. 建立完整 ResourceTransferBatchRequest/Receipt 与多账户联合 prepare/commit/compensate，再迁移 B 类交接。当前仍未声称 B 类复合事务已经实现。
+
+
+### 第二十九轮：Jar 出生身份覆盖、固定契约基线与回放门禁复核（2026-11-25）
+
+**起始基线与提交**
+
+- 起始 Core HEAD：`e22113dcf0268c0beb5ebb7e44c4e2bddf2b7491`。
+- 本轮固定样本基线更新提交：`f86397b9fea186d6fad2810191f2cdce36d2d82e`。
+- 随后补齐从台回滚、主台迁徙延迟账本事实身份的提交：`3106de8a`、`5163f1c5`、`640480c8`。
+- 当前 HEAD：`640480c84fd889634c3d54b1c70bfbcd540914ae`。
+- PR #63 保持 Open / Draft，未合并。
+
+**失败日志的准确分类**
+
+1. Run `45651466221`（HEAD `e22113d`）中，xUnit 已为 955 项全通过，Session Replay 输出 `REPLAY-OK (commands=33, stateBytes=4422, logBytes=8797, journalBytes=725)`。
+2. 同一日志随后出现的 `SNAPSHOT-MISMATCH` 来自 `verify.bat` 的固定契约快照比较：`重构报告/_contract/state_keys.baseline.txt` 与新生成的 `state_keys.txt` 中 JarId 值不同；它不是该次 Session Replay 失败。
+3. 差异是生产 Jar 在进入 Warehouse 时即获得身份后，固定场景中 Jar 身份分配时点发生变化：工作台 JarId 为 1/2，求解路径引用 3/1，仓库中的 Jar 获得 ID 4。形状、资源数量、配置与 schema 键集合未因此改变。
+4. 该变化符合“Jar 是独立个体，出生即有 JarId，Shape 仅是属性”的身份语义，因此通过提交 `f86397b` 明确更新契约基线，而不是关闭快照门禁或修改求解器行为。
+5. 此前一次较早提交出现的 Replay 状态差异，与本轮 e22113 日志里的契约快照差异是两个不同失败点；本轮以实际归档日志区分，不将两者混为一谈。
+
+**xUnit 空集合失败修复与身份事实补齐**
+
+- 早期 `ResourceProvenanceTests` 错误地假设生产 tick 后 Jar 仍留在 Warehouse；实际同一 tick 会按吞吐额度把 Jar 流入主台，因此对 Warehouse 使用 `Assert.Single` 会得到空集合。
+- 修复测试使其直接通过 `Warehouse.StoreJars` 测试身份分配器在模块替换与 World Reset 后是否连续，而不再把流入后的资源错误地当成仓库库存。
+- 后续补齐 `SlaveRollback` 的 Jar 回滚/丢弃事实，以及 `ResourceTransferrer` 主台迁徙的 Jar/Liquid 延迟账本事实的 ResourceIdentity；Jar 使用 canonical JarId，液体使用词表 identity。
+- 增加断言，确认迁徙与回滚事件不是只具有 Shape/液体显示名称，而是保留相应机器身份。
+
+**精确验证**
+
+- Run `45652270942`：HEAD `f86397b`，Success；xUnit 955/955，Replay 33 commands，契约快照与配置对照通过，Solver 4004/4004，ModDiff 400 scenarios / 1600 checks，依赖安全检查通过。
+- Run `45652439281`：HEAD `3106de8`，Success。
+- Run `45652473035`：HEAD `5163f1c5`，Success。
+- Run `45652648418`：HEAD `640480c8`，Success；xUnit 955/955，Replay `REPLAY-OK`，契约快照、配置对照、Solver、ModDiff、依赖安全检查全部通过；最终 `VERDICT=OK`。
+- 同一 HEAD 的重复 push/pull_request workflow `45652634833` 亦 Success。以上 run 的 head_sha 均按各自提交精确核对。
+
+**下一阶段仍未完成的 ADR 0010 项**
+
+- ResourceEvent / ResourceLedgerMutation 目前有 ResourceIdentity 与 OperationId，但 From/To 仍混合了展示名和部分 OwnerId，尚不是统一的稳定账户身份字段。
+- `RuleResourceAccount` 的真实账户身份由 `AccountKind + OwnerId` 共同构成；只记录 OwnerId 会混淆同一拥有者的 Jar Storage、Free Liquid Staging、Order Liquid Staging 等不同权威账户。
+- 下一切片应增加明确的 FromAccountId / ToAccountId（由 RuleResourceAccount 的 AccountKind 与 OwnerId 无歧义编码），贯通 Mutation、Event、fingerprint、Snapshot、Wire DTO 和 World V2 checkpoint schema；旧 Wire 的账户身份保持 Unknown，不得由 Workshop.Name 回填。
+- 然后迁移单资源 Receipt participants 与 B 类交接、主台迁徙、从台回滚等事件生产点，并增加账户种类/拥有者区分、重命名稳定性和旧 checkpoint 兼容测试。
+- 本轮没有声称复合批次回执或 B 类多账户联合事务已经完成；Space Core pin 仍未更新。

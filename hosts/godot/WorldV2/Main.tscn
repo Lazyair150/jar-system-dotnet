@@ -1,0 +1,115 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Scripts/WorldV2HostNode.cs" id="1_host"]
+[ext_resource type="Script" path="res://Scripts/Main.cs" id="2_main"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("2_main")
+
+[node name="WorldV2Host" type="Node" parent="."]
+script = ExtResource("1_host")
+
+[node name="Root" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Title" type="Label" parent="Root"]
+layout_mode = 2
+text = "Jar System · World v2"
+
+[node name="Description" type="Label" parent="Root"]
+layout_mode = 2
+text = "Godot 负责场景、输入与表现；World v2 Core 负责世界规则和逻辑时间。"
+
+[node name="Controls" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="PauseButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "暂停"
+
+[node name="ResumeButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "恢复"
+
+[node name="NormalSpeedButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "1 倍速"
+
+[node name="DoubleSpeedButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "2 倍速"
+
+[node name="SaveCheckpointButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "保存检查点"
+
+[node name="RestoreCheckpointButton" type="Button" parent="Root/Controls"]
+layout_mode = 2
+text = "恢复检查点"
+
+[node name="MasterReplacementControls" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="MasterReplacementLabel" type="Label" parent="Root/MasterReplacementControls"]
+layout_mode = 2
+text = "替换主台个体："
+
+[node name="MasterTargetOption" type="OptionButton" parent="Root/MasterReplacementControls"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ReplaceMasterButton" type="Button" parent="Root/MasterReplacementControls"]
+layout_mode = 2
+text = "开始主台替换"
+
+[node name="SlaveReplacementControls" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="SlaveReplacementLabel" type="Label" parent="Root/SlaveReplacementControls"]
+layout_mode = 2
+text = "替换从台个体："
+
+[node name="SlaveTargetOption" type="OptionButton" parent="Root/SlaveReplacementControls"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ReplaceSlaveButton" type="Button" parent="Root/SlaveReplacementControls"]
+layout_mode = 2
+text = "开始从台替换"
+
+[node name="ReplacementActions" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="CancelReplacementButton" type="Button" parent="Root/ReplacementActions"]
+layout_mode = 2
+text = "取消当前替换"
+
+[node name="ReplacementStatusLabel" type="Label" parent="Root"]
+layout_mode = 2
+autowrap_mode = 3
+text = "工作台替换状态"
+
+[node name="StatusLabel" type="Label" parent="Root"]
+layout_mode = 2
+text = "正在初始化..."
+
+[node name="SnapshotLabel" type="RichTextLabel" parent="Root"]
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = false
+text = "等待世界快照"

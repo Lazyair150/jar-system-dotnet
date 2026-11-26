@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Config;
@@ -26,6 +27,13 @@ internal sealed class ResourceTransferrer
     private readonly ResourceLedger? _ledger;
     private readonly Func<int>? _tickOf;
 
+    // 转移阶段只暂存外部副作用；只有整个迁徙提交后才真正写账、计数或归还对象池。
+    private readonly List<Jar> _jarsToReturn = new();
+    private readonly List<PendingLedgerRecord> _ledgerRecords = new();
+    private readonly Dictionary<string, int> _discardedLiquidCounts = new();
+    private int _discardedJarCount;
+    private bool _effectsCommitted;
+
     public ResourceTransferrer(JarValuePolicy valuePolicy, JarPool? pool = null,
         Action<int>? countDiscardedJars = null,
         Action<string, int>? countDiscardedLiquids = null,
@@ -43,30 +51,38 @@ internal sealed class ResourceTransferrer
     {
         // 罐子按「新主台价值」排序转移：容量不足时优先保留高价值罐子（丢弃低价值）。
         var jars = oldMaster.Jars.OrderBy(_valuePolicy.ValueOf).ToList();
+        if (jars.Any(jar => jar.Id is not > 0))
+            throw new DomainValidationException("主台迁徙前置检查发现缺少 canonical JarId。");
         foreach (var jar in jars)
         {
+            var jarIdentity = jar.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
             oldMaster.TransferOut(jar);
             jar.Unmark();
             if (newMaster.HasJarCapacity())
             {
                 newMaster.AddJar(jar);
                 Record(ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
-                    oldMaster.Name, newMaster.Name);
+                    oldMaster.Name, newMaster.Name, resourceIdentity: jarIdentity,
+                    fromEndpoint: WorkshopAccountEndpoint(oldMaster, "workshop.jar-storage"),
+                    toEndpoint: WorkshopAccountEndpoint(newMaster, "workshop.jar-storage"));
                 log.Add("transfer_jar", $"转移 {jar.GetDescription()} → 新主台");
             }
             else
             {
-                _countDiscardedJars?.Invoke(1);
+                _discardedJarCount++;
                 Record(ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
-                    oldMaster.Name, to: null, reason: "新主台容量已满");
+                    oldMaster.Name, to: null, reason: "新主台容量已满",
+                    resourceIdentity: jarIdentity,
+                    fromEndpoint: WorkshopAccountEndpoint(oldMaster, "workshop.jar-storage"),
+                    toEndpoint: ResourceEndpoint.ExternalSink("workshop.jar-storage.capacity-overflow"));
                 log.Add("discard_jar", $"丢弃 {jar.GetDescription()} (新主台容量已满)");
-                // 先记日志再归还：归还后 `GetDescription()` 会抛（这正是回收标记要拦的那类误用）。
-                _pool?.Return(jar);
+                // 只暂存回收请求。迁徙提交前不能 Return，否则取消回滚时快照中的原对象已失效。
+                _jarsToReturn.Add(jar);
             }
         }
 
         // Transfer liquids
-        foreach (var l in Constants.LIQUIDS)
+        foreach (var l in oldMaster.LiquidStorage.Keys)
         {
             var amt = oldMaster.LiquidStorage.GetValueOrDefault(l, 0);
             if (amt > 0)
@@ -85,22 +101,28 @@ internal sealed class ResourceTransferrer
                     if (accepted > 0)
                     {
                         Record(ResourceCauses.Transfer, ResourceKinds.Liquid, l, accepted,
-                            oldMaster.Name, newMaster.Name);
+                            oldMaster.Name, newMaster.Name, resourceIdentity: l,
+                            fromEndpoint: WorkshopAccountEndpoint(oldMaster, "workshop.free-liquid-staging"),
+                            toEndpoint: WorkshopAccountEndpoint(newMaster, "workshop.free-liquid-staging"));
                         log.Add("transfer_liquid", $"转移 {l}×{accepted} → 新主台");
                     }
                     if (lost > 0)
                     {
-                        _countDiscardedLiquids?.Invoke(l, lost);
+                        AddDiscardedLiquid(l, lost);
                         Record(ResourceCauses.Discard, ResourceKinds.Liquid, l, lost,
-                            oldMaster.Name, to: null, reason: "新主台容量已满");
+                            oldMaster.Name, to: null, reason: "新主台容量已满", resourceIdentity: l,
+                            fromEndpoint: WorkshopAccountEndpoint(oldMaster, "workshop.free-liquid-staging"),
+                            toEndpoint: ResourceEndpoint.ExternalSink("workshop.free-liquid-staging.capacity-overflow"));
                         log.Add("discard_liquid", $"丢弃 {l}×{lost} (新主台容量已满)");
                     }
                 }
                 else
                 {
-                    _countDiscardedLiquids?.Invoke(l, amt);
+                    AddDiscardedLiquid(l, amt);
                     Record(ResourceCauses.Discard, ResourceKinds.Liquid, l, amt,
-                        oldMaster.Name, to: null, reason: "新主台禁" + l);
+                        oldMaster.Name, to: null, reason: "新主台禁" + l, resourceIdentity: l,
+                        fromEndpoint: WorkshopAccountEndpoint(oldMaster, "workshop.free-liquid-staging"),
+                        toEndpoint: ResourceEndpoint.ExternalSink("workshop.free-liquid-staging.ban-rejection"));
                     log.Add("discard_liquid", $"丢弃 {l}×{amt} (新主台禁{l})");
                 }
             }
@@ -109,9 +131,76 @@ internal sealed class ResourceTransferrer
         log.Add("complete", $"切换完成: {oldMaster.Name} → {newMaster.Name} [{caseType}]");
     }
 
-    private void Record(string cause, string kind, string name, int amount,
-        string? from, string? to = null, string? reason = null)
+    private void AddDiscardedLiquid(string liquid, int amount)
     {
-        _ledger?.Record(_tickOf?.Invoke() ?? 0, cause, kind, name, amount, from, to, reason);
+        _discardedLiquidCounts[liquid] = _discardedLiquidCounts.GetValueOrDefault(liquid) + amount;
     }
+
+    private static ResourceEndpoint WorkshopAccountEndpoint(Workshop workshop, string accountKind)
+    {
+        if (workshop.OwnerIdentity is { } owner)
+            return ResourceEndpoint.ForAccount(new RuleResourceAccount(owner, accountKind).AccountId);
+        if (string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
+            return ResourceEndpoint.LegacyUnknown;
+        return ResourceEndpoint.ForAccount(new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId);
+    }
+
+    private void Record(string cause, string kind, string name, int amount,
+        string? from, string? to = null, string? reason = null, string? resourceIdentity = null,
+        ResourceEndpoint? fromEndpoint = null, ResourceEndpoint? toEndpoint = null)
+    {
+        if (amount > 0)
+        {
+            var source = fromEndpoint ?? ResourceEndpoint.LegacyUnknown;
+            var target = toEndpoint ?? ResourceEndpoint.LegacyUnknown;
+            _ledgerRecords.Add(new PendingLedgerRecord(
+                cause, kind, name, amount, from, to, reason, resourceIdentity,
+                source.Kind == ResourceEndpointKind.Account ? source.AccountId : null,
+                target.Kind == ResourceEndpointKind.Account ? target.AccountId : null,
+                source, target));
+        }
+    }
+
+    /// <summary>
+    /// 迁徙与岗位提交成功后调用。对象池归还放在所有账本/统计写入之后。
+    /// 注入的 tick 来源、统计回调及对象池依赖必须遵守非抛异常契约；任意外部副作用都无法由工作台快照自动撤销。
+    /// 调用失败可能意味着前面的账本/统计已经生效，因此上层必须禁止回滚和自动重试。
+    /// </summary>
+    public void CommitEffects()
+    {
+        if (_effectsCommitted) return;
+
+        foreach (var entry in _ledgerRecords)
+            _ledger?.Record(_tickOf?.Invoke() ?? 0, entry.Cause, entry.Kind, entry.Name,
+                entry.Amount, entry.From, entry.To, entry.Reason, entry.ResourceIdentity,
+                entry.FromAccountId, entry.ToAccountId, entry.FromEndpoint, entry.ToEndpoint);
+
+        if (_discardedJarCount > 0)
+            _countDiscardedJars?.Invoke(_discardedJarCount);
+
+        foreach (var entry in _discardedLiquidCounts)
+            _countDiscardedLiquids?.Invoke(entry.Key, entry.Value);
+
+        // 必须最后归还：归还后原对象会变成不可读写的回收对象。
+        foreach (var jar in _jarsToReturn)
+            _pool?.Return(jar);
+
+        _effectsCommitted = true;
+    }
+
+    /// <summary>取消尚未提交的迁徙时丢弃暂存副作用。</summary>
+    public void DiscardPendingEffects()
+    {
+        if (_effectsCommitted) return;
+        _jarsToReturn.Clear();
+        _ledgerRecords.Clear();
+        _discardedLiquidCounts.Clear();
+        _discardedJarCount = 0;
+    }
+
+    private sealed record PendingLedgerRecord(
+        string Cause, string Kind, string Name, int Amount,
+        string? From, string? To, string? Reason, string? ResourceIdentity,
+        string? FromAccountId, string? ToAccountId,
+        ResourceEndpoint FromEndpoint, ResourceEndpoint ToEndpoint);
 }

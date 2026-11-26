@@ -1,0 +1,13 @@
+<Project Sdk="Godot.NET.Sdk/4.7.1">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>enable</Nullable>
+    <RootNamespace>JarWorldV2</RootNamespace>
+    <AssemblyName>JarWorldV2</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WorldV2Bridge\JarSystem.WorldV2Bridge.csproj" />
+  </ItemGroup>
+</Project>

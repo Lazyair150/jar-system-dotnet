@@ -37,6 +37,7 @@ public class Requirement
     // 就被绕开了。全仓 35 处构造**全部**用对象初始化器、且零处构造后赋值，故 init 零破坏。
     public string Shape { get; init; } = "";
     public string? Liquid { get; init; }
+
 }
 
 /// <summary>
@@ -51,10 +52,19 @@ public class WorkshopInfo
     /// <summary>能力参数（与域层同源）。</summary>
     public WorkshopCapability Capability { get; set; } = new();
 
+    /// <summary>
+    /// 本次求解冻结的规则上下文。为空时兼容旧调用，按基础能力构造空修饰器上下文。
+    /// 非空时，求解器必须通过它读取 Grant/Suppress/Require 等规则，不得重新投影成另一份能力表。
+    /// </summary>
+    public RuleContext? Rules { get; set; }
+
     public int MaxJars { get; set; } = 20;
     public int MaxLiquids { get; set; } = 30;
 
-    public List<string> GetPossibleTransforms(string shape) => Capability.GetPossibleTransforms(shape);
+    /// <summary>订单阶段游离液体的合计暂存容量；默认无限以保持旧版直接求解调用兼容。</summary>
+    public int MaxLiquidCapacity { get; set; } = int.MaxValue;
+
+    public List<string> GetPossibleTransforms(string shape) => Rules?.GetPossibleTransforms(shape) ?? Capability.GetPossibleTransforms(shape);
 }
 
 public class SolverStats
@@ -126,6 +136,14 @@ public class SolverOperation
     public string? CostLiquid { get; set; }
     public Dictionary<string, int>? Consumed { get; set; }
     public bool FullReshape { get; set; }
+
+    /// <summary>
+    /// Exact rule identity retained by World V2 symbolic materialization.
+    /// Legacy solver paths may leave these fields null; a materialized World V2
+    /// operation must carry both values together.
+    /// </summary>
+    public string? RuleId { get; set; }
+    public int? RuleVersion { get; set; }
 }
 
 public class JarState

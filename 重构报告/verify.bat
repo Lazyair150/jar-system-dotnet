@@ -10,7 +10,7 @@ rem    (running from an open cmd window shows any error text)
 rem
 rem  WHAT IT DOES
 rem    1) dotnet build JarSystem.slnx -c Release
-rem       Godot host build (same Release configuration)
+rem       Old and new Godot host builds (same Release configuration)
 rem    2) test/JarSystem.Test       -c Release
 rem       test/JarSystem.Tests     -c Release (focused xUnit suite)
 rem    3) test/StrategyExperiment   -c Release
@@ -78,6 +78,12 @@ echo [1b/9] Godot host build (Release)
 echo [1b/9] Godot host build (Release) >> "%LOG%"
 dotnet build hosts\godot\Jar\jar.csproj -c Release --no-incremental --nologo >> "%LOG%" 2>&1
 if errorlevel 1 echo STEP-FAILED step1-godot >> "%LOG%"
+echo     exit=%ERRORLEVEL%
+
+echo [1c/9] World v2 Godot host build (Release)
+echo [1c/9] World v2 Godot host build (Release) >> "%LOG%"
+dotnet build hosts\godot\WorldV2\JarWorldV2.csproj -c Release --no-incremental --nologo >> "%LOG%" 2>&1
+if errorlevel 1 echo STEP-FAILED step1-world-v2-godot >> "%LOG%"
 echo     exit=%ERRORLEVEL%
 
 echo [2/9] JarSystem.Test + JarSystem.Tests   (expect: 0 bugs / 2000 + 0 bugs / 3000 + 32 deterministic; xUnit clean)
@@ -206,39 +212,16 @@ type "%REP%_quality_output.txt" >> "%LOG%"
 if not "%QUALITY_EXIT%"=="0" echo QUALITY-GATE-FAILED >> "%LOG%"
 
 echo.
-echo ---------------- KEY LINES ----------------
-findstr /i /c:"error CS" /c:"warning CS" /c:"warning MSB" /c:"warning NETSDK" /c:" error " /c:"FAIL " /c:"bugs /" /c:"exit=" /c:"schema " /c:"loose=" /c:"CONFIG-WORLD" /c:"world " /c:"contract dumped" /c:"PROTOCOL-" /c:"protocol " /c:"script ascii" /c:"types dumped" /c:"types dts" /c:"SOLVER-" /c:"MODDIFF-" /c:"REPLAY-" /c:"SNAPSHOT-" /c:"STEP-FAILED" /c:"JS-" /c:"DOC-" /c:"SCENARIO-" /c:"QUALITY-" /c:"SEC-" /c:"JarSystem.Tests" /c:"Total:" "%LOG%"
-echo -------------------------------------------
+rem  PowerShell handles Unicode paths reliably; findstr cannot reliably open
+rem  this log when the repository path contains Chinese characters.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%REP%verify-report.ps1" -LogPath "%LOG%"
+set "REPORT_EXIT=%ERRORLEVEL%"
+echo.
 echo full log : %LOG%
 echo contract : %CONTRACT%\state_keys.txt
 echo schema   : %CONTRACT%\state.schema.json
 echo.
-
-rem ---- machine-checkable verdict (so this script can be used as a CI gate) ----
-set "VERDICT=OK"
-findstr /c:"error CS" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"FAIL " "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"CONFIG-WORLD-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"schema dump FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"PROTOCOL-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SOURCE-NOT-FOUND" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SCRIPT-NON-ASCII" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"DTS-DEGRADED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SOLVER-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"MODDIFF-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"REPLAY-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SNAPSHOT-MISMATCH" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SNAPSHOT-NO-BASELINE" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"STEP-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"JS-SYNTAX-ERROR" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SCENARIO-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"QUALITY-GATE-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"SEC-SCAN-FAILED" "%LOG%" >nul && set "VERDICT=FAIL"
-findstr /c:"QUALITY-OK" "%LOG%" >nul || set "VERDICT=FAIL"
-echo VERDICT=%VERDICT%
-echo VERDICT=%VERDICT% >> "%LOG%"
-echo.
 echo Paste the KEY LINES above back to the assistant.
 if not defined CI pause
-if "%VERDICT%"=="FAIL" exit /b 1
+if not "%REPORT_EXIT%"=="0" exit /b 1
 exit /b 0

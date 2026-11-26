@@ -315,7 +315,7 @@ internal sealed class OrderExecutionSession
             $"主台 {_master.Name} → 从台 {_slave.Name}：转移 {xfer.Count} 个罐子与所需液体");
 
         var transferLiq = _order.FeasibilityResult?.TransferLiquids;
-        foreach (var l in Constants.LIQUIDS)
+        foreach (var l in _master.LiquidStorage.Keys)
         {
             var available = _master.LiquidStorage.GetValueOrDefault(l);
             var need = transferLiq != null ? transferLiq.GetValueOrDefault(l, 0) : available;
@@ -346,7 +346,9 @@ internal sealed class OrderExecutionSession
         }
 
         _event.AdvanceToSlavePhase();
-        _slave.ClearMarks();
+        // Mark belongs to the whole order lifecycle, not to one workshop stage.
+        // The order start clears stale marks and terminal settlement clears participants;
+        // clearing here would let a Jar be operated twice in the same order after handoff.
 
         if (_slaveSteps.Count > 0)
         {

@@ -15,6 +15,7 @@ namespace JarSystem.Core.Commands;
 public class CommandExecutor
 {
     private readonly ISystemLog _log;
+    private readonly Func<string?>? _executionBlockReason;
 
     // 私有列表 + 只读视图：原先 public List<Command> 会让调用方
     // Add/Clear 掉历史（而历史是审计与回滚的依据）。
@@ -24,11 +25,14 @@ public class CommandExecutor
     private readonly IReadOnlyList<Command> _historyView;
 
     /// <summary>默认装配控制台日志（宿主可注入自己的实现）。</summary>
-    public CommandExecutor(ISystemLog? log = null)
+    public CommandExecutor(ISystemLog? log = null, Func<string?>? executionBlockReason = null)
     {
         _log = log ?? ConsoleSystemLog.Instance;
+        _executionBlockReason = executionBlockReason;
         _historyView = _history.AsReadOnly();
     }
+
+    private string? GetExecutionBlockReason() => _executionBlockReason?.Invoke();
 
     /// <summary>已成功执行的命令历史（对外只读）。</summary>
     public IReadOnlyList<Command> History => _historyView;
@@ -36,6 +40,9 @@ public class CommandExecutor
     // 执行单条命令
     public CommandResult Execute(Command command, Workshop workshop, ICommandJournal? journal)
     {
+        var blockedReason = GetExecutionBlockReason();
+        if (blockedReason != null)
+            return new CommandResult { Success = false, Reason = blockedReason };
         var result = command.Execute(workshop, journal);
         if (result.Success)
             _history.Add(command);
@@ -46,6 +53,9 @@ public class CommandExecutor
     public (bool Success, int ExecutedCount, string? Reason) ExecuteBatch(
         List<Command> commands, Workshop workshop, ICommandJournal? journal)
     {
+        var blockedReason = GetExecutionBlockReason();
+        if (blockedReason != null)
+            return (false, 0, blockedReason);
         var executed = new List<Command>();
         foreach (var cmd in commands)
         {
@@ -65,6 +75,9 @@ public class CommandExecutor
     // （原 Node 版此处为 console.error，移植到 .NET 时丢失了该日志 —— 阶段 3-A 经 ISystemLog 补回）
     public void Rollback(List<Command> commands, Workshop workshop, ICommandJournal? journal)
     {
+        var blockedReason = GetExecutionBlockReason();
+        if (blockedReason != null)
+            throw new InvalidOperationException(blockedReason);
         // 逆序回滚
         for (int i = commands.Count - 1; i >= 0; i--)
         {

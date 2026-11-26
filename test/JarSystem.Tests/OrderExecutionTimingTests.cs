@@ -3,6 +3,7 @@ using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Orders;
 using JarSystem.Core.Process;
 using JarSystem.Core.Services;
 using Xunit;
@@ -32,6 +33,56 @@ public class OrderExecutionTimingTests
     private static Workshop Bench(string name, params string[] baseMarks) =>
         new(name, baseMarks.ToList(), [], [], maxJars: 20, maxLiquids: 30,
             vocabulary: Vocabulary.Default);
+
+    [Fact]
+    public void LegacyOrderCompletionRecordsFaultedProcessResultAfterRollbackProjectionFailure()
+    {
+        var system = NewSystem();
+        var master = new Workshop(
+            "主台", new List<string> { "圆罐" }, [], [],
+            maxJars: 1, maxLiquids: 30, vocabulary: Vocabulary.Default);
+        var slave = Bench("从台", "方罐");
+        Assert.True(master.AddJar(new Jar("圆罐", id: 8101, vocabulary: Vocabulary.Default)));
+        Assert.True(slave.AddJar(new Jar("方罐", id: 8102, vocabulary: Vocabulary.Default)));
+        var order = new Order(
+            [new Requirement { Shape = "方罐" }],
+            Constants.OrderType.B,
+            system.OrderIds,
+            system.Vocabulary);
+        system.AddWorkshop(master);
+        system.AddWorkshop(slave);
+        system.AddOrder(order);
+        var orderEvent = new OrderEvent(
+            order, master, slave,
+            countDiscardedJars: _ => throw new InvalidOperationException(
+                "Injected legacy post-ledger discard-stat failure"),
+            ledger: system.ResourceLedger,
+            tickOf: () => system.Processes.Clock.Tick);
+        Assert.True(orderEvent.Start());
+        Assert.True(orderEvent.AdvanceToSlavePhase().Success);
+
+        var session = new OrderExecutionSession(
+            order, master, slave, orderEvent,
+            new JarSystem.Core.Executor.OrderExecutor(),
+            new List<SolverStepDto>(), new List<SolverStepDto>(),
+            solverBasedMethod: true, recorder: null);
+        session.FailByGuard("测试：触发旧版失败收尾");
+        Assert.False(session.Succeeded);
+
+        var result = new OrderService(system).CompleteOrderExecution(session);
+
+        Assert.False(result.Success);
+        Assert.Contains("投影发布失败", result.Reason);
+        Assert.True(orderEvent.IsTransactionFaulted);
+        Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
+        Assert.Empty(slave.Jars);
+        Assert.Equal(new[] { 8101 }, master.Jars.Select(jar => jar.Id!.Value));
+        Assert.True(system.ResourceLedger.HasRecordedOperation(
+            "legacy-order:" + order.Id + ":slave-rollback"));
+        Assert.True((bool)result.Event!["transactionFaulted"]!);
+        Assert.Contains("transactionFaulted", system.EventHistory.Last().Keys);
+        Assert.False(session.Succeeded);
+    }
 
     [Fact]
     public void AnAlreadyDeliverableAOrderCompletesWhenStarted()

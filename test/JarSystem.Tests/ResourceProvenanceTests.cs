@@ -5,6 +5,7 @@ using JarSystem.Core.Config;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using JarSystem.Core.Production;
+using JarSystem.Core.World;
 using Xunit;
 
 namespace JarSystem.Tests;
@@ -40,13 +41,140 @@ public class ResourceProvenanceTests
         world.Producers = [new ProducerOptions { Name = "陶工", Rates = new() { ["圆罐"] = 1.0 } }];
         var sys = new JarSystem.Core.JarSystem(randomSeed: 11, world: world);
 
-        sys.Tick();
+        sys.Tick(2);
 
         var produced = sys.ResourceLedger.For(ResourceCauses.Production);
-        Assert.Contains(produced, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐" && e.Amount == 1);
+        var jarFacts = produced.Where(e => e.Kind == ResourceKinds.Jar).ToArray();
+        Assert.Equal(2, jarFacts.Length);
+        Assert.All(jarFacts, e =>
+        {
+            Assert.Equal("圆罐", e.Name);
+            Assert.Equal(1, e.Amount);
+            Assert.True(int.TryParse(e.ResourceIdentity, out var jarId) && jarId > 0);
+            Assert.Equal("仓库", e.To);
+            Assert.Equal(ResourceEndpointKind.ExternalSource, e.FromEndpoint.Kind);
+            Assert.Equal("world.production.jar-output", e.FromEndpoint.ExternalIdentity);
+            // Legacy JarSystem does not yet inject a stable Warehouse OwnerIdentity.
+            Assert.Equal(ResourceEndpointKind.LegacyUnknown, e.ToEndpoint.Kind);
+        });
+        Assert.Equal(2, jarFacts.Select(e => e.ResourceIdentity).Distinct(StringComparer.Ordinal).Count());
         Assert.All(produced, e => Assert.Equal("仓库", e.To));
         Assert.All(sys.ResourceLedger.Entries,
             e => Assert.Contains(e.Cause, ResourceCauses.All));
+    }
+
+    [Fact]
+    public void ExplicitOwnerIdentityMapBindsLegacyJarSystemProductionStockAndWorkshopFlow()
+    {
+        var world = QuietWorld();
+        world.Producers =
+        [
+            new ProducerOptions
+            {
+                Name = "陶工",
+                ProducerInstanceId = "producer-owned-1",
+                Rates = new() { ["圆罐"] = 1.0 }
+            }
+        ];
+        world.Workshops[0].OwnedInstanceId = "workshop-owned-1";
+        world.InitialStock = new Dictionary<string, int> { ["蜜"] = 3 };
+        world.Flow = new FlowOptions
+        {
+            JarCount = 0,
+            LiquidAmount = 1,
+            LiquidRate = world.Liquids.ToDictionary(liquid => liquid, _ => 0.0)
+        };
+
+        var worldId = new WorldInstanceId("legacy-host-world-1");
+        var owners = new WorldV2OwnerIdentityMap(
+            worldId,
+            "ship-owned-1",
+            "board-runtime-1",
+            "production-area-1",
+            "warehouse-owned-1",
+            new[] { "producer-owned-1" },
+            new[] { "workshop-owned-1" });
+        var system = new JarSystem.Core.JarSystem(
+            randomSeed: 29,
+            world: world,
+            jarIds: new SequentialIdGenerator(),
+            orderIds: new SequentialIdGenerator(),
+            worldInstanceId: worldId,
+            ownerIdentities: owners);
+
+        Assert.Equal(owners.Warehouse, system.ProducerModule.Warehouse.OwnerIdentity);
+        Assert.Equal(owners.GetProducer("producer-owned-1"),
+            system.ProducerModule.Producers["陶工"].OwnerIdentity);
+        Assert.Equal(owners.GetWorkshop("workshop-owned-1"), system.Workshops[0].OwnerIdentity);
+
+        system.ResetProducerModule();
+        Assert.Equal(owners.Warehouse, system.ProducerModule.Warehouse.OwnerIdentity);
+        system.Reset();
+        Assert.Equal(worldId, system.WorldInstanceId);
+        Assert.True(owners.IsEquivalentTo(system.OwnerIdentities));
+        Assert.Equal(owners.Warehouse, system.ProducerModule.Warehouse.OwnerIdentity);
+        Assert.Equal(owners.GetProducer("producer-owned-1"),
+            system.ProducerModule.Producers["陶工"].OwnerIdentity);
+        Assert.Equal(owners.GetWorkshop("workshop-owned-1"), system.Workshops[0].OwnerIdentity);
+
+        system.SetMasterIndex(0);
+        system.Tick();
+
+        var stock = Assert.Single(system.ResourceLedger.For(ResourceCauses.Stock));
+        Assert.Equal(ResourceEndpointKind.ExternalSource, stock.FromEndpoint.Kind);
+        Assert.Equal("level.initial-stock", stock.FromEndpoint.ExternalIdentity);
+        Assert.Equal(ResourceEndpointKind.Account, stock.ToEndpoint.Kind);
+        var stockAccount = AccountIdentity.ParseV2(stock.ToEndpoint.AccountId!);
+        Assert.Equal(owners.Warehouse, stockAccount.Owner);
+        Assert.Equal("production.warehouse.liquid-storage", stockAccount.AccountKind);
+
+        var producedJar = Assert.Single(system.ResourceLedger.For(ResourceCauses.Production),
+            entry => entry.Kind == ResourceKinds.Jar);
+        Assert.Equal(ResourceEndpointKind.ExternalSource, producedJar.FromEndpoint.Kind);
+        var producedAccount = AccountIdentity.ParseV2(producedJar.ToEndpoint.AccountId!);
+        Assert.Equal(owners.Warehouse, producedAccount.Owner);
+        Assert.Equal("production.warehouse.jar-storage", producedAccount.AccountKind);
+
+        var flowedLiquid = Assert.Single(system.ResourceLedger.For(ResourceCauses.Flow),
+            entry => entry.Kind == ResourceKinds.Liquid);
+        var sourceAccount = AccountIdentity.ParseV2(flowedLiquid.FromEndpoint.AccountId!);
+        var targetAccount = AccountIdentity.ParseV2(flowedLiquid.ToEndpoint.AccountId!);
+        Assert.Equal(owners.Warehouse, sourceAccount.Owner);
+        Assert.Equal("production.warehouse.liquid-storage", sourceAccount.AccountKind);
+        Assert.Equal(owners.GetWorkshop("workshop-owned-1"), targetAccount.Owner);
+        Assert.Equal("workshop.free-liquid-staging", targetAccount.AccountKind);
+    }
+
+    [Fact]
+    public void ExplicitOwnerIdentityMapRejectsMissingLegacyProducerAndWorkshopIds()
+    {
+        var world = QuietWorld();
+        world.Producers = [new ProducerOptions
+        {
+            Name = "陶工",
+            Rates = new() { ["圆罐"] = 1.0 }
+        }];
+        var worldId = new WorldInstanceId("legacy-host-world-2");
+        var owners = new WorldV2OwnerIdentityMap(
+            worldId, "ship-1", "board-1", "production-1", "warehouse-1",
+            new[] { "producer-1" }, new[] { "workshop-1" });
+
+        Assert.Throws<ArgumentException>(() => new JarSystem.Core.JarSystem(
+            randomSeed: 31,
+            world: world,
+            worldInstanceId: worldId,
+            ownerIdentities: owners));
+    }
+
+    [Fact]
+    public void LegacyJarSystemRejectsPartialStableIdentityWithoutOwnerMap()
+    {
+        var world = QuietWorld();
+        world.Workshops[0].OwnedInstanceId = "workshop-owned-partial";
+
+        Assert.Throws<ArgumentException>(() => new JarSystem.Core.JarSystem(
+            randomSeed: 37,
+            world: world));
     }
 
     [Fact]
@@ -68,10 +196,49 @@ public class ResourceProvenanceTests
 
         var flowed = sys.ResourceLedger.For(ResourceCauses.Flow);
         Assert.Contains(flowed, e => e.Kind == ResourceKinds.Liquid && e.Name == "蜜" && e.Amount == 2);
-        Assert.Contains(flowed, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐");
+        var flowedJar = Assert.Single(flowed, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐");
         Assert.All(flowed, e => Assert.Equal("主台", e.To));
+        // The historical default Workshop has no explicit instance identity, so both ends
+        // remain honestly unknown instead of inventing an owner from its display name.
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, flowedJar.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, flowedJar.ToEndpoint.Kind);
         // 流入不是产出：这局没有任何产线在跑，因此不该有 production 事实来"顶账"。
         Assert.Empty(sys.ResourceLedger.For(ResourceCauses.Production));
+    }
+
+    [Fact]
+    public void ProductionFlowUsesExactLegacyOwnedInstanceIdWhenWorldOwnerMapIsAbsent()
+    {
+        var world = QuietWorld();
+        world.Flow = new FlowOptions
+        {
+            JarCount = 1,
+            LiquidAmount = 0,
+            LiquidRate = world.Liquids.ToDictionary(liquid => liquid, _ => 0.0)
+        };
+        var system = new JarSystem.Core.JarSystem(randomSeed: 131, world: world);
+        system.ClearWorkshops();
+        var workshop = new Workshop(
+            "显示名称可变",
+            new List<string> { "圆罐" },
+            maxJars: 4,
+            maxLiquids: 4,
+            vocabulary: Vocabulary.Default,
+            ownedInstanceId: "workshop-local-flow-owner");
+        system.AddWorkshop(workshop);
+        system.SetMasterIndex(0);
+        system.ProducerModule.Warehouse.StoreJars(
+            new[] { new Jar("圆罐", id: 9131, vocabulary: Vocabulary.Default) });
+
+        system.Tick();
+
+        var flowedJar = Assert.Single(system.ResourceLedger.For(ResourceCauses.Flow),
+            item => item.Kind == ResourceKinds.Jar && item.ResourceIdentity == "9131");
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, flowedJar.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, flowedJar.ToEndpoint.Kind);
+        Assert.Equal(
+            new RuleResourceAccount("workshop.jar-storage", "workshop-local-flow-owner").AccountId,
+            flowedJar.ToEndpoint.AccountId);
     }
 
     [Fact]
@@ -89,6 +256,9 @@ public class ResourceProvenanceTests
             Assert.Equal(ResourceKinds.Liquid, e.Kind);
             Assert.Equal("关卡配置", e.From);
             Assert.Equal("仓库", e.To);
+            Assert.Equal(ResourceEndpointKind.ExternalSource, e.FromEndpoint.Kind);
+            Assert.Equal("level.initial-stock", e.FromEndpoint.ExternalIdentity);
+            Assert.Equal(ResourceEndpointKind.LegacyUnknown, e.ToEndpoint.Kind);
             Assert.Equal(0, e.Tick);
         });
     }
@@ -115,8 +285,11 @@ public class ResourceProvenanceTests
 
         Assert.Equal(1, producedHoney);       // 产了 1 份
         Assert.Equal(1, discardedHoney);      // 但仓库满了，1 份进丢弃账目
-        Assert.Contains(sys.ResourceLedger.For(ResourceCauses.Discard),
+        var discard = Assert.Single(sys.ResourceLedger.For(ResourceCauses.Discard),
             e => e.Name == "蜜" && e.Reason == "仓库该液体已满");
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, discard.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.ExternalSink, discard.ToEndpoint.Kind);
+        Assert.Equal("warehouse.liquid-capacity-overflow", discard.ToEndpoint.ExternalIdentity);
     }
 
     [Fact]
@@ -186,9 +359,9 @@ public class ResourceProvenanceTests
 
         var moved = sys.ResourceLedger.For(ResourceCauses.Transfer);
         Assert.Contains(moved, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐" && e.Amount == 1
-                                    && e.From == "旧主台" && e.To == "新主台");
+                                    && e.From == "旧主台" && e.To == "新主台" && e.ResourceIdentity == "9001");
         Assert.Contains(moved, e => e.Kind == ResourceKinds.Liquid && e.Name == "酒" && e.Amount == 1
-                                    && e.From == "旧主台" && e.To == "新主台");
+                                    && e.From == "旧主台" && e.To == "新主台" && e.ResourceIdentity == "酒");
     }
 
     [Fact]
@@ -219,7 +392,7 @@ public class ResourceProvenanceTests
 
         var discarded = sys.ResourceLedger.For(ResourceCauses.Discard);
         Assert.Contains(discarded, e => e.Kind == ResourceKinds.Jar && e.Amount == 1
-                                       && e.From == "旧主台" && e.Reason == "新主台容量已满");
+                                       && e.From == "旧主台" && e.Reason == "新主台容量已满" && e.ResourceIdentity == "9002");
         Assert.Contains(discarded, e => e.Kind == ResourceKinds.Liquid && e.Name == "酒"
                                        && e.Amount == 1 && e.Reason == "新主台容量已满");
         Assert.DoesNotContain(sys.ResourceLedger.For(ResourceCauses.Transfer), e => e.From == "旧主台");
@@ -246,16 +419,42 @@ public class ResourceProvenanceTests
 
         var log = new List<ExecutionLogEntry>();
         new SlaveRollback().Execute(master, slave, log.Add,
-            ledger: sys.ResourceLedger, tickOf: () => 0);
+            ledger: sys.ResourceLedger, tickOf: () => 0,
+            operationId: "test:legacy-slave-rollback:9102-9103");
 
         var returned = sys.ResourceLedger.For(ResourceCauses.Return);
         Assert.Contains(returned, e => e.Kind == ResourceKinds.Jar && e.Amount == 1
-                                      && e.From == "从台" && e.To == "主台");
+                                      && e.From == "从台" && e.To == "主台" && e.ResourceIdentity == "9102");
         Assert.Contains(returned, e => e.Kind == ResourceKinds.Liquid && e.Name == "蜜"
-                                      && e.Amount == 2 && e.From == "从台" && e.To == "主台");
+                                      && e.Amount == 2 && e.From == "从台" && e.To == "主台" && e.ResourceIdentity == "蜜");
         var lost = sys.ResourceLedger.For(ResourceCauses.Discard);
         Assert.Contains(lost, e => e.Kind == ResourceKinds.Jar && e.Amount == 1
-                                  && e.Reason == "主台罐子容量满");
+                                  && e.Reason == "主台罐子容量满" && e.ResourceIdentity == "9103");
         Assert.All(lost, e => Assert.False(string.IsNullOrEmpty(e.Reason)));
     }
+
+    [Fact]
+    public void ProducerModuleReplacementAndWorldResetKeepTheInjectedJarIdentitySource()
+    {
+        var world = QuietWorld();
+        world.Producers = [new ProducerOptions { Name = "陶工", Rates = new() { ["圆罐"] = 1.0 } }];
+        var ids = new SequentialIdGenerator();
+        var sys = new JarSystem.Core.JarSystem(
+            randomSeed: 29, world: world, jarIds: ids, orderIds: new SequentialIdGenerator());
+
+        var beforeReplacement = ids.CurrentValue;
+        sys.ResetProducerModule();
+        var firstJar = new Jar("圆罐", vocabulary: sys.Vocabulary);
+        sys.ProducerModule.Warehouse.StoreJars([firstJar]);
+        Assert.Equal(beforeReplacement + 1, firstJar.Id);
+        Assert.Equal(beforeReplacement + 1, ids.CurrentValue);
+
+        var beforeWorldReset = ids.CurrentValue;
+        sys.Reset();
+        var secondJar = new Jar("圆罐", vocabulary: sys.Vocabulary);
+        sys.ProducerModule.Warehouse.StoreJars([secondJar]);
+        Assert.Equal(beforeWorldReset + 1, secondJar.Id);
+        Assert.Equal(beforeWorldReset + 1, ids.CurrentValue);
+    }
+
 }

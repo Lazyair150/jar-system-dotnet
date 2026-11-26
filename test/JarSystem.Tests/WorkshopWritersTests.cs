@@ -12,7 +12,7 @@ namespace JarSystem.Tests;
 ///
 /// 背景：求解器只做推理、不碰真实工作台；真正改世界的是三类**主体** ——
 /// 玩家的手工命令、执行器（按计划/贪心）、以及换台与回溯。它们共用同一组
-/// <c>Workshop</c> 端口（PourIn / PourOut / TryReshape /
+/// <c>Workshop</c> 端口（MarkJar / PourIn / PourOut / TryReshape /
 /// AddJar / RemoveJar / TransferIn / TransferOut / AddLiquid / TryReceiveLiquid）。
 ///
 /// 这组测试钉三件事，都是"结构而不是数量"，所以不会随重构天天漂：
@@ -28,8 +28,8 @@ public class WorkshopWritersTests
     /// <summary>所有会改真实工作台的端口名。</summary>
     private static readonly string[] Ports =
     {
-        "PourIn", "PourOut", "TryReshape",
-        "AddJar", "RemoveJar", "TransferIn", "TransferOut",
+        "PourIn", "PourOut", "TryReshape", "MarkJar",
+        "AddJar", "RemoveJar", "TransferIn", "TransferOut", "ClearMark",
         "AddLiquid", "TryReceiveLiquid"
     };
 
@@ -37,14 +37,21 @@ public class WorkshopWritersTests
     private static readonly Dictionary<string, string> AllowedWriters = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Commands/JarCommands.cs"] = "玩家的手工命令：所有操作都经 Workshop 端口并检查返回值",
-        ["Executor/SolverStepApplier.cs"] = "执行器：把求解器步骤逐条施加到真实工作台",
+        ["Executor/SolverStepApplier.cs"] = "旧执行器：把求解器步骤逐条施加到真实工作台，MATCH 也经 Workshop.MarkJar",
+        ["World/Execution/WorldPlanStepApplier.cs"] = "新世界计划步骤执行器：按不可变 WorldPlanStep 调用 Workshop 领域端口",
+        ["World/Execution/WorldOrderExecutionSession.cs"] = "新世界订单执行会话：按已准入计划执行并管理主从资源转移与收尾",
+        ["World/Execution/OrderTransferService.cs"] = "B 类唯一主台到从台交接服务：按资源清单提交罐子与液体的单向转移",
+        ["Domain/LiquidResourceAccounts.cs"] = "订单范围与旧兼容路径的主从液体批量交接事务：只经 Workshop 公开领域端口变更游离液体账户",
         ["Executor/GreedyPlanBuilder.cs"] = "执行器：求解器未判定时的贪心兜底",
         ["Orders/OrderEvent.cs"] = "订单交付：把交付罐从交付台上取下",
         ["Orders/SlaveRollback.cs"] = "失败/结束时的跨台回流（唯一被回滚的东西）",
         ["Orders/Switching/ResourceTransferrer.cs"] = "换台迁徙：把旧台资源搬到新台",
         ["Orders/Switching/SwitchCases.cs"] = "换台迁徙的重组阶段（把游离液体灌进旧台基础形状的空罐）",
         ["Process/Execution/OrderExecutionSession.cs"] = "过程化的订单执行（异步轨），与同步执行器同一套端口",
-        ["Production/Warehouse.cs"] = "仓库 → 主台的流入（规则.txt「中央仓库单向流动」的唯一出口）"
+        ["Production/Warehouse.cs"] = "仓库 → 主台的流入（规则.txt「中央仓库单向流动」的唯一出口）",
+        ["Production/WarehouseWorkshopLiquidPortTransfer.cs"] = "生产仓库到工作台游离液体账户的精确事务参与者：Ban/容量预检、双账户补偿与账本提交",
+        ["Production/WarehouseWorkshopJarPortTransfer.cs"] = "生产仓库到工作台 Jar 存储区的精确所有权事务：保持 Jar 实体身份，不检查罐内液体 Ban",
+        ["Production/WorkshopJarPortTransfer.cs"] = "两个工作台 Jar 存储区之间的精确所有权事务：通过快照补偿恢复同一 Jar 实体引用"
     };
 
     private static string CoreRoot()

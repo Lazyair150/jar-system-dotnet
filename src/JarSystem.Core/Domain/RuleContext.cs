@@ -1,4 +1,6 @@
+using System.Globalization;
 using JarSystem.Core.Domain;
+using JarSystem.Core.Config;
 
 namespace JarSystem.Core.Domain;
 
@@ -16,15 +18,96 @@ namespace JarSystem.Core.Domain;
 public sealed class RuleContext
 {
     private readonly WorkshopCapability _capability;
+    private readonly EffectiveRuleProfile? _effectiveProfile;
+    private readonly string _ruleScope;
+    private readonly string? _ruleSlotId;
+    private readonly HashSet<IRuleModifier> _profileModifiers;
 
     /// <summary>由基础能力构造（无修饰器：与改造前的规则判定逐项相同）。</summary>
     public static RuleContext From(WorkshopCapability capability) => new(capability, ModifierStack.Empty);
 
+    /// <summary>Builds a frozen rule context from contributions already filtered to their capture-time active window.</summary>
+    public static RuleContext From(
+        EffectiveRuleProfile profile,
+        string scope = "workshop",
+        string? sourceSlotId = null,
+        bool mutableStack = false,
+        Vocabulary? vocabulary = null)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (string.IsNullOrWhiteSpace(scope)) throw new ArgumentException("Rule scope is required.", nameof(scope));
+        if (sourceSlotId is not null && string.IsNullOrWhiteSpace(sourceSlotId))
+            throw new ArgumentException("Rule slot identity cannot be whitespace.", nameof(sourceSlotId));
+        var scoped = profile.Contributions
+            .Where(x => x.Scope == scope && (sourceSlotId is null || x.Source.SlotId == sourceSlotId))
+            .ToArray();
+        var baseMarks = scoped.Where(x => x.Effect == RuleContributionEffect.GrantBaseMark).Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
+        var additionalMarks = scoped.Where(x => x.Effect == RuleContributionEffect.GrantAdditionalMark)
+            .Where(x => x.Source.SourceKind != "temporary-modifier")
+            .Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
+        var bans = scoped.Where(x => x.Effect == RuleContributionEffect.BanLiquid).Select(x => x.Target).Distinct(StringComparer.Ordinal).ToArray();
+        var capability = new WorkshopCapability(baseMarks, additionalMarks, bans, vocabulary);
+        var modifiers = new List<IRuleModifier>();
+        foreach (var contribution in scoped)
+        {
+            var parameters = contribution.Parameters.ToDictionary(x => x.Name, x => x.Value, StringComparer.Ordinal);
+            switch (contribution.Effect)
+            {
+                case RuleContributionEffect.GrantBaseMark:
+                case RuleContributionEffect.BanLiquid:
+                    // These effects were projected into the immutable capability above.
+                    break;
+                case RuleContributionEffect.GrantAdditionalMark:
+                    if (contribution.Source.SourceKind == "temporary-modifier")
+                        modifiers.Add(new GrantModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Shape = contribution.Target });
+                    break;
+                case RuleContributionEffect.SuppressOperation:
+                    modifiers.Add(new SuppressModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Operation = Parameter(parameters, "operation") is { Length: > 0 } operation ? operation : null, Shape = Parameter(parameters, "shape") is { Length: > 0 } shape ? shape : null, Liquid = Parameter(parameters, "liquid") is { Length: > 0 } liquid ? liquid : null, Reason = Parameter(parameters, "reason") });
+                    break;
+                case RuleContributionEffect.RequireCondition:
+                    modifiers.Add(new RequireModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Text = contribution.Target, Violation = null });
+                    break;
+                case RuleContributionEffect.RetimeProcess:
+                    modifiers.Add(new RetimeModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, ProcessKind = contribution.Target == "*" ? null : contribution.Target, TicksPerStep = int.Parse(Parameter(parameters, "ticksPerStep"), NumberStyles.None, CultureInfo.InvariantCulture) });
+                    break;
+                case RuleContributionEffect.ModifyIntensity:
+                    modifiers.Add(new IntensityModifier { Name = Parameter(parameters, "modifierName"), Source = Parameter(parameters, "modifierSource"), Priority = contribution.Priority, Target = contribution.Target, FactorPerMille = int.Parse(Parameter(parameters, "factorPerMille"), NumberStyles.Integer, CultureInfo.InvariantCulture) });
+                    break;
+                case RuleContributionEffect.ModifyCapacity:
+                    // Preserved in the profile, but not yet projectable by the current solver.
+                    break;
+                default:
+                    throw new NotSupportedException("RuleContribution effect has no Core interpreter: " + contribution.Effect);
+            }
+        }
+        var stack = mutableStack
+            ? ModifierStack.CreateSeeded(modifiers)
+            : ModifierStack.CreateReadOnlySnapshot(modifiers);
+        return new RuleContext(capability, stack, profile, scope, sourceSlotId, modifiers);
+    }
+
+    private static string Parameter(IReadOnlyDictionary<string, string> parameters, string key) =>
+        parameters.TryGetValue(key, out var value)
+            ? value
+            : throw new InvalidOperationException("Validated rule contribution is missing parameter: " + key);
+
     /// <summary>由基础能力 + 修饰器栈构造。</summary>
-    public RuleContext(WorkshopCapability capability, ModifierStack stack)
+    public RuleContext(
+        WorkshopCapability capability,
+        ModifierStack stack,
+        EffectiveRuleProfile? effectiveProfile = null,
+        string ruleScope = "workshop",
+        string? ruleSlotId = null,
+        IEnumerable<IRuleModifier>? profileModifiers = null)
     {
         _capability = capability;
         Stack = stack;
+        _effectiveProfile = effectiveProfile;
+        _ruleScope = ruleScope;
+        _ruleSlotId = ruleSlotId;
+        _profileModifiers = new HashSet<IRuleModifier>(
+            profileModifiers ?? Array.Empty<IRuleModifier>(),
+            ReferenceEqualityComparer.Instance);
     }
 
     /// <summary>基础能力（只读；快照与对外投影仍读它）。</summary>
@@ -32,6 +115,12 @@ public sealed class RuleContext
 
     /// <summary>活跃修饰器栈（与工作台、过程系统共用同一实例：一处入栈，处处生效）。</summary>
     public ModifierStack Stack { get; }
+
+    public EffectiveRuleProfile? EffectiveProfile => _effectiveProfile;
+
+    public string RuleScope => _ruleScope;
+    public string? RuleSlotId => _ruleSlotId;
+    internal IReadOnlyCollection<IRuleModifier> ProfileModifiers => _profileModifiers;
 
     public bool IsBaseMarked(string shape) => _capability.IsBaseMarked(shape);
 
@@ -47,6 +136,18 @@ public sealed class RuleContext
 
     public bool IsBanned(string liquid) => _capability.IsBanned(liquid);
 
+    /// <summary>Ban is also the Workshop's Jar-polarity compatibility rule.</summary>
+    public WorkshopPolarityMode PolarityMode => _capability.PolarityMode;
+
+    public bool CanOperateJar(JarPolarity polarity) => _capability.CanOperateJar(polarity);
+
+    public JarPolarity ResolvePolarity(string? liquid) => _capability.ResolvePolarity(liquid);
+
+    public IReadOnlyList<string> Liquids => _capability.Liquids;
+
+    public RuleContext WithVocabulary(Vocabulary vocabulary) => new(
+        _capability.WithVocabulary(vocabulary), Stack, _effectiveProfile, _ruleScope, _ruleSlotId, _profileModifiers);
+
     /// <summary>可改形目标：基础能力给出的 + 被授予的形状（后者视作附加标记）。</summary>
     public List<string> GetPossibleTransforms(string shape)
     {
@@ -61,4 +162,49 @@ public sealed class RuleContext
     /// <summary>该操作现在是否被修饰器抑制（返回原因或 null）。</summary>
     public string? SuppressionReason(string? operation, string? shape, string? liquid) =>
         Stack.SuppressionReason(operation, shape, liquid);
+
+    /// <summary>
+    /// Rebuilds the captured profile with runtime modifiers added after the installed Board rules.
+    /// Installed profile modifiers are not duplicated or relabeled as temporary modifiers.
+    /// </summary>
+    public EffectiveRuleProfile? CaptureEffectiveProfile()
+    {
+        if (_effectiveProfile == null) return null;
+        var runtimeModifiers = Stack.CaptureEffectiveModifiers()
+            .Where(modifier => !_profileModifiers.Contains(modifier))
+            .ToArray();
+        if (runtimeModifiers.Length == 0) return _effectiveProfile;
+
+        var slotId = _ruleSlotId ??
+            _effectiveProfile.Contributions.FirstOrDefault()?.Source.SlotId ??
+            "runtime.workshop";
+        var source = new RuleContributionSource(
+            "runtime-modifier", "runtime.workshop", 1,
+            "runtime:" + slotId, 1, slotId);
+        var emptyCapability = new WorkshopCapability(
+            new List<string>(), new List<string>(), new List<string>());
+        var runtimeProfile = WorkshopRuleContributionAdapter.Build(
+            _effectiveProfile.BoardId,
+            _effectiveProfile.BoardDefinitionVersion,
+            _effectiveProfile.AssignmentRevision,
+            source,
+            emptyCapability,
+            ModifierStack.CreateReadOnlySnapshot(runtimeModifiers),
+            includeExecutionModifiers: false);
+        return EffectiveRuleProfile.Create(
+            _effectiveProfile.BoardId,
+            _effectiveProfile.BoardDefinitionVersion,
+            _effectiveProfile.AssignmentRevision,
+            _effectiveProfile.Contributions.Concat(runtimeProfile.Contributions),
+            _effectiveProfile.AssignmentFingerprint,
+            _effectiveProfile.SourceProfileFingerprint);
+    }
+
+    public bool HasUnresolvableRequirements() => Stack.HasUnresolvableRequirements() ||
+        (_effectiveProfile?.Contributions.Any(x =>
+            x.Scope == _ruleScope &&
+            (_ruleSlotId is null || x.Source.SlotId == _ruleSlotId) &&
+            !RuleContributionSchemaRegistry.Get(x.Effect).SupportsStaticSolverProjection) ?? false);
+
+    public string? RequiredViolation() => Stack.RequiredViolation();
 }

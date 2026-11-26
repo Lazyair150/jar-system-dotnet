@@ -13,8 +13,7 @@ namespace JarSystem.Tests;
 /// <see cref="Workshop.ReshapeTargets"/>）。
 ///
 /// 为什么要它：这个问题的答案原先散在三处 —— 方向（<see cref="WorkshopCapability.CanTransform"/>）、
-/// 空罐改形的成本（<c>TryReshape(..., ReshapeMode.Empty)</c> 的 TryPayReshapeCost）、满罐自耗（<c>ReshapeMode.Full</c>
-/// 先清空再问禁令，读法 B：自耗也算"使用"）。规则表、求解器、页面各自拼一遍，中文文案也各写一份。
+/// 空罐改形的成本（<c>TryReshape(..., ReshapeMode.Empty)</c> 的 TryPayReshapeCost）、满罐自耗（<c>ReshapeMode.Full</c>）分别属于游离液体和 Jar 内部资源；后者仍受工作台极性权限约束。规则表、求解器、页面各自拼一遍，中文文案也各写一份。
 ///
 /// 本组测试的做法是**拿执行器当 oracle**（与 `SolverExecutorParityTests` 同一纪律）：
 /// 对每一种（工作台 × 罐子状态 × 目标形状），`CanReshapeTo` 的回答必须与"真的去执行"逐例一致。
@@ -91,8 +90,9 @@ public class WorkshopReshapeTests
         Assert.False(dry.Granted);
         Assert.Equal("no-cost-liquid", dry.Code);
 
-        // 只存着被禁的酒 ⇒ 依然是"没有可付的"（存得住、取不出）。
-        w.AddLiquid("酒", 2);
+        // 被禁的酒不能进入游离液体池；因此也不存在可用的成本库存。
+        Assert.False(w.AddLiquid("酒", 2));
+        Assert.Equal(0, w.LiquidStorage["酒"]);
         var bannedOnly = w.CanReshapeTo(jar, "方罐");
         Assert.False(bannedOnly.Granted);
         Assert.Equal("no-cost-liquid", bannedOnly.Code);
@@ -103,18 +103,38 @@ public class WorkshopReshapeTests
     }
 
     [Fact]
-    public void AFictionFullJarCarryingABannedLiquidCannotBeReshapedBySelfConsumption()
+    public void FullJarSelfConsumeUsesJarOwnedLiquidWithoutStagingBan()
     {
-        // 读法 B（用户 m01174 定案）：满罐改形自耗罐内液体也算"使用" ⇒ 禁液满罐不能改形。
         var w = Xuanwu();
-        var jar = new Jar("圆罐", "酒", null, Vocab());
+        var jar = new Jar("圆罐", "蜜", null, Vocab());
         w.AddJar(jar);
 
         var grant = w.CanReshapeTo(jar, "方罐");
 
-        Assert.False(grant.Granted);
-        Assert.Equal("banned", grant.Code);
-        Assert.Contains("禁酒", grant.Reason);
+        Assert.True(grant.Granted);
+        var (success, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
+        Assert.True(success, reason);
+        Assert.Equal("方罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
+        Assert.Equal(0, w.LiquidStorage["酒"]);
+    }
+
+    [Fact]
+    public void BannedLiquidJarCanBeReshapedByConsumingItsInternalLiquid()
+    {
+        var w = Xuanwu(); // Ban 酒 => Anode focus
+        var jar = new Jar("圆罐", "酒", null, Vocab()); // Cathode
+        w.AddJar(jar);
+
+        var grant = w.CanReshapeTo(jar, "方罐");
+
+        Assert.True(grant.Granted);
+        var (success, reason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
+        Assert.True(success, reason);
+        Assert.Equal("方罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
     }
 
     [Fact]

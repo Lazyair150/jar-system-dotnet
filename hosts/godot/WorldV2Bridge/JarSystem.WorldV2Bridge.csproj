@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>JarSystem.WorldV2Bridge</RootNamespace>
+    <AssemblyName>JarSystem.WorldV2Bridge</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\JarSystem.Core\JarSystem.Core.csproj" />
+  </ItemGroup>
+</Project>

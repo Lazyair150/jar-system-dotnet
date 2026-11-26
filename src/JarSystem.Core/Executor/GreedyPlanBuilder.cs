@@ -46,7 +46,14 @@ internal sealed class GreedyPlanBuilder
     {
         var s = req.Shape; var lq = req.Liquid!;
         var ex = FindJar(w.Jars, j => j.Shape == s && j.Liquid == lq && !j.IsMarked);
-        if (ex != null) { ex.Mark(); return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null); }
+        string? directMatchFailure = null;
+        if (ex != null)
+        {
+            var matched = w.MarkJar(ex);
+            if (matched.Success)
+                return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+            directMatchFailure = matched.Reason;
+        }
 
         var emp = FindJar(w.Jars, j => j.Shape == s && j.IsEmpty() && !j.IsMarked);
         if (emp != null)
@@ -69,19 +76,26 @@ internal sealed class GreedyPlanBuilder
             }
         }
 
-        return (false, null, "无法创建满罐(" + s + "," + lq + ")");
+        return (false, null, directMatchFailure ?? "无法创建满罐(" + s + "," + lq + ")");
     }
 
     private (bool, ExecutionLogEntry?, string?) TryEmpty(Requirement req, Workshop w, string loc, OrderEvent ev)
     {
         var s = req.Shape;
         var ex = FindJar(w.Jars, j => j.Shape == s && j.IsEmpty() && !j.IsMarked);
-        if (ex != null) { ex.Mark(); return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null); }
+        string? directMatchFailure = null;
+        if (ex != null)
+        {
+            var matched = w.MarkJar(ex);
+            if (matched.Success)
+                return (true, new ExecutionLogEntry { Phase = loc, Action = "use_existing", Jar = ex.GetDescription() }, null);
+            directMatchFailure = matched.Reason;
+        }
 
         var sr = FindJar(w.Jars, j => j.IsEmpty() && !j.IsMarked && w.CanTransform(j.Shape, s));
         if (sr != null)
         {
-            var cl = Constants.LIQUIDS.FirstOrDefault(l => w.Liquid.CanPay(l, 1, w.LiquidStorage.GetValueOrDefault(l)).Granted);
+            var cl = w.LiquidStorage.Keys.FirstOrDefault(l => w.Liquid.CanPay(l, 1, w.LiquidStorage.GetValueOrDefault(l)).Granted);
             if (cl != null)
             {
                 var cr = ev.ExecuteCommand(new ReshapeEmptyCommand(sr, s, cl), w);
@@ -119,11 +133,11 @@ internal sealed class GreedyPlanBuilder
             }
         }
 
-        return (false, null, "无法获得空罐(" + s + ")");
+        return (false, null, directMatchFailure ?? "无法获得空罐(" + s + ")");
     }
 
     /// <summary>工作台是否有可用（未禁且有库存）的游离液体。</summary>
-    private static bool HasFreeLiquid(Workshop w) => Constants.LIQUIDS.Any(w.HasUsableLiquid);
+    private static bool HasFreeLiquid(Workshop w) => w.LiquidStorage.Keys.Any(w.HasUsableLiquid);
 
     private Jar? FindJar(IReadOnlyList<Jar> jars, Func<Jar, bool> pred) => _selector.Select(jars, pred);
 }

@@ -27,17 +27,51 @@ public class ConfigAndCapabilityTests
         Assert.Empty(report.Warnings);   // 默认世界里每个形状都有生产者 ⇒ 连警告都没有
     }
 
-    /// <summary>S2 的围栏：液体**数量恰好两个**、且**名字与顺序不可改**（求解/执行仍按内置名遍历）。</summary>
+    /// <summary>世界拥有两种互斥液体身份；身份可重命名、重排，但极性必须显式一一映射。</summary>
     [Fact]
-    public void ChangingLiquidNamesOrCount_IsRejected()
+    public void LiquidIdentitiesCanBeRenamedAndReorderedWhenPolarityMappingIsExplicit()
     {
         var renamed = CloneDefault();
-        renamed.Liquids = [Constants.LIQUIDS[1], Constants.LIQUIDS[0]];   // 只换顺序
-        Assert.False(renamed.Validate().IsValid);
+        renamed.Liquids = [ "冷却液", "燃料" ];
+        renamed.LiquidPolarities = new Dictionary<string, LiquidPolarity>
+        {
+            ["燃料"] = LiquidPolarity.Anode,
+            ["冷却液"] = LiquidPolarity.Cathode
+        };
+        renamed.Flow.LiquidRate = new Dictionary<string, double> { ["冷却液"] = 1, ["燃料"] = 1 };
+        renamed.InitialStock = new Dictionary<string, int> { ["冷却液"] = 20, ["燃料"] = 20 };
+        foreach (var workshop in renamed.Workshops)
+        {
+            for (var i = 0; i < workshop.Ban.Count; i++)
+                workshop.Ban[i] = workshop.Ban[i] == "酒" ? "冷却液" : "燃料";
+        }
+        foreach (var order in renamed.OrderTemplates)
+            foreach (var requirement in order.Requirements)
+                if (requirement.Liquid != null)
+                    requirement.Liquid = requirement.Liquid == "酒" ? "冷却液" : "燃料";
+        Assert.True(renamed.Validate().IsValid, string.Join("; ", renamed.Validate().Errors));
 
         var extra = CloneDefault();
         extra.Liquids = [Constants.LIQUIDS[0], Constants.LIQUIDS[1], "醋"];
         Assert.False(extra.Validate().IsValid);
+    }
+
+    [Fact]
+    public void LegacyWorldOptionsRoundTripPreservesOptionalStableInstanceIdsWithoutChangingOldPayloads()
+    {
+        var configured = CloneDefault();
+        configured.Producers[0].ProducerInstanceId = "producer-owned-save-1";
+        configured.Workshops[0].OwnedInstanceId = "workshop-owned-save-1";
+
+        var json = WorldOptionsJson.ToJson(configured);
+        var restored = WorldOptionsJson.FromJson(json);
+
+        Assert.Equal("producer-owned-save-1", restored.Producers[0].ProducerInstanceId);
+        Assert.Equal("workshop-owned-save-1", restored.Workshops[0].OwnedInstanceId);
+
+        var legacyJson = WorldOptionsJson.ToJson(CloneDefault());
+        Assert.DoesNotContain("producerInstanceId", legacyJson);
+        Assert.DoesNotContain("ownedInstanceId", legacyJson);
     }
 
     [Fact]
@@ -191,4 +225,27 @@ public class ConfigAndCapabilityTests
         }
         return candidates.FirstOrDefault(File.Exists);
     }
+
+    [Fact]
+    public void IndependentWorkshopStagingCapacityRoundTripsAndBootstraps()
+    {
+        var world = CloneDefault();
+        world.Workshops[0].LiquidStagingCapacity = 7;
+
+        var roundTrip = WorldOptionsJson.FromJson(WorldOptionsJson.ToJson(world));
+        Assert.Equal(7, roundTrip.Workshops[0].LiquidStagingCapacity);
+        Assert.True(world.Validate().IsValid);
+
+        var system = new JarSystem.Core.JarSystem(
+            randomSeed: 1, world: roundTrip,
+            jarIds: new SequentialIdGenerator(), orderIds: new SequentialIdGenerator());
+
+        Assert.Equal(7, system.Workshops[0].LiquidStagingCapacity);
+        Assert.Equal(roundTrip.DefaultMaxLiquids, system.Workshops[0].MaxLiquids);
+
+        roundTrip.Workshops[0].LiquidStagingCapacity = -1;
+        Assert.Contains(roundTrip.Validate().Errors,
+            error => error.Contains("liquidStagingCapacity"));
+    }
+
 }

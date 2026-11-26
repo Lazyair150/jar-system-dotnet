@@ -10,6 +10,8 @@ namespace JarSystem.Core.Production;
 public class Producer
 {
     public string Name { get; }
+    public string? ProducerInstanceId { get; }
+    public OwnerIdentity? OwnerIdentity { get; }
 
     // 私有字典 + 只读视图。Rates 会经 producerStatus.producers[].rates 进入对外契约；
     // 原先 external 拿到的是可变 Dictionary，能塞进"没有对应生产线"的垃圾键 ——
@@ -23,9 +25,25 @@ public class Producer
     /// <summary>各形状的产出速率（对外只读）。</summary>
     public IReadOnlyDictionary<string, double> Rates => _ratesView;
 
-    public Producer(string name, Dictionary<string, double> rates)
+    public Producer(
+        string name,
+        Dictionary<string, double> rates,
+        string? producerInstanceId = null,
+        OwnerIdentity? ownerIdentity = null)
     {
+        if (producerInstanceId != null && string.IsNullOrWhiteSpace(producerInstanceId))
+            throw new ArgumentException("ProducerInstanceId cannot be blank.", nameof(producerInstanceId));
+        if (ownerIdentity.HasValue &&
+            (!ownerIdentity.Value.IsValid ||
+             ownerIdentity.Value.OwnerKind != ResourceOwnerKind.Producer ||
+             !string.Equals(ownerIdentity.Value.LocalOwnerId, producerInstanceId, StringComparison.Ordinal)))
+            throw new ArgumentException("Producer OwnerIdentity must match its exact ProducerInstanceId.", nameof(ownerIdentity));
+        if (ownerIdentity.HasValue && producerInstanceId == null)
+            throw new ArgumentException("A Producer OwnerIdentity requires ProducerInstanceId.", nameof(ownerIdentity));
+
         Name = name;
+        ProducerInstanceId = producerInstanceId;
+        OwnerIdentity = ownerIdentity;
         _rates = new Dictionary<string, double>(rates);
         _ratesView = new ReadOnlyDictionary<string, double>(_rates);
     }
@@ -64,13 +82,14 @@ public class ShapeProductionLine
     /// 定点化后：只在注册边界上取整一次，之后全是整数运算 ⇒ 逐 tick 结果与平台无关。
     /// 对外契约只改了这 3 个**数值**（键名与形状不变）；基线已于 2026-10-16 **有意重建**（见 `过程系统/03_*.md`）。
     /// </summary>
-    public double Accumulated => _accumulatedMilli / (double)MilliUnit;
+    public double Accumulated => _accumulatedMicro / (double)MicroUnit;
 
-    /// <summary>定点累加器（千分之一为单位；只有本类的 <see cref="Tick"/> 会推进它）。</summary>
-    private int _accumulatedMilli;
+    /// <summary>资源量累加器（百万分之一单位）；支持任意千分之一逻辑时间增量。</summary>
+    private long _accumulatedMicro;
 
-    /// <summary>定点单位：速率的千分之一（0.4 ⇒ 400）。</summary>
+    /// <summary>速率注册时以千分之一保存，时间增量也以千分之一传入。</summary>
     private const int MilliUnit = 1000;
+    private const long MicroUnit = 1_000_000;
 
     /// <param name="vocabulary">词表（S2）：本线产出的罐子按它校验形状；null 表示内置默认词表。</param>
     /// <param name="intensity">强度折算出口（可选）：`producer:形状` 目标可折减本线产出。</param>
@@ -101,21 +120,45 @@ public class ShapeProductionLine
             _producerList.Add((name, rate));
     }
 
-    public List<Jar> Tick()
+    /// <summary>旧 tick 入口：一个 tick 等价于一个逻辑时间单位，保持旧世界调用语义。</summary>
+    public List<Jar> Tick() => AdvanceLogicalTime(MilliUnit);
+
+    /// <summary>
+    /// 按逻辑时间推进产线。deltaLogicalTimeMilli 的 1000 表示 1 个逻辑时间单位。
+    /// 速率与时间分别以千分之一表示，乘积直接进入百万分之一资源累加器，
+    /// 因而分段推进与一次性推进不会因浮点误差改变产出数量。
+    /// </summary>
+    public List<Jar> AdvanceLogicalTime(long deltaLogicalTimeMilli)
     {
+        if (deltaLogicalTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
+
         var totalMilli = Producers.Sum(p => Milli(p.Rate));
         // P4c：强度修饰器可折减某形状的生产者速率（整数千分比；无匹配 ⇒ 恒等）
         if (_intensity != null) totalMilli = _intensity.Apply("producer:" + Shape, totalMilli);
-        _accumulatedMilli += totalMilli;
-        // 整数整除 = 原 Math.Floor 的语义（速率恒非负 ⇒ 累加恒非负，截断与下取整等价）
-        var n = _accumulatedMilli / MilliUnit;
-        _accumulatedMilli -= n * MilliUnit;
-        var jars = new List<Jar>();
-        for (int i = 0; i < n; i++)
+        _accumulatedMicro = checked(_accumulatedMicro + (long)totalMilli * deltaLogicalTimeMilli);
+
+        var produced = _accumulatedMicro / MicroUnit;
+        if (produced > int.MaxValue)
+            throw new InvalidOperationException("单次逻辑时间推进产生的罐子数量超过可表示范围");
+        var count = (int)produced;
+        _accumulatedMicro -= produced * MicroUnit;
+
+        var jars = new List<Jar>(count);
+        for (int i = 0; i < count; i++)
             jars.Add(_pool != null
                 ? _pool.Rent(Shape, null, null, _vocabulary)
                 : new Jar(Shape, null, null, _vocabulary));
         return jars;
+    }
+
+    internal long CaptureAccumulatedMicro() => _accumulatedMicro;
+
+    internal void RestoreAccumulatedMicro(long value)
+    {
+        if (value < 0 || value >= MicroUnit)
+            throw new DomainValidationException("罐子生产线快照包含越界定点余数。");
+        _accumulatedMicro = value;
     }
 
     public double GetTotalRate() => Producers.Sum(p => p.Rate);
@@ -167,7 +210,12 @@ public class ProducerModule
     public IReadOnlyDictionary<string, int> LiquidWarehouse => Warehouse.LiquidWarehouse;
 
     /// <param name="vocabulary">词表（S2）；null 表示内置默认词表（行为与重构前一致）。</param>
-    public ProducerModule(Vocabulary? vocabulary = null, IIntensitySource? intensity = null, JarPool? pool = null)
+    public ProducerModule(
+        Vocabulary? vocabulary = null,
+        IIntensitySource? intensity = null,
+        JarPool? pool = null,
+        IIdGenerator? jarIds = null,
+        OwnerIdentity? warehouseOwnerIdentity = null)
     {
         _vocabulary = vocabulary ?? Vocabulary.Default;
         _intensity = intensity;
@@ -178,7 +226,7 @@ public class ProducerModule
         _pool = pool;
         foreach (var s in _vocabulary.Shapes)
             _generators[s] = new ShapeProductionLine(s, _vocabulary, _intensity, _pool);
-        Warehouse = new Warehouse(_vocabulary, pool);
+        Warehouse = new Warehouse(_vocabulary, pool, jarIds, warehouseOwnerIdentity);
     }
 
     /// <summary>
@@ -186,10 +234,18 @@ public class ProducerModule
     /// **再追加一条**同名的产出记录 ⇒ 该形状的速率静默翻倍（实测 0.4 → 0.8），而且会进
     /// <c>producerStatus.generators[].rate</c> 契约字段。改速率请用 <see cref="UpdateRate"/>。
     /// </summary>
-    public Producer RegisterProducer(string name, Dictionary<string, double> rates)
+    public Producer RegisterProducer(
+        string name,
+        Dictionary<string, double> rates,
+        string? producerInstanceId = null,
+        OwnerIdentity? ownerIdentity = null)
     {
         if (_producers.ContainsKey(name))
             throw new DomainValidationException("生产者已存在: " + name + "（改速率请用 UpdateRate）");
+        if (producerInstanceId != null &&
+            _producers.Values.Any(producer =>
+                string.Equals(producer.ProducerInstanceId, producerInstanceId, StringComparison.Ordinal)))
+            throw new DomainValidationException("ProducerInstanceId 已存在: " + producerInstanceId);
 
         // **注册时也校验速率**（2026-09-16 补）：原先只跳过"没有对应生产线"的形状，
         // 却把垃圾键留在 Producer.Rates 里 —— 而 Rates 会经 producerStatus.producers[].rates
@@ -205,7 +261,7 @@ public class ProducerModule
                     $"速率必须是 0 到 {Constants.MAX_PRODUCER_RATE} 之间的有限数，收到: {kv.Value}");
         }
 
-        var p = new Producer(name, rates);
+        var p = new Producer(name, rates, producerInstanceId, ownerIdentity);
         _producers[name] = p;
         foreach (var s in rates.Keys)
             if (_generators.ContainsKey(s))
@@ -258,6 +314,66 @@ public class ProducerModule
         _generators[shape].UpdateRate(name, rate);
     }
 
+    /// <summary>捕获各生产者速率、产线累加器与槽位配置。</summary>
+    public ProducerModuleRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(
+            ProducerSlots,
+            _producers.Select(pair =>
+                new KeyValuePair<string, IReadOnlyDictionary<string, double>>(
+                    pair.Key, pair.Value.Rates)),
+            _generators.ToDictionary(
+                pair => pair.Key, pair => pair.Value.CaptureAccumulatedMicro(),
+                StringComparer.Ordinal));
+
+    /// <summary>验证生产者/形状拓扑和产能数值；不修改当前模块。</summary>
+    public void ValidateRuntimeStateSnapshot(ProducerModuleRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.ProducerSlots < 0 ||
+            !_producers.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.Producers.Keys) ||
+            !_generators.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.GeneratorAccumulatedMicro.Keys))
+            throw new InvalidOperationException("罐子生产模块快照的生产者/形状拓扑与当前配置不一致。");
+
+        var activeSlots = 0;
+        foreach (var producer in _producers)
+        {
+            var rates = snapshot.Producers[producer.Key];
+            if (!producer.Value.Rates.Keys.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(rates.Keys))
+                throw new InvalidOperationException("生产者「" + producer.Key + "」的形状集合与快照不一致。");
+            foreach (var rate in rates)
+            {
+                if (!_generators.ContainsKey(rate.Key) ||
+                    double.IsNaN(rate.Value) || double.IsInfinity(rate.Value) ||
+                    rate.Value < 0 || rate.Value > Constants.MAX_PRODUCER_RATE)
+                    throw new DomainValidationException("生产者快照包含无效形状或速率：" + producer.Key);
+                if (rate.Value > 0) activeSlots++;
+            }
+        }
+        if (snapshot.ProducerSlots > 0 && activeSlots > snapshot.ProducerSlots)
+            throw new DomainValidationException("生产者快照的启用产线数量超过槽位上限。");
+        foreach (var accumulator in snapshot.GeneratorAccumulatedMicro)
+            if (accumulator.Value < 0 || accumulator.Value >= 1_000_000)
+                throw new DomainValidationException("生产线快照包含越界定点余数：" + accumulator.Key);
+    }
+
+    /// <summary>恢复生产者速率和产线余数；对象池/强度修饰器仍由当前世界装配提供。</summary>
+    public void RestoreRuntimeState(ProducerModuleRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        ProducerSlots = snapshot.ProducerSlots;
+        foreach (var producer in _producers)
+        {
+            foreach (var rate in snapshot.Producers[producer.Key])
+            {
+                producer.Value.SetRate(rate.Key, rate.Value);
+                _generators[rate.Key].UpdateRate(producer.Key, rate.Value);
+            }
+        }
+        foreach (var generator in _generators)
+            generator.Value.RestoreAccumulatedMicro(snapshot.GeneratorAccumulatedMicro[generator.Key]);
+    }
+
     public List<Jar> Tick(int count = 1)
     {
         var newJars = new List<Jar>();
@@ -272,8 +388,50 @@ public class ProducerModule
         return newJars;
     }
 
+    /// <summary>
+    /// 按逻辑时间推进所有形状产线一次，并将新罐子放入中央仓库。
+    /// 与 Tick(count) 不同，本方法不把时间离散成整数 tick。
+    /// </summary>
+    public List<Jar> AdvanceLogicalTime(long deltaLogicalTimeMilli)
+    {
+        if (deltaLogicalTimeMilli < 0)
+            throw new ArgumentOutOfRangeException(nameof(deltaLogicalTimeMilli));
+
+        var newJars = new List<Jar>();
+        foreach (var shape in _vocabulary.Shapes)
+            if (_generators[shape].HasPositiveRate)
+                newJars.AddRange(_generators[shape].AdvanceLogicalTime(deltaLogicalTimeMilli));
+
+        Warehouse.StoreJars(newJars);
+        return newJars;
+    }
+
     // 2026-09 删除两处死代码（grep 证实无调用方）：
     //   · GetWarehouseLiquid —— 只读单个液体库存，已被 LiquidWarehouse 只读视图取代
     //   · GetProducerStatus —— 弱类型报告字典，已被 StateSerializer + StateDtos 的强类型投影取代
     //     （后者才是对外契约，且键序由 [JsonPropertyName] 与快照钉死）
+}
+
+
+/// <summary>罐子生产模块运行时快照；保留产线小数余数和可变速率。</summary>
+public sealed class ProducerModuleRuntimeStateSnapshot
+{
+    public ProducerModuleRuntimeStateSnapshot(
+        int producerSlots,
+        IEnumerable<KeyValuePair<string, IReadOnlyDictionary<string, double>>> producers,
+        IReadOnlyDictionary<string, long> generatorAccumulatedMicro)
+    {
+        ProducerSlots = producerSlots;
+        var copied = new Dictionary<string, IReadOnlyDictionary<string, double>>(StringComparer.Ordinal);
+        foreach (var producer in producers)
+            copied.Add(producer.Key, new ReadOnlyDictionary<string, double>(
+                new Dictionary<string, double>(producer.Value, StringComparer.Ordinal)));
+        Producers = new ReadOnlyDictionary<string, IReadOnlyDictionary<string, double>>(copied);
+        GeneratorAccumulatedMicro = new ReadOnlyDictionary<string, long>(
+            new Dictionary<string, long>(generatorAccumulatedMicro, StringComparer.Ordinal));
+    }
+
+    public int ProducerSlots { get; }
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, double>> Producers { get; }
+    public IReadOnlyDictionary<string, long> GeneratorAccumulatedMicro { get; }
 }

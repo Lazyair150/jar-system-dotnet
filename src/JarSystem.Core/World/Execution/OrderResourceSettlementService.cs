@@ -1,0 +1,338 @@
+using System;
+using System.Linq;
+using System.Collections.Generic;
+using JarSystem.Core.Domain;
+using JarSystem.Core.Production;
+using JarSystem.Core.World.Solving;
+
+namespace JarSystem.Core.World.Execution;
+
+/// <summary>Settlement 同步提交边界的测试故障注入端口。</summary>
+internal interface IOrderSettlementFaultPort
+{
+    void AfterMasterDrain();
+    void AfterSlaveDrain();
+    void AfterShipReturnBeforeReceipt();
+    void BeforeCompensation();
+    void AfterLedgerBatchRecorded();
+    void AfterLedgerStageMarked();
+    void BeforeReservationRelease();
+}
+
+internal sealed class NoopOrderSettlementFaultPort : IOrderSettlementFaultPort
+{
+    public static NoopOrderSettlementFaultPort Instance { get; } = new();
+    private NoopOrderSettlementFaultPort() { }
+    public void AfterMasterDrain() { }
+    public void AfterSlaveDrain() { }
+    public void AfterShipReturnBeforeReceipt() { }
+    public void BeforeCompensation() { }
+    public void AfterLedgerBatchRecorded() { }
+    public void AfterLedgerStageMarked() { }
+    public void BeforeReservationRelease() { }
+}
+
+/// <summary>
+/// Settlement failed after physical ownership became uncertain or after a durable receipt/ledger stage.
+/// The owning Session must retain its lease and the Runtime must freeze for explicit reconciliation.
+/// </summary>
+internal sealed class OrderSettlementTransactionException : InvalidOperationException
+{
+    public OrderSettlementTransactionException(string message, Exception innerException)
+        : base(message, innerException) { }
+}
+
+/// <summary>
+/// 订单资源结算入口：负责把工作台暂存液体结算回自机液库、写入资源账本并释放准入占用。
+/// 从台罐子回滚与参与罐子标记清理由执行会话在调用本服务前完成；本服务不改变 A/B 订单的执行归属。
+/// </summary>
+public sealed class OrderResourceSettlementService
+{
+    private readonly IOrderSettlementFaultPort _faults;
+
+    public OrderResourceSettlementService() : this(NoopOrderSettlementFaultPort.Instance) { }
+
+    internal OrderResourceSettlementService(IOrderSettlementFaultPort faults) =>
+        _faults = faults ?? throw new ArgumentNullException(nameof(faults));
+
+    /// <summary>
+    /// 结算订单液体并释放资源租约。tick 必须在调用方开始任何结算变更前预取。
+    /// Admission 的结算收据保证同一活动范围内重复读取不会再次 Drain。
+    /// </summary>
+    public LiquidBatchReceipt? SettleAndRelease(
+        int demandId,
+        WorldOrderExecutionAdmission admission,
+        ResourceLedger? ledger,
+        int? settlementTick)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+
+        var lease = admission.FindLease(demandId);
+        var scopes = lease?.LiquidScopes;
+        var hasBalance = scopes.HasValue &&
+            (scopes.Value.Master.Balance.Values.Any(value => value > 0) ||
+             (scopes.Value.Slave?.Balance.Values.Any(value => value > 0) ?? false));
+        if (ledger != null && hasBalance && !settlementTick.HasValue)
+            throw new InvalidOperationException("结算前必须取得资源账本逻辑 tick。");
+
+        LiquidBatchReceipt? receipt = lease?.SettlementReceipt;
+        var settlementHasLedgerFacts = receipt != null &&
+            (receipt.Accepted.Values.Any(value => value > 0) ||
+             receipt.Discarded.Values.Any(value => value > 0));
+        if (lease != null)
+        {
+            var hasLedgerOperation = ledger?.HasRecordedOperation(lease.SettlementOperationId) == true;
+            if (lease.SettlementStage == OrderResourceSettlementStage.NotStarted)
+            {
+                if (receipt != null || hasLedgerOperation)
+                    throw new InvalidOperationException(
+                        "未开始结算的租约不能已有 Settlement receipt 或 ResourceLedger operation。");
+            }
+            else
+            {
+                if (receipt == null)
+                    throw new InvalidOperationException("已推进的订单结算阶段缺少 Settlement receipt。");
+                if (settlementHasLedgerFacts && hasLedgerOperation &&
+                    !ledger!.HasRecordedBatch(
+                        lease.SettlementOperationId, BuildSettlementLedgerMutations(receipt)))
+                    throw new InvalidOperationException(
+                        "ResourceLedger Settlement OperationId 已存在，但批次内容与租约 Settlement receipt 不一致。");
+                if (settlementHasLedgerFacts &&
+                    lease.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
+                    !hasLedgerOperation)
+                    throw new InvalidOperationException(
+                        "订单结算阶段报告账本已提交，但当前缺少对应的 ResourceLedger Settlement operation receipt。");
+                if (!settlementHasLedgerFacts && hasLedgerOperation)
+                    throw new InvalidOperationException(
+                        "零资源结算不应创建 ResourceLedger Settlement operation；检测到虚假的幂等收据。");
+            }
+        }
+
+        if (receipt == null && scopes.HasValue && admission.ShipLiquidInventory != null)
+        {
+            if (lease!.SettlementStage != OrderResourceSettlementStage.NotStarted)
+                throw new InvalidOperationException("订单结算阶段已推进，但缺少可重放的结算收据。");
+
+            // Aggregate and validate the complete request before draining either account.
+            // Two independently bounded Workshops can together exceed Int32 even when
+            // each account is valid; checked aggregation must never happen after a drain.
+            var requested = new System.Collections.Generic.Dictionary<string, int>(StringComparer.Ordinal);
+            Merge(requested, scopes.Value.Master.Balance);
+            scopes.Value.Master.Staging.EnsureCanTransferOrderLiquids();
+            if (scopes.Value.Slave != null)
+            {
+                Merge(requested, scopes.Value.Slave.Balance);
+                scopes.Value.Slave.Staging.EnsureCanTransferOrderLiquids();
+            }
+
+            // The staging drains and ship return are one synchronous ownership transfer.
+            // If anything fails before the lease receipt is committed, restore all three
+            // authoritative accounts from their pre-mutation snapshots.
+            var masterBefore = new Dictionary<string, int>(
+                scopes.Value.Master.Balance, StringComparer.Ordinal);
+            var slaveBefore = scopes.Value.Slave == null
+                ? null
+                : new Dictionary<string, int>(scopes.Value.Slave.Balance, StringComparer.Ordinal);
+            var shipBefore = admission.ShipLiquidInventory.Capture();
+            try
+            {
+                scopes.Value.Master.Staging.DrainOrder(demandId);
+                _faults.AfterMasterDrain();
+                if (scopes.Value.Slave != null)
+                {
+                    scopes.Value.Slave.Staging.DrainOrder(demandId);
+                    _faults.AfterSlaveDrain();
+                }
+
+                var returned = admission.ShipLiquidInventory.Return(requested);
+                var sourceAllocations = BuildSourceAllocations(
+                    scopes.Value.Master, masterBefore,
+                    scopes.Value.Slave, slaveBefore,
+                    returned, admission.ShipLiquidInventory);
+                var attributedReceipt = new LiquidBatchReceipt(
+                    returned.Requested, returned.Accepted, returned.Discarded, sourceAllocations);
+                _faults.AfterShipReturnBeforeReceipt();
+                receipt = lease.RecordSettlement(attributedReceipt);
+            }
+            catch (Exception settlementError)
+            {
+                try
+                {
+                    _faults.BeforeCompensation();
+                    admission.ShipLiquidInventory.RestoreFrom(shipBefore);
+                    scopes.Value.Master.Staging.RestoreOrderAccount(demandId, masterBefore);
+                    if (scopes.Value.Slave != null)
+                        scopes.Value.Slave.Staging.RestoreOrderAccount(demandId, slaveBefore!);
+                }
+                catch (Exception rollbackError)
+                {
+                    throw new OrderSettlementTransactionException(
+                        "订单液体结算在收据提交前失败，且自机/主从暂存账户补偿回滚失败；必须停止世界推进并保留故障现场。",
+                        new AggregateException(settlementError, rollbackError));
+                }
+                throw;
+            }
+        }
+
+        try
+        {
+            if (receipt != null && lease!.SettlementStage == OrderResourceSettlementStage.ResourcesReturned &&
+                ledger != null)
+            {
+                var tick = settlementTick ?? 0;
+                var mutations = BuildSettlementLedgerMutations(receipt).ToArray();
+                // Zero accepted and zero discarded means no resource changed; do not publish an
+                // empty ledger operation, but still advance the settlement lease stage below.
+                if (mutations.Length > 0)
+                {
+                    if (ledger.HasRecordedOperation(lease.SettlementOperationId))
+                    {
+                        if (!ledger.HasRecordedBatch(lease.SettlementOperationId, mutations))
+                            throw new InvalidOperationException(
+                                "ResourceLedger Settlement OperationId 已绑定到不同的批次内容。");
+                    }
+                    else if (!ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations) &&
+                             !ledger.HasRecordedBatch(lease.SettlementOperationId, mutations))
+                    {
+                        throw new InvalidOperationException(
+                            "Settlement OperationId 未能提交或匹配预期账本批次。");
+                    }
+                }
+                _faults.AfterLedgerBatchRecorded();
+                lease.MarkSettlementLedgerRecorded();
+                _faults.AfterLedgerStageMarked();
+            }
+
+            _faults.BeforeReservationRelease();
+            if (!admission.ReleaseReservationOnly(demandId))
+                throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
+
+            return receipt;
+        }
+        catch (Exception settlementCommitError) when (receipt != null)
+        {
+            throw new OrderSettlementTransactionException(
+                "订单液体已从主/从订单暂存账户退回自机或丢弃，但账本/租约释放阶段未能确认完成；必须冻结世界并保留收据与资源租约。",
+                settlementCommitError);
+        }
+    }
+
+    private static IReadOnlyList<LiquidBatchSourceAllocation> BuildSourceAllocations(
+        OrderLiquidScope master,
+        IReadOnlyDictionary<string, int> masterBalances,
+        OrderLiquidScope? slave,
+        IReadOnlyDictionary<string, int>? slaveBalances,
+        LiquidBatchReceipt aggregate,
+        ShipLiquidInventory ship)
+    {
+        var targetEndpoint = ship.OwnerIdentity is { } shipOwner
+            ? ResourceEndpoint.ForAccount(new RuleResourceAccount(shipOwner, "ship.liquid-inventory").AccountId)
+            : ResourceEndpoint.LegacyUnknown;
+        var discardEndpoint = ResourceEndpoint.ExternalSink("ship.liquid-inventory.capacity-overflow");
+        var acceptedRemaining = new Dictionary<string, int>(aggregate.Accepted, StringComparer.Ordinal);
+        var discardedRemaining = new Dictionary<string, int>(aggregate.Discarded, StringComparer.Ordinal);
+        var result = new List<LiquidBatchSourceAllocation>();
+
+        Allocate(master, masterBalances);
+        if (slave != null)
+            Allocate(slave, slaveBalances ?? throw new InvalidOperationException("Slave settlement balances are missing."));
+
+        if (acceptedRemaining.Values.Any(value => value != 0) ||
+            discardedRemaining.Values.Any(value => value != 0))
+            throw new InvalidOperationException("Per-source settlement attribution does not cover the aggregate receipt.");
+        return result.AsReadOnly();
+
+        void Allocate(OrderLiquidScope scope, IReadOnlyDictionary<string, int> balances)
+        {
+            var requested = balances.Where(item => item.Value > 0)
+                .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+            var accepted = new Dictionary<string, int>(StringComparer.Ordinal);
+            var discarded = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var item in requested.OrderBy(item => item.Key, StringComparer.Ordinal))
+            {
+                var acceptedAmount = Math.Min(item.Value, acceptedRemaining.GetValueOrDefault(item.Key));
+                var discardedAmount = item.Value - acceptedAmount;
+                if (discardedAmount > discardedRemaining.GetValueOrDefault(item.Key))
+                    throw new InvalidOperationException("Per-source settlement discard attribution exceeds the aggregate receipt.");
+                if (acceptedAmount > 0)
+                {
+                    accepted[item.Key] = acceptedAmount;
+                    acceptedRemaining[item.Key] -= acceptedAmount;
+                }
+                if (discardedAmount > 0)
+                {
+                    discarded[item.Key] = discardedAmount;
+                    discardedRemaining[item.Key] -= discardedAmount;
+                }
+            }
+            if (requested.Count > 0)
+                result.Add(new LiquidBatchSourceAllocation(
+                    GetOrderSourceEndpoint(scope), targetEndpoint, discardEndpoint,
+                    requested, accepted, discarded));
+        }
+    }
+
+    private static ResourceEndpoint GetOrderSourceEndpoint(OrderLiquidScope scope)
+    {
+        if (scope.WorkshopOwnerIdentity is { } owner)
+        {
+            var orderOwner = ResourceOwnerIdentityGuard.ForOrderStaging(owner, scope.OrderId);
+            return ResourceEndpoint.ForAccount(
+                new RuleResourceAccount(orderOwner, "workshop.order-liquid-staging").AccountId);
+        }
+        if (scope.WorkshopInstanceId == null)
+            return ResourceEndpoint.LegacyUnknown;
+        var localOwnerId = scope.WorkshopInstanceId + ":order:" +
+            scope.OrderId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return ResourceEndpoint.ForAccount(
+            new RuleResourceAccount("workshop.order-liquid-staging", localOwnerId).AccountId);
+    }
+
+    internal static IEnumerable<ResourceLedgerMutation> BuildSettlementLedgerMutations(
+        LiquidBatchReceipt receipt)
+    {
+        if (receipt.SourceAllocations.Count == 0)
+        {
+            return receipt.Accepted.Select(item => new ResourceLedgerMutation(
+                    ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: "自机液库",
+                    ResourceIdentity: item.Key, DisplayName: item.Key))
+                .Concat(receipt.Discarded.Select(item => new ResourceLedgerMutation(
+                    ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: null, Reason: "自机液库总容量不足",
+                    ResourceIdentity: item.Key, DisplayName: item.Key)));
+        }
+
+        var mutations = new List<ResourceLedgerMutation>();
+        foreach (var source in receipt.SourceAllocations)
+        {
+            var sourceAccountId = source.SourceEndpoint.Kind == ResourceEndpointKind.Account
+                ? source.SourceEndpoint.AccountId : null;
+            var targetAccountId = source.TargetEndpoint.Kind == ResourceEndpointKind.Account
+                ? source.TargetEndpoint.AccountId : null;
+            foreach (var item in source.Accepted.Where(item => item.Value > 0))
+                mutations.Add(new ResourceLedgerMutation(
+                    ResourceCauses.Return, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: "自机液库", ResourceIdentity: item.Key,
+                    FromAccountId: sourceAccountId, ToAccountId: targetAccountId,
+                    DisplayName: item.Key,
+                    FromEndpoint: source.SourceEndpoint, ToEndpoint: source.TargetEndpoint));
+            foreach (var item in source.Discarded.Where(item => item.Value > 0))
+                mutations.Add(new ResourceLedgerMutation(
+                    ResourceCauses.Discard, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: "订单暂存", To: null, Reason: "自机液库总容量不足", ResourceIdentity: item.Key,
+                    DisplayName: item.Key, FromAccountId: sourceAccountId,
+                    FromEndpoint: source.SourceEndpoint,
+                    ToEndpoint: source.DiscardEndpoint));
+        }
+        return mutations;
+    }
+
+    private static void Merge(
+        System.Collections.Generic.Dictionary<string, int> target,
+        System.Collections.Generic.IReadOnlyDictionary<string, int> source)
+    {
+        foreach (var item in source)
+            target[item.Key] = checked(target.GetValueOrDefault(item.Key) + item.Value);
+    }
+}

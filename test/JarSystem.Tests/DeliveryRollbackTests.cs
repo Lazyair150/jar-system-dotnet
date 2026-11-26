@@ -1,6 +1,10 @@
+using System;
+using JarSystem.Core.Abstractions;
 using System.Collections.Generic;
+using JarSystem.Core.Production;
 using System.Linq;
 using JarSystem.Core.Config;
+using JarSystem.Core.Commands;
 using JarSystem.Core.Domain;
 using JarSystem.Core.Orders;
 using Xunit;
@@ -35,6 +39,284 @@ public class DeliveryRollbackTests
         new SlaveRollback().Execute(master, slave, log.Add,
             countDiscardedJars, countDiscardedLiquids);
         return log;
+    }
+
+    private sealed class ThrowAfterLiquidMoves : ISlaveRollbackFaultPort
+    {
+        public void AfterJarMoves() { }
+        public void AfterLiquidMoves() =>
+            throw new InvalidOperationException("Injected SlaveRollback failure after liquid movement");
+        public void BeforeLedgerPublication() { }
+        public void BeforeCompensation() { }
+        public void AfterLedgerPublication() { }
+    }
+
+
+    [Fact]
+    public void RollbackRestoresBothWorkshopAccountsAndLeavesLedgerUntouchedWhenPrecommitFails()
+    {
+        var worldId = new WorldInstanceId("rollback-atomic-world");
+        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "rollback-master");
+        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "rollback-slave");
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 3, maxLiquids: 4, ownedInstanceId: "rollback-master",
+            ownerIdentity: masterOwner);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 3, maxLiquids: 4, ownedInstanceId: "rollback-slave",
+            ownerIdentity: slaveOwner);
+        var originalMasterJar = MakeJar(21, "方罐");
+        var returningJar = MakeJar(22, "圆罐", "酒");
+        var deliveredJar = MakeJar(23, "方罐", "蜜");
+        Assert.True(master.AddJar(originalMasterJar));
+        Assert.True(master.AddLiquid("蜜", 1));
+        Assert.True(slave.AddJar(returningJar));
+        Assert.True(slave.AddJar(deliveredJar));
+        Assert.True(slave.AddLiquid("酒", 2));
+
+        var ledger = new ResourceLedger();
+        var log = new List<ExecutionLogEntry>();
+        var discardedJars = 0;
+        var discardedLiquids = 0;
+
+        var error = Assert.Throws<SlaveRollbackTransactionException>(() =>
+            new SlaveRollback().Execute(
+                master, slave, log.Add,
+                count => discardedJars += count,
+                (_, amount) => discardedLiquids += amount,
+                ledger, () => 23,
+                operationId: "rollback:atomic:21",
+                faults: new ThrowAfterLiquidMoves(),
+                deliveredJarIds: new[] { deliveredJar.Id!.Value }));
+
+        Assert.Contains("Injected SlaveRollback failure", error.InnerException!.Message);
+        Assert.Same(originalMasterJar, Assert.Single(master.Jars));
+        Assert.Contains(slave.Jars, jar => ReferenceEquals(jar, returningJar));
+        Assert.Contains(slave.Jars, jar => ReferenceEquals(jar, deliveredJar));
+        Assert.Equal(2, slave.Jars.Count);
+        Assert.Equal(1, master.LiquidStorage["蜜"]);
+        Assert.Equal(0, master.LiquidStorage["酒"]);
+        Assert.Equal(2, slave.LiquidStorage["酒"]);
+        Assert.Empty(log);
+        Assert.Equal(0, discardedJars);
+        Assert.Equal(0, discardedLiquids);
+        Assert.Empty(ledger.Entries);
+        Assert.False(ledger.HasRecordedOperation("rollback:atomic:21"));
+    }
+
+    [Fact]
+    public void RollbackPublishesOneIdempotentBatchForJarLiquidReturnAndDiscard()
+    {
+        var worldId = new WorldInstanceId("rollback-ledger-world");
+        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "ledger-master");
+        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "ledger-slave");
+        var master = new Workshop("主台", new List<string> { "圆罐", "方罐" },
+            maxJars: 2, maxLiquids: 2, ownedInstanceId: "ledger-master",
+            ownerIdentity: masterOwner);
+        var slave = new Workshop("从台", new List<string> { "圆罐", "方罐" },
+            maxJars: 3, maxLiquids: 4, ownedInstanceId: "ledger-slave",
+            ownerIdentity: slaveOwner);
+        Assert.True(master.AddJar(MakeJar(31, "圆罐")));
+        var returnedJar = MakeJar(32, "方罐");
+        var discardedJar = MakeJar(33, "方罐");
+        Assert.True(slave.AddJar(returnedJar));
+        Assert.True(slave.AddJar(discardedJar));
+        Assert.True(slave.AddLiquid("蜜", 3));
+
+        var ledger = new ResourceLedger();
+        var log = new List<ExecutionLogEntry>();
+        var discardedJarCount = 0;
+        var discardedLiquidCount = 0;
+        const string operationId = "rollback:ledger:31";
+
+        new SlaveRollback().Execute(
+            master, slave, log.Add,
+            count => discardedJarCount += count,
+            (_, amount) => discardedLiquidCount += amount,
+            ledger, () => 29,
+            operationId: operationId);
+
+        Assert.Empty(slave.Jars);
+        Assert.DoesNotContain(slave.LiquidStorage, item => item.Value > 0);
+        Assert.Equal(new[] { 31, 32 }, master.Jars.Select(item => item.Id!.Value).OrderBy(id => id));
+        Assert.Equal(2, master.LiquidStorage["蜜"]);
+        Assert.Equal(1, discardedJarCount);
+        Assert.Equal(1, discardedLiquidCount);
+        Assert.Equal(2, log.Count);
+
+        var batch = ledger.Entries;
+        Assert.Equal(4, batch.Count);
+        Assert.All(batch, entry => Assert.Equal(operationId, entry.OperationId));
+        Assert.All(batch, entry => Assert.Equal(29, entry.Tick));
+        Assert.Equal(2, batch.Count(entry => entry.Cause == ResourceCauses.Return));
+        Assert.Equal(2, batch.Count(entry => entry.Cause == ResourceCauses.Discard));
+
+        var jarReturn = Assert.Single(batch, entry =>
+            entry.Cause == ResourceCauses.Return && entry.Kind == ResourceKinds.Jar);
+        var jarSource = AccountIdentity.ParseV2(jarReturn.FromEndpoint.AccountId!);
+        var jarTarget = AccountIdentity.ParseV2(jarReturn.ToEndpoint.AccountId!);
+        Assert.Equal(slaveOwner, jarSource.Owner);
+        Assert.Equal(masterOwner, jarTarget.Owner);
+        Assert.Equal("workshop.jar-storage", jarSource.AccountKind);
+        Assert.Equal("workshop.jar-storage", jarTarget.AccountKind);
+
+        var liquidReturn = Assert.Single(batch, entry =>
+            entry.Cause == ResourceCauses.Return && entry.Kind == ResourceKinds.Liquid);
+        var liquidSource = AccountIdentity.ParseV2(liquidReturn.FromEndpoint.AccountId!);
+        var liquidTarget = AccountIdentity.ParseV2(liquidReturn.ToEndpoint.AccountId!);
+        Assert.Equal(slaveOwner, liquidSource.Owner);
+        Assert.Equal(masterOwner, liquidTarget.Owner);
+        Assert.Equal("workshop.free-liquid-staging", liquidSource.AccountKind);
+        Assert.Equal("workshop.free-liquid-staging", liquidTarget.AccountKind);
+
+        var seqAfterCommit = ledger.LastSeq;
+        var logCountAfterCommit = log.Count;
+        new SlaveRollback().Execute(
+            master, slave, log.Add,
+            count => discardedJarCount += count,
+            (_, amount) => discardedLiquidCount += amount,
+            ledger, () => 29,
+            operationId: operationId);
+
+        Assert.Equal(seqAfterCommit, ledger.LastSeq);
+        Assert.Equal(logCountAfterCommit, log.Count);
+        Assert.Equal(1, discardedJarCount);
+        Assert.Equal(1, discardedLiquidCount);
+    }
+
+    [Fact]
+    public void LegacyOrderEventDeliversSelectedJarInsideSlaveRollbackLedgerBatch()
+    {
+        var master = Bench("主台");
+        var slave = Bench("从台");
+        var deliveredJar = MakeJar(41, "圆罐", "酒");
+        var returningJar = MakeJar(42, "方罐");
+        Assert.True(slave.AddJar(deliveredJar));
+        Assert.True(slave.AddJar(returningJar));
+        Assert.True(slave.MarkJar(deliveredJar).Success);
+
+        var order = new Order(
+            new List<Requirement> { new() { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.B,
+            vocabulary: Vocabulary.Default);
+        var ledger = new ResourceLedger();
+        var orderEvent = new OrderEvent(order, master, slave, ledger: ledger, tickOf: () => 61);
+        Assert.True(orderEvent.Start());
+        Assert.True(orderEvent.AdvanceToSlavePhase().Success);
+
+        var result = orderEvent.Deliver();
+
+        Assert.True(result.Success, result.Reason);
+        Assert.Equal(Constants.OrderStatus.SUCCESS, order.Status);
+        Assert.Same(deliveredJar, Assert.Single(orderEvent.DeliveredJars));
+        Assert.Empty(slave.Jars);
+        Assert.Same(returningJar, Assert.Single(master.Jars));
+
+        var delivered = Assert.Single(ledger.For(ResourceCauses.Transfer),
+            item => item.Kind == ResourceKinds.Jar &&
+                item.ToEndpoint.Kind == ResourceEndpointKind.ExternalSink &&
+                item.ToEndpoint.ExternalIdentity == "order.delivery");
+        Assert.Equal("41", delivered.ResourceIdentity);
+        Assert.Equal("订单交付", delivered.To);
+        var returned = Assert.Single(ledger.For(ResourceCauses.Return),
+            item => item.Kind == ResourceKinds.Jar);
+        Assert.Equal("42", returned.ResourceIdentity);
+        Assert.Equal(61, delivered.Tick);
+        Assert.Equal(61, returned.Tick);
+    }
+
+    [Fact]
+    public void LegacyOrderEventFreezesAfterRollbackLedgerCommitProjectionFailure()
+    {
+        var master = Bench("主台", maxJars: 1);
+        var slave = Bench("从台", maxJars: 3);
+        Assert.True(master.AddJar(MakeJar(40, "圆罐")));
+        var deliveredJar = MakeJar(41, "圆罐", "酒");
+        var discardedJar = MakeJar(42, "方罐");
+        Assert.True(slave.AddJar(deliveredJar));
+        Assert.True(slave.AddJar(discardedJar));
+        Assert.True(slave.MarkJar(deliveredJar).Success);
+
+        var order = new Order(
+            new List<Requirement> { new() { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.B,
+            vocabulary: Vocabulary.Default);
+        var ledger = new ResourceLedger();
+        var discardStatCalls = 0;
+        var rollbackOperationId = "legacy-order:" + order.Id + ":slave-rollback";
+        var orderEvent = new OrderEvent(
+            order, master, slave,
+            countDiscardedJars: _ =>
+            {
+                discardStatCalls++;
+                throw new InvalidOperationException(
+                    "Injected legacy discard-stat projection failure");
+            },
+            ledger: ledger,
+            tickOf: () => 73);
+        Assert.True(orderEvent.Start());
+        Assert.True(orderEvent.AdvanceToSlavePhase().Success);
+
+        var error = Assert.Throws<SlaveRollbackTransactionException>(() => orderEvent.Deliver());
+
+        Assert.Contains("投影发布失败", error.Message);
+        Assert.Equal(1, discardStatCalls);
+        Assert.Single(orderEvent.ExecutionLog);
+        Assert.True(orderEvent.IsTransactionFaulted);
+        Assert.Contains("投影发布失败", orderEvent.TransactionFaultReason);
+        Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
+        Assert.Empty(slave.Jars);
+        Assert.Equal(new[] { 40 }, master.Jars.Select(jar => jar.Id!.Value));
+        var committed = ledger.Entries;
+        Assert.Equal(2, committed.Count);
+        Assert.True(ledger.HasRecordedOperation(rollbackOperationId));
+        Assert.Equal("order.delivery", Assert.Single(committed,
+            item => item.ResourceIdentity == "41").ToEndpoint.ExternalIdentity);
+        Assert.Equal(ResourceCauses.Discard,
+            Assert.Single(committed, item => item.ResourceIdentity == "42").Cause);
+
+        var lastSeq = ledger.LastSeq;
+        var retry = orderEvent.Deliver();
+        Assert.False(retry.Success);
+        Assert.Contains("日志/统计投影发布失败", retry.Reason);
+        Assert.False(orderEvent.Fail("retry must not convert uncertain delivery into failure").Success);
+        Assert.Throws<InvalidOperationException>(() => orderEvent.RollbackSlaveToMaster());
+
+        // Replay the same durable rollback operation at the service boundary. The Slave
+        // is empty, so the committed OperationId must return as a no-op before any
+        // presentation/stat callbacks are invoked a second time.
+        var replayLogCalls = 0;
+        new SlaveRollback().Execute(
+            master, slave,
+            _ => replayLogCalls++,
+            _ => discardStatCalls++,
+            ledger: ledger,
+            tickOf: () => 73,
+            operationId: rollbackOperationId);
+        Assert.Equal(0, replayLogCalls);
+        Assert.Equal(1, discardStatCalls);
+        Assert.Single(orderEvent.ExecutionLog);
+
+        // The legacy Executor is public. Its direct entrypoint must still honor the
+        // OrderEvent fail-stop guard, even if a caller bypasses ExecuteCommand and
+        // passes no ICommandJournal at all.
+        var postFaultJar = MakeJar(43, "方罐");
+        Assert.True(slave.AddJar(postFaultJar));
+        var bypassAttempt = orderEvent.Executor.Execute(
+            new TransferCommand(postFaultJar, slave, master), slave, journal: null);
+        Assert.False(bypassAttempt.Success);
+        Assert.Same(postFaultJar, Assert.Single(slave.Jars));
+        Assert.DoesNotContain(master.Jars, jar => jar.Id == postFaultJar.Id);
+
+        var batchAttempt = orderEvent.Executor.ExecuteBatch(
+            new List<Command> { new TransferCommand(postFaultJar, slave, master) },
+            slave, journal: null);
+        Assert.False(batchAttempt.Success);
+        Assert.Equal(0, batchAttempt.ExecutedCount);
+        Assert.Same(postFaultJar, Assert.Single(slave.Jars));
+        Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
+        Assert.Equal(lastSeq, ledger.LastSeq);
+        Assert.Equal(2, ledger.Entries.Count);
+        Assert.True((bool)orderEvent.GetReport()["transactionFaulted"]!);
     }
 
     [Fact]
@@ -101,6 +383,26 @@ public class DeliveryRollbackTests
 
         Assert.Single(master.Jars);
         Assert.Equal("酒", master.Jars[0].Liquid);          // 液体没被清掉
+    }
+
+    [Fact]
+    public void BannedFreeLiquidIsDiscardedInsteadOfReturningToTheMaster()
+    {
+        // 禁令作用于从台回落的游离液体；与满罐液体随罐原样返回的规则不同。
+        var master = Bench("主台", maxLiquids: 10, ban: "酒");
+        var slave = Bench("从台");
+        slave.AddLiquid("酒", 3);
+
+        var discarded = 0;
+        var log = Run(master, slave,
+            countDiscardedLiquids: (_, amount) => discarded += amount);
+
+        Assert.Equal(0, master.LiquidStorage["酒"]);
+        Assert.Equal(0, slave.LiquidStorage["酒"]);
+        var discard = Assert.Single(log);
+        Assert.Equal("discard_liquid", discard.Command);
+        Assert.Contains("主台禁酒", discard.Reason);
+        Assert.Equal(3, discarded);
     }
 
     [Fact]

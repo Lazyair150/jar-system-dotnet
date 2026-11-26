@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\JarSystem.Core\JarSystem.Core.csproj" />
     <ProjectReference Include="..\..\src\JarSystem.Web\JarSystem.Web.csproj" />
+    <ProjectReference Include="..\..\hosts\godot\WorldV2Bridge\JarSystem.WorldV2Bridge.csproj" />
   </ItemGroup>
 
   <ItemGroup>

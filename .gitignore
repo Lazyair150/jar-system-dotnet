@@ -40,3 +40,34 @@ test/JarSystem.Tests/Approvals/*.received.json
 # ---- Godot 练习工程（与陶罐系统无关，约 1300 个文件）----
 # 若你希望把它纳入版本管理，删掉下面这行即可
 文档归档/05_Godot练习工程/
+
+# Godot host editor/import caches (source scenes and project settings remain tracked)
+**/.godot/
+**/.mono/
+**/.import/
+
+# Local diagnostics and temporary review artifacts
+*.trace
+*.dump
+*.prof
+*.coverage
+*.coveragexml
+*.opendb
+*.sdf
+
+# Local work-in-progress exports; canonical work records under docs/work-records are tracked
+docs/work-records/_local/
+
+# Additional IDE, test, artifact and generic local output caches
+.vs/
+TestResults/
+artifacts/
+coverage/
+*.cache
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak

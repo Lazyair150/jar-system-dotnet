@@ -23,6 +23,9 @@ public sealed class Warehouse
 {
     private readonly List<Jar> _jars = new();
     private readonly JarPool? _pool;
+    private readonly Vocabulary _vocabulary;
+    private readonly IIdGenerator _ids;
+    public OwnerIdentity? OwnerIdentity { get; }
     private readonly Dictionary<string, int> _liquidWarehouse = new();
     private readonly Dictionary<string, int> _discardedLiquids = new();
 
@@ -30,6 +33,8 @@ public sealed class Warehouse
     private readonly IReadOnlyList<Jar> _jarsView;
     private readonly IReadOnlyDictionary<string, int> _liquidWarehouseView;
     private readonly IReadOnlyDictionary<string, int> _discardedLiquidsView;
+    public IReadOnlyList<WarehouseJarFact> LastReceivedJarFacts { get; private set; } = Array.Empty<WarehouseJarFact>();
+    public IReadOnlyList<WarehouseJarFact> LastDiscardedJarFacts { get; private set; } = Array.Empty<WarehouseJarFact>();
 
     /// <summary>仓库中的罐子（只读视图；增删只能经 <see cref="StoreJars"/> / <see cref="FlowToMaster"/>）。</summary>
     public IReadOnlyList<Jar> Jars => _jarsView;
@@ -47,39 +52,157 @@ public sealed class Warehouse
     public int DiscardedJars { get; private set; }
 
     /// <param name="vocabulary">词表（S2）：液体账目按它的名字与**顺序**建键 —— 契约快照里 `liquids` 的键序依赖它。</param>
-    public Warehouse(Vocabulary? vocabulary = null, JarPool? pool = null)
+    public Warehouse(
+        Vocabulary? vocabulary = null,
+        JarPool? pool = null,
+        IIdGenerator? ids = null,
+        OwnerIdentity? ownerIdentity = null)
     {
+        if (ownerIdentity.HasValue &&
+            (!ownerIdentity.Value.IsValid || ownerIdentity.Value.OwnerKind != ResourceOwnerKind.Warehouse))
+            throw new ArgumentException("Warehouse requires a Warehouse OwnerIdentity.", nameof(ownerIdentity));
+        OwnerIdentity = ownerIdentity;
+        _vocabulary = vocabulary ?? Vocabulary.Default;
         _pool = pool;
+        _ids = ids ?? DefaultIdGenerators.Jars;
         // 只读包装最先建立（活视图）——构造期间若有代码读公开视图也不会拿到 null
         _jarsView = _jars.AsReadOnly();
         _liquidWarehouseView = new ReadOnlyDictionary<string, int>(_liquidWarehouse);
         _discardedLiquidsView = new ReadOnlyDictionary<string, int>(_discardedLiquids);
 
         // 逐项赋值而不是集合初始化器：保证键的插入顺序 = 词表顺序
-        foreach (var liquid in (vocabulary ?? Vocabulary.Default).Liquids)
+        foreach (var liquid in _vocabulary.Liquids)
         {
             _liquidWarehouse[liquid] = 0;
             _discardedLiquids[liquid] = 0;
         }
     }
 
+    /// <summary>捕获中央仓库中的罐子、液体和丢弃计数。</summary>
+    public WarehouseRuntimeStateSnapshot CaptureRuntimeState() =>
+        new(_jars, _liquidWarehouse, _discardedLiquids, DiscardedJars);
+
+    /// <summary>验证仓库快照的词表、容量和罐子身份；不修改当前仓库。</summary>
+    public void ValidateRuntimeStateSnapshot(WarehouseRuntimeStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Jars.Count > Constants.WAREHOUSE_MAX_JARS ||
+            snapshot.DiscardedJars < 0 ||
+            !_liquidWarehouse.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.LiquidWarehouse.Keys) ||
+            !_discardedLiquids.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(snapshot.DiscardedLiquids.Keys))
+            throw new InvalidOperationException("中央仓库快照的容量或液体词表与当前配置不一致。");
+
+        foreach (var item in snapshot.LiquidWarehouse)
+            if (item.Value < 0 || item.Value > Constants.WAREHOUSE_MAX_LIQUIDS)
+                throw new DomainValidationException("中央仓库快照包含越界液体库存：" + item.Key);
+        foreach (var item in snapshot.DiscardedLiquids)
+            if (item.Value < 0)
+                throw new DomainValidationException("中央仓库快照包含负数液体丢弃计数：" + item.Key);
+
+        var ids = new HashSet<int>();
+        foreach (var jar in snapshot.Jars)
+        {
+            if (jar == null || jar.IsRecycled || !jar.IsValidShapeIn(jar.Shape) ||
+                !_vocabulary.Shapes.Contains(jar.Shape, StringComparer.Ordinal) ||
+                (jar.Liquid != null && !_vocabulary.Liquids.Contains(jar.Liquid, StringComparer.Ordinal)))
+                throw new DomainValidationException("中央仓库快照包含无效罐子。");
+            if (jar.Id is > 0 && !ids.Add(jar.Id.Value))
+                throw new DomainValidationException("中央仓库快照包含重复罐子 ID。");
+        }
+    }
+
+    /// <summary>恢复中央仓库运行状态；罐子使用深拷贝，不复用快照中的可变实体。</summary>
+    public void RestoreRuntimeState(WarehouseRuntimeStateSnapshot snapshot)
+    {
+        ValidateRuntimeStateSnapshot(snapshot);
+        var jars = snapshot.Jars.Select(jar => jar.DeepClone()).ToArray();
+        foreach (var jar in jars)
+            if (jar.Id == null) jar.Id = _ids.Next(); // Legacy checkpoints had no Warehouse Jar identity.
+        _jars.Clear();
+        _jars.AddRange(jars);
+        foreach (var key in _liquidWarehouse.Keys.ToArray())
+            _liquidWarehouse[key] = snapshot.LiquidWarehouse[key];
+        foreach (var key in _discardedLiquids.Keys.ToArray())
+            _discardedLiquids[key] = snapshot.DiscardedLiquids[key];
+        DiscardedJars = snapshot.DiscardedJars;
+    }
+
     /// <summary>收货：超过仓库上限的部分丢弃并计数（避免长跑无限膨胀）。</summary>
+    internal int AllocateJarId() => _ids.Next();
+
+    internal void RestoreJarIdGeneratorAtLeast(int value)
+    {
+        if (value < 0) throw new ArgumentOutOfRangeException(nameof(value));
+        if (value == 0) return;
+        if (_ids is not IRestorableIdGenerator restorable)
+            throw new InvalidOperationException("Checkpoint restore requires a restorable Warehouse Jar ID generator.");
+        restorable.RestoreAtLeast(value);
+    }
+
     public void StoreJars(IEnumerable<Jar> jars)
     {
+        var receivedFacts = new List<WarehouseJarFact>();
+        var discardedFacts = new List<WarehouseJarFact>();
         foreach (var jar in jars)
         {
+            if (jar.Id == null) jar.Id = _ids.Next();
+            if (jar.Id is not > 0 || _jars.Any(existing => existing.Id == jar.Id) ||
+                receivedFacts.Any(item => item.JarId == jar.Id))
+                throw new DomainValidationException("Warehouse cannot accept a Jar with an invalid or duplicate identity.");
+
+            var fact = new WarehouseJarFact(jar.Id.Value, jar.Shape);
+            receivedFacts.Add(fact);
             if (_jars.Count < Constants.WAREHOUSE_MAX_JARS)
             {
                 _jars.Add(jar);
             }
             else
             {
-                // 仓库溢出**直接丢弃**（`规则.txt`：溢出丢弃并计数，不回流）—— 丢弃即"已彻底离开世界"，
-                // 这是可以安全归还对象池的少数位置之一。
+                // Capture the immutable identity/display fact before returning the entity to its pool.
+                discardedFacts.Add(fact);
                 DiscardedJars++;
                 _pool?.Return(jar);
             }
         }
+        LastReceivedJarFacts = Array.AsReadOnly(receivedFacts.ToArray());
+        LastDiscardedJarFacts = Array.AsReadOnly(discardedFacts.ToArray());
+    }
+
+    /// <summary>
+    /// Remove one exact Jar entity from the Warehouse by its stable positive identity.
+    /// Duplicate or invalid identities fail closed; this does not inspect the Jar's liquid.
+    /// </summary>
+    internal bool TryTakeJarExact(int jarId, out Jar? jar, out int originalIndex)
+    {
+        jar = null;
+        originalIndex = -1;
+        if (jarId <= 0) return false;
+        var matches = _jars.Select((item, index) => (item, index))
+            .Where(pair => pair.item.Id == jarId)
+            .ToArray();
+        if (matches.Length != 1) return false;
+        jar = matches[0].item;
+        originalIndex = matches[0].index;
+        _jars.RemoveAt(originalIndex);
+        return true;
+    }
+
+    /// <summary>
+    /// Restore the same Jar entity at its exact original Warehouse position after a failed
+    /// synchronous ownership transfer. Position matters because later FlowToMaster selection is ordered.
+    /// </summary>
+    internal void RestoreJarExact(Jar jar, int originalIndex)
+    {
+        ArgumentNullException.ThrowIfNull(jar);
+        if (jar.IsRecycled || jar.Id is not > 0)
+            throw new InvalidOperationException("Warehouse Jar rollback requires a live Jar with a positive identity.");
+        if (_jars.Count >= Constants.WAREHOUSE_MAX_JARS)
+            throw new InvalidOperationException("Warehouse Jar rollback exceeds its storage capacity.");
+        if (_jars.Any(item => item.Id == jar.Id))
+            throw new InvalidOperationException("Warehouse Jar rollback would create duplicate ownership identity.");
+        if (originalIndex < 0 || originalIndex > _jars.Count)
+            throw new InvalidOperationException("Warehouse Jar rollback index no longer matches the original account order.");
+        _jars.Insert(originalIndex, jar);
     }
 
     /// <summary>产液：超出仓库上限的部分丢弃并计数（容量感知）。</summary>
@@ -102,8 +225,34 @@ public sealed class Warehouse
     public int LiquidCount(string liquid) => _liquidWarehouse.GetValueOrDefault(liquid, 0);
 
     /// <summary>
+    /// Exact single-liquid withdrawal for a synchronous port transaction. Unlike ProduceLiquid,
+    /// this never accepts a partial amount and never records overflow as discarded.
+    /// </summary>
+    internal bool TryWithdrawLiquidExact(string liquid, int amount)
+    {
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: false);
+        if (!_liquidWarehouse.ContainsKey(liquid) || LiquidCount(liquid) < amount)
+            return false;
+        _liquidWarehouse[liquid] -= amount;
+        return true;
+    }
+
+    /// <summary>Restore one exact pre-transaction Warehouse balance during compensation.</summary>
+    internal void RestoreLiquidBalance(string liquid, int amount)
+    {
+        ShipLiquidInventory.ValidateLiquid(liquid);
+        ShipLiquidInventory.ValidateAmount(amount, allowZero: true);
+        if (!_liquidWarehouse.ContainsKey(liquid))
+            throw new InvalidOperationException("Warehouse rollback references an unknown liquid: " + liquid);
+        if (amount > Constants.WAREHOUSE_MAX_LIQUIDS)
+            throw new InvalidOperationException("Warehouse rollback balance exceeds its per-liquid capacity.");
+        _liquidWarehouse[liquid] = amount;
+    }
+
+    /// <summary>
     /// 仓库 → 主台流入：罐子优先给"主台基础形状"（带主台容量检查），液体按主台的**容量**部分填充
-    /// （被禁的液体同样会流入 —— 那一格仍然存在，只是取不出来）。
+    /// （被禁液体不会流入，仍完整留在中央仓库）。
     /// 返回本次实际流入的罐子与液体（与抽取前逐字一致）。
     /// </summary>
     public (List<Jar> Jars, Dictionary<string, int> Liquids) FlowToMaster(
@@ -131,7 +280,7 @@ public sealed class Warehouse
             }
         }
 
-        // 2. 液体转移（容量由工作台的意图方法裁决；禁令只约束取用，不约束存储）
+        // 2. 游离液体转移（工作台禁液或容量不足时拒收；未接收部分留在仓库）
         var transferredLiquids = new Dictionary<string, int>();
         foreach (var kv in _liquidWarehouse.ToList())
         {
@@ -149,3 +298,35 @@ public sealed class Warehouse
         return (transferredJars, transferredLiquids);
     }
 }
+
+
+/// <summary>中央仓库运行时快照；罐子与账目均为脱离式副本。</summary>
+public sealed class WarehouseRuntimeStateSnapshot
+{
+    private readonly Jar[] _jars;
+
+    public WarehouseRuntimeStateSnapshot(
+        IEnumerable<Jar> jars,
+        IReadOnlyDictionary<string, int> liquidWarehouse,
+        IReadOnlyDictionary<string, int> discardedLiquids,
+        int discardedJars)
+    {
+        _jars = jars.Select(jar => jar.DeepClone()).ToArray();
+        LiquidWarehouse = new ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(liquidWarehouse, StringComparer.Ordinal));
+        DiscardedLiquids = new ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(discardedLiquids, StringComparer.Ordinal));
+        DiscardedJars = discardedJars;
+    }
+
+    /// <summary>每次返回独立罐子副本，防止调用方通过可变 Jar 修改检查点内部状态。</summary>
+    public IReadOnlyList<Jar> Jars =>
+        Array.AsReadOnly(_jars.Select(jar => jar.DeepClone()).ToArray());
+    public IReadOnlyDictionary<string, int> LiquidWarehouse { get; }
+    public IReadOnlyDictionary<string, int> DiscardedLiquids { get; }
+    public int DiscardedJars { get; }
+}
+
+
+/// <summary>Immutable identity/display projection captured before a Warehouse Jar may be pooled.</summary>
+public sealed record WarehouseJarFact(int JarId, string Shape);

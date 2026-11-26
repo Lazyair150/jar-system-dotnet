@@ -13,6 +13,10 @@
     "\u9152",
     "\u871C"
   ],
+  "liquidPolarities": {
+    "\u9152": "Cathode",
+    "\u871C": "Anode"
+  },
   "defaultMaxJars": 20,
   "defaultMaxLiquids": 30,
   "flow": {
@@ -74,6 +78,7 @@
         "\u9152"
       ],
       "maxJars": null,
+      "liquidStagingCapacity": null,
       "maxLiquids": null
     },
     {
@@ -88,6 +93,7 @@
         "\u9152"
       ],
       "maxJars": null,
+      "liquidStagingCapacity": null,
       "maxLiquids": null
     },
     {
@@ -102,6 +108,7 @@
         "\u871C"
       ],
       "maxJars": null,
+      "liquidStagingCapacity": null,
       "maxLiquids": null
     },
     {
@@ -115,6 +122,7 @@
       ],
       "ban": [],
       "maxJars": null,
+      "liquidStagingCapacity": null,
       "maxLiquids": null
     }
   ],

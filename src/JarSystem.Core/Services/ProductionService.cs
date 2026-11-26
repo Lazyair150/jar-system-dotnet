@@ -34,11 +34,10 @@ internal sealed class ProductionService
     internal void TickStep()
     {
         var warehouse = _system.ProducerModule.Warehouse;
-        var discardedJarsBefore = warehouse.DiscardedJars;
         var discardedLiquidsBefore = new Dictionary<string, int>(warehouse.DiscardedLiquids);
 
-        var producedJars = _system.ProducerModule.Tick(1);
-        RecordJars(ResourceCauses.Production, producedJars, from: "生产者", to: "仓库");
+        _system.ProducerModule.Tick(1);
+        RecordJarFacts(ResourceCauses.Production, warehouse.LastReceivedJarFacts, from: "生产者", to: "仓库");
 
         // S0（数据驱动）：按**词表**产出，不再写死 酒/蜜 两个名字。
         // 液体的产能现在是一个概念体（Production.LiquidProduction）：它自己攒累加器，
@@ -48,10 +47,12 @@ internal sealed class ProductionService
         {
             _system.ProducerModule.Warehouse.ProduceLiquid(liquid, amount);
             // 记的是"产了多少"，产能溢出另有一条 discard 事实 —— 两条合起来才是净变化。
-            RecordLiquid(ResourceCauses.Production, liquid, amount, from: "液体产能", to: "仓库");
+            RecordLiquid(ResourceCauses.Production, liquid, amount, from: "液体产能", to: "仓库",
+                fromEndpoint: ResourceEndpoint.ExternalSource("world.production.liquid-output"),
+                toEndpoint: WarehouseEndpoint("production.warehouse.liquid-storage"));
         }
 
-        RecordDiscards(discardedJarsBefore, discardedLiquidsBefore);
+        RecordDiscards(discardedLiquidsBefore);
     }
 
     /// <summary>
@@ -77,9 +78,13 @@ internal sealed class ProductionService
 
         // 流入是**位置变化**，不是"世界产出了东西"：账本上它与 production 分开记，
         // 读者因此能区分"仓库多了三只罐"和"主台多了三只罐"。
-        RecordJars(ResourceCauses.Flow, moved.Jars, from: "仓库", to: master.Name);
+        RecordJars(ResourceCauses.Flow, moved.Jars, from: "仓库", to: master.Name,
+            fromEndpoint: WarehouseEndpoint("production.warehouse.jar-storage"),
+            toEndpoint: WorkshopEndpoint(master, "workshop.jar-storage"));
         foreach (var (name, amount) in moved.Liquids)
-            RecordLiquid(ResourceCauses.Flow, name, amount, from: "仓库", to: master.Name);
+            RecordLiquid(ResourceCauses.Flow, name, amount, from: "仓库", to: master.Name,
+                fromEndpoint: WarehouseEndpoint("production.warehouse.liquid-storage"),
+                toEndpoint: WorkshopEndpoint(master, "workshop.free-liquid-staging"));
     }
 
     /// <summary>
@@ -97,39 +102,86 @@ internal sealed class ProductionService
         _system.SetLiquidProductionRateCore(liquid, rate);
     }
 
+    private ResourceEndpoint WarehouseEndpoint(string accountKind)
+    {
+        var owner = _system.ProducerModule.Warehouse.OwnerIdentity;
+        return owner.HasValue
+            ? ResourceEndpoint.ForAccount(new RuleResourceAccount(owner.Value, accountKind).AccountId)
+            : ResourceEndpoint.LegacyUnknown;
+    }
+
+    private static ResourceEndpoint WorkshopEndpoint(Workshop workshop, string accountKind)
+    {
+        if (workshop.OwnerIdentity is { } owner)
+            return ResourceEndpoint.ForAccount(new RuleResourceAccount(owner, accountKind).AccountId);
+        // A legacy host may have an exact persisted local instance ID without a World map.
+        // Preserve that explicit identity; never derive an owner from Name, list position or role.
+        if (!string.IsNullOrWhiteSpace(workshop.OwnedInstanceId))
+            return ResourceEndpoint.ForAccount(
+                new RuleResourceAccount(accountKind, workshop.OwnedInstanceId).AccountId);
+        return ResourceEndpoint.LegacyUnknown;
+    }
+
     // ============================================================
     // 账本记录（纯投影：不改世界）
     // ============================================================
 
-    /// <summary>把一批罐子按形状聚成事实（"圆罐×2" 比两行同形状更好读，也不丢信息）。</summary>
-    private void RecordJars(string cause, IReadOnlyList<Jar> jars, string from, string to)
+    /// <summary>逐只记录 Jar 实体；Shape 仅作展示，ResourceIdentity 必须是 JarId。</summary>
+    private void RecordJars(string cause, IReadOnlyList<Jar> jars, string from, string to,
+        ResourceEndpoint fromEndpoint, ResourceEndpoint toEndpoint)
     {
         if (jars.Count == 0) return;
         var tick = _system.Processes.Clock.Tick;
-        foreach (var group in jars.GroupBy(j => j.Shape, StringComparer.Ordinal))
-            _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, group.Key, group.Count(), from, to);
+        foreach (var jar in jars)
+        {
+            if (jar.Id is not > 0)
+                throw new DomainValidationException("账本 Jar 事实缺少 canonical JarId。");
+            _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, jar.Shape, 1, from, to,
+                resourceIdentity: jar.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                displayName: jar.Shape,
+                fromEndpoint: fromEndpoint,
+                toEndpoint: toEndpoint);
+        }
     }
 
-    private void RecordLiquid(string cause, string liquid, int amount, string from, string to)
+    private void RecordJarFacts(string cause, IReadOnlyList<WarehouseJarFact> jars, string from, string to)
+    {
+        var tick = _system.Processes.Clock.Tick;
+        foreach (var jar in jars)
+            _system.ResourceLedger.Record(tick, cause, ResourceKinds.Jar, jar.Shape, 1, from, to,
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                displayName: jar.Shape,
+                fromEndpoint: ResourceEndpoint.ExternalSource("world.production.jar-output"),
+                toEndpoint: WarehouseEndpoint("production.warehouse.jar-storage"));
+    }
+
+    private void RecordLiquid(string cause, string liquid, int amount, string from, string to,
+        ResourceEndpoint fromEndpoint, ResourceEndpoint toEndpoint)
     {
         if (amount <= 0) return;
         _system.ResourceLedger.Record(
-            _system.Processes.Clock.Tick, cause, ResourceKinds.Liquid, liquid, amount, from, to);
+            _system.Processes.Clock.Tick, cause, ResourceKinds.Liquid, liquid, amount, from, to,
+            resourceIdentity: liquid, displayName: liquid,
+            fromEndpoint: fromEndpoint,
+            toEndpoint: toEndpoint);
     }
 
     /// <summary>
     /// 溢出丢弃：仓库满了放不下的部分。**必须单独记**，否则读者会以为"产了却没到"是丢事件。
     /// 逐液体比较前后计数，只为真的有丢弃的那几种液体记一条。
     /// </summary>
-    private void RecordDiscards(int discardedJarsBefore, IReadOnlyDictionary<string, int> discardedLiquidsBefore)
+    private void RecordDiscards(IReadOnlyDictionary<string, int> discardedLiquidsBefore)
     {
         var warehouse = _system.ProducerModule.Warehouse;
         var tick = _system.Processes.Clock.Tick;
 
-        var jars = warehouse.DiscardedJars - discardedJarsBefore;
-        if (jars > 0)
-            _system.ResourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Jar, "罐", jars,
-                from: "仓库", reason: "仓库罐位已满");
+        foreach (var jar in warehouse.LastDiscardedJarFacts)
+            _system.ResourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Jar, jar.Shape, 1,
+                from: "仓库", reason: "仓库罐位已满",
+                resourceIdentity: jar.JarId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                displayName: jar.Shape,
+                fromEndpoint: WarehouseEndpoint("production.warehouse.jar-storage"),
+                toEndpoint: ResourceEndpoint.ExternalSink("warehouse.jar-capacity-overflow"));
 
         foreach (var (liquid, total) in warehouse.DiscardedLiquids)
         {
@@ -137,7 +189,9 @@ internal sealed class ProductionService
             var delta = total - before;
             if (delta <= 0) continue;
             _system.ResourceLedger.Record(tick, ResourceCauses.Discard, ResourceKinds.Liquid, liquid, delta,
-                from: "仓库", reason: "仓库该液体已满");
+                from: "仓库", reason: "仓库该液体已满", resourceIdentity: liquid, displayName: liquid,
+                fromEndpoint: WarehouseEndpoint("production.warehouse.liquid-storage"),
+                toEndpoint: ResourceEndpoint.ExternalSink("warehouse.liquid-capacity-overflow"));
         }
     }
 }

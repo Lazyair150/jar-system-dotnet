@@ -14,6 +14,18 @@ namespace JarSystem.Core.Orders;
 /// </summary>
 public class WorkshopSwitchEvent
 {
+    private enum Lifecycle
+    {
+        Created,
+        Prepared,
+        Reshaped,
+        Transferred,
+        Committing,
+        Committed,
+        CommitFailed,
+        RolledBack
+    }
+
     private static readonly ISwitchCase SameBansCaseInstance = new SameBansCase();
     private static readonly ISwitchCase DifferentBansCaseInstance = new DifferentBansCase();
 
@@ -31,8 +43,6 @@ public class WorkshopSwitchEvent
     private readonly JarPool? _pool;
     private readonly Action<int>? _countDiscardedJars;
     private readonly Action<string, int>? _countDiscardedLiquids;
-
-    // 资源账本（只读投影）：本事件搬动/丢弃的每一份资源都要在账本里指得到原因。
     private readonly ResourceLedger? _ledger;
     private readonly Func<int>? _tickOf;
 
@@ -41,8 +51,8 @@ public class WorkshopSwitchEvent
         Action<string, int>? countDiscardedLiquids = null,
         ResourceLedger? ledger = null, Func<int>? tickOf = null)
     {
-        OldMaster = oldMaster;
-        NewMaster = newMaster;
+        OldMaster = oldMaster ?? throw new ArgumentNullException(nameof(oldMaster));
+        NewMaster = newMaster ?? throw new ArgumentNullException(nameof(newMaster));
         _pool = pool;
         _countDiscardedJars = countDiscardedJars;
         _countDiscardedLiquids = countDiscardedLiquids;
@@ -53,40 +63,56 @@ public class WorkshopSwitchEvent
     private WorkshopSnapshot? _oldSnap;
     private WorkshopSnapshot? _newSnap;
     private ISwitchCase? _case;
+    private ResourceTransferrer? _pendingTransferrer;
+    private Lifecycle _lifecycle = Lifecycle.Created;
 
     /// <summary>
     /// 执行切换事件，返回是否成功；失败时两个工作台已回滚到执行前状态。
-    ///
-    /// 实现上是 <see cref="Begin"/> → <see cref="RunReshape"/> → <see cref="RunTransfer"/> 的组合，
-    /// **语义与拆分前逐字一致**（三步在同一个调用里跑完，异常同样整体回滚）。
-    /// 拆开是为了让「迁徙过程」能按 tick 一段一段地做（见 <c>Process.Execution.SwitchProcessAdvancer</c>），
-    /// 而不必复制一份搬运逻辑 —— 一份定义，两条轨。
     /// </summary>
     public (bool Success, string? Error) Execute()
     {
         Begin();
         var (ok, err) = RunReshape();
         if (!ok) return (false, err);
-        return RunTransfer();
+        var transfer = RunTransfer();
+        if (!transfer.Ok) return (false, transfer.Error);
+        CommitTransferEffects();
+        return (true, null);
     }
 
-    /// <summary>第一阶段：清理日志、拍快照、按禁令是否相同选分支。不做任何搬动。</summary>
+    /// <summary>
+    /// 第一阶段：拍摄唯一一份迁徙前快照并选择分支。
+    /// 每个事件实例只能 Begin 一次；重复调用会抛异常，避免覆盖事务起点。
+    /// </summary>
     public void Begin()
     {
+        EnsureLifecycle(Lifecycle.Created, "迁徙事件只能初始化一次");
+
+        // 先在局部变量中完成准备，避免快照创建中途失败时留下半初始化状态。
+        var oldSnapshot = OldMaster.CreateSnapshot();
+        var newSnapshot = NewMaster.CreateSnapshot();
+        var migrationCase = ResolveCase(OldMaster, NewMaster);
+
+        _oldSnap = oldSnapshot;
+        _newSnap = newSnapshot;
+        _case = migrationCase;
+        CaseType = migrationCase.CaseType;
         _log.Clear();
-        _oldSnap = OldMaster.CreateSnapshot();
-        _newSnap = NewMaster.CreateSnapshot();
-        _case = ResolveCase(OldMaster, NewMaster);
-        CaseType = _case.CaseType;
+        _lifecycle = Lifecycle.Prepared;
     }
 
     /// <summary>第二阶段：按新主台的标记与禁令重组旧主台的罐液。失败则两台回滚。</summary>
     public (bool Ok, string? Error) RunReshape()
     {
-        if (_case == null) Begin();
+        // 兼容旧版过程路径：首次直接调用 RunReshape 时自动完成 Begin。
+        if (_lifecycle == Lifecycle.Created)
+            Begin();
+        EnsureLifecycle(Lifecycle.Prepared, "只有完成 Begin 的迁徙事件才能执行重组");
+
         try
         {
             _case!.Execute(OldMaster, NewMaster, _log);
+            _lifecycle = Lifecycle.Reshaped;
             return (true, null);
         }
         catch (Exception ex)
@@ -98,12 +124,15 @@ public class WorkshopSwitchEvent
     /// <summary>第三阶段：把剩余资源整体搬到新主台（按 <see cref="JarValuePolicy"/> 排序）。失败则两台回滚。</summary>
     public (bool Ok, string? Error) RunTransfer()
     {
-        if (_case == null) Begin();
+        EnsureLifecycle(Lifecycle.Reshaped, "必须先成功完成重组，才能执行资源转移");
+
         try
         {
-            new ResourceTransferrer(new JarValuePolicy(NewMaster), _pool,
-                    _countDiscardedJars, _countDiscardedLiquids, _ledger, _tickOf)
-                .TransferAll(OldMaster, NewMaster, _log, CaseType);
+            var transferrer = new ResourceTransferrer(new JarValuePolicy(NewMaster), _pool,
+                _countDiscardedJars, _countDiscardedLiquids, _ledger, _tickOf);
+            transferrer.TransferAll(OldMaster, NewMaster, _log, CaseType);
+            _pendingTransferrer = transferrer;
+            _lifecycle = Lifecycle.Transferred;
             return (true, null);
         }
         catch (Exception ex)
@@ -113,24 +142,67 @@ public class WorkshopSwitchEvent
     }
 
     /// <summary>
-    /// **把两台恢复到 <see cref="Begin"/> 拍的快照**（幂等：没有快照时什么都不做）。
-    ///
-    /// 谁需要它：迁徙被**取消**时。取消走的是 `ProcessSystem.Cancel` → `MarkFailed` → `OnFinished` → `run.Abort`，
-    /// 而 `RunReshape` 可能已经把旧台的罐子改过形了。异常路径本来就有回滚，取消路径原先没有 ——
-    /// 于是"迁徙做了一半被取消"会留下一个改了一半的工作台。这里补上同一条退路。
+    /// 提交转移阶段暂存的账本、统计与对象池副作用。岗位提交成功后调用。
+    /// 一旦开始提交就禁止回滚；提交失败后也不自动重试，以免重复执行部分外部副作用。
+    /// </summary>
+    public void CommitTransferEffects()
+    {
+        if (_lifecycle == Lifecycle.Committed)
+            return;
+        EnsureLifecycle(Lifecycle.Transferred, "只有完成资源转移的迁徙事件才能提交副作用");
+
+        _lifecycle = Lifecycle.Committing;
+        var pending = _pendingTransferrer;
+        _pendingTransferrer = null;
+        try
+        {
+            pending?.CommitEffects();
+            _lifecycle = Lifecycle.Committed;
+        }
+        catch
+        {
+            _lifecycle = Lifecycle.CommitFailed;
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 把两台恢复到 Begin 拍摄的快照。回滚可重复调用；提交开始后禁止回滚。
     /// </summary>
     public void Rollback()
     {
-        if (_oldSnap != null) OldMaster.RestoreFromSnapshot(_oldSnap);
-        if (_newSnap != null) NewMaster.RestoreFromSnapshot(_newSnap);
+        if (_lifecycle == Lifecycle.RolledBack)
+            return;
+        if (_lifecycle is Lifecycle.Committing or Lifecycle.Committed or Lifecycle.CommitFailed)
+            throw new InvalidOperationException("迁徙副作用提交已经开始，不能再回滚工作台快照");
+
+        RestoreSnapshotAndDiscardEffects();
+        _lifecycle = Lifecycle.RolledBack;
     }
 
     private (bool Ok, string? Error) Rollback(Exception ex)
     {
-        if (_oldSnap != null) OldMaster.RestoreFromSnapshot(_oldSnap);
-        if (_newSnap != null) NewMaster.RestoreFromSnapshot(_newSnap);
+        if (_lifecycle is Lifecycle.Committing or Lifecycle.Committed or Lifecycle.CommitFailed)
+            return (false, "迁徙副作用提交已经开始，不能再回滚工作台快照: " + ex.Message);
+
+        RestoreSnapshotAndDiscardEffects();
+        _lifecycle = Lifecycle.RolledBack;
         _log.Add("error", "切换事件失败，已回滚: " + ex.Message);
         return (false, "切换事件失败: " + ex.Message);
+    }
+
+    private void RestoreSnapshotAndDiscardEffects()
+    {
+        _pendingTransferrer?.DiscardPendingEffects();
+        _pendingTransferrer = null;
+        if (_oldSnap != null) OldMaster.RestoreFromSnapshot(_oldSnap);
+        if (_newSnap != null) NewMaster.RestoreFromSnapshot(_newSnap);
+    }
+
+    private void EnsureLifecycle(Lifecycle expected, string message)
+    {
+        if (_lifecycle != expected)
+            throw new InvalidOperationException(message + $"（当前阶段：{_lifecycle}）");
     }
 
     /// <summary>按禁令是否相同选择分支策略（与重构前的 sameBans 判定完全一致）。</summary>

@@ -1,0 +1,26 @@
+; 新的 World v2 Godot 宿主工程。
+; 与旧 hosts/godot/Jar 完全独立，不复用旧 Jar 模块或 GameManager。
+
+config_version=5
+
+[application]
+
+config/name="Jar World v2"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#")
+config/description="Standalone Godot host for JarSystem World v2"
+
+[dotnet]
+
+project/assembly_name="JarWorldV2"
+
+[display]
+
+window/size/viewport_width=1100
+window/size/viewport_height=680
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"

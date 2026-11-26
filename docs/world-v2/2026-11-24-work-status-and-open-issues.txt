@@ -1,0 +1,462 @@
+WORLD V2 / JAR SYSTEM — WORK STATUS AND OPEN ISSUES
+Updated: 2026-11-25
+Repository: Lazyair150/jar-system-dotnet
+Working branch: world-v2/phase-4.11c-order-template-demand-ingress
+Pull request: https://github.com/Lazyair150/jar-system-dotnet/pull/60
+PR policy: Draft/Open; do not merge.
+
+PURPOSE
+This is the handoff ledger for continued implementation. A source edit is not verified until the exact resulting head has a successful applicable CI run. A prior successful SHA does not validate later commits. Do not report unrun Godot probes or local .NET tests as passed.
+
+CURRENT AUTHORITATIVE STATUS — 2026-11-25
+
+- Core PR #60: head b342259fe04363386085dc9a4ca995112954ed43; Draft/Open/unmerged. Exact-head verify run 45437911516 succeeded: 841 tests, 0 errors, 0 failures, QUALITY-OK / VERDICT=OK.
+- Space PR #2: head 74a93ed281d94823608b0c6803edd78dd9f068cc; Draft/Open/unmerged. Cross-repository run 45438436612 succeeded against the exact Core SHA b342259fe04363386085dc9a4ca995112954ed43; Godot 4.7.1 .NET build/import and all integration/lifecycle probes completed.
+- Stage 6 fixed-seed resource conservation is complete: 4,096 A/B plan/replay samples + 1,024 staging-admission samples + 800 ship-return samples + 800 inter-workshop liquid-transfer samples = 6,720 deterministic generated cases. The 4,096 plan suite checks accepted free-liquid accounting, role-separated balances, transfer manifest consistency, staging peaks, and exact physical Jar ID preservation across every plan step. The staging suite checks requested = accepted + discarded, account/capacity deltas, Transition Transfer/Discard effects, Ban behavior, and unrelated-order isolation.
+- Bounded-search Undetermined is a legitimate status, remains distinct from Infeasible, and must carry no concrete assembly. Only Feasible results enter plan resource-conservation assertions; do not inflate search budgets merely to force zero Undetermined samples.
+- Added focused Master and Slave staging-overflow replay regressions: excess output is discarded, accepted output remains accounted, and staging peak stays within capacity.
+- Space integration exposed and fixed a host snapshot omission: WorldV2RuntimeNode now projects shipLiquidInventory separately from the central resourceLiquids warehouse. WorldV2SnapshotIsolationProbe mutates both nested dictionaries and confirms subsequent snapshots are detached.
+- Space workflow now pins CORE_EXPECTED_SHA to the exact current Core PR head. The successful Space run confirms the checked-out Core SHA and ends with CROSS-REPO-WORLD-V2-OK.
+- Expected negative-path Godot probes may print ERROR messages while asserting fail-closed behavior; use the probe completion markers and workflow conclusion, not raw ERROR lines alone.
+- Both PRs must remain Draft/Open and unmerged unless explicitly instructed.
+- Next: perform repository/reference audit and conservative cleanup, update current docs/indexes, then run final exact-head verification. Preserve historical checkpoints, Oracle, schema/replay fixtures, security/protocol gates, and active verification scripts.
+
+All numbered checkpoint sections and historical “pending/not run” statements below are chronological records. They do not override this authoritative status unless a later dated CURRENT AUTHORITATIVE STATUS section explicitly says so.
+
+1. CURRENT VALIDATION STATUS
+- Before this session PR #60 head was 1d707ea98d7a79e810e42e2b23f196bc65c63162.
+- Verify run 45390036091 failed at build because the new B-class regression test used an unsupported Assert.Contains overload at lines 103-104.
+- That run reported Core/host builds, StrategyExperiment, contract snapshot/schema, config-world comparison, protocol guard, solver differential (4,004 comparisons), modifier differential (400 scenarios / 1,600 checks), session replay and dependency vulnerability checks as successful. The overall job still failed because compile/xUnit quality gates failed.
+- Removed the invalid duplicate Assert.Contains overload; the preceding predicate assertion already proves Jar 9131 is in TransferJarIds.
+- Found and fixed a semantic blocker: BClassBranchEnumerator rejected the whole order if Slave had zero candidates for a requirement, even when Master had a valid candidate. It now checks both profile requirement-index alignment and leaves role-specific candidate availability to the combined symbolic search.
+- Corrected stale B-class XML summary and updated the current model/README to describe two-role assignment and ownership-only handoff.
+- At last query PR head was 353bdcdab9d589e1df4e60d8adb3b2319f996563 and verify run 45391579784 was in_progress. Re-query current head and Actions; this record is updated by a subsequent commit and therefore must not be treated as a current SHA assertion.
+- A later run at head 0fffd4d3a4cd279aa99eb3b7f9e0efd77e266304 compiled successfully but reported 3 xUnit failures (795 total): two new multi-requirement tests violated the domain ordering rule (empty requirements must precede full-liquid requirements), and the opaque-Master/Slave-only branch regression exposed that one opaque role must not suppress a concrete feasible branch in the other role.
+- Follow-up fixes: preserve Slave-first candidate preference only (not a hard gate); search determined role profiles even when the opposite role is opaque; return Undetermined if no known branch succeeds; reorder mixed-role tests to empty-before-full. The later explicit receiver-only case removed the temporary at-least-one-Slave-operation filter. Latest run for the new head must still be checked.
+- Verified intermediate baseline: head fdd35fcf366957dd12ead88b8c0022b01d553de3 completed verify run 45395038508 successfully (this was before the final receiver-only semantic relaxation and its new one-requirement regression). It is not evidence for any later head.
+- The canonical order-funnel document was rewritten to match the current M→T→S execution schedule and mixed-role requirement assignment. Legacy UML diagrams for pre-World-V2 B-class flow (03, 08, 21) were marked Historical/Legacy rather than silently left as current architecture.
+
+2. NON-NEGOTIABLE DOMAIN INVARIANTS
+- Board Definition is topology only. Assignment is a separate exact map from slot to component kind, Owned Instance, Definition ID/version and source revision.
+- Definition and Owned Instance are distinct. Multiple instances of one Definition retain independent identity/growth. Master/Slave are role slots, not intrinsic Workshop Definition identities.
+- Jar is a discrete identity-bearing resource with shape, internal liquid and Mark. Liquid is either Jar-internal or free-liquid staging; these are separate accounts.
+- Jar polarity is derived: empty=Neutral, 酒=Cathode, 蜜=Anode.
+- Workshop Ban expresses focus polarity: Ban 酒 => Anode focus; Ban 蜜 => Cathode focus. Neutral Jar is operable by either focus; opposite-polarity Jar is not. No Ban preserves legacy dual-polarity compatibility; both bans permit Neutral only.
+- Actual Jar operations (MATCH, POUR_IN, POUR_OUT, RESHAPE) check operating Workshop polarity. Jar possession and physical handoff do not.
+- Master-to-Slave Jar transfer changes ownership only. Preserve exact Jar ID, shape, internal liquid, derived polarity and Mark. Never require the receiver to operate a Jar merely to receive it. Never add CanOperateJar/polarity gate to handoff.
+- Free-liquid staging has its own Ban/capacity admission. PourOut's Jar operation and subsequent staging settlement are distinct transitions; accepted quantity transfers to staging, rejected/overflow quantity is explicitly discarded.
+- Master staging Ban blocks that free liquid from transfer to Slave. B-class Slave starts without its own Jar/free-liquid inventory as order inputs; it receives permitted resources from Master.
+- Order-produced free liquid first attempts current Workshop staging; rejection/overflow discards it. No hidden banned-liquid staging account.
+- MATCH marks exact Jar; handoff preserves Mark. Clear only this order's participating Jar marks at terminal success/failure/cancel; unrelated marks survive.
+- Unknown/unimplemented rules and unsupported scopes fail closed as Undetermined/Rejected. Budget exhaustion is Undetermined, never proof of Infeasible.
+
+3. B-CLASS ROLE ASSIGNMENT MODEL
+- Both Master and Slave candidate profiles participate in demand assignment. The enumerator uses Slave-first ordering for compatibility, then tries Master alternatives when needed.
+- Each requirement is fulfilled exactly once by one role. A B-class plan may have no Slave chemical operation when Master completes the requirement; Slave still acts as the one-way receiver/delivery boundary.
+- Master demand operations execute before handoff; Slave demand operations execute after handoff.
+- A Master-completed requirement Jar may still be handed off as B-class output without a second Slave operation.
+- Master preparation may fund Master operations and may cross the liquid handoff boundary for Slave operations only when source and destination staging rules permit it.
+- Slave preparation only funds Slave-side needs.
+- B-class plans may use receiver-only Slave participation when all required operations are valid on Master; this is explicitly covered by the cross-polarity Master-MATCH/Slave-receive regression.
+- Old precomputedSolutions is intentionally ignored until its cache key fingerprints the complete Master+Slave profile set. A stale Slave-only solution set can omit Master branches.
+- Current enumerator is bounded, not a universal circuit compiler. Verify mixed-role schedules, operation order, resource replay, materialization, manifest and execution.
+
+4. OPEN CORE ENGINEERING WORK — DO NOT DROP
+A. B-class role assignment and scheduling
+- Verify symbolic builder accepts profiles where one role has no candidate for a requirement while the other role does; only a complete combined search with no candidate may be Infeasible.
+- Verify every demand index appears exactly once across Master/Slave steps; Master steps precede handoff and Slave steps follow it.
+- Verify Master-prepared liquid counts satisfy Master + eligible Slave needs; Slave prep satisfies only Slave needs; prevent double counting/overproduction.
+- Verify operation-order search and maxBranches/maxNodes budget semantics; budget exhaustion => Undetermined.
+- Verify precomputedSolutions cannot accidentally be reused on this path.
+- Verify profile consistency includes exact Board Slot / Owned Instance identity wherever available.
+
+B. Physical Jar handoff and operation permissions
+- Audit symbolic program, physical binder, concrete materializer, resource replay, assembler, admission, transfer service, session, compensation, checkpoint and journal replay.
+- Transfer preflight may check exact source ownership, duplicate IDs, existence, destination capacity, lifecycle/lease and one-way direction; it must not check polarity or receiver operation permission.
+- Add end-to-end cross-polarity execution: Cathode Master MATCHes 酒 Jar; handoff into Anode Slave; Slave receives/holds it without operation; terminal cleanup clears this order's Mark and preserves identity/liquid.
+- Add paired negative case: an actual incompatible Slave operation after transfer is rejected by authoritative operation rules.
+- Ensure no path treats free-liquid Ban as Jar-liquid transfer Ban.
+
+C. Mark lifecycle
+- Cover success, failure, cancellation, partial failure, rollback, transfer failure and repeated execution.
+- Verify only exact participating Jar IDs are cleaned and unrelated marks survive.
+- Verify transfer neither clears nor creates Mark; marked Jar cannot be operated twice in one order cycle unless explicitly allowed.
+
+D. Resource Transition/accounting
+- Staging proof: requested = accepted + discarded; account deltas equal accepted; no negative balance; exact workshop/order owner IDs; test Ban and capacity independently.
+- Jar operation output boundary and staging settlement remain separate.
+- Transfer proof: per-Jar exact account transfer, per-liquid amount transfer, one-way direction, exact Owned Workshop IDs, before/after inventory and staging reconciliation.
+- Add rollback/failure-injection tests around proof construction and commit verification.
+- Verify committed Transition and resource journal/checkpoint/replay cannot disagree.
+- Audit non-PourOut producers (parser/import/production/other order effects) for same staging receipt/ResourceEffect boundary; do not claim universal coverage until wired.
+
+E. A-class parity/shared rule contracts
+- Audit A-class solver, candidate catalog, concrete plan, materializer, manifest, admission, replay and execution for accidental B-class assumptions or polarity leaks.
+- RuleTransition is an audit contract/adapter layer, not yet a universal evaluator.
+- Every supported operation must consume authoritative Rulebook proof; unsupported rules remain Undetermined. Do not create fake no-op transitions.
+- ResourceEffect account IDs must identify exact owner instance, not display name.
+- ModifyCapacity and RequireCondition remain Undetermined until actual semantics exist.
+
+F. Circuit compiler and Board runtime boundaries
+- Board topology must not be hardcoded to current two Workshops/one Parser.
+- Runtime projection must explicitly reject unsupported multiplicity; no silent overwrite.
+- BoardRuntimeProfileSet is identity/config routing only, not a compiler/evaluator.
+- Parser/Skill/Production Device non-workshop scopes must not be silently ignored by Workshop Core.
+- Future Circuit Image freezes Board/Assignment/Definition/Owned Instance growth/rules and separates structure fingerprint from live ResourceBinding fingerprint.
+- Implement a real evaluator/compiler only after all rule scopes have explicit consumers.
+
+G. Order template ingress/host boundary
+- Core owns OrderTemplate validation, lookup, instantiation and demand creation.
+- Space owns skill-to-template key mapping and combat meaning; orderDefinitionKey remains opaque.
+- Keep explicit-requirements API only for compatibility/non-template ingress.
+- Verify immutable template copy, unknown-template rejection without mutation, schema, serialization/fingerprint stability and bridge protocol.
+
+5. SPACE DEMO — SEPARATE REPOSITORY
+Repository: Lazyair150/space-demo
+- PR #1 merged; PR #2 Draft/Open and must remain unmerged unless explicitly requested.
+- Board Assignment Map, exact identity validation, frozen snapshot/fingerprint, rule contribution data/resolver, runtime profile routing, Parser schema 3 checkpoint/outbox and Core import acknowledgement checks are authored.
+- Godot 4.7.1 build and Probes have not been run in this session; do not mark verified.
+- Runtime projection supports exactly one Parser and two Workshop roles; multiple Parser Board slots are structurally representable but runtime must reject unsupported setup.
+- Continue Space work after Core role/resource contracts stabilize; verify Assignment serialization, bridge identity, parser conservation, outbox idempotency and battle snapshot.
+
+6. SAMPLE TEST STRATEGY
+- Deterministic polarity matrix: 3 Jar polarities x Workshop modes (dual, Cathode, Anode, both-banned) x operation types. Assert operation permission separately from transfer.
+- Transfer matrix: all source/receiver polarity combinations x empty/Cathode/Anode Jar x marked/unmarked identity; transfers remain allowed when physical constraints pass.
+- B-class assignment matrix: each requirement candidate available on Master only, Slave only, both, or neither; one/two/multiple requirements; mixed-role order.
+- End-to-end receiver-only regression now uses the real B-class solver, admission, execution session and transfer transition: Cathode Master MATCHes a 酒 Jar; Anode Slave has no MATCH candidate, receives the marked Jar without operating it, and terminal delivery clears only the order-owned Mark.
+- Explicit Slave liquid rejection is a free-liquid-boundary constraint, not a prohibition on Jar-internal liquid. If Master can legally POUR_IN using its own staging, the solver may choose Master-side completion and transfer only the Jar; if Master staging also bans the liquid, no such fallback exists. Regression tests cover both branches.
+- Run 45396275686 at head 9e3acbd... failed 2 legacy tests that still treated explicit Slave free-liquid rejection as a global prohibition, even when Master could legally fill the Jar and hand off only the Jar. Those tests were updated to the current staging-vs-Jar-internal distinction; a paired Master-staging-Ban negative test was added.
+- The separate direct symbolic projection builder was found to hand off only Slave-operated Jars, dropping Master-completed delivery Jars in receiver-only plans. It now hands off every requirement Jar at its current post-Master version, preserves Mark and records Master-to-handoff Jar dependencies; a focused regression covers the no-Slave-operation case. Latest exact-head CI is still pending.
+- Resource matrix: zero/one/multiple staging capacity, Ban accepted/rejected liquid, partial receive, full discard, master-to-slave liquid handoff and insufficient balance.
+- Lifecycle matrix: success/failure/cancel/rollback, Mark cleanup and unrelated Jar preservation.
+- Deterministic randomized tests with fixed seeds and small state spaces; retain failing seed and minimized counterexample. Compare production solver with independent reference solver.
+- Keep existing 4,004 solver differential and 400-scenario/1,600-check modifier differential; increase sample counts only after semantic contracts are stable and reproducible.
+- Separate solver feasibility, concrete plan assembly, execution session and persisted replay tests. Solver-only is not end-to-end proof.
+
+7. REPOSITORY CLEANUP/STANDARDIZATION — DEFER DELETIONS UNTIL AUDIT
+- Inventory files and classify: current source, tests, active verification inputs, current docs, historical decisions, generated artifacts, obsolete code, empty placeholders.
+- Search references before deletion. Preserve independent ReferenceSolver/Differential Oracle, schema baselines, restore/checkpoint fixtures, security/protocol gates and historical decisions.
+- Delete only proven empty/dead/duplicate files. Mark superseded docs Historical/Deprecated and link current replacement; do not bulk-delete by age/language.
+- Normalize names/directories only after references and build scripts are mapped.
+- Produce final cleanup ledger listing every changed/deleted/retained file and rationale.
+- Initial tree inventory at head 291993411ebd9e88a2114934d1b922d7aa320a37: 622 tracked files; src/JarSystem.Core 194, test/JarSystem.Tests 101, docs/world-v2 42, hosts/godot 33, src/JarSystem.Web 29. No obvious tmp/temp/backup/bak/old/obsolete filename pattern was found.
+- Retired demo prototypes are deliberately grouped under demo/_退役 (24 files); historical learning/design notes are under 文档归档; 重构报告 contains active verify.bat, quality/security gates and contract baselines. These are not garbage: preserve until reference/gate audit proves otherwise. The 622-file inventory is a snapshot and must be refreshed before final cleanup.
+
+8. VALIDATION GATES
+- Exact latest PR head must pass full Release build, both xUnit projects, deterministic suites, StrategyExperiment, contract snapshot/schema, config-world equality, protocol guard, solver differential, modifier differential, session replay, security/dependency scan and quality floor.
+- Run 45390036091 is not green; it failed on the assertion overload. Run 45391579784 was observed in progress before this status-file commit.
+- After every commit query exact head's run and use that run only. A prior SHA success cannot validate a later SHA.
+- Run Godot host builds/Probes for Space changes separately.
+- Local .NET SDK was unavailable in assistant execution environment; CI is executable .NET verification source. This does not justify skipping inspection or writing tests.
+
+9. REQUIRED EXECUTION ORDER
+1) Confirm latest Core head/CI; fix compile and all test failures.
+2) Complete B-class combined-role candidate assignment, schedules, handoff and full session tests.
+3) Complete staging/transfer ResourceEffect reconciliation and failure/replay tests.
+4) Audit A-class parity and all operation entry points for polarity correctness.
+5) Audit Mark lifecycle across all terminal paths.
+6) Complete order-template ingress and bridge contract verification.
+7) Audit Board/Scope/Parser runtime projection and circuit model boundaries.
+8) Add deterministic matrices, seeded randomized cases and differential samples; keep Oracle.
+9) Audit Space Demo integration and run Godot build/Probes.
+10) Perform repository-wide file/reference audit, cleanup and naming/doc standardization.
+11) Run all validation gates on final exact heads and update this ledger with results.
+
+10. COMPLETION RULE
+An item is complete only when code, focused regression tests, documentation and applicable validation evidence agree. Authored, committed, CI running, CI passed and runtime verified are distinct states. If a validation environment is unavailable, record the limitation and leave the item open.
+
+CURRENT CHECKPOINT — 2026-11-24 21:25 +08:00
+
+- Current PR #60 head at inspection: b8cde3e5c331144e78ab881d9e0d72a41a9cad76; base PR #59 head a52f9465ad4febdcfb821227f7b2e03b2ddc012c.
+- PR #60 remains Draft/Open/unmerged. Do not merge this stacked PR independently.
+- Exact-head GitHub Actions verify run 45402867828 completed successfully; its verify job and validation-loop step succeeded. This supersedes earlier “latest Actions pending/failed” statements for the inspected head only.
+- Historical build failure 45402521348 was caused by case-sensitive ResourceLedgerMutation named arguments (From/To), fixed in later commits. Historical B-class role-enumerator and xUnit analyzer failures are no longer current failures on b8cde3e.
+- Current branch includes combined Master/Slave demand-role search, Slave-first search preference (not execution order), Master-before-handoff / Slave-after-handoff execution, receiver-only Slave, exact Jar-ID handoff checks, batched idempotent transfer ledger publication, and duplicate ledger-operation preflight.
+- Real session tests cover A/B execution, transfer preflight rejection, opposite-polarity receiver-only handoff, exact Jar ownership, legal Slave follow-up operation, liquid pumping and settlement. Remaining: injected mid-commit failure and checkpoint/replay consistency.
+- Space PR #2 remains Draft/Open/unmerged at 12c6e69d242e47d703eccda32c6d790105b33e77, based on Space main 4753d5926830bbb3c254c78f4966171a370522ca. No associated Space Actions run was found. Godot 4.7.1 .NET build, GDScript parse and probes remain unexecuted.
+
+NEXT WORK (ordered)
+1. Add a safe testable transfer transaction seam and failure-injection tests for Nth Jar move, liquid transfer and ledger batch publication; verify exact IDs, staging balances, Marks, leases, reservations and ledger receipts after compensation. Do not add ad-hoc production test flags; prefer an explicit port/transaction boundary.
+2. Test settlement retry/checkpoint boundaries across staging Drain, Ship inventory Return, settlement receipt, ledger batch and lease/reservation release.
+3. Audit A-class solver/materializer/admission/replay against shared polarity, RuleTransition and exact account identity contracts.
+4. Expand fixed-seed polarity/transfer/staging/B-class role/resource-conservation matrices; record seed, case counts and Feasible/Infeasible/Undetermined; retain the independent Oracle.
+5. Finish Board/Assignment/Definition/Owned Instance/Rule Contribution/Effective Profile/runtime capability matrix. Unsupported scope and multi-Parser runtime must reject explicitly.
+6. Align Space PR #2 with Core PR #60 template identity, Parser schema-3 outbox/import receipts, owned assignment and frozen battle snapshot; run Godot probes only in an actual Godot 4.7.1 .NET environment.
+7. Only then perform repository-wide reference audit, documentation retirement, dead/temp-file cleanup and naming standardization. Preserve Oracle, historical decisions, schema/replay fixtures and active verification scripts.
+
+Verification rule: run 45402867828 validates only exact head b8cde3e; every subsequent source commit needs its own exact-head Actions result.
+CONTINUATION AUDIT — 2026-11-24 21:45 +08:00
+
+- PR #60 current inspected head: d64a2b319bb096318a66211883dc91783ee25131; base a52f9465ad4febdcfb821227f7b2e03b2ddc012c; Draft/Open/unmerged.
+- Exact-head verify run 45403667537 was in_progress when queried. Older successful run 45402867828 validates only b8cde3e and must not be used for d64a2b3.
+- Transfer implementation currently performs full preflight, calls commitStarted before first entity mutation, moves exact Jar identities/liquid, verifies postconditions, then publishes one RecordBatchOnce ledger batch. Session failure cleanup compensates Slave-owned temporary resources and releases settlement/reservation state.
+- This is a synchronous compensation protocol, not an atomic transaction across Workshop, staging, lease, reservation and ledger. Failure injection at Nth Jar move/liquid transfer/postcondition/ledger publication and checkpoint/restore consistency are still open.
+- RestoreProgress cross-checks execution stage, lease stage, locked Jar IDs, manifest liquid/capacity values and Master/Slave staging reservations. A complete crash-consistency proof at transfer boundary remains open.
+- Settlement sequence is Drain -> Ship Return -> settlement receipt -> RecordBatchOnce -> mark ledger stage -> release reservation. Retry/checkpoint tests must cover each boundary.
+- Polarity audit: actual operations check WorkshopRulebook.CanOperateJar(jar.Polarity); Jar handoff does not apply polarity/Ban checks. Cross-polarity receiver-only B-class integration test exists.
+- Shared ChatGPT URL could not be retrieved; do not claim its full content was read. This continuation is based on current repository state and available conversation continuity.
+
+NEXT: (1) minimal injectable transfer port; (2) Nth-move/liquid/postcondition/ledger failure tests and restore tests; (3) settlement boundary replay tests; (4) A/B shared polarity/RuleTransition parity audit; (5) seeded resource-conservation matrices; (6) Board/Assignment/Definition/Owned Instance/runtime capability matrix; (7) Space template/schema-3 integration; (8) repository-wide cleanup last.
+
+Exact-head verification rule: run 45403667537 was still running for d64a2b3; every later commit needs its own Actions result.
+LATEST HEAD CORRECTION — 2026-11-24 21:55 +08:00
+
+- Core PR #60 head c02dab4341dee4d4a0a2064a31132bdd073bddc0; Draft/Open/unmerged. Its source head d64a2b3 had verify run 45403667537 in_progress when queried. c02dab4 is documentation-only after d64a2b3; no exact-head PR run/combined status was returned.
+- Space PR #2 head efd1049f47149872f8e16cd55ac16eb424b0b8ab; Draft/Open/unmerged; no Actions run/status returned.
+- Space code commits 99ef15d and 1425cf5 add mandatory frozen Board Assignment for production Owned assembly plus a regression probe. Probe remains unexecuted pending Godot 4.7.1 .NET.
+- Do not report either current PR head as fully green. Continue transfer/settlement fault-injection and checkpoint recovery on Core; continue Board Assignment sole-authority audit on Space. Cleanup remains last.
+CHECKPOINT 13 — 2026-11-24 22:10 +08:00
+
+Core source head: 8e29f19b93d16f527f9f1a3dfb8916f10054d321. Exact-head verify run 45405814473 was in_progress when queried. PR #60 remains Draft/Open/unmerged and stacked on PR #59.
+
+Implemented this slice:
+- Internal IOrderJarTransferPort / WorkshopJarTransferPort seam for injectable exact Jar move failures.
+- TransferService repairs a detached Jar to Master on port failure; removes duplicate Slave ownership if both accounts temporarily hold the same object; exact destination Jar ID set must equal Manifest.
+- OrderTransferService.IsCommitted becomes true only after postconditions and RecordBatchOnce; CommittedTransition is published only after that boundary.
+- Session rollback writes Return ledger facts only for a committed handoff. Partial, uncommitted compensation restores provisional ownership without orphan Return events.
+- RestoreProgress restores committed state from SlaveTransferCommitted and rejects a committed checkpoint when a supplied ResourceLedger lacks the exact transfer operation receipt.
+- Tests added for first move detached failure, Nth Jar move failure after earlier move, no orphan Transfer/Return facts, restored SlaveSteps failure returning committed Jar, missing transfer receipt rejection, and invalid RecordBatchOnce batch atomicity.
+
+Not yet complete: scoped/legacy liquid transfer fault injection; settlement boundary replay; A/B shared polarity/RuleTransition parity; seeded resource-conservation matrix; Board capability matrix; Space template/schema-3 end-to-end Godot validation; cleanup last.
+
+Space PR #2 remains Draft/Open/unmerged. Owned Hangar assembly now rejects field-only selections without a complete frozen Board Assignment; regression probe is authored but not run under Godot 4.7.1 .NET.
+
+Do not mark Core source head 8e29f19 CI green until run 45405814473 completes.
+
+CHECKPOINT 14 — 2026-11-24 23:00 +08:00
+
+- Re-queried exact source run 45405814473 for source SHA 8e29f19b93d16f527f9f1a3dfb8916f10054d321: completed / success. Its verify job completed all steps successfully. It does not validate later source commits.
+- New source commit aa28d1b6 introduced exception compensation around the final order-liquid allocation phase. New source commit 407def0bcc6839932e2dfe29b2791a3f664a186b corrected the failure path so a compensation attempt that itself throws is not blindly replayed a second time.
+- Allocation compensation drains any partially populated order staging accounts, releases slave/master peak-capacity reservations, returns only the ship-funded remainder to ShipLiquidInventory, and restores the prefill-funded portion to the master prefill account. This preserves the distinction between prefill ownership and ship inventory ownership.
+- This is a defensive code-path improvement, not yet a proven all-or-nothing transaction: no injected exception test has been added for TryReceiveExact / AttachLiquidScopes / rollback failure, and no exact-head CI run was returned for 407def0 at the time of this update.
+- Latest Core PR #60 branch head is expected to include 407def0 plus this documentation update; query the live PR head before further writes. PR remains Draft/Open/unmerged.
+- Next immediate tasks: add a minimal deterministic failure-injection seam and tests for allocation exception/compensation; add scoped and legacy liquid-transfer transaction seams; then exercise settlement Drain/Return/receipt/ledger/stage/release boundaries with checkpoint restore. Do not claim allocation all-or-nothing until those tests pass.
+
+
+CHECKPOINT 15 — 2026-11-24 23:10 +08:00
+
+- Latest PR #60 head inspected: 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef; base a52f9465ad4febdcfb821227f7b2e03b2ddc012c; Draft/Open/unmerged.
+- A syntax-only follow-up removed one duplicated class-closing brace in OrderLiquidAllocationService.cs. The previous source commit 407def0 is being verified by run 45406698541, but that run's head_sha is 407def0, not the corrected 136d9c5. It cannot validate 136d9c5.
+- At query time no workflow run or combined status had yet been returned for 136d9c5. Re-query before reporting validation.
+- Latest source still lacks a deterministic injected failure test for allocation compensation. The change is intentionally documented as defensive compensation, not proof of transaction atomicity.
+- Continue by adding a narrow liquid-transfer mutation seam with exact rollback of both order accounts; then settlement fault-boundary/replay tests. Preserve the current semantics: only free-liquid staging is subject to Workshop Ban; Jar-internal liquid and Jar handoff remain independent.
+
+
+CHECKPOINT 16 — 2026-11-24 23:20 +08:00
+
+- Settlement audit found a concrete pre-drain hazard: Master and Slave staging accounts are independently capacity-bounded, but their same-liquid balances are merged into Int32. The previous code drained Master before merging Slave; checked overflow could therefore throw after the first physical account had already been emptied.
+- Source commit 994a93a adds a preflight aggregation step in OrderResourceSettlementService: read both immutable order balances, checked-merge first, verify both staging accounts are not in a pending prefill transaction, and only then drain. It also rejects an impossible progressed settlement stage without a receipt before any mutation.
+- Source commit 694b225 applies the same ordering to the legacy SettleLiquidResources compatibility path so it cannot retain the old drain-before-merge hazard.
+- These changes prevent arithmetic/preflight exceptions from occurring after the first drain. They do not yet prove recovery from an exception after ShipLiquidInventory.Return or during ledger/stage/release publication; those boundaries still require deterministic fault injection and replay tests.
+- The exact-head run 45406862320 validates only source SHA 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef and was still in_progress at query time. It does not cover later source commits 994a93a / 694b225. No exact-head run for 694b225 was returned yet.
+- Latest source head at this checkpoint: 694b22546d6ad06d08b7ea18b04db834beb9bb0b. Latest PR #60 head must be re-read before further branch writes; keep PR Draft/Open/unmerged.
+
+
+VERIFICATION CORRECTION — 2026-11-24 23:25 +08:00
+
+- Run 45406862320 completed successfully for exact source SHA 136d9c599682fe3c2e466cdcdaf6246b73b2e7ef. This confirms the allocation service brace correction compiles and passes the workflow checks at that SHA.
+- Latest source commit 694b22546d6ad06d08b7ea18b04db834beb9bb0b has its own run 45407187598, currently in_progress. This is the first verification covering both settlement pre-drain aggregation changes.
+- PR #60 current head at the latest query is documentation commit 5add77237f37cf155a55d6ce21afc91b41efc3af, Draft/Open/unmerged; source head remains 694b225.
+
+
+CHECKPOINT 17 — scoped 主从液体交接故障补偿（2026-11-24）
+
+- 本轮确认上一结算修正的精确源码 SHA `694b22546d6ad06d08b7ea18b04db834beb9bb0b` 对应 run `45407187598` 已 completed / success。
+- 在 `OrderLiquidTransfer.TryExecute` 中增加内部 `IOrderLiquidTransferMutationPort`，生产入口继续使用默认 Workshop staging mutation port；测试可在 source debit / destination credit 后确定性抛错。
+- 交接提交前捕获主、从台指定 DemandId 的精确余额快照。任何提交期异常都会分别恢复两侧订单账户；若补偿也失败，则抛出 AggregateException，明确要求停止世界推进并保留故障现场。
+- 新增 `WorkshopLiquidStaging.RestoreOrderAccount`：只恢复此前已存在的合法订单账户快照，不经过普通 Receive/ban 路径；对订单容量预留或暂存区总容量重新校验。
+- 新增测试：源端部分扣减后抛错、目标端部分入账后抛错，均验证主/从账户与 UsedCapacity 恢复；另有正常批量提交/其他订单隔离，以及 Ban/容量预检拒绝时双方均不变。
+- 源码提交 `8d4dc977b97ed841c298f318b8fef1f582f7b436`；故障注入测试提交 `73974d5a9be41db9097661fe2cfe3f4e3cdc665b`；补充正常提交/预检测试提交 `594e627633babe59a7dadd32bdc03be169880188`。PR #60 当前 head 为 `594e627...`，仍 Draft/Open/未合并。
+- 验证：run `45407820794` 对应 `8d4dc97`，run `45407856822` 对应 `73974d5`；截至此记录两者仍 in_progress。尚未取得 `594e627` 的精确 head run。不得把此前 `694b225` 的 success 当成新改动已通过。
+- 剩余：确认最新 head CI；再为 settlement 的 Return/receipt/ledger/stage/release 建立注入点和恢复测试。当前交接补偿是同步异常路径保护，不宣称进程崩溃或断电原子性。
+
+
+CHECKPOINT 18 — legacy Workshop 游离液体交接批次补偿（2026-11-24）
+
+- 进一步审查 `OrderTransferService.Transfer` 发现旧兼容分支 `masterScope == null` 仍按液种逐项执行 Slave.AddLiquid → Master.RemoveLiquid。若第二种液体失败，第一种已完成的移动会留在物理账户中，依赖外层 SlaveRollback 才可能恢复；服务自身没有完整批次边界。
+- 新增 `Workshop.RestoreLiquidStorageSnapshot`，只恢复同一 Workshop 先前合法存在的游离液体账户，检查液种键与逐液种容量，但不把恢复操作误当成普通产液入口，因此不额外套用当前 Ban。
+- 新增 `LegacyWorkshopLiquidTransfer.Execute` 与内部 mutation port：在批次开始前捕获主/从完整 LiquidStorage；任一目标入账或来源扣款异常/失败，均恢复双方完整快照；补偿失败则 AggregateException fail-stop。
+- `OrderTransferService` 的旧兼容分支现在调用该批次 helper；只有整批成功后才追加 Transfer ledger facts。主从 Ban 的既有预检保持不变，仍只约束工作台游离液体交接。
+- 新增故障测试：第一种液体已完成移动后，第二种源端扣款故障；以及目标端 Add 已写入后立即抛错。两者都验证双方完整库存恢复。
+- 新提交：`e4ec1440a2c4371427201535bbd0f22e271fe805`（Workshop snapshot restore）、`151d18efee9249e3467671a79297b54ad3c13fe7`（legacy batch helper）、`f64f3513789218c5176f57ccb985562347d9ac6d`（接入 OrderTransferService）、`c3b007a77748fadcaae3a5efd9e1b91f7e6de3eb`（legacy 故障测试）。PR #60 当前 head 为 `c3b007a...`，仍 Draft/Open/未合并。
+- 对应 runs：`45408382098` / `45408417704` / `45408441187` / `45408478221` 分别对应以上精确提交，记录时均 in_progress；最新 head 必须以 `45408478221` 的最终结果为准。此前 `594e627` 的 run `45407969711` 已 success，但不覆盖本节新增代码。
+- 目前新旧两条主从液体交接路径均有同步异常补偿；进程崩溃/断电持久化原子性仍未声称完成。下一阶段继续 settlement 的 Return/receipt/ledger/stage/release 故障边界与 checkpoint/replay。
+
+
+CHECKPOINT 19 — settlement restore ledger receipt + writer boundary（2026-11-24）
+
+- 发现活动订单 checkpoint 若记录 `SettlementStage=LedgerRecorded`，但恢复时传入的 ResourceLedger 缺少 `SettlementOperationId` receipt，旧恢复路径会仅信任阶段位；之后结算服务可能跳过 ledger batch，造成资源状态已返还但账本缺事实。
+- `WorldOrderExecutionSession.RestoreProgress` 现在取得 authoritative `OrderResourceLease`；当结算阶段为 `LedgerRecorded` 且恢复时提供 ResourceLedger，必须存在对应 Settlement operation receipt，否则拒绝恢复。`ResourcesReturned` 阶段仍允许缺 receipt，以便重试 `RecordBatchOnce` 并完成阶段推进。
+- 新增回归测试，先保留真实 Transfer ledger receipt，再构造 LedgerRecorded 阶段但不写 Settlement receipt，验证 RestoreProgress 明确拒绝。测试使用 ShipLiquidInventory / OrderLiquidScope 的生产准入路径。
+- 新增 `Domain/LiquidResourceAccounts.cs` 的领域转移 helper 后，工作台写入清单测试 `WorkshopWritersTests.EveryWorkshopWriterIsOnTheList` 报告该文件未登记；这是工程白名单缺项，不是编译失败。已在 `WorkshopWritersTests.AllowedWriters` 登记其原因：该文件的 helper 只经 Workshop 正式领域端口变更游离液体账户。
+- 运行 `45408441187` 对应 `f64f351` 失败，唯一 xUnit 失败为上述 writer whitelist；`45408478221` 对应 `c3b007a` 同样因该清单未更新而失败。已提交白名单修正 `95d727bb4e2a40482e0c73df62f203ebb495ab94`，对应 run `45408955115`。
+- `e4ec144` 的 run `45408382098` 已 success；`151d18e` 的 run `45408417704` 当时仍 in_progress；Settlement restore guard 源码 `9020f1f` 与测试 `b20655b` 的 runs `45408756749` / `45408814064` 当时 in_progress；测试 fixture 改用 Ship-backed scope 的修正提交 `5b23607b1b74e3df242df729ae91effa68ecf451` 尚未返回精确 run。
+- 当前分支新增的同步交接补偿、restore receipt guard 均需以最新 PR head 对应 Actions 结果为最终判定；PR 仍 Draft/Open/未合并。
+
+
+CHECKPOINT 20 — 验证失败归因与 fixture 修正（2026-11-24）
+
+- 对早先 run 进行日志归因：`45408417704`（`151d18e`）和 `45408441187`（`f64f351`）均因 `WorkshopWritersTests.EveryWorkshopWriterIsOnTheList` 未登记 `Domain/LiquidResourceAccounts.cs` 而失败；`45408478221`（`c3b007a`）同样受该问题影响。白名单修正已在 `95d727b` 提交。
+- `45408756749`（`9020f1f`）失败仍是 writer allowlist 遗漏；`45408814064`（`b20655b`）有两个失败：writer allowlist，以及新加的 restore receipt 测试准入失败。后者的 fixture 没有给订单提供任何可用液体，导致 `TryStart` 被拒绝，并非生产恢复校验本身失败。
+- `45408955115`（`95d727b`）仅剩 restore 测试 fixture 的资源供给问题；已将测试改为与生产路径一致的 ShipLiquidInventory-backed solve/admission，并在 `5b23607b1b74e3df242df729ae91effa68ecf451` 提交。
+- 最新精确源码/测试 run `45409037632` 对应 `5b23607...`，查询时仍 in_progress；它包含 whitelist 修正与 Ship-backed fixture。必须等该 run 完成后再判断本轮通过与否。
+- `95d727b` 本身的 run `45408955115` 失败只因测试 fixture；不要将它当作最终 head 结果。PR #60 当前 head 仍为文档提交 `d360501f179bb2ec9bf9ab8293990361215e2a0c`，Draft/Open/未合并。
+
+
+VERIFICATION RESULT — 2026-11-24
+
+- 精确源码/测试提交 `5b23607b1b74e3df242df729ae91effa68ecf451` 的 Actions run `45409037632` 已 completed / success；verify job 全部步骤成功。该提交包含：新旧两条主从液体交接的双侧批次补偿、故障注入测试、Settlement restore ledger receipt guard、Ship-backed restore test fixture，以及此前提交的 writer allowlist 修正。
+- PR #60 当前 head 在本次最终查询前为文档提交 `6a2718a45376e0e9c1c98e20f910ec36cf98dc15`，仍 Draft/Open/未合并；本轮最新源/测试 head `5b23607` 有精确成功 run。之后的文档提交不改变源码。
+- 下一阶段：Settlement Return/receipt/ledger batch/stage mark/reservation release 的独立故障注入与 checkpoint/replay；随后 A/B parity 和固定 Seed 资源守恒扩大测试。进程崩溃/断电持久化原子性尚未完成，不得宣称。
+
+
+CHECKPOINT 21 — 恢复结算状态的暂存余额一致性（2026-11-24）
+
+- 在 Settlement receipt restore guard 之外，再发现同一 checkpoint 的跨对象一致性风险：Lease 已有 `ResourcesReturned` / `LedgerRecorded` receipt，但主/从订单暂存子账仍有余额时，恢复结算可能信任 receipt 并释放 reservation，留下仍存在的资源余额，造成资源双重归属。
+- `WorldOrderExecutionSession.RestoreProgress` 现在要求：只要 Lease.SettlementStage != NotStarted，主台与从台当前订单子账都必须为空；否则拒绝恢复。该检查针对订单 scope，不会把其他订单或预置账户余额误判为本订单结算余额。
+- 扩展 `RestoreRejectsLedgerRecordedSettlementWithoutMatchingLedgerReceipt`：先构造 ResourcesReturned receipt 但保留从台余额，验证因暂存余额未清空而拒绝；随后清空两侧订单子账、推进 LedgerRecorded 阶段，再验证缺少 Settlement operation receipt 仍被拒绝。
+- 源码提交 `25e8044b8a6840f371a71c37b498ce8ae94e8503` 对应 Actions run `45409669395`；扩展测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 尚未返回精确 run。需以测试提交的最新 head 验证。
+- 前一精确 head `5b23607b1b74e3df242df729ae91effa68ecf451` 的 run `45409037632` 已 success，覆盖新旧交接批次补偿、writer allowlist 与 settlement receipt guard 基础测试。
+
+
+CHECKPOINT 22 — Settlement ledger receipt 的 live release guard（2026-11-24）
+
+- 除 checkpoint RestoreProgress 外，`OrderResourceSettlementService.SettleAndRelease` 本身也必须保护 live lease：若 Lease 阶段已是 `LedgerRecorded`，但当前 ResourceLedger 不包含 `SettlementOperationId`，不得直接释放 reservation。
+- 已增加 service 前置校验；在 `ResourcesReturned` 阶段仍允许 `RecordBatchOnce` 重试，在 `LedgerRecorded` 阶段则必须能证明账本 operation receipt 已存在。
+- 扩展同一恢复测试：人为构造两侧 staging 已 Drain、Lease 已 LedgerRecorded 但账本缺 settlement receipt，先验证 live SettleAndRelease 拒绝释放，再验证 RestoreProgress 也拒绝恢复。
+- 源码提交 `13f645248b824a9866051327e33f59c81f44acdc`，测试提交 `3702fb60bad251fd8cbce734a075e87e1c31b868`；精确 Actions run 尚未查询到，后续必须以最新测试 head 的 run 为准。
+- 上一测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 的 run `45409693136` 仍待最终结果查询。
+
+
+CHECKPOINT 23 — LedgerRecorded 阶段必须携带账本快照（2026-11-24）
+
+- 收紧前一 guard：`LedgerRecorded` 不仅要求 ledger 中有 Settlement operation receipt，也要求恢复/结算调用实际提供 ResourceLedger。传 null 同样拒绝，不能因缺少账本对象而绕过证明。
+- `OrderResourceSettlementService.SettleAndRelease` 与 `WorldOrderExecutionSession.RestoreProgress` 都已改为：LedgerRecorded 时 `(ledger == null || !HasRecordedOperation(...))` 即 fail-stop。
+- 扩展测试同时验证 live settlement release 与 RestoreProgress 在 ledger 缺失、以及 ledger 对象存在但 operation receipt 缺失时都会拒绝。
+- 源码提交 `dd7d7f43b21b5587c4f9616bc68cefddb61cb579`、`d83e3745a8cee46d3c3af729dd985903398c62d4`；测试提交 `7f421da7c712f99f722b6105b1c7b839c6998a54`、`d5cd82823fed353d95e254ec2a9fa270e9ec2828`。最新测试 head 的精确 Actions run 尚未返回。
+
+
+VERIFICATION RESULT — settlement stage/balance consistency
+
+- 精确测试提交 `c9eb44533efab55f1a3fbe5e238741f9791a595f` 对应 Actions run `45409693136` 已 completed / success。该 head 覆盖 SettlementStage 非 NotStarted 时主从订单子账必须为空，以及 LedgerRecorded 缺 Settlement receipt 时 RestoreProgress 拒绝恢复。
+- 后续新增的 live SettleAndRelease receipt guard、LedgerRecorded 必须携带 ResourceLedger 的更严格规则不包含在 `c9eb445` 的验证中；它们的最新测试提交 `d5cd828...` 正由 run `45410074563` 验证中。
+
+
+VERIFICATION RESULT — live settlement release guard
+
+- 源码提交 `13f645248b824a9866051327e33f59c81f44acdc` 的 Actions run `45409859456` 已 completed / success，确认 live SettleAndRelease 在 LedgerRecorded 且账本缺 receipt 时 fail-stop。
+- 后续进一步要求 LedgerRecorded 必须提供 ResourceLedger 对象的源码/测试提交 `d5cd82823fed353d95e254ec2a9fa270e9ec2828` 对应 run `45410074563`，当前仍 in_progress；该 run 才是本轮最终判定依据。
+
+
+CHECKPOINT 24 — Settlement 四个提交边界故障注入与恢复（2026-11-24）
+
+- `OrderResourceSettlementService` 新增内部故障注入端口，覆盖主台 Drain 后、从台 Drain 后、Ship Return 已修改库存但 Lease receipt 尚未提交、Ledger batch 已提交但 stage mark 尚未推进、stage mark 已推进但 reservation release 前。
+- Return/receipt 边界现在以 ShipLiquidInventory snapshot + 主从订单子账快照形成同步补偿边界。若在 receipt commit 前抛错，恢复自机库存和主从订单子账；补偿失败抛出 AggregateException，要求停止世界推进并保留现场。receipt 一旦写入 Lease，后续不回滚资源所有权，依靠 operation receipt 与 RecordBatchOnce 重放。
+- Ledger batch 之后故障：Lease 保持 ResourcesReturned，重试时同一 SettlementOperationId 的 RecordBatchOnce 去重，然后推进 LedgerRecorded；stage mark 之后/释放前故障：重试先验证账本 receipt，再释放占用，不重复 Return 或账本事件。
+- 旧兼容 `WorldOrderExecutionAdmission.SettleLiquidResources` 同样增加 Ship + 主从子账的同步补偿；`ReleaseReservationOnly` 先检查主从双方无待提交 prefill 事务，再释放任一侧容量，避免单边释放。
+- 新增 Session tests：3 个 pre-receipt 故障边界 + 3 个 post-receipt 故障边界，验证账户恢复、ledger 去重、stage 重放与 reservation 最终释放。
+- 新增固定 Seed 资源守恒矩阵：4 个固定 Seed × 200 次主从订单液体交接样本（成功、源余额不足、Ban、目标容量不足）；另有 4 × 200 次自机液库 Return 样本，逐液种验证 requested = accepted + discarded、库存总量守恒、容量上限与其他订单账户隔离。
+- 新增 A/B polarity parity matrix：12 个组合（Neutral/Cathode/Anode × Unrestricted/Cathode/Anode/NeutralOnly），分别验证 A enumerator 与 B enumerator 对相同主从能力的接受/拒绝结果一致。
+- 精确 CI：`c1a6eb1` run `45411373717` success；`2d5c30a` run `45411404661` success；`f4a1ba7` run `45411519622` success；`fc16c14` run `45411564120` success；`97df879` run `45411592815` success。固定 Seed 交接 `7c15635` run `45411759149` 与液库 Return `8d461d9` run `45411804846` 查询时仍 in_progress；A/B parity `cddc572` 精确 run 尚未出现。最终判定以 PR 最新 head 对应 run 为准。
+
+
+CHECKPOINT 25 — Settlement / A-B parity / fixed Seed 阶段验收（2026-11-24）
+
+- Settlement fault matrix 代码与 6 个故障注入用例已通过最终精确 head 验证：主台 Drain 后、从台 Drain 后、Ship Return 已写但 receipt 未写、ledger batch 已写但 stage mark 未写、stage mark 已写但 reservation release 前。前 3 个边界验证回滚 Ship + 主从订单子账；后 3 个边界验证向前重放、operation receipt 去重、最终释放 reservation。
+- 旧兼容 `SettleLiquidResources` 同步增加 pre-receipt 三账户补偿；主从容量释放前做双边 pending-prefill preflight。
+- A/B parity 最终覆盖 8 个带液体 Jar 组合：Cathode/Anode × Unrestricted/Cathode/Anode/NeutralOnly；A 与 B 在相同主从能力配置下 Feasible/Infeasible 一致。最初额外加入的 4 个空 Jar 组合被移除：空 Jar 变形需要游离液体驱动，在 NeutralOnly 双 Ban 下没有可用驱动液体，测试期待“极性允许”却忽略了资源条件；这不是 A/B 极性差异。极性静态矩阵仍由 `WorkshopCapability` 独立测试覆盖。
+- 固定 Seed 样本已扩展：4 Seed × 200 次主从订单液体交接（总 800），覆盖成功、源余额不足、目标 Ban、目标容量不足；4 Seed × 200 次 Ship Return（总 800），逐液种检查 Requested = Accepted + Discarded、库存总量守恒、容量与账户隔离。一次测试失败仅因理论数据每次 200 样本，却误断言每次 800；已修正，不涉及生产代码缺陷。
+- 验证记录：`45411373717` (`c1a6eb1`) success；`45411404661` (`2d5c30a`) success；`45411519622` (`f4a1ba7`) success；`45411564120` (`fc16c14`) success；`45411592815` (`97df879`) success。旧固定 Seed 断言提交 `7c15635` / `45411759149` 与 `8d461d9` / `45411804846` 失败均为每次样本数断言 800/200；修正提交 `e56bf4d` 的 run `45412278553` 则只暴露空 Jar polarity test 的资源前提错误。修正后最终源码/测试 SHA `3e4a5195d9640fa166359217a5f69ff143439d8d` 对应 Actions `45413094112` completed / success。
+- PR #60 当前仍 Draft/Open/未合并；此时 head `3e4a5195d9640fa166359217a5f69ff143439d8d` 精确 verify success。进入 Space 跨仓库集成前，Core 侧本阶段 1–6 已完成；断电/进程崩溃下的持久化事务原子性仍未证明，必须保留为独立后续项。
+
+
+CHECKPOINT 26 — A/B 固定 Seed 具体计划资源守恒样本（2026-11-24）
+
+- 新增 `WorldOrderFixedSeedResourceConservationTests.FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity`：固定 Seed `0x4A4152`，64 个随机样本，混合 A/B 订单、1–3 个真实 Jar、空/酒/蜜状态、随机主从 Ban、主从暂存容量和 1–2 条需求。
+- 每个 Feasible 结果必须携带完整 concrete assembly、ordered resource replay 与 Manifest；逐项核对 MasterInitial/MasterFinal、TransferLiquids、Master/Slave staging peak、每步 accepted output、实际 Jar ID 集合与 transfer Jar ID 唯一性。主从液体守恒还显式计入 POUR_IN 与空罐 RESHAPE 的游离液体消耗，满罐 RESHAPE_FULL 只自耗 Jar 内液体，不误扣暂存资源。
+- 首轮 run `45413997354` 失败原因是随机生成的需求顺序违反 `JarOrderSpecification` 的领域契约（空罐需求必须在满罐需求之前），并非求解器资源守恒失败。已在生成器中按 `Liquid == null` 排序，保留原固定 Seed 与样本范围。
+- 修正后的精确提交 `6e3d4b96c6adb0d0c3a10f83dd2910b9ecd4952d` 对应 Actions run `45414637038` completed / success；所有 build、xUnit、contract/schema、protocol、solver differential、session replay 与质量门成功。
+- 当前 Core 阶段 1–6 的同步故障补偿、A/B polarity parity、固定 Seed 账户转移与具体计划 replay 样本均完成并通过精确 head 验证。持久化进程崩溃/断电原子性仍未证明。随后进入 Space 跨仓库构建/探针阶段，不提前清理。
+
+
+CHECKPOINT 25 — 固定 Seed A/B 计划资源守恒扩大样本（2026-11-24）
+
+- `WorldOrderFixedSeedResourceConservationTests.FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity` 扩大为 4 个固定 Seed × 每 Seed 128 个样本，共 512 个 A/B 混合计划样本。
+- 每个样本随机组合主从 Ban、主台/从台暂存容量、Jar 形状/液体状态、初始游离液体、订单 A/B 类型和空罐优先的需求顺序；固定 Seed 和全局样本序号使失败可精确复现。
+- 每个 Feasible 计划都必须通过有序资源重放，核对 Master 初始/终态游离液体、交接液体、主从暂存峰值、物理 Jar ID 归属、B 类主从转移清单；Infeasible/Undetermined 不得附带可执行 Assembly。
+- 精确提交 `dfd2e172f78446e1e4a53f6f0db1dbe2f352397e` 对应 Actions run `45419131018` success。前一轮液体账户/Ship Return 固定 Seed 矩阵仍为 4 × 200 + 4 × 200，A/B polarity parity 为 8 个有效带液 Jar 组合（Neutral 需求不产生操作候选，故不作为 A/B feasibility parity 样本）。
+- 当前 PR #60 仍为 Draft/Open，未合并。下一步继续强化 B 类从台最终游离液体逐液种守恒见证，并与 Space 的 Board/Parser/订单模板/战斗 checkpoint 做跨仓库闭环。
+
+
+CHECKPOINT 27 — 固定 Seed A/B 逐液种资源守恒扩测（2026-11-24）
+
+- 将 `WorldOrderFixedSeedResourceConservationTests.FixedSeedAAndBPlansConserveAcceptedFreeLiquidAndPhysicalJarIdentity` 从 4 Seed × 128（512 样本）扩大到 8 Seed × 128（1,024 样本）；新增 Seed 为 `0x4A4156` 至 `0x4A4159`，原有 Seed 与全局样本序号保持不变，失败仍可复现。
+- 不再只比较主/从台游离液体的总量。现在分别对 Master 初始→最终账户、B 类 TransferLiquids→Slave 最终账户做逐液种重算：按每一步 `POUR_IN` 与空罐 `RESHAPE` 的精确 `CostLiquid` 扣减，只把 replay 明确接受的产出液种加回，再逐 key 比较最终余额。
+- 满罐 `RESHAPE_FULL` 不作为游离液体扣减，因为它消耗的是 Jar 内部液体。该边界被保留，避免把 Jar 内部资源错误计入工作台暂存账户。
+- 这项测试增加了独立于 replay 实现的逐液种核算，可以发现“总量相等但液种错账”、负余额、漏记/多记某种液体等聚合总量无法发现的问题。
+- 实现提交：`36c74dcb0f8939396cfb0cae6d40e6642a54c6e9`、`9341a3397f270159c0a926134e689943216770b6`、`378dd1bf36e93fa02d0bf2c939f6e79905550136`；进度文档提交：`4776406a1316fd55ce028fbf17cf08cb20b8e6e2`。PR #60 当前源码/测试 head 在文档更新前为 `378dd1bf36e93fa02d0bf2c939f6e79905550136`，PR 仍 Draft/Open/未合并。
+- 本轮没有为这项纯测试断言增强而等待 Actions/CL；也没有把未运行的本地测试或 CI 说成通过。精确 head 尚未验证，状态保持“已提交、待后续有信息量的批量验证”。
+- 下一步：只继续增加能发现新类别错误的固定 Seed 不变量，不为扩大数字而堆叠重复样本；随后进入 Space 跨仓库闭环：Board Assignment/Definition/Owned Instance 指纹与运行时投影、Core 模板入口、Parser Schema 3 import receipt/outbox 幂等、战斗快照冻结。整体清理推迟到跨仓库契约稳定之后。
+- 进程崩溃/断电下的持久化事务原子性仍未证明，不能与当前同步异常补偿和 checkpoint/replay 测试混为一谈。
+
+
+CHECKPOINT 28 — Space 跨仓库首轮运行与快照探针修正（2026-11-24）
+
+- Core 固定 Seed A/B 计划样本已扩展到 8 Seed × 128 = 1,024，并增加 Master / Slave 逐液种资源核算；源码/测试 head 为 378dd1bf36e93fa02d0bf2c939f6e79905550136，状态文档后续提交为 2f15258976a2ee643192230d4aec38b340688677。该测试尚未声明已执行或通过。
+- Space PR #2 的 cross-repo run 45421741608 在精确 Core Bridge + Space C# build、Godot 4.7.1 project import / script scan 后进入 Parser ingress runtime probe，并失败于 SpaceBattleEffectStateStoreProbe：effect/dispatcher state was not preserved in the unified snapshot。
+- 归因是 probe 将内存 Dictionary 与 JSON 读回的 Variant 直接比较，未归一化 JSON 数字类型。已在 Space 提交 4c0ca87c1f3bcdb5cdf173ab111a0edf9a941517 增加 JSON round-trip 归一化比较，并在 90e46344ef8376640dfb2cc831712227b131aa53 统一既有缩进；Space 集成文档记录提交 4fec7c0af2b22216d00ca799753c788d6fb49436。
+- 该修正只更正测试探针的序列化比较，不改生产存档结构。新一轮工作流已因修正提交触发；截至本记录，未取得新 head 的最终结果，不能声称 Parser ingress 及后续生命周期探针通过。
+- 下一步继续处理首个失败探针，随后逐个推进 Runtime / lifecycle / fault / disposed-command / snapshot-isolation；只有这些边界真正闭合后，才进行 Space 生产 Hangar 启动路径与 Parser → Core → A/B execution 的端到端验收。清理仍然后置。
+
+
+CHECKPOINT 29 — Space Parser Catalog Probe 跟进双工作台契约（2026-11-24）
+
+- Space 修正 JSON 快照比较后，run 45423503329 已越过 unified battle snapshot store probe，并推进到 SpaceOreParserCatalogProbe。
+- 第二个失败来自旧测试夹具：其 jarWorldOptions 只包含一个 Workshop，且没有 slaveWorkshopName；当前 SpaceBattleLoadoutSnapshot.validate_data 已要求所有 World V2 loadout 明确冻结两个不同的主/从工作台位置。
+- 已修正 Space 的 scripts/industrial/world_v2/SpaceOreParserCatalogProbe.gd：加入独立 Slave workshop 条目与 slaveWorkshopName。提交 407932714935b33721c0a1198fc1072e7b5f6358；Space 集成文档提交 f5f49451a739f843aa4aec0101b29e1b7624a295。
+- 不放宽生产模型约束。下一轮继续检查 Parser ingress 与其后的 lifecycle/fault/snapshot probes；最新修复 head 的最终运行结果尚未取得。
+
+
+10. FIXED-SEED RESOURCE CONSERVATION EXPANSION (2026-11-24)
+- Existing WorldOrderFixedSeedResourceConservationTests covered 1,024 fixed-seed A/B plan/replay samples (8 seeds × 128 cases).
+- The first exact-head run exposed a test-oracle mismatch: POUR_IN consumes TargetLiquid, while empty RESHAPE consumes CostLiquid. The test had incorrectly read CostLiquid for both operations. Core's operation semantics and production replay were not changed; the conservation oracle now selects the correct operation field.
+- Expanded the fixed-seed matrix to 4,096 cases (16 fixed seeds × 256 cases), with 1–5 physical Jars, 1–4 ordered requirements, empty/酒/蜜 Jar states, four Ban modes, and Master/Slave staging capacities 1–5. Both A and B orders are guaranteed to appear in the sample set.
+- B-class sample search uses an explicit 4,096 branch / 100,000 node budget. Feasible cases are checked against the exact ordered replay witness and manifest; bounded Undetermined remains a valid solver status and is not mislabeled as Infeasible.
+- Each conservation failure now reports the fixed seed, per-seed sample index, role, liquid, initial/final balances and ordered operation/output trace.
+- Exact source head for the 4,096-case expansion: 0a45e6d6fd215efce3c8c42f7c604676334cdb24. The matching Actions verify run is pending at the time of this note. Do not mark the expanded sample suite green until the exact head's run completes successfully.
+- Next: inspect the exact-head result once; if it reveals a new counterexample, fix the underlying contract or oracle and retain the seed. Do not add repeated CI-only checks that provide no new information.
+
+7. FIXED-SEED RESOURCE CONSERVATION EXPANSION — 2026-11-25
+- Expanded deterministic A/B resource-conservation coverage from 1,024 to 4,096 generated samples: 16 fixed seeds × 256 cases, with both A and B order types represented.
+- Samples vary Master/Slave Ban modes, staging capacities 1–5, 1–5 physical Jars, Jar shapes and empty/酒/蜜 states, initial free-liquid balances, and 1–4 ordered requirements.
+- Every Feasible sample checks the ordered replay witness against the Manifest: Master initial/final free-liquid balances, accepted production sequence, exact transfer liquid amounts, staging peaks, Jar ID membership/uniqueness, and Slave-side conservation.
+- Added explicit sample diagnostics (seed/sample, role, liquid, initial/final balances and operation sequence) so a counterexample can be reproduced without guessing.
+- Corrected the oracle to treat POUR_IN as consuming TargetLiquid; empty RESHAPE consumes CostLiquid. This is a test-oracle correction, not a change to the domain rule.
+- Strengthened coverage assertions: all four Ban configurations on each role, all five staging capacities, all six shape × Jar-state combinations, both A/B types, and zero Undetermined outcomes are required.
+- Added focused replay cases proving Master and Slave staging overflow discard only excess produced free liquid while preserving the accepted balance and peak capacity.
+- Latest changes are on this branch; the new coverage/overflow additions require the latest applicable verify run before being called verified. An earlier successful run at 0a45e6d... covered the 4,096-sample expansion before the newest coverage assertions and overflow regressions; it does not validate those later commits.
+- Next: review any new test failures by exact seed/sample and fix only real model/oracle defects; then add the remaining deterministic transfer/identity and failure/rollback conservation cases. Do not start Space cross-repository integration or repository cleanup until this sample stage is closed.
+- Follow-up verification found the 4,096-sample run contains at least one Undetermined enumeration (not a conservation mismatch). Undetermined is a legitimate bounded-search result: it must remain distinct from Infeasible, must carry no concrete assembly, and is excluded from feasible-plan conservation assertions. Do not inflate search budgets solely to force zero Undetermined results in a resource-conservation sample suite.
+- Per-step physical Jar identity is now also checked: every before/after state must contain identified, unique Jar IDs and preserve the exact ID set across each operation.
+- Successful verification: head 22a8009d (PR #60) completed verify run 45436228490 with 837 tests, 0 errors, 0 failures, QUALITY-OK / VERDICT=OK. This validates the 4,096-sample A/B conservation suite, per-step Jar identity assertions, and Master/Slave staging-overflow replay regressions at that head.
+- Added a second 1,024-case fixed-seed WorkshopStaging admission suite (4 seeds × 256): checks requested = accepted + discarded, exact order-account delta, aggregate capacity delta, transition Transfer/Discard effect amounts, Ban full-discard behavior, and isolation of an unrelated order account. This newest addition is awaiting its own verify run.
+- Final sample-stage verification: head 1ea92f7c passed verify run 45437509592: 841 tests, 0 errors, 0 failures, QUALITY-OK / VERDICT=OK. This includes the 1,024 fixed-seed staging-admission cases and the 4,096 A/B plan resource-conservation cases. The separate 800-case ship-return and 800-case inter-workshop liquid-transfer suites remain in the same test assembly and also passed.
+- Stage 6 resource-sample expansion is complete at this Core head. Combined deterministic coverage now includes 6,720 generated cases across plan replay, staging admission, ship return and workshop-to-workshop liquid transfer, plus focused replay/rollback/identity regressions. Bounded-search Undetermined outcomes remain explicitly distinct and carry no assembly; only Feasible plans enter conservation assertions.
+- Next work may now enter Space cross-repository integration and cleanup. Space PR #2 remains Draft/Open. The latest Space verify run 45434363095 failed only at WorldV2SnapshotIsolationProbe's expectation that resourceLiquids["酒"] is 10; Core's snapshot exposes LiquidWarehouse and ShipLiquidInventory as separate accounts, while the Godot host currently omits the latter from its snapshot dictionary. Fix the host projection and probe to mutate/assert both accounts independently. Space parser import/idempotent retry, Board assignment, runtime profile routing, catalog ownership and template probes were passing in that run. Keep PR #2 unmerged.
+
+
+ADDENDUM — RUNTIME WORKSHOP SWITCH-EVENT CONSERVATION (2026-11-25)
+- User requested runtime table/workshop switch-event validation in addition to the existing fixed-seed resource suites.
+- Added 512 deterministic cases (seed 0x5A17C) to WorkshopReplacementTests. Each case drives ResourceWorldRuntime.BeginReplacement through both phases using a real injected WorkshopSwitchEvent, with variable source Jar count, destination capacity, shape, and internal liquid state (empty / 酒 / 蜜).
+- Assertions cover exact Jar identity accounting across old Master, new Master and JarPool; preservation of retained Jar shape/internal liquid/Mark; no conversion of Jar-internal liquid into workshop free-liquid staging; agreement among discard callback, pool return count and discard ledger; and successful runtime role commit without a destination polarity-operation gate.
+- Change is stacked as PR #62 (Draft/Open/unmerged), based on the current PR #60 target branch snapshot 8ea8106367a9246a4e97aee3191f10114c1f2f99.
+- Exact-head verify run 45443745916 was observed in progress for head ca9df6c1f417dd6201550c516a171938b0a0cf07. Do not mark this new suite passed until that exact head's run completes successfully; prior 841-test verification does not cover these new tests.
+
+
+SUPERSESSION NOTE — 2026-11-25
+
+This chronological handoff ledger remains preserved for its original World V2 execution decisions and fixed-seed evidence. Its old statements that PR #60 is the current integration PR, and its old liquid Ban/polarity model, are historical and no longer authoritative. The current consolidation is tracked in:
+- docs/architecture/2026-11-core-multi-angle-audit.md
+- docs/work-records/2026-11-25-core-consolidation-audit.md
+- docs/decisions/0006-world-owned-binary-liquid-polarity.md
+The successor integration is PR #63 (Draft/Open). The Core model now requires explicit World liquid identity-to-polarity mapping; Ban is staging-only and never defines Jar polarity or blocks Jar-internal consumption/migration. Do not delete this historical ledger; use the dated work-record index for current status.

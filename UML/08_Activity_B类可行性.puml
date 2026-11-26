@@ -1,3 +1,4 @@
+' HISTORICAL / LEGACY: the 2^N mask partition and SinglePhaseCheck chain belong to the retired pre-World-V2 solver. Do not use it to infer current B-class role assignment or handoff semantics. Current contract: docs/world-v2/order-funnel-and-workshop-replacement-contract.md.
 @startuml
 title B 类订单可行性 —— 单阶段 / 划分责任链
 ' ============================================================

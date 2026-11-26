@@ -3,7 +3,8 @@ using System;
 namespace JarSystem.Core.Domain;
 
 /// <summary>
-/// 「动用液体」的回应（原则4：规则 = 概念体的能力）。
+/// 「动用工作台游离液体」的回应（原则4：规则 = 概念体的能力）。
+/// 本类型只约束工作台游离液体的取用与存入。Jar 内部液体是 Jar 自身携带的资源，不属于工作台暂存账户，不受工作台暂存区 Ban 检查。
 ///
 /// <see cref="Code"/> 是稳定码（给程序看），<see cref="Reason"/> 是给人看的一句话。
 /// 两者都不随调用方变化 —— 这正是把规则从"各处 if"收成"一个能力"的目的：
@@ -48,9 +49,7 @@ public readonly struct LiquidGrant
 /// 现在三分：<b>规则</b>在 <see cref="LiquidRules"/>（纯函数），<b>库存</b>由调用方给（<c>have</c>），
 /// <b>有状态的门面</b>是 <see cref="Workshop"/> 上的三个能力（它把自己的库存喂进来）。
 ///
-/// <para><b>存储与取用是两条规则</b>（2026-11 定案）：禁令只约束<b>取用</b>（倒入罐子、当改形成本、
-/// 满罐自耗），<b>不</b>约束<b>存储</b> —— 被禁的液体可以流进工作台、留在池子里（那一格仍然存在），
-/// 只是取不出来。于是 <see cref="CanStore"/> 不再问禁令，<see cref="CanPay"/>/<see cref="Check"/> 仍然问。</para>
+/// <para><b>工作台禁液作用域</b>：Ban 只约束该工作台游离液体暂存账户的取用与接收。Jar 内部液体属于 Jar 自身资源；满罐改形自耗该液体时，不读取也不扣减工作台暂存账户，因此不能触发暂存区 Ban。Jar 的迁移不等于游离液体转移；游离液体跨工作台转移仍必须经过来源与目标账户各自的规则。</para>
 /// </summary>
 public readonly struct LiquidRules
 {
@@ -71,7 +70,7 @@ public readonly struct LiquidRules
     /// <summary>禁令门：这整种液体在本台是否不可用。</summary>
     public bool IsBanned(string liquid) => _capability?.IsBanned(liquid) ?? false;
 
-    /// <summary>能不能碰这种液体（只答禁令）。</summary>
+    /// <summary>工作台游离液体是否可取用。</summary>
     public LiquidGrant Check(string liquid) =>
         IsBanned(liquid) ? LiquidGrant.Banned(liquid) : LiquidGrant.Yes();
 
@@ -84,9 +83,11 @@ public readonly struct LiquidRules
         return have >= amount ? LiquidGrant.Yes() : LiquidGrant.Insufficient(liquid);
     }
 
-    /// <summary>能不能放进 <paramref name="amount"/> 份（**只问容量**：禁液也能存进来，只是取不出来）。</summary>
+    /// <summary>能不能存入工作台游离液体池（禁令 + 容量）。</summary>
     public LiquidGrant CanStore(string liquid, int amount, int have)
     {
+        var policy = Check(liquid);
+        if (!policy.Granted) return policy;
         if (amount <= 0) return LiquidGrant.Yes();
         if (_capacity <= 0) return LiquidGrant.Yes();
         return have + amount <= _capacity ? LiquidGrant.Yes() : LiquidGrant.OverCapacity(liquid);

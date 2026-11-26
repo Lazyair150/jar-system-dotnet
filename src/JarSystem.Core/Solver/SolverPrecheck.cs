@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 using JarSystem.Core.Abstractions;
 
 namespace JarSystem.Core.Solver;
@@ -66,7 +67,72 @@ public static class SolverPrecheck
             return usable.Any(j => string.Equals(j.Liquid, liquid, StringComparison.Ordinal));
         }
 
-        bool anyCostLiquid = Constants.LIQUIDS.Any(CanObtainLiquid);
+        bool anyCostLiquid = cap.Liquids.Any(CanObtainLiquid);
+
+        // ---- 条件 4：逐液种的反向需求下界（不要求世界里只有一种液体）----
+        //
+        // 从终态需求往回看：每条「形状 S + 液体 L」需求，只有两种不消耗游离 L 的可能：
+        // ① 初始就存在一只同形状、同液体的满罐，直接 MATCH；
+        // ② 否则最终必须有一次 POUR_IN(L)，至少消耗一份 L。
+        //
+        // 用最大二分匹配计算①最多能覆盖多少条需求，得到 L 的最低消耗量。
+        // 可供给量故意放宽为「游离 L + 所有未标记满罐中的 L」；后者即使形状不匹配，
+        // 也可能先 POUR_OUT 回收，因此这是乐观上界，不会错杀可行解。
+        // 如果 L 被禁，任何未直接匹配的需求都无法通过 POUR_IN 得到满足。
+        foreach (var liquid in requirements
+            .Where(item => item.Liquid != null)
+            .Select(item => item.Liquid!)
+            .Distinct(StringComparer.Ordinal))
+        {
+            var liquidRequirements = requirements
+                .Where(item => string.Equals(item.Liquid, liquid, StringComparison.Ordinal))
+                .ToList();
+
+            var directMatchJar = new int[usable.Count];
+            Array.Fill(directMatchJar, -1);
+
+            bool MatchDirect(int requirementIndex, bool[] seen)
+            {
+                for (var jarIndex = 0; jarIndex < usable.Count; jarIndex++)
+                {
+                    var jar = usable[jarIndex];
+                    if (seen[jarIndex] ||
+                        !string.Equals(jar.Shape, liquidRequirements[requirementIndex].Shape, StringComparison.Ordinal) ||
+                        !string.Equals(jar.Liquid, liquid, StringComparison.Ordinal))
+                        continue;
+
+                    seen[jarIndex] = true;
+                    if (directMatchJar[jarIndex] == -1 ||
+                        MatchDirect(directMatchJar[jarIndex], seen))
+                    {
+                        directMatchJar[jarIndex] = requirementIndex;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            var directMatches = 0;
+            for (var requirementIndex = 0; requirementIndex < liquidRequirements.Count; requirementIndex++)
+                if (MatchDirect(requirementIndex, new bool[usable.Count]))
+                    directMatches++;
+
+            var minimumPourIn = liquidRequirements.Count - directMatches;
+            if (minimumPourIn == 0) continue;
+
+            if (cap.IsBanned(liquid))
+                return "液体「" + liquid + "」被禁：终态需求至少有 " + minimumPourIn
+                    + " 条无法由现有同形满罐直接满足";
+
+            var freeSupply = liquids.TryGetValue(liquid, out var available) ? available : 0;
+            var recoverableJarSupply = usable.Count(j =>
+                string.Equals(j.Liquid, liquid, StringComparison.Ordinal));
+            var optimisticSupply = checked(freeSupply + recoverableJarSupply);
+            if (minimumPourIn > optimisticSupply)
+                return "液体「" + liquid + "」不足：从终态需求反推至少需要 "
+                    + minimumPourIn + " 份，乐观可得上限为 " + optimisticSupply;
+        }
+
 
         // ---- 条件 2：需求与罐子的**二分图完美匹配** ----
         // 依据：一罐一操作 ⇒ 一个可行解必然给每个需求分配一个**互不相同**的罐子。
@@ -109,7 +175,7 @@ public static class SolverPrecheck
         // 因此若 N−ν 超过可得的液体总量，则必然无解。这条是**下界**，只用来证伪，不会错杀。
         //
         // 只在恰好一种可用液体时用：两种液体时有"任意液体"这一维，单一的 N−ν 不再对得上账。
-        var usableLiquids = Constants.LIQUIDS.Where(l => !cap.IsBanned(l)).ToList();
+        var usableLiquids = cap.Liquids.Where(l => !cap.IsBanned(l)).ToList();
         if (usableLiquids.Count == 1)
         {
             var only = usableLiquids[0];
@@ -151,23 +217,22 @@ public static class SolverPrecheck
     }
 
     /// <summary>
-    /// 单只罐子能否以**零液体代价**承担该需求。用于条件 3 的匹配下界。
+    /// 单只罐子能否以**零液体代价**承担该需求.用于条件 3 的匹配下界。
     /// 零成本角色只有四个：MATCH（空且形状对）、POUR_OUT（满且形状对）、满罐改形（自耗）、满罐直接匹配。
     /// </summary>
     private static bool CanServeFree(Requirement req, JarState jar, WorkshopInfo info)
     {
         var cap = info.Capability;
-
         if (req.Liquid != null)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)
                 && string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal);
 
-        if (jar.Liquid == null)
+        if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral)
             return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
 
-        if (cap.IsBanned(jar.Liquid)) return false;
-        return cap.CanTransform(jar.Shape, req.Shape)
-            || string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
+        // Full-Jar reshape spends Jar-owned liquid; staging Ban is irrelevant.
+        if (cap.CanTransform(jar.Shape, req.Shape)) return true;
+        return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -186,21 +251,21 @@ public static class SolverPrecheck
 
         if (req.Liquid != null)
         {
-            // 满罐需求：形状必须已经是 req.Shape
+            // 满罐需求：形状必须已经是 req.Shape；Ban 不参与 Jar 操作许可
             if (!string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return false;
 
-            // ① 已经是 S/l 满罐 ⇒ MATCH（**不看禁令**：液体已经在罐子里，MatchJar 是唯一不受禁的路径）
+            // ① 已经是 S/l 满罐 ⇒ MATCH
             if (string.Equals(jar.Liquid, req.Liquid, StringComparison.Ordinal)) return true;
 
             // ② 是空 S 罐 ⇒ POUR_IN（要求 S 在基础标记内、液体未被禁、且还弄得一份）
-            if (cap.IsBanned(req.Liquid)) return false;
-            return jar.Liquid == null
+            if (cap.IsBanned(req.Liquid!)) return false;
+            return cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral
                 && cap.IsBaseMarked(req.Shape)
-                && canObtainLiquid(req.Liquid);
+                && canObtainLiquid(req.Liquid!);
         }
 
         // 空罐需求：形状 S（或能变成 S）
-        if (jar.Liquid == null)
+        if (cap.ResolvePolarity(jar.Liquid) == JarPolarity.Neutral)
         {
             // ① 已经是空 S 罐 ⇒ MATCH
             if (string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal)) return true;
@@ -208,10 +273,9 @@ public static class SolverPrecheck
             return cap.CanTransform(jar.Shape, req.Shape) && anyCostLiquid;
         }
 
-        // ③ 满罐改形：自耗罐内液体，不额外要液体（液体被禁则不可）
-        if (cap.IsBanned(jar.Liquid)) return false;
+        // ③ 满罐改形：资源只从 Jar 内部扣除，不经过 staging Ban。
         if (cap.CanTransform(jar.Shape, req.Shape)) return true;
-        // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH
+        // ④ 倒空后形状正好是 S ⇒ POUR_OUT 后直接 MATCH；Jar 状态变化允许，产液在 staging 被拒绝时丢弃。
         return string.Equals(jar.Shape, req.Shape, StringComparison.Ordinal);
     }
 
@@ -256,10 +320,10 @@ public static class SolverPrecheck
                         break;
                     }
                     // POUR_IN
-                    if (j.Liquid == null && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid)
-                        && pool.TryGetValue(req.Liquid, out var have) && have > 0)
+                    if (cap.ResolvePolarity(j.Liquid) == JarPolarity.Neutral && cap.IsBaseMarked(req.Shape) && !cap.IsBanned(req.Liquid!)
+                        && pool.TryGetValue(req.Liquid!, out var have) && have > 0)
                     {
-                        pool[req.Liquid] = have - 1;
+                        pool[req.Liquid!] = have - 1;
                         j.Liquid = req.Liquid;
                         j.IsMarked = true;
                         applied = true;
@@ -269,15 +333,16 @@ public static class SolverPrecheck
                 }
 
                 // 空罐需求：MATCH
-                if (j.Liquid == null && string.Equals(j.Shape, req.Shape, StringComparison.Ordinal))
+                if (cap.ResolvePolarity(j.Liquid) == JarPolarity.Neutral && string.Equals(j.Shape, req.Shape, StringComparison.Ordinal))
                 {
                     j.IsMarked = true;
                     applied = true;
                     break;
                 }
                 // 满罐改形（自耗）
-                if (j.Liquid != null && !cap.IsBanned(j.Liquid) && cap.CanTransform(j.Shape, req.Shape))
+                if (cap.ResolvePolarity(j.Liquid) != JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
                 {
+                    // Liquid is consumed from the Jar; staging Ban is not consulted.
                     j.Liquid = null;
                     j.Shape = req.Shape;
                     j.IsMarked = true;
@@ -285,9 +350,9 @@ public static class SolverPrecheck
                     break;
                 }
                 // 空罐改形（付一份成本液体）
-                if (j.Liquid == null && cap.CanTransform(j.Shape, req.Shape))
+                if (cap.ResolvePolarity(j.Liquid) == JarPolarity.Neutral && cap.CanTransform(j.Shape, req.Shape))
                 {
-                    foreach (var cl in Constants.LIQUIDS)
+                    foreach (var cl in cap.Liquids)
                     {
                         if (cap.IsBanned(cl)) continue;
                         if (!pool.TryGetValue(cl, out var have) || have <= 0) continue;

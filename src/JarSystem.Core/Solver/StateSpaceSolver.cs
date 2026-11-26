@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using JarSystem.Core.Abstractions;
 using JarSystem.Core.Config;
+using JarSystem.Core.Domain;
 
 namespace JarSystem.Core.Solver;
 
@@ -15,18 +16,71 @@ internal class SolverState
     public List<JarState> Jars { get; set; }
     public Dictionary<string, int> Liquids { get; set; }
     public WorkshopInfo WorkshopInfo { get; set; }
+    private readonly RuleContext _rules;
+    private readonly int _perLiquidCapacity;
     // 选择性转移预算：从台阶段最多可「使用」的主台来源罐子数（未使用的主台罐子留在主台）
     public int TransferBudget { get; set; } = int.MaxValue;
     public int TransferUsed { get; set; }
 
     public SolverState(List<JarState> jars, Dictionary<string, int> liquids, WorkshopInfo workshopInfo)
+        : this(
+            jars, liquids, workshopInfo,
+            workshopInfo.Rules ?? RuleContext.From(workshopInfo.Capability),
+            workshopInfo.MaxLiquidCapacity == int.MaxValue
+                ? workshopInfo.MaxLiquids
+                : int.MaxValue)
+    {
+    }
+
+    private SolverState(
+        List<JarState> jars, Dictionary<string, int> liquids, WorkshopInfo workshopInfo,
+        RuleContext rules, int perLiquidCapacity)
     {
         Jars = jars.Select(j => JarState.Copy(j)).ToList();
         Liquids = new Dictionary<string, int>(liquids);
         WorkshopInfo = workshopInfo;
+        _rules = rules;
+        _perLiquidCapacity = perLiquidCapacity;
     }
 
-    public SolverState Clone() => new SolverState(Jars, Liquids, WorkshopInfo)
+    public bool Allows(JarState jar, SolverOperation operation)
+    {
+        if (operation.Type == "MATCH")
+            return WorkshopRulebook.EvaluateMatchTransition(
+                _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid))).Decision.IsAllowed;
+        return WorkshopRulebook.IsAllowed(
+            _rules, _perLiquidCapacity,
+            new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid)),
+            ToWorkshopOperation(operation), Liquids);
+    }
+
+    public WorkshopRulebook.WorkshopOperationTransition? CreateTransition(JarState jar, SolverOperation operation) =>
+        WorkshopRulebook.CreateTransition(
+            _rules, _perLiquidCapacity,
+            new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid)),
+            ToWorkshopOperation(operation), Liquids);
+
+    public WorkshopRulebook.WorkshopOperationTransition? CreateMatchTransition(JarState jar) =>
+        WorkshopRulebook.EvaluateMatchTransition(
+            _rules, new JarFacts(jar.Shape, jar.Liquid, jar.IsMarked, WorkshopInfo.Capability.ResolvePolarity(jar.Liquid))).Transition;
+
+    private static WorkshopOperation ToWorkshopOperation(SolverOperation operation) =>
+        operation.Type switch
+        {
+            "POUR_IN" when operation.TargetLiquid != null =>
+                WorkshopOperation.PourIn(operation.TargetLiquid),
+            "POUR_OUT" => WorkshopOperation.PourOut(),
+            "RESHAPE" when operation.FullReshape && operation.TargetShape != null =>
+                WorkshopOperation.ReshapeFull(operation.TargetShape),
+            "RESHAPE" when operation.TargetShape != null && operation.CostLiquid != null =>
+                WorkshopOperation.ReshapeEmpty(operation.TargetShape, operation.CostLiquid),
+            _ => throw new InvalidOperationException("未知或不完整的 Workshop 算子")
+        };
+
+    // RuleContext 与规则 Profile 都是只读值/只读栈，搜索分支共享同一实例；
+    // Clone 只复制可变 Jar 与液体工作态，不为每个 DFS 节点重新构造规则上下文。
+    public SolverState Clone() => new SolverState(
+        Jars, Liquids, WorkshopInfo, _rules, _perLiquidCapacity)
     {
         TransferBudget = TransferBudget,
         TransferUsed = TransferUsed
@@ -40,22 +94,13 @@ internal class SolverState
     public void AddLiquid(string l, int a = 1) => Liquids[l] = Liquids.GetValueOrDefault(l, 0) + a;
 
     // ---- 罐子状态（求解器自有的快照态） ----
-    public void MarkJar(int i) => Jars[i].IsMarked = true;
     public void SetShape(int i, string s) => Jars[i].Shape = s;
-    public void SetLiquid(int i, string l) => Jars[i].Liquid = l;
+    public void SetLiquid(int i, string? l) => Jars[i].Liquid = l;
     public string? TakeLiquid(int i) { var l = Jars[i].Liquid; Jars[i].Liquid = null; return l; }
-    public bool IsEmpty(JarState j) => j.Liquid is null;
+    public bool IsEmpty(JarState j) => WorkshopInfo.Capability.ResolvePolarity(j.Liquid) == JarPolarity.Neutral;
 
     // ---- 规则查询 ----
     public bool IsBanned(string l) => WorkshopInfo.Capability.IsBanned(l);
-    public bool CanTransform(string f, string t) => WorkshopInfo.Capability.CanTransform(f, t);
-
-    /// <summary>可用成本液体（未被禁 + 有库存 + 不在排除列表）。</summary>
-    public List<string> AvailableCostLiquids(List<string>? exclude = null)
-    {
-        exclude ??= new();
-        return Constants.LIQUIDS.Where(l => !IsBanned(l) && HasLiquid(l, 1) && !exclude.Contains(l)).ToList();
-    }
 }
 
 public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
@@ -193,7 +238,11 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
                 bool isEmptyReq = reqs[idx].Liquid == null;
                 ni = (shapeMatch && isEmptyReq) ? idx + 1 : idx;
             }
-            var r = Bt(reqs, ni, ns, path);
+            // 以从台路径所需的最小初始供给重放当前前缀；容量只约束实际需要的资源，
+            // 不把来源工作台的全部剩余液体误算成必须进入本工作台的库存。
+            var withinLiquidCapacity = LiquidRequirementCalculator.ComputePeakCapacity(path)
+                <= st.WorkshopInfo.MaxLiquidCapacity;
+            var r = withinLiquidCapacity ? Bt(reqs, ni, ns, path) : null;
             path.RemoveAt(path.Count - 1);
             if (r != null)
             {
@@ -261,7 +310,7 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     private List<SolverOperation> GenOps(Requirement req, SolverState st)
     {
         var ops = new List<SolverOperation>();
-        if (req.Liquid != null) FullOps(req.Shape, req.Liquid, st, ops);
+        if (req.Liquid != null) FullOps(req.Shape, req.Liquid!, st, ops);
         else EmptyOps(req.Shape, st, ops);
         // 倒出候选按**罐子描述符**去重：两个描述符相同的满罐（同形状/同液体/同标记/同来源）
         // 互为同构，倒出任一个得到的后续状态只是罐子下标置换 ⇒ 只需保留第一个代表。
@@ -269,13 +318,18 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         for (int i = 0; i < st.Jars.Count; i++)
         {
             var j = st.Jars[i];
-            if (j.Liquid != null && !j.IsMarked && !st.IsBanned(j.Liquid))
-                if (st.LiquidCount(j.Liquid) < st.WorkshopInfo.MaxLiquids)
+            if (st.WorkshopInfo.Capability.ResolvePolarity(j.Liquid) != JarPolarity.Neutral)
+            {
+                var candidate = new SolverOperation
                 {
-                    if (!WithinBudget(st, i)) continue;                       // 预算外：Apply 必拒
-                    if (!seenPourOut.Add(Descriptor(j))) { Stats.IsomorphicPruned++; continue; }
-                    ops.Add(new SolverOperation { Type = "POUR_OUT", Description = "倒出 " + j.Shape + " 中的 " + j.Liquid, JarIndex = i, Consumed = new() });
-                }
+                    Type = "POUR_OUT", Description = "倒出 " + j.Shape + " 中的 " + j.Liquid,
+                    JarIndex = i, TargetLiquid = j.Liquid, Consumed = new()
+                };
+                if (!st.Allows(j, candidate)) continue;
+                if (!WithinBudget(st, i)) continue;                       // 预算外：Apply 必拒
+                if (!seenPourOut.Add(Descriptor(j))) { Stats.IsomorphicPruned++; continue; }
+                ops.Add(candidate);
+            }
         }
         return ops;
     }
@@ -283,43 +337,96 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
     private void FullOps(string shape, string liquid, SolverState st, List<SolverOperation> ops)
     {
         var di = st.FindJarIndex(j => j.Shape == shape && j.Liquid == liquid && !j.IsMarked);
-        if (di != -1 && WithinBudget(st, di)) ops.Add(new SolverOperation { Type = "MATCH", Description = "直接使用 " + shape + "/" + liquid, JarIndex = di, Consumed = new() });
-        if (!st.IsBanned(liquid) && st.WorkshopInfo.Capability.IsBaseMarked(shape))
+        if (di != -1 && WithinBudget(st, di))
         {
-            var pi = st.FindJarIndex(j => j.Shape == shape && st.IsEmpty(j) && !j.IsMarked);
-            if (pi != -1 && WithinBudget(st, pi)) ops.Add(new SolverOperation { Type = "POUR_IN", Description = "倒入 " + liquid + " 到 " + shape + "空罐", JarIndex = pi, TargetLiquid = liquid, Consumed = new() { [liquid] = 1 } });
+            var match = new SolverOperation
+            {
+                Type = "MATCH",
+                Description = "直接使用 " + shape + "/" + liquid,
+                JarIndex = di,
+                Consumed = new()
+            };
+            if (st.Allows(st.Jars[di], match)) ops.Add(match);
+        }
+        var pourInJar = st.FindJarIndex(j => j.Shape == shape && st.IsEmpty(j) && !j.IsMarked);
+        if (pourInJar != -1)
+        {
+            var candidate = new SolverOperation
+            {
+                Type = "POUR_IN", Description = "倒入 " + liquid + " 到 " + shape + "空罐",
+                JarIndex = pourInJar, TargetLiquid = liquid, Consumed = new() { [liquid] = 1 }
+            };
+            if (WithinBudget(st, pourInJar) && st.Allows(st.Jars[pourInJar], candidate))
+                ops.Add(candidate);
         }
     }
 
     private void EmptyOps(string shape, SolverState st, List<SolverOperation> ops)
     {
         var di = st.FindJarIndex(j => j.Shape == shape && st.IsEmpty(j) && !j.IsMarked);
-        if (di != -1 && WithinBudget(st, di)) ops.Add(new SolverOperation { Type = "MATCH", Description = "直接使用 " + shape + "空罐", JarIndex = di, Consumed = new() });
+        if (di != -1 && WithinBudget(st, di))
+        {
+            var match = new SolverOperation
+            {
+                Type = "MATCH",
+                Description = "直接使用 " + shape + "空罐",
+                JarIndex = di,
+                Consumed = new()
+            };
+            if (st.Allows(st.Jars[di], match)) ops.Add(match);
+        }
         // 空罐改形：按（成本液体 → 罐子描述符）去重，理由同上（同构罐子互为等价分支）。
-        foreach (var cl in st.AvailableCostLiquids())
+        foreach (var cl in st.Liquids.Keys)
         {
             var seenEmpty = new HashSet<string>();
             for (int i = 0; i < st.Jars.Count; i++)
-                if (st.IsEmpty(st.Jars[i]) && !st.Jars[i].IsMarked && st.CanTransform(st.Jars[i].Shape, shape))
+            {
+                if (!st.IsEmpty(st.Jars[i]) || st.Jars[i].IsMarked) continue;
+                var candidate = new SolverOperation
                 {
-                    if (!WithinBudget(st, i)) continue;                       // 预算外：Apply 必拒
-                    if (!seenEmpty.Add(Descriptor(st.Jars[i]))) { Stats.IsomorphicPruned++; continue; }
-                    ops.Add(new SolverOperation { Type = "RESHAPE", Description = "改形 " + st.Jars[i].Shape + "->" + shape, JarIndex = i, TargetShape = shape, CostLiquid = cl, Consumed = new() { [cl] = 1 } });
-                }
+                    Type = "RESHAPE", Description = "改形 " + st.Jars[i].Shape + "->" + shape,
+                    JarIndex = i, TargetShape = shape, CostLiquid = cl,
+                    Consumed = new() { [cl] = 1 }
+                };
+                if (!st.Allows(st.Jars[i], candidate)) continue;
+                if (!WithinBudget(st, i)) continue;                       // 预算外：Apply 必拒
+                if (!seenEmpty.Add(Descriptor(st.Jars[i]))) { Stats.IsomorphicPruned++; continue; }
+                ops.Add(candidate);
+            }
         }
         // 满罐改形同理去重。
         var seenFull = new HashSet<string>();
         for (int i = 0; i < st.Jars.Count; i++)
         {
             var j = st.Jars[i];
-            if (j.Liquid != null && !j.IsMarked && !st.IsBanned(j.Liquid) && st.CanTransform(j.Shape, shape))
+            if (st.WorkshopInfo.Capability.ResolvePolarity(j.Liquid) != JarPolarity.Neutral && !j.IsMarked)
             {
+                var candidate = new SolverOperation
+                {
+                    Type = "RESHAPE", Description = "满罐改形 " + j.Shape + "->" + shape + " 自耗" + j.Liquid,
+                    JarIndex = i, TargetShape = shape, CostLiquid = j.Liquid,
+                    Consumed = new(), FullReshape = true
+                };
+                if (!st.Allows(j, candidate)) continue;
                 if (!WithinBudget(st, i)) continue;                           // 预算外：Apply 必拒
                 if (!seenFull.Add(Descriptor(j))) { Stats.IsomorphicPruned++; continue; }
-                ops.Add(new SolverOperation { Type = "RESHAPE", Description = "满罐改形 " + j.Shape + "->" + shape + " 自耗" + j.Liquid, JarIndex = i, TargetShape = shape, CostLiquid = j.Liquid, Consumed = new(), FullReshape = true });
+                ops.Add(candidate);
             }
         }
     }
+
+    private static WorkshopOperation ToWorkshopOperation(SolverOperation operation) =>
+        operation.Type switch
+        {
+            "POUR_IN" when operation.TargetLiquid != null =>
+                WorkshopOperation.PourIn(operation.TargetLiquid),
+            "POUR_OUT" => WorkshopOperation.PourOut(),
+            "RESHAPE" when operation.FullReshape && operation.TargetShape != null =>
+                WorkshopOperation.ReshapeFull(operation.TargetShape),
+            "RESHAPE" when operation.TargetShape != null && operation.CostLiquid != null =>
+                WorkshopOperation.ReshapeEmpty(operation.TargetShape, operation.CostLiquid),
+            _ => throw new InvalidOperationException("未知或不完整的 Workshop 算子")
+        };
 
     private bool Apply(SolverOperation op, SolverState st)
     {
@@ -330,22 +437,25 @@ public class StateSpaceSolver : ISolver, IWorkBudgetedSolver
         if (st.Jars[i].MasterOrigin && st.TransferUsed >= st.TransferBudget) return false;
         foreach (var kv in op.Consumed ?? new())
             if (!st.HasLiquid(kv.Key, kv.Value)) return false;
-        switch (op.Type)
-        {
-            case "MATCH": st.MarkJar(i); break;
-            case "POUR_IN":
-                if (!st.IsEmpty(st.Jars[i])) return false;
-                if (op.TargetLiquid == null || !st.ConsumeLiquid(op.TargetLiquid, 1)) return false;
-                st.SetLiquid(i, op.TargetLiquid); st.MarkJar(i); break;
-            case "RESHAPE":
-                if (st.IsEmpty(st.Jars[i])) { if (op.CostLiquid == null || !st.ConsumeLiquid(op.CostLiquid, 1)) return false; }
-                else { if (st.IsBanned(st.Jars[i].Liquid!)) return false; st.TakeLiquid(i); }
-                st.SetShape(i, op.TargetShape!); st.MarkJar(i); break;
-            case "POUR_OUT":
-                if (st.IsEmpty(st.Jars[i])) return false;
-                var lq = st.TakeLiquid(i); st.MarkJar(i); st.AddLiquid(lq!, 1); Stats.PourOuts++; break;
-            default: return false;
-        }
+        var transition = op.Type == "MATCH"
+            ? st.CreateMatchTransition(st.Jars[i])
+            : st.CreateTransition(st.Jars[i], op);
+        if (transition == null) return false;
+
+        if (transition.Value.ConsumedFreeLiquid is { } consumed &&
+            !st.ConsumeLiquid(consumed, 1)) return false;
+        if (transition.Value.ConsumedJarLiquid is { } jarLiquid &&
+            !string.Equals(st.Jars[i].Liquid, jarLiquid, StringComparison.Ordinal)) return false;
+        if (transition.Value.ProducedFreeLiquid is { } produced &&
+            !st.WorkshopInfo.Capability.IsBanned(produced))
+            st.AddLiquid(produced, 1);
+        // A staging Ban rejects only the output account admission. The POUR_OUT
+        // Jar transition still commits; rejected output is discarded.
+
+        st.SetShape(i, transition.Value.After.Shape);
+        st.SetLiquid(i, transition.Value.After.Liquid);
+        st.Jars[i].IsMarked = transition.Value.After.IsMarked;
+        if (op.Type == "POUR_OUT") Stats.PourOuts++;
         if (st.Jars[i].MasterOrigin) st.TransferUsed++;
         return true;
     }

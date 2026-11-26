@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using JarSystem.Core.Rules;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -39,6 +41,10 @@ public partial class JarSystem : Rules.IWorldFacts
     private readonly List<Order> _orders = new();
     private readonly List<Dictionary<string, object?>> _eventHistory = new();
     private readonly WorldOptions _world;
+    /// <summary>此旧门面实例所属的显式 World 身份；仅在宿主提供稳定 Owner 映射时参与账户归属。</summary>
+    public WorldInstanceId? WorldInstanceId { get; }
+    /// <summary>宿主注入的稳定资源 Owner 映射；Reset 与同配置重建不会重新生成身份。</summary>
+    public WorldV2OwnerIdentityMap? OwnerIdentities { get; }
     // 液体产能是**概念体**（Production.LiquidProduction）：带累加器，因此能表达 0.5 份/tick。
     // 罐子的产能属于生产者（ShapeProductionLine），液体的产能属于世界自己 —— 概念不同，
     // 但"每 tick 产多少、能不能调、小数怎么攒"是同一套定点累加。
@@ -399,7 +405,9 @@ public partial class JarSystem : Rules.IWorldFacts
     /// <param name="orderIds">订单 ID 源；null 时用进程级共享计数器（保持既有行为）。</param>
     public JarSystem(ISystemLog? log = null, int? randomSeed = null, Vocabulary? vocabulary = null,
         WorldOptions? world = null, ISolver? solver = null,
-        IIdGenerator? jarIds = null, IIdGenerator? orderIds = null)
+        IIdGenerator? jarIds = null, IIdGenerator? orderIds = null,
+        WorldInstanceId? worldInstanceId = null,
+        WorldV2OwnerIdentityMap? ownerIdentities = null)
     {
         // 只读包装**最先建立**：构造期间任何一处（服务/装配器）若读公开视图，都不会拿到 null。
         _workshopsView = _workshops.AsReadOnly();
@@ -409,6 +417,34 @@ public partial class JarSystem : Rules.IWorldFacts
 
         Log = log ?? ConsoleSystemLog.Instance;
         _world = (world ?? WorldOptions.Default).Clone();
+        if (worldInstanceId.HasValue && !worldInstanceId.Value.IsValid)
+            throw new ArgumentException("WorldInstanceId 无效。", nameof(worldInstanceId));
+        var hasExplicitOwnerIds =
+            _world.Producers.Any(item => item.ProducerInstanceId != null) ||
+            _world.Workshops.Any(item => item.OwnedInstanceId != null);
+        if ((worldInstanceId.HasValue || hasExplicitOwnerIds) && ownerIdentities == null)
+            throw new ArgumentException(
+                "显式 WorldInstanceId / ProducerInstanceId / OwnedInstanceId 必须与完整 OwnerIdentity map 一起注入。",
+                nameof(ownerIdentities));
+        if (ownerIdentities != null)
+        {
+            if (!worldInstanceId.HasValue)
+                throw new ArgumentException("OwnerIdentity map requires an explicit WorldInstanceId.", nameof(ownerIdentities));
+            ownerIdentities.ValidateForWorld(worldInstanceId.Value);
+            var producerIds = _world.Producers.Select(item => item.ProducerInstanceId).ToArray();
+            var workshopIds = _world.Workshops.Select(item => item.OwnedInstanceId).ToArray();
+            if (producerIds.Any(string.IsNullOrWhiteSpace) ||
+                producerIds.Distinct(StringComparer.Ordinal).Count() != producerIds.Length ||
+                !producerIds.ToHashSet(StringComparer.Ordinal).SetEquals(ownerIdentities.Producers.Keys) ||
+                workshopIds.Any(string.IsNullOrWhiteSpace) ||
+                workshopIds.Distinct(StringComparer.Ordinal).Count() != workshopIds.Length ||
+                !workshopIds.ToHashSet(StringComparer.Ordinal).SetEquals(ownerIdentities.Workshops.Keys))
+                throw new ArgumentException(
+                    "OwnerIdentity map must exactly match every configured ProducerInstanceId and OwnedInstanceId.",
+                    nameof(ownerIdentities));
+        }
+        WorldInstanceId = worldInstanceId;
+        OwnerIdentities = ownerIdentities;
         Vocabulary = vocabulary ?? _world.BuildVocabulary();
         // 订单模板是**内容**：从世界配置装配一次，之后只读。校验在这里立即发生 ——
         // 配置写错要在装配时报，不要等第一次派单才炸。
@@ -435,7 +471,9 @@ public partial class JarSystem : Rules.IWorldFacts
         // 它排进下一个 tick 的批再清 —— 信号分发时世界还处在"改到一半"的状态，不能此刻读。
         Modifiers = new ModifierStack();
         _liquidProduction.AttachIntensity(Modifiers);
-        ProducerModule = new ProducerModule(Vocabulary, Modifiers, JarPool);
+        ProducerModule = new ProducerModule(
+            Vocabulary, Modifiers, JarPool, JarIds,
+            warehouseOwnerIdentity: OwnerIdentities?.Warehouse);
         ProducerModule.ProducerSlots = _world.ProducerSlots;   /* 0 = 不限：出厂沙盒；关卡文件显式给上限 */
         // P3b 设计裁决：求解器实现**一行不改**，把"修饰器带来的新规则"统一收在这一层装饰器里。
         // 无活跃修饰器时它是直通（逐字节等于原实现）；无法表达的限制如实回"未判定"，绝不误报"不可行"。
@@ -476,7 +514,9 @@ public partial class JarSystem : Rules.IWorldFacts
     /// 宿主想换世界请用构造参数 <see cref="WorldOptions"/>，想重来请用 <see cref="Reset"/>。
     /// </summary>
     internal void InitializeDefault() =>
-        Bootstrap.SystemBootstrapper.Apply(World, Vocabulary, ProducerModule, WorkshopList, JarIds, Modifiers);
+        Bootstrap.SystemBootstrapper.Apply(
+            World, Vocabulary, ProducerModule, WorkshopList, JarIds, Modifiers,
+            OwnerIdentities?.Producers, OwnerIdentities?.Workshops);
 
     /// <summary>
     /// 把开局库存记进资源账本（`stock` 原因）。装配与重置共用这一个入口 ——
@@ -487,7 +527,12 @@ public partial class JarSystem : Rules.IWorldFacts
         var ledger = ResourceLedger;
         foreach (var (liquid, amount) in World.InitialStock)
             ledger.Record(0, Production.ResourceCauses.Stock, Production.ResourceKinds.Liquid,
-                liquid, amount, from: "关卡配置", to: "仓库");
+                liquid, amount, from: "关卡配置", to: "仓库", resourceIdentity: liquid,
+                fromEndpoint: ResourceEndpoint.ExternalSource("level.initial-stock"),
+                toEndpoint: ProducerModule.Warehouse.OwnerIdentity is { } warehouseOwner
+                    ? ResourceEndpoint.ForAccount(new RuleResourceAccount(
+                        warehouseOwner, "production.warehouse.liquid-storage").AccountId)
+                    : ResourceEndpoint.LegacyUnknown);
     }
 
     // ============================================================

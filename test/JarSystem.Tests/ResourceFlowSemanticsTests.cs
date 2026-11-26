@@ -112,7 +112,7 @@ public class ResourceFlowSemanticsTests
     public void BOrderReturnsLiquidProducedByAToolJar()
     {
         var master = new Workshop(
-            "主台", ["圆罐"], [], ["酒"], maxJars: 6, maxLiquids: 5,
+            "主台", ["圆罐"], [], [], maxJars: 6, maxLiquids: 5,
             vocabulary: Vocabulary.Default);
         var slave = new Workshop(
             "从台", ["圆罐"], [], ["蜜"], maxJars: 6, maxLiquids: 5,
@@ -144,7 +144,7 @@ public class ResourceFlowSemanticsTests
     {
         var system = new JarSystem.Core.JarSystem(randomSeed: 37);
         system.SetMasterIndex(0);
-        system.Workshops[1].AddLiquid("酒", 1);
+        system.Workshops[1].AddLiquid("蜜", 1);
 
         var error = Assert.Throws<DomainValidationException>(() => system.SetSlaveIndex(1));
         var commandResult = system.SetSlave(1);

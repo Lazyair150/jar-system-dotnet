@@ -67,6 +67,33 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
+    public void BannedLiquidInsideJarCanBeConsumedOrPouredOutForAnEmptyRequirement()
+    {
+        var workshop = Bench();
+        var info = Info(workshop);
+        var requirements = new List<Requirement> { new() { Shape = "圆罐" } };
+        var jars = Jars("酒");
+
+        foreach (var solver in Solvers())
+        {
+            var result = solver.Solve(requirements, info, jars, new Dictionary<string, int>());
+            Assert.True(result.Feasible,
+                solver.GetType().Name + " incorrectly applied staging Ban to Jar-owned liquid: " + result.Blockage);
+        }
+    }
+
+    [Fact]
+    public void SolverJarAndRequirementExposeTheSameThreeStateClassification()
+    {
+        Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
+        Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒", Vocabulary.Default));
+        Assert.Equal(JarPolarity.Anode, JarPolarityResolver.Resolve("蜜", Vocabulary.Default));
+        Assert.Equal(JarPolarity.Neutral, JarPolarityResolver.Resolve(null, Vocabulary.Default));
+        Assert.Equal(JarPolarity.Cathode, JarPolarityResolver.Resolve("酒", Vocabulary.Default));
+        Assert.Equal(JarPolarity.Anode, JarPolarityResolver.Resolve("蜜", Vocabulary.Default));
+    }
+
+    [Fact]
     public void AStoredButBannedLiquidIsNeverASupply()
     {
         // 池里 2 份酒、台禁酒、罐子只有空圆罐：需求「圆罐:酒」必须判不可行/未判定，绝不能可行。
@@ -89,19 +116,23 @@ public class SolverLiquidSoundnessTests
     }
 
     [Fact]
-    public void AJarCarryingABannedLiquidCannotBeReshapedBySelfConsumption()
+    public void BannedJarLiquidCanBeSelfConsumedWithoutStagingAccess()
     {
-        // 读法 B（用户 m01174）：满罐自耗算"使用" ⇒ 罐内是禁酒时不能改形。
-        NeverFeasible("把装着禁酒的满罐改形",
-            new List<Requirement> { new() { Shape = "方罐" } },
-            Jars("酒"),
-            new Dictionary<string, int>());
+        // Bench bans 酒 only in staging. Full reshape consumes the Jar-owned liquid.
+        foreach (var solver in Solvers())
+        {
+            var result = solver.Solve(
+                new List<Requirement> { new() { Shape = "方罐" } },
+                Info(Bench()), Jars("酒"), new Dictionary<string, int>());
+            Assert.True(result.Feasible,
+                solver.GetType().Name + " rejected Jar-owned liquid: " + result.Blockage);
+        }
     }
 
     [Fact]
-    public void TheSameThreeScenariosBecomeFeasibleOnceTheBanIsLifted()
+    public void StagingUseScenariosRespectBanAndMatchingPolaritySelfConsume()
     {
-        // 反向对照：证明上面三条不是"因为别的什么原因恒不可行"，而是**禁令**在起作用。
+        // 反向对照：游离液体取用受 Ban 约束；满罐 Jar 自耗虽从 Jar 账户扣除，仍须满足工作台极性权限。
         var free = new Workshop("自由台", new List<string> { "圆罐", "方罐" },
             new List<string> { "三角罐" }, new List<string>(),
             maxJars: 6, maxLiquids: 5, ids: new SequentialIdGenerator());
@@ -119,7 +150,7 @@ public class SolverLiquidSoundnessTests
                 info, Jars((string?)null), new Dictionary<string, int> { ["蜜"] = 2 });
             Assert.True(b.Feasible, solver.GetType().Name + " 连「有蜜就能改形」都判不可行");
 
-            // ③ 满罐自耗改形（罐内是蜜，不是禁液）
+            // ③ 满罐自耗改形（罐内蜜为阳极，与禁酒工作台同极）
             var c = solver.Solve(new List<Requirement> { new() { Shape = "方罐" } },
                 info, Jars("蜜"), new Dictionary<string, int>());
             Assert.True(c.Feasible, solver.GetType().Name + " 连「满罐自耗改形」都判不可行");
@@ -161,5 +192,109 @@ public class SolverLiquidSoundnessTests
         Assert.Equal(1, usable["蜜"]);
         Assert.Equal(2, usable.Count);   // 键还在：清零不等于抹掉"这格子里有东西"
         Assert.True(cap.IsBanned("酒"));
+    }
+
+    [Fact]
+    public void BackwardLiquidDemandBoundRejectsUnfundedSecondRequirementAcrossMultipleLiquidKinds()
+    {
+        var free = new Workshop("反向需求台", new List<string> { "圆罐" },
+            maxJars: 6, maxLiquids: 5);
+        var info = Info(free);
+        var requirements = new List<Requirement>
+        {
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "蜜" }
+        };
+        var jars = Jars("酒", null, null, null);
+        var liquids = new Dictionary<string, int> { ["酒"] = 0, ["蜜"] = 1 };
+
+        var reason = SolverPrecheck.ProveInfeasible(requirements, info, jars, liquids, int.MaxValue);
+
+        Assert.NotNull(reason);
+        Assert.Contains("酒", reason);
+        Assert.Contains("至少需要 2 份", reason);
+
+        var exact = new StateSpaceSolver().Solve(requirements, info, jars, liquids);
+        Assert.False(exact.Feasible);
+
+        var prechecked = new PrecheckedStateSpaceSolver();
+        var accelerated = prechecked.Solve(requirements, info, jars, liquids);
+        Assert.False(accelerated.Feasible);
+        Assert.Equal(1, prechecked.PrecheckShortCircuits);
+    }
+
+    [Fact]
+    public void BackwardLiquidDemandBoundAllowsDirectMatchPlusExactlyOneRequiredUnit()
+    {
+        var free = new Workshop("反向需求台", new List<string> { "圆罐" },
+            maxJars: 6, maxLiquids: 5);
+        var info = Info(free);
+        var requirements = new List<Requirement>
+        {
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" }
+        };
+        var jars = Jars("酒", null);
+        var liquids = new Dictionary<string, int> { ["酒"] = 1 };
+
+        var reason = SolverPrecheck.ProveInfeasible(requirements, info, jars, liquids, int.MaxValue);
+
+        Assert.Null(reason);
+        var result = new PrecheckedStateSpaceSolver().Solve(requirements, info, jars, liquids);
+        Assert.True(result.Feasible, result.Blockage);
+    }
+
+    [Fact]
+    public void BackwardLiquidDemandBoundTreatsBannedLiquidAsZeroExternalSupply()
+    {
+        var info = Info(Bench());
+        var requirements = new List<Requirement>
+        {
+            new() { Shape = "圆罐", Liquid = "酒" },
+            new() { Shape = "圆罐", Liquid = "酒" }
+        };
+        var jars = Jars("酒", null);
+
+        var reason = SolverPrecheck.ProveInfeasible(
+            requirements, info, jars, new Dictionary<string, int> { ["酒"] = 10 }, int.MaxValue);
+
+        Assert.NotNull(reason);
+        Assert.Contains("被禁", reason);
+    }
+
+    [Fact]
+    public void AggregateStagingCapacityRejectsAPathNeedingTwoInitialLiquidUnits()
+    {
+        var info = Info(new Workshop("总容量一", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 10));
+        info.MaxLiquidCapacity = 1;
+        var result = new StateSpaceSolver().Solve(
+            new List<Requirement>
+            {
+                new() { Shape = "圆罐", Liquid = "酒" },
+                new() { Shape = "圆罐", Liquid = "蜜" }
+            },
+            info,
+            Jars((string?)null, (string?)null),
+            new Dictionary<string, int> { ["酒"] = 5, ["蜜"] = 5 });
+
+        Assert.False(result.Feasible);
+    }
+
+    [Fact]
+    public void AggregateStagingCapacityIgnoresUnusedSourceLiquidSurplus()
+    {
+        var info = Info(new Workshop("总容量一", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 10));
+        info.MaxLiquidCapacity = 1;
+        var result = new StateSpaceSolver().Solve(
+            new List<Requirement> { new() { Shape = "圆罐", Liquid = "酒" } },
+            info,
+            Jars((string?)null),
+            new Dictionary<string, int> { ["酒"] = 5, ["蜜"] = 5 });
+
+        Assert.True(result.Feasible, result.Blockage);
     }
 }

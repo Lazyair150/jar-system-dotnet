@@ -13,6 +13,10 @@
     "酒",
     "蜜"
   ],
+  "liquidPolarities": {
+    "酒": "Cathode",
+    "蜜": "Anode"
+  },
   "defaultMaxJars": 20,
   "defaultMaxLiquids": 30,
   "flow": {

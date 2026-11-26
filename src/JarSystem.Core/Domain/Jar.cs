@@ -49,6 +49,8 @@ public class Jar
         _vocabulary = vocabulary ?? Vocabulary.Default;
         if (!_vocabulary.IsValidShape(shape))
             throw new ArgumentException($"无效形状: {shape}");
+        if (liquid != null && !_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
         _id = id;
         _shape = shape;
         _liquid = liquid;
@@ -67,6 +69,12 @@ public class Jar
         ThrowIfRecycled();
         return _vocabulary.IsValidShape(shape);
     }
+
+    /// <summary>
+    /// Derived polarity of the internal liquid. This is computed from the authoritative
+    /// liquid identity and is never stored as a second mutable state.
+    /// </summary>
+    public JarPolarity Polarity { get { ThrowIfRecycled(); return JarPolarityResolver.Resolve(_liquid, _vocabulary); } }
 
     public bool IsEmpty() { ThrowIfRecycled(); return _liquid is null; }
     public bool IsFull() { ThrowIfRecycled(); return _liquid is not null; }
@@ -103,6 +111,22 @@ public class Jar
     /// <summary>标记为本次执行周期内已操作。</summary>
     internal void Mark() { ThrowIfRecycled(); _marked = true; }
 
+    /// <summary>
+    /// 应用规则引擎已经批准的纯值转换结果。
+    /// 此入口只负责保持实体不变量，不重新解释 POUR_IN/POUR_OUT/RESHAPE 等算子语义。
+    /// </summary>
+    internal void ApplyRuleTransition(string shape, string? liquid, bool isMarked)
+    {
+        ThrowIfRecycled();
+        if (!_vocabulary.IsValidShape(shape))
+            throw new ArgumentException($"无效形状: {shape}", nameof(shape));
+        if (liquid != null && !_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
+        _shape = shape;
+        _liquid = liquid;
+        _marked = isMarked;
+    }
+
     /// <summary>清除操作标记。</summary>
     internal void Unmark() { ThrowIfRecycled(); _marked = false; }
 
@@ -111,6 +135,8 @@ public class Jar
     {
         ThrowIfRecycled();
         if (_liquid is not null) throw new InvalidOperationException("罐子不为空");
+        if (!_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
         _liquid = liquid;
     }
 
@@ -124,7 +150,13 @@ public class Jar
     }
 
     /// <summary>恢复罐内液体（撤销倒入/倒出时使用；null 表示恢复为空罐）。</summary>
-    internal void RestoreLiquid(string? liquid) { ThrowIfRecycled(); _liquid = liquid; }
+    internal void RestoreLiquid(string? liquid)
+    {
+        ThrowIfRecycled();
+        if (liquid != null && !_vocabulary.IsValidLiquid(liquid))
+            throw new ArgumentException($"无效液体身份: {liquid}", nameof(liquid));
+        _liquid = liquid;
+    }
 
     /// <summary>改形（形状必须在**本罐子所属词表**内合法）。</summary>
     internal void Reshape(string newShape)
@@ -140,6 +172,26 @@ public class Jar
     {
         ThrowIfRecycled();
         return new Jar(_shape, _liquid, _id, _vocabulary) { IsMarked = _marked };
+    }
+
+    /// <summary>从同词表的状态副本恢复本对象，保留当前对象身份。</summary>
+    internal void ValidateRestoreStateFrom(Jar snapshot)
+    {
+        ThrowIfRecycled();
+        if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+        snapshot.ThrowIfRecycled();
+        if (!ReferenceEquals(_vocabulary, snapshot._vocabulary))
+            throw new InvalidOperationException("不能从不同词表的罐子快照恢复状态");
+    }
+
+    /// <summary>从同词表的状态副本恢复本对象；调用前可先批量验证，避免恢复到一半才发现无效引用。</summary>
+    internal void RestoreStateFrom(Jar snapshot)
+    {
+        ValidateRestoreStateFrom(snapshot);
+        _id = snapshot._id;
+        _shape = snapshot._shape;
+        _liquid = snapshot._liquid;
+        _marked = snapshot._marked;
     }
 
     public override string ToString() => GetDescription();

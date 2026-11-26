@@ -17,16 +17,26 @@ namespace JarSystem.Core.Domain;
 public readonly struct ReshapeRules
 {
     private readonly WorkshopCapability? _capability;
+    private readonly RuleContext? _context;
     private readonly LiquidRules _liquid;
 
     public ReshapeRules(WorkshopCapability? capability, LiquidRules liquid)
     {
         _capability = capability;
+        _context = null;
         _liquid = liquid;
     }
 
-    /// <summary>方向：从 <paramref name="from"/> 能否改成 <paramref name="to"/>（唯一来源是 ShapeRules）。</summary>
-    public bool CanTransform(string from, string to) => _capability?.CanTransform(from, to) ?? false;
+    public ReshapeRules(RuleContext context, LiquidRules liquid)
+    {
+        _context = context ?? throw new System.ArgumentNullException(nameof(context));
+        _capability = context.Capability;
+        _liquid = liquid;
+    }
+
+    /// <summary>方向：从 <paramref name="from"/> 能否改成 <paramref name="to"/>（基础形状规则 + 当前 Grant 修饰）。</summary>
+    public bool CanTransform(string from, string to) =>
+        _context?.CanTransform(from, to) ?? (_capability?.CanTransform(from, to) ?? false);
 
     /// <summary>
     /// 空罐改形的成本。
@@ -45,11 +55,12 @@ public readonly struct ReshapeRules
         return ReshapeGrant.No("no-cost-liquid", "没有可支付的改形成本液体");
     }
 
-    /// <summary>满罐自耗：罐内液体必须**可取用**（读法 B：自耗也算"使用"）。</summary>
-    public ReshapeGrant SelfConsume(string? liquidInJar)
-    {
-        if (liquidInJar == null) return ReshapeGrant.No("not-full", "必须为满罐");
-        var g = _liquid.Check(liquidInJar);
-        return g.Granted ? ReshapeGrant.Yes() : ReshapeGrant.No("banned", g.Reason);
-    }
+    /// <summary>
+    /// Full-Jar self-consumption spends the liquid owned by the Jar itself.
+    /// Workshop staging Ban and free-liquid balances do not participate in this check.
+    /// </summary>
+    public ReshapeGrant SelfConsume(string? liquidInJar) =>
+        liquidInJar == null
+            ? ReshapeGrant.No("not-full", "必须为满罐")
+            : ReshapeGrant.Yes();
 }

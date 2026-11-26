@@ -20,6 +20,9 @@ namespace JarSystem.Tests;
 /// </summary>
 public class ReshapeRulesTests
 {
+    private static JarFacts DefaultFacts(string shape, string? liquid, bool isMarked) =>
+        new(shape, liquid, isMarked, JarPolarityResolver.Resolve(liquid, JarSystem.Core.Config.Vocabulary.Default));
+
     private static Vocabulary Vocab() => new(
         new[] { "圆罐", "方罐", "三角罐", "高罐", "长罐", "扁罐", "鼓罐", "尖罐" },
         new[] { "酒", "蜜" });
@@ -83,24 +86,36 @@ public class ReshapeRulesTests
     }
 
     [Fact]
-    public void SelfConsumeRefusesABannedLiquidWithTheExecutorsWording()
+    public void SelfConsumeUsesOnlyJarInternalAccountAndIgnoresWorkshopBan()
     {
         var rules = Rules();
 
-        var ok = rules.SelfConsume("蜜");
-        Assert.True(ok.Granted);
+        Assert.True(rules.SelfConsume("蜜").Granted);
+        Assert.True(rules.SelfConsume("酒").Granted);
+        Assert.Equal("not-full", rules.SelfConsume(null).Code);
 
-        var banned = rules.SelfConsume("酒");
-        Assert.False(banned.Granted);
-        Assert.Equal("banned", banned.Code);
-
-        // 文案必须与"真的去执行"逐字一致，否则同一个"不行"会有两种说法。
+        // 玄武台 Ban 只约束游离液体暂存区；Jar 内部酒可以被满罐自耗。
         var w = Xuanwu();
-        var jar = new Jar("圆罐", "酒", null, Vocab());
+        var jar = new Jar("圆罐", "蜜", null, Vocab());
         w.AddJar(jar);
         var (execOk, execReason) = w.TryReshape(jar, "方罐", ReshapeMode.Full);
-        Assert.False(execOk);
-        Assert.Equal(execReason, banned.Reason);
+
+        Assert.True(execOk, execReason);
+        Assert.Equal("方罐", jar.Shape);
+        Assert.Null(jar.Liquid);
+        Assert.True(jar.IsMarked);
+        Assert.Equal(0, w.LiquidStorage["蜜"]);
+
+        // 无 Ban 的从台也能自耗酒 Jar；资源仍只从 Jar 内部账户扣除。
+        var permissive = new Workshop("从台", new List<string> { "圆罐", "方罐" });
+        var received = new Jar("圆罐", "酒", null, Vocab());
+        permissive.AddJar(received);
+        var (slaveOk, slaveReason) = permissive.TryReshape(received, "方罐", ReshapeMode.Full);
+        Assert.True(slaveOk, slaveReason);
+        Assert.Equal("方罐", received.Shape);
+        Assert.Null(received.Liquid);
+        Assert.True(received.IsMarked);
+        Assert.Equal(0, permissive.LiquidStorage["酒"]);
     }
 
     [Fact]
@@ -137,7 +152,7 @@ public class ReshapeRulesTests
 
             // ② 规则表（同一个世界状态喂给纯函数）
             var ctx = new RuleContext(XuanwuCap(), new ModifierStack());
-            var facts = new JarFacts(shape, liquid, false);
+            var facts = DefaultFacts(shape, liquid, false);
             var pool = new Dictionary<string, int> { ["酒"] = 1, ["蜜"] = 1 };
             var op = liquid == null
                 ? WorkshopOperation.ReshapeEmpty(to, "蜜")
