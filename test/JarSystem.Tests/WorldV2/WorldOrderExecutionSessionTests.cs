@@ -1242,8 +1242,22 @@ public sealed class WorldOrderExecutionSessionTests
         started.Session!.AdvanceLogicalTime(1_000);
         var progress = started.Session.CaptureProgress();
         Assert.True(progress.SlaveTransferCommitted);
-        Assert.True(ledger.HasRecordedOperation(
-            reservations.FindLease(demand.Id)!.WorldVersion + ":order:" + demand.Id + ":transfer"));
+        var transferOperationId =
+            reservations.FindLease(demand.Id)!.WorldVersion + ":order:" + demand.Id + ":transfer";
+        Assert.True(ledger.HasRecordedOperation(transferOperationId));
+
+        var wrongTransferLedger = new ResourceLedger();
+        Assert.True(wrongTransferLedger.RecordBatchOnce(transferOperationId, 17, new[]
+        {
+            new ResourceLedgerMutation(
+                ResourceCauses.Transfer, ResourceKinds.Liquid, "蜜", 1,
+                From: "主台", To: "从台", ResourceIdentity: "蜜", DisplayName: "蜜")
+        }));
+        var transferPayloadError = Assert.Throws<InvalidOperationException>(() =>
+            WorldOrderExecutionSession.RestoreProgress(
+                progress, board, book, admission, roster, reservations, wrongTransferLedger, () => 17));
+        Assert.Contains("Manifest/账户身份与 ResourceLedger Transfer 批次内容不一致",
+            transferPayloadError.Message);
 
         var lease = reservations.FindLease(demand.Id)!;
         var scopes = admission.GetLiquidScopes(demand.Id)!.Value;
