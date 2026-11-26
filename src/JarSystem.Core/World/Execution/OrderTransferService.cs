@@ -233,9 +233,13 @@ internal sealed class OrderTransferService
         // contains the previous transfer event batch.
         if (ledger != null && hasLedgerFacts && ledger.HasRecordedOperation(ledgerOperationId))
             return "该订单交接账本操作已记录，拒绝重复提交资源转移";
-        // Collect facts while moving resources, but publish them as one idempotent batch
-        // only after exact ownership and RuleTransition postconditions have succeeded.
-        var ledgerMutations = new List<ResourceLedgerMutation>();
+        // Build the canonical ledger batch from the exact preflight Jar entities and resource
+        // manifest before mutation. The same builder is used by checkpoint restore to verify
+        // that the durable OperationId is bound to these exact ownership facts.
+        var ledgerMutations = ledger == null
+            ? new List<ResourceLedgerMutation>()
+            : BuildTransferLedgerMutations(
+                demandId, manifest, master, slave, jars, masterScope, slaveScope).ToList();
 
         // Snapshot every authoritative participant before opening the physical commit boundary.
         // Workshop snapshots retain original Jar references; staging snapshots retain every order
@@ -273,16 +277,7 @@ internal sealed class OrderTransferService
                         $"罐子 #{id} 转移失败且无法恢复主台归属", transferError);
                 throw;
             }
-            if (ledger != null)
-                ledgerMutations.Add(new ResourceLedgerMutation(
-                    ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
-                    From: master.Name, To: slave.Name,
-                    ResourceIdentity: id.ToString(CultureInfo.InvariantCulture),
-                    FromAccountId: WorkshopAccountId(master, "workshop.jar-storage"),
-                    ToAccountId: WorkshopAccountId(slave, "workshop.jar-storage"),
-                    FromEndpoint: WorkshopAccountEndpoint(master, "workshop.jar-storage"),
-                    ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.jar-storage"),
-                    DisplayName: jar.Shape));
+
         }
 
         _faults.AfterJarMoves();
@@ -290,18 +285,7 @@ internal sealed class OrderTransferService
         if (masterScope == null)
         {
             LegacyWorkshopLiquidTransfer.Execute(master, slave, manifest.TransferLiquids);
-            if (ledger != null)
-            {
-                foreach (var item in manifest.TransferLiquids.Where(item => item.Value > 0))
-                    ledgerMutations.Add(new ResourceLedgerMutation(
-                        ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
-                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
-                        FromAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"),
-                        ToAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging"),
-                        FromEndpoint: WorkshopAccountEndpoint(master, "workshop.free-liquid-staging"),
-                        ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.free-liquid-staging"),
-                        DisplayName: item.Key));
-            }
+
         }
         else
         {
@@ -310,16 +294,6 @@ internal sealed class OrderTransferService
                 requiredTransfer!, out var transferReason))
                 throw new InvalidOperationException(
                     transferReason ?? "主从订单液体交接在提交阶段违反预检结果");
-            foreach (var item in requiredTransfer!)
-                if (ledger != null)
-                    ledgerMutations.Add(new ResourceLedgerMutation(
-                        ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
-                        From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
-                        FromAccountId: WorkshopOrderAccountId(master, demandId),
-                        ToAccountId: WorkshopOrderAccountId(slave, demandId),
-                        FromEndpoint: WorkshopOrderAccountEndpoint(master, demandId),
-                        ToEndpoint: WorkshopOrderAccountEndpoint(slave, demandId),
-                        DisplayName: item.Key));
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
 
@@ -380,6 +354,77 @@ internal sealed class OrderTransferService
 
             return "B 类主从交接失败，全部物理账户已补偿恢复：" + transferError.Message;
         }
+    }
+
+    /// <summary>
+    /// Rebuild the exact normalized Transfer ledger payload from the committed Slave ownership
+    /// plus the immutable manifest. The builder is shared by commit and checkpoint restore so
+    /// a matching OperationId cannot mask a different Jar/liquid ownership batch.
+    /// </summary>
+    internal static IReadOnlyList<ResourceLedgerMutation> BuildTransferLedgerMutations(
+        int demandId,
+        WorldOrderResourceManifest manifest,
+        Workshop master,
+        Workshop slave,
+        IReadOnlyDictionary<int, Jar> transferredJars,
+        OrderLiquidScope? masterScope,
+        OrderLiquidScope? slaveScope)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(slave);
+        ArgumentNullException.ThrowIfNull(transferredJars);
+        var mutations = new List<ResourceLedgerMutation>();
+
+        foreach (var id in manifest.TransferJarIds)
+        {
+            if (!transferredJars.TryGetValue(id, out var jar) || jar.Id != id)
+                throw new InvalidOperationException("Transfer ledger payload 缺少精确 Jar 实体：" + id);
+            mutations.Add(new ResourceLedgerMutation(
+                ResourceCauses.Transfer, ResourceKinds.Jar, jar.Shape, 1,
+                From: master.Name, To: slave.Name,
+                ResourceIdentity: id.ToString(CultureInfo.InvariantCulture),
+                FromAccountId: WorkshopAccountId(master, "workshop.jar-storage"),
+                ToAccountId: WorkshopAccountId(slave, "workshop.jar-storage"),
+                FromEndpoint: WorkshopAccountEndpoint(master, "workshop.jar-storage"),
+                ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.jar-storage"),
+                DisplayName: jar.Shape));
+        }
+
+        var liquidTransfers = manifest.TransferLiquids
+            .Where(item => item.Value > 0)
+            .ToArray();
+        if (masterScope == null)
+        {
+            if (slaveScope != null)
+                throw new InvalidOperationException("Transfer ledger payload 不能只有从台订单液体范围。");
+            foreach (var item in liquidTransfers)
+                mutations.Add(new ResourceLedgerMutation(
+                    ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
+                    FromAccountId: WorkshopAccountId(master, "workshop.free-liquid-staging"),
+                    ToAccountId: WorkshopAccountId(slave, "workshop.free-liquid-staging"),
+                    FromEndpoint: WorkshopAccountEndpoint(master, "workshop.free-liquid-staging"),
+                    ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.free-liquid-staging"),
+                    DisplayName: item.Key));
+        }
+        else
+        {
+            if (slaveScope == null ||
+                masterScope.OrderId != demandId || slaveScope.OrderId != demandId)
+                throw new InvalidOperationException("Transfer ledger payload 的主从订单液体范围不匹配。");
+            foreach (var item in liquidTransfers)
+                mutations.Add(new ResourceLedgerMutation(
+                    ResourceCauses.Transfer, ResourceKinds.Liquid, item.Key, item.Value,
+                    From: master.Name, To: slave.Name, ResourceIdentity: item.Key,
+                    FromAccountId: WorkshopOrderAccountId(master, demandId),
+                    ToAccountId: WorkshopOrderAccountId(slave, demandId),
+                    FromEndpoint: WorkshopOrderAccountEndpoint(master, demandId),
+                    ToEndpoint: WorkshopOrderAccountEndpoint(slave, demandId),
+                    DisplayName: item.Key));
+        }
+
+        return mutations.AsReadOnly();
     }
 
     private static string? WorkshopAccountId(Workshop workshop, string accountKind)
