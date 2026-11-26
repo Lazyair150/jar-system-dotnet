@@ -837,6 +837,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             CleanupTemporaryResources(settlementTick);
             if (_board.Find(DemandId) != null)
                 _solveBook.MarkDirty(DemandId, "订单执行失败，需按当前世界重新求解：" + reason);
+            ReleaseReservation(settlementTick);
         }
         catch (Exception exception) when (
             exception is OrderTransferCompensationException or SlaveRollbackTransactionException or OrderSettlementTransactionException)
@@ -848,7 +849,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         {
             if (!preserveUncertainSession)
             {
-                ReleaseReservation(settlementTick);
+                if (!_reservationReleased)
+                    ReleaseReservation(settlementTick);
                 Reason = reason;
                 Stage = WorldOrderExecutionStage.Failed;
             }
