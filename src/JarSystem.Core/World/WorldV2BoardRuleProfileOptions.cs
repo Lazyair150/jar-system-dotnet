@@ -268,7 +268,7 @@ public sealed class WorldV2BoardAssignmentSnapshotOptions
         var errors = new List<string>();
         if (SchemaVersion != 1 || BoardId != boardId || DefinitionVersion != boardVersion ||
             AssignmentFingerprint != assignmentFingerprint || BoardDefinition == null ||
-            BoardDefinition.SchemaVersion != 1 || BoardDefinition.BoardId != BoardId ||
+            BoardDefinition.SchemaVersion is not (1 or 2) || BoardDefinition.BoardId != BoardId ||
             BoardDefinition.DefinitionVersion != DefinitionVersion || string.IsNullOrWhiteSpace(BoardDefinition.DisplayName))
             errors.Add("boardRuleProfile assignment snapshot identity does not match its frozen Board");
         if (Assignments == null || BoardDefinition?.Slots == null)
