@@ -115,7 +115,7 @@ public sealed class WorldV2ContextTests
 
         var failingService = new OrderResourceSettlementService(
             new ThrowAfterSettlementLedgerStageFaultPort());
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<OrderSettlementTransactionException>(() =>
             failingService.SettleAndRelease(
                 demand.Id, world.Admission, world.ResourceLedger, settlementTick: 1));
 
