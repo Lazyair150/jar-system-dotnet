@@ -85,7 +85,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         ResourceLedger? resourceLedger,
         Func<int>? resourceLedgerTick,
         bool initializeExecution = true,
-        IOrderJarTransferPort? jarTransferPort = null)
+        IOrderJarTransferPort? jarTransferPort = null,
+        IOrderTransferFaultPort? transferFaultPort = null)
     {
         DemandId = demandId;
         _board = board;
@@ -102,7 +103,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         _resourceLedger = resourceLedger;
         _resourceLedgerTick = resourceLedgerTick;
         _applier = new WorldPlanStepApplier();
-        _transferService = new OrderTransferService(jarTransferPort);
+        _transferService = new OrderTransferService(jarTransferPort, transferFaultPort);
         var liquidScopes = admission.GetLiquidScopes(demandId);
         _masterLiquidScope = liquidScopes?.Master;
         _slaveLiquidScope = liquidScopes?.Slave;
@@ -454,7 +455,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         long logicalTimePerUnit,
         ResourceLedger? resourceLedger,
         Func<int>? resourceLedgerTick,
-        IOrderJarTransferPort? jarTransferPort)
+        IOrderJarTransferPort? jarTransferPort,
+        IOrderTransferFaultPort? transferFaultPort = null)
     {
         if (board == null) throw new ArgumentNullException(nameof(board));
         if (solveBook == null) throw new ArgumentNullException(nameof(solveBook));
@@ -490,7 +492,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             var session = new WorldOrderExecutionSession(
                 demandId, board, solveBook, admission, roster,
                 admitted.Manifest, result.Plan, logicalTimePerUnit,
-                resourceLedger, resourceLedgerTick, jarTransferPort: jarTransferPort);
+                resourceLedger, resourceLedgerTick,
+                jarTransferPort: jarTransferPort,
+                transferFaultPort: transferFaultPort);
 
             // 只有新自机液库路径才记录这笔实际扣款；旧兼容准入不伪造新的资源流向。
             if (resourceLedger != null && admission.ShipLiquidInventory != null)
@@ -645,13 +649,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     TerminateFailure(transferError);
                     return;
                 }
-                // 交接只迁移 Jar 身份与所有权，不清除操作标记。
-                // 已在主台操作过的 Jar 在本订单剩余阶段仍然不可再次操作。
-                _admission.Reservations.MarkTransferCommitted(DemandId);
+                // TransferService commits physical accounts, lease stage and ledger together.
+                // Only after that atomic boundary may the session enter SlaveSteps.
                 if (_transferService.CommittedTransition is { } committedTransfer)
                     _resourceTransitions.Add(committedTransfer);
                 Stage = WorldOrderExecutionStage.SlaveSteps;
-                _admission.Reservations.MarkSlaveExecuting(DemandId);
                 PumpInstantMatches(_slave!, _slaveSteps, ref _slaveIndex, "slave", _slaveLiquidScope);
                 if (!IsTerminal && _slaveIndex == _slaveSteps.Count)
                     CompleteSuccess();
@@ -737,11 +739,13 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             _manifest,
             _master,
             _slave ?? throw new InvalidOperationException("B 类执行缺少从台"),
+            _admission,
             _masterLiquidScope,
             _slaveLiquidScope,
             _resourceLedger,
             _resourceLedgerTick,
-            () => _slaveTransferCommitted = true);
+            () => _slaveTransferCommitted = true,
+            () => _slaveTransferCommitted = false);
 
     private void CompleteSuccess()
     {
