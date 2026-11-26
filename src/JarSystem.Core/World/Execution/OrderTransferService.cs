@@ -21,6 +21,7 @@ internal interface IOrderTransferFaultPort
     void AfterJarMoves();
     void AfterLiquidTransfer();
     void BeforeLedgerPublication();
+    void BeforeCompensation();
 }
 
 internal sealed class NoopOrderTransferFaultPort : IOrderTransferFaultPort
@@ -30,6 +31,7 @@ internal sealed class NoopOrderTransferFaultPort : IOrderTransferFaultPort
     public void AfterJarMoves() { }
     public void AfterLiquidTransfer() { }
     public void BeforeLedgerPublication() { }
+    public void BeforeCompensation() { }
 }
 
 internal sealed class WorkshopJarTransferPort : IOrderJarTransferPort
@@ -356,6 +358,7 @@ internal sealed class OrderTransferService
         {
             try
             {
+                _faults.BeforeCompensation();
                 master.RestoreFromSnapshot(masterBefore);
                 slave.RestoreFromSnapshot(slaveBefore);
                 admission.RestoreTransferSnapshot(stagingBefore);
