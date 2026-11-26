@@ -103,3 +103,57 @@ JarSystem.Tests  Total: 1040, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time
 - 因跨仓库脚本强制要求 `CORE_EXPECTED_SHA` 与 Core checkout HEAD 完全相同，下一次集成验证必须将 Core checkout 更新至 `fce78edd54c85ddcba8fd5aae4da0b8897659e85`，并以该 SHA 设置 `CORE_EXPECTED_SHA`。这是对精确依赖版本的确认，不需要重跑 Core xUnit。
 - Space 上次完整跨仓库运行已通过的探针不应被无故重复；仅因 Core pin 变化而执行一次精确版本的 Bridge/Space 构建与集成脚本。
 - 桌面 GUI 验收仍需独立完成：默认 Hangar 装配、进入战斗、暂停/恢复、返回菜单、再次进入战斗。Headless 探针不能替代 GUI 验收。
+
+
+## 续记：真实 Hangar 启动暴露的 Board Definition Schema 2 兼容缺口
+
+### 真实运行证据
+
+用户在 Godot 4.7.1 桌面启动后，从 Hangar 点击建造，日志显示：
+
+```text
+World v2 configuration validation failed:
+boardRuleProfile assignment snapshot identity does not match its frozen Board
+```
+
+调用链为：
+
+```text
+SpaceHangarScreen._on_build_pressed
+  -> SpaceHangarBattleLauncher.launch_new_battle
+  -> Game._ready
+  -> Game._begin_ship_world
+  -> WorldV2ShipHost.BeginShipWorldFromJson
+  -> WorldV2RuntimeNode.InitializeWorldFromJson
+  -> Core WorldV2Options.Validate
+```
+
+Hangar 的选择器已连接（connected=true），且建造回调实际执行；因此本次故障不是单选项 OptionButton 没有发出信号，也不是场景切换/暂停残留。
+
+### 根因
+
+Space SpaceHangarBoardDefinition.build_frozen_snapshot() 当前明确输出 schemaVersion=2，并携带 areaId=production、subAreaId=decomposition 的层级槽位。
+
+Core WorldV2BoardAssignmentSnapshotOptions.Validate() 却硬编码要求 Assignment snapshot SchemaVersion == 1 且 Frozen Board Definition SchemaVersion == 1。
+
+当前 Space assignment snapshot 仍采用 Schema 1，但其内嵌 Board Definition 已升级为 Schema 2。Core 将 Board Definition Schema 2 当成身份不匹配，抛出了误导性的统一错误文本。此处不是 ID/fingerprint 被篡改，而是 Core ingress 没有接受已支持的新版 Board Definition schema。
+
+### 修复
+
+- Core 继续要求 Assignment snapshot 使用 Schema 1（未改变 assignment 协议版本）。
+- Core 接受 Frozen Board Definition Schema 1 或 2。
+- subAreaId DTO、production/decomposition parser 层级校验和 canonical assignment fingerprint 仍然有效；没有删除字段、跳过校验或降级输入。
+- 新增测试：Schema 1 assignment 内嵌 Schema 2 Board Definition，且 parser 位于 production/decomposition 时应通过。
+- 保留现有 Schema 1 正向测试及错误子区域负向测试。
+
+### 提交
+
+- Validator 修复：bc5e642020852b38f6e03a84b4585241da502e60
+- Schema 2 正向测试：bc5e642020852b38f6e03a84b4585241da502e60
+
+### 验证状态
+
+- 已完成源码修改与测试用例增加。
+- 尚未运行本地 xUnit、Godot Bridge build 或桌面 GUI 验收。
+- 新 Core 精确依赖 SHA：bc5e642020852b38f6e03a84b4585241da502e60。
+- 下一步先运行新增 Core 测试与完整 Core 测试，再将 Space Bridge pin 更新至该 SHA，执行一次跨仓库验证，最后重试桌面 Hangar 启动。
