@@ -554,10 +554,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             {
                 AdvanceOneUnit();
             }
-            catch (OrderTransferCompensationException)
+            catch (Exception exception) when (
+                exception is OrderTransferCompensationException or SlaveRollbackTransactionException)
             {
-                // Whole-account compensation failed. The physical ownership state is uncertain;
-                // do not run ordinary cleanup, release leases, or remove this session. Runtime
+                // A whole-account compensation/rollback transaction failed or aborted.
+                // Do not run ordinary cleanup, release leases, or remove this session. Runtime
                 // must latch a fault and preserve the exact scene for explicit reconciliation.
                 throw;
             }
@@ -609,6 +610,11 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             Reason = "工作台替换导致订单执行中断";
             Stage = WorldOrderExecutionStage.Interrupted;
             return (true, null);
+        }
+        catch (Exception ex) when (
+            ex is OrderTransferCompensationException or SlaveRollbackTransactionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -809,6 +815,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     {
         if (IsTerminal) return;
         int? settlementTick = null;
+        var preserveUncertainSession = false;
         try
         {
             settlementTick = AcquireSettlementTick();
@@ -816,11 +823,20 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             if (_board.Find(DemandId) != null)
                 _solveBook.MarkDirty(DemandId, "订单执行失败，需按当前世界重新求解：" + reason);
         }
+        catch (Exception exception) when (
+            exception is OrderTransferCompensationException or SlaveRollbackTransactionException)
+        {
+            preserveUncertainSession = true;
+            throw;
+        }
         finally
         {
-            ReleaseReservation(settlementTick);
-            Reason = reason;
-            Stage = WorldOrderExecutionStage.Failed;
+            if (!preserveUncertainSession)
+            {
+                ReleaseReservation(settlementTick);
+                Reason = reason;
+                Stage = WorldOrderExecutionStage.Failed;
+            }
         }
     }
 
