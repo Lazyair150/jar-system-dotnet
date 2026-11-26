@@ -35,6 +35,7 @@ Core 原实现将外部 Jar 导入的操作 ID 与 payload 指纹写入账本，
 ## 集中验证清单
 
 - [ ] Core Release build
+- [ ] Current schema 11 remains supported; generic unsupported-version fixture uses schema 12
 - [ ] Legacy schema 10 duplicate test must preserve unknown outcome without duplicating physical Jars
 - [ ] WorldV2ApplicationServiceTests 相关用例
 - [ ] ResourceLedgerSnapshotTests
