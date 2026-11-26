@@ -16,7 +16,7 @@ namespace JarSystem.Core.Production;
 /// <item><c>production</c> 世界自己产（形状产线出罐、液体产能出液）</item>
 /// <item><c>stock</c> 开局库存（关卡文件里写死的初始量）</item>
 /// <item><c>flow</c> 外部资源库存流入工作台资源空间：生产区 Warehouse 或自机液库进入 Workshop 的 Jar/游离液体/订单/预置账户</item>
-/// <item><c>transfer</c> 工作台账户之间的资源转移：包括主台 → 从台及订单子账/游离液体/Jar 存储账户之间的显式连接</item>
+/// <item><c>transfer</c> 工作台账户之间的资源转移：包括主台 → 从台及订单子账/游离液体/Jar 存储账户之间的显式连接；B 类订单交付 Jar 进入明确的 <c>order.delivery</c> ExternalSink 也记为 transfer</item>
 /// <item><c>return</c> 资源归还：订单结算剩余液体返回自机液库，或主台预置事务回滚至自机液库</item>
 /// <item><c>discard</c> 容量溢出被丢弃</item>
 /// </list>
