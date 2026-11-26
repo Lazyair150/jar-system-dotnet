@@ -146,6 +146,59 @@ public sealed class WorldV2ApplicationServiceTests
     }
 
     [Fact]
+    public void ApplicationOperationsPreserveExplicitNonDefaultLiquidPolarities()
+    {
+        var options = Options();
+        options.Liquids = new List<string> { "coolant", "fuel" };
+        options.LiquidPolarities = new Dictionary<string, LiquidPolarity>
+        {
+            ["coolant"] = LiquidPolarity.Cathode,
+            ["fuel"] = LiquidPolarity.Anode
+        };
+        options.LiquidProductionRates = new Dictionary<string, double>
+        {
+            ["coolant"] = 0,
+            ["fuel"] = 0
+        };
+        options.InitialLiquidStock = new Dictionary<string, int> { ["coolant"] = 1 };
+        options.OrderTemplates = new List<OrderTemplateOptions>
+        {
+            new()
+            {
+                Name = "custom.coolant.order",
+                Type = "A",
+                Requirements = new List<RequirementOptions>
+                {
+                    new() { Shape = "圆罐", Liquid = "coolant" }
+                }
+            }
+        };
+
+        using var host = new WorldV2HostService();
+        var app = new WorldV2ApplicationService(host);
+        app.CreateOrReplaceWorld(options);
+
+        var directId = app.AddJarDemand(new WorldV2AddJarDemandRequest(
+            new[] { new WorldV2RequirementInput("圆罐", "coolant") },
+            "A", DemandAreaKind.Active, 0, "custom:direct"));
+        var templateId = app.AddJarDemandFromTemplate(
+            "custom.coolant.order", DemandAreaKind.Passive, 0, "custom:template");
+
+        var demands = app.GetWorldSnapshot().Demands;
+        Assert.Equal(2, demands.Count);
+        Assert.Contains(demands, item =>
+            item.Id == directId && item.Requirements.Single().Liquid == "coolant");
+        Assert.Contains(demands, item =>
+            item.Id == templateId && item.Requirements.Single().Liquid == "coolant");
+
+        var imported = app.ImportProducedJars(
+            "custom-liquid-parser-batch",
+            new Dictionary<string, int> { ["圆罐"] = 1 });
+        Assert.Equal(1, imported.StoredJarCount);
+        Assert.Equal(1, app.GetWorldSnapshot().ResourceJars.Count);
+    }
+
+    [Fact]
     public void AddJarDemandFromTemplateRejectsUnknownTemplateWithoutAddingDemand()
     {
         using var host = new WorldV2HostService();
