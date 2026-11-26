@@ -567,3 +567,11 @@ No PR was merged, no Space code was changed, and no GUI acceptance is claimed in
 - Current ResourceLedger.RecordTransferBatchOnce is the implemented ledger publication primitive. Physical Prepare-all, shared capacity planning, ordered Commit-all without per-leg ledger publication, reverse Compensate-all and fail-stop integration remain unimplemented.
 - PR Run 45770399835 and push Run 45770385132 on 51cfcbc8 had Release/Godot Host builds successful, but xUnit reported 1027 / 1 failed / 0 skipped. The only failure was the parent-fingerprint tamper assertion being placed in the legacy single-leg receipt test. The assertion was moved into the composite-batch roundtrip test in the immediate follow-up; no production code was changed.
 - Head before the current documentation follow-up was 7fdb0a5d3c78abde3c617b965968730f475f3a44. Its exact-head run must be checked before treating the correction as verified.
+
+
+### Runtime adapter binding compile correction — 2026-11-26
+
+- Run `45771367963` / `45771380219` for head `3bba0a88d91244f2ccc51103505b78b60e8d31c3` failed at build because an internal interface member was implemented by internal properties. C# implicit interface implementation requires a public member.
+- Corrected the seven public Adapter classes to expose the internal binding through explicit implementation of the internal interface, while retaining the concrete internal property for constructor assignment. This keeps ResourceCapacityDomainBinding and its runtime object reference out of public API surface.
+- The batch binding registry added in `b9283cab` requires the interface view and remains internal. No test or architecture rule was relaxed.
+- Exact follow-up head requires its own Release/xUnit/solver/protocol/replay/security verification before acceptance.
