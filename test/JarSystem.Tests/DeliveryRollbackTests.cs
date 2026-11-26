@@ -269,7 +269,7 @@ public class DeliveryRollbackTests
         var lastSeq = ledger.LastSeq;
         var retry = orderEvent.Deliver();
         Assert.False(retry.Success);
-        Assert.Contains("事务状态不确定", retry.Reason);
+        Assert.Contains("日志/统计投影发布失败", retry.Reason);
         Assert.False(orderEvent.Fail("retry must not convert uncertain delivery into failure").Success);
         Assert.Throws<InvalidOperationException>(() => orderEvent.RollbackSlaveToMaster());
         Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
