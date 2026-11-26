@@ -184,19 +184,13 @@ public sealed class WorldV2ApplicationServiceTests
         var templateId = app.AddJarDemandFromTemplate(
             "custom.coolant.order", DemandAreaKind.Passive, 0, "custom:template");
 
-        var demands = app.GetWorldSnapshot().Demands;
-        Assert.Collection(
-            demands,
-            item =>
-            {
-                Assert.Equal(directId, item.Id);
-                Assert.Equal("coolant", Assert.Single(item.Requirements).Liquid);
-            },
-            item =>
-            {
-                Assert.Equal(templateId, item.Id);
-                Assert.Equal("coolant", Assert.Single(item.Requirements).Liquid);
-            });
+        // Snapshot projection order is area-based (Passive before Active), not insertion order.
+        // Assert by stable demand identity so this contract test checks liquid preservation only.
+        var demandsById = app.GetWorldSnapshot().Demands.ToDictionary(item => item.Id);
+        var directDemand = Assert.Contains(directId, demandsById);
+        var templateDemand = Assert.Contains(templateId, demandsById);
+        Assert.Equal("coolant", Assert.Single(directDemand.Requirements).Liquid);
+        Assert.Equal("coolant", Assert.Single(templateDemand.Requirements).Liquid);
 
         var imported = app.ImportProducedJars(
             "custom-liquid-parser-batch",
