@@ -398,7 +398,7 @@ internal sealed class OrderService : IOrderExecutionCompletion
                 ["timestamp"] = _system.Now.ToString("o"),
                 ["operations"] = session.Operations
             });
-            return (delivery.Success, delivery.Reason, event_.GetReport(), event_.TransferOccurred, session.Operations);
+            return (delivery.Success, null, event_.GetReport(), event_.TransferOccurred, session.Operations);
         }
         else
         {
