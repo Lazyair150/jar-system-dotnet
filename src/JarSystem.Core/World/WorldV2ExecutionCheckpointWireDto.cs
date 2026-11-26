@@ -675,8 +675,9 @@ public sealed class ResourceLedgerWireDto
             throw new InvalidOperationException("资源账本批次 ID 与 Leg OperationId 发生冲突。");
         foreach (var item in Events)
         {
-            var isBatchLeg = item.OperationId != null &&
-                legOwners.TryGetValue(item.OperationId, out var expectedBatchId);
+            var expectedBatchId = item.OperationId == null
+                ? null : legOwners.GetValueOrDefault(item.OperationId);
+            var isBatchLeg = expectedBatchId != null;
             if ((item.BatchOperationId != null &&
                     (!isBatchLeg || !string.Equals(item.BatchOperationId, expectedBatchId, StringComparison.Ordinal))) ||
                 (item.BatchOperationId == null && isBatchLeg))

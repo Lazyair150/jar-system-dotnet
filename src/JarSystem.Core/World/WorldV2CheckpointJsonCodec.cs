@@ -57,9 +57,20 @@ public static class WorldV2CheckpointJsonCodec
             });
             if (!document.RootElement.TryGetProperty("payload", out var payloadElement) ||
                 !payloadElement.TryGetProperty("ResourceLedger", out var ledgerElement) ||
+                ledgerElement.ValueKind != JsonValueKind.Object ||
                 !ledgerElement.TryGetProperty("TransferBatchReceipts", out var batchReceiptsElement) ||
                 batchReceiptsElement.ValueKind != JsonValueKind.Array)
                 throw new JsonException("Schema 10+ resource ledger must carry the TransferBatchReceipts array.");
+
+            foreach (var batchReceipt in batchReceiptsElement.EnumerateArray())
+            {
+                if (batchReceipt.ValueKind != JsonValueKind.Object ||
+                    !batchReceipt.TryGetProperty("SchemaVersion", out var batchSchemaElement) ||
+                    batchSchemaElement.ValueKind != JsonValueKind.Number ||
+                    !batchSchemaElement.TryGetInt32(out var batchSchema) ||
+                    batchSchema != ResourceLedgerTransferBatchReceipt.CurrentSchemaVersion)
+                    throw new JsonException("Schema 10+ composite transfer receipts must declare a supported SchemaVersion.");
+            }
         }
         var ledgerEvents = envelope.Payload.ResourceLedger?.Events;
         if (envelope.SchemaVersion >= 8 &&

@@ -1,6 +1,6 @@
 # Resource-port 多参与者事务：保证边界与后续协议
 
-> 状态：设计裁决草案 / 尚未实现多参与者协调器  
+> 状态：复合账本 Receipt 与 Wire/Checkpoint 已实现；多参与者物理协调器尚未实现  
 > 日期：2026-11-26  
 > 适用范围：Core Resource Port、资源账户、ResourceLedger、World V2 Runtime
 
@@ -155,3 +155,29 @@ Wire/Checkpoint 必须同步保存复合 Batch Receipt 与全部 Leg Receipt 的
 - 推荐顺序：先实现复合 ledger 数据结构与 wire/schema 测试，再实现批次 Prepare 与账户计划，最后实现物理批量提交/补偿和 Runtime fail-stop；完成后才把 Circuit Board 多条连接接入生产/订单路径。
 
 在这套协议完成前，对外只能宣称“单连接端口转移具备本地事务边界”，不能宣称“多连接/多账户批次原子性”。
+
+
+## 7. 复合账本凭证第一阶段已实现
+
+本节只记录**持久化账本层**的落地，不代表多参与者物理协调器已经完成。
+
+### 7.1 复合凭证契约
+
+- `ResourceLedgerTransferBatchReceipt` 使用独立的 `SchemaVersion`（当前为 1），以父级 `OperationId` 绑定有序 `LegReceipts`。
+- 每条 Leg 仍保留自己的 `ResourceTransferReceipt`、`OperationId` 和操作指纹；父级凭证另有批次指纹，指纹覆盖复合回执及有序 Leg 指纹。
+- Jar Leg 仍要求一个规范正整数 JarId 与恰好一只 Jar；所有账户必须属于同一 World scope，禁止 legacy/v2 混接或跨 World。
+- 同一父 OperationId、完全相同的批次回执和 Leg 指纹重放时整体 no-op；任意 Leg、端点、数量或回执冲突时整批拒绝。
+- 父标记、全部子 OperationId、子 Receipt、父 Batch Receipt、全部事件和 `BatchOperationId` 在同一个账本锁内一次发布。容量裁剪与 Clear 不会清除任何幂等凭证。
+
+### 7.2 Snapshot / Wire / Checkpoint
+
+- `ResourceLedgerSnapshot` 捕获并恢复复合回执；`RestoreFrom` 将父/子索引与事件一并替换。
+- `ResourceLedgerWireDto` 增加 `TransferBatchReceipts`；`ResourceEventWireDto` 增加 `BatchOperationId`。
+- World V2 checkpoint schema 升至 10。Schema 3–9 继续按旧格式读取；Schema 10 必须显式提供批次回执数组，且每个批次回执必须显式给出受支持的 `SchemaVersion`。
+- Restore/Wire 校验父 ID 与 Leg ID 不冲突、Leg Receipt 与独立 Receipt 索引一致、父指纹可复算、事件的批次关联不可缺失或错绑。
+
+### 7.3 证据与未完成项
+
+目前测试覆盖双 Leg 原子发布、父/子 OperationId 与事件绑定、相同批次重放、错误 Leg 不产生任何局部账本状态、快照和 JSON 往返、事件裁剪/清空后幂等凭证仍可恢复，以及旧检查点 schema 兼容。
+
+**仍未实现** Prepare-all、共享账户净余额与容量计划、物理 Commit-all、逆序 Compensate-all、补偿失败时 Runtime fail-stop，以及批次级外部投影 outbox。不能将当前账本原子发布称为整个多账户资源操作已经原子。

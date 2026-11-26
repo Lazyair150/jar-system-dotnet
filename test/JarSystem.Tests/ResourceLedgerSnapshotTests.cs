@@ -1126,6 +1126,53 @@ public sealed class ResourceLedgerSnapshotTests
 
 
     [Fact]
+    public void CompositeTransferBatchReceiptSurvivesEventTrimmingAndClear()
+    {
+        var ledger = new ResourceLedger(capacity: 1);
+        var source = new RuleResourceAccount("workshop.free-liquid-staging", "source.trim");
+        var target = new RuleResourceAccount("workshop.free-liquid-staging", "target.trim");
+        var first = new ResourceTransferReceipt(
+            "batch.trim.leg-one", "connection.trim.one", "one.out", "one.in",
+            RuleResourceKind.Liquid, "liquid.one", source, target,
+            1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-1-before", "source-1-after", "target-1-before", "target-1-after", "allowed");
+        var second = new ResourceTransferReceipt(
+            "batch.trim.leg-two", "connection.trim.two", "two.out", "two.in",
+            RuleResourceKind.Liquid, "liquid.two", source, target,
+            1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-2-before", "source-2-after", "target-2-before", "target-2-after", "allowed");
+        var receipt = new ResourceLedgerTransferBatchReceipt(
+            "batch.trim.root", new[] { first, second });
+        var legs = new[]
+        {
+            new ResourceLedgerTransferBatchLeg(first, new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "One", 1, From: source.OwnerId, To: target.OwnerId, ResourceIdentity: "liquid.one")
+            }),
+            new ResourceLedgerTransferBatchLeg(second, new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "Two", 1, From: source.OwnerId, To: target.OwnerId, ResourceIdentity: "liquid.two")
+            })
+        };
+
+        Assert.True(ledger.RecordTransferBatchOnce(receipt.OperationId, 4, legs, receipt));
+        Assert.Equal(1, ledger.Dropped);
+        Assert.Single(ledger.Entries);
+        ledger.Clear();
+
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.Empty(restored.Entries);
+        Assert.Equal(2, restored.LastSeq);
+        Assert.True(restored.TryGetTransferBatchReceipt(receipt.OperationId, out var restoredReceipt));
+        Assert.NotNull(restoredReceipt);
+        Assert.True(receipt.HasSamePayload(restoredReceipt!));
+        Assert.False(restored.RecordTransferBatchOnce(receipt.OperationId, 5, legs, receipt));
+        Assert.Equal(2, restored.LastSeq);
+    }
+
+    [Fact]
     public void InvalidCompositeLegPublishesNoParentOrEarlierLegState()
     {
         var ledger = new ResourceLedger();

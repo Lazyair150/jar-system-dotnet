@@ -222,13 +222,19 @@ public sealed class ResourceLedger
                     storedLeg != legReceipt)
                     throw new DomainValidationException("资源账本复合回执缺少精确的 Leg OperationId / Receipt 索引。");
             }
+            if (!snapshot.OperationFingerprints.TryGetValue(batchReceipt.OperationId, out var parentFingerprint) ||
+                !string.Equals(parentFingerprint,
+                    ComputeTransferBatchFingerprint(batchReceipt, snapshot.OperationFingerprints),
+                    StringComparison.Ordinal))
+                throw new DomainValidationException("资源账本复合回执父指纹与批次/Leg 指纹不一致。");
         }
         if (batchLegOwners.Keys.Any(batchIds.Contains))
             throw new DomainValidationException("资源账本的批次 OperationId 与其他批次 Leg OperationId 发生冲突。");
         foreach (var item in snapshot.Entries)
         {
-            var isBatchLeg = item.OperationId != null &&
-                batchLegOwners.TryGetValue(item.OperationId, out var expectedBatchId);
+            var expectedBatchId = item.OperationId == null
+                ? null : batchLegOwners.GetValueOrDefault(item.OperationId);
+            var isBatchLeg = expectedBatchId != null;
             if ((item.BatchOperationId != null &&
                     (!isBatchLeg || !string.Equals(item.BatchOperationId, expectedBatchId, StringComparison.Ordinal))) ||
                 (item.BatchOperationId == null && isBatchLeg))
@@ -324,6 +330,22 @@ public sealed class ResourceLedger
         {
             Mutations = schema8Mutations,
             Receipt = receipt
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    private static string ComputeTransferBatchFingerprint(
+        ResourceLedgerTransferBatchReceipt receipt,
+        IReadOnlyDictionary<string, string> legFingerprints)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            Receipt = receipt,
+            Legs = receipt.LegReceipts.Select(item => new
+            {
+                item.OperationId,
+                Fingerprint = legFingerprints[item.OperationId]
+            }).ToArray()
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
@@ -749,13 +771,9 @@ public sealed class ResourceLedger
             }
 
             var receiptCopy = receipt.DeepCopy();
-            var batchFingerprintPayload = JsonSerializer.Serialize(new
-            {
-                Receipt = receiptCopy,
-                Legs = prepared.Select(item => new { item.Receipt.OperationId, item.Fingerprint }).ToArray()
-            });
-            var batchFingerprint = Convert.ToHexString(
-                SHA256.HashData(Encoding.UTF8.GetBytes(batchFingerprintPayload)));
+            var legFingerprints = prepared.ToDictionary(
+                item => item.Receipt.OperationId, item => item.Fingerprint, StringComparer.Ordinal);
+            var batchFingerprint = ComputeTransferBatchFingerprint(receiptCopy, legFingerprints);
 
             if (_operationIds.Contains(operationId))
             {
