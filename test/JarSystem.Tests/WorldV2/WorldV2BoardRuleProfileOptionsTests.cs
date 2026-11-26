@@ -122,6 +122,7 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
     {
         var assignment = CreateParserAssignment(subAreaId: "decomposition");
         assignment.SchemaVersion = 2;
+        assignment.BoardDefinition!.SchemaVersion = 2;
         foreach (var entry in assignment.Assignments)
         {
             if (entry.ComponentKind == "workshop")
