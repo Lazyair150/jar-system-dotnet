@@ -64,9 +64,11 @@ public class DeliveryRollbackTests
             ownerIdentity: slaveOwner);
         var originalMasterJar = MakeJar(21, "方罐");
         var returningJar = MakeJar(22, "圆罐", "酒");
+        var deliveredJar = MakeJar(23, "方罐", "蜜");
         Assert.True(master.AddJar(originalMasterJar));
         Assert.True(master.AddLiquid("蜜", 1));
         Assert.True(slave.AddJar(returningJar));
+        Assert.True(slave.AddJar(deliveredJar));
         Assert.True(slave.AddLiquid("酒", 2));
 
         var ledger = new ResourceLedger();
@@ -81,11 +83,14 @@ public class DeliveryRollbackTests
                 (_, amount) => discardedLiquids += amount,
                 ledger, () => 23,
                 operationId: "rollback:atomic:21",
-                faults: new ThrowAfterLiquidMoves()));
+                faults: new ThrowAfterLiquidMoves(),
+                deliveredJarIds: new[] { deliveredJar.Id!.Value }));
 
         Assert.Contains("Injected SlaveRollback failure", error.InnerException!.Message);
         Assert.Same(originalMasterJar, Assert.Single(master.Jars));
-        Assert.Same(returningJar, Assert.Single(slave.Jars));
+        Assert.Contains(slave.Jars, jar => ReferenceEquals(jar, returningJar));
+        Assert.Contains(slave.Jars, jar => ReferenceEquals(jar, deliveredJar));
+        Assert.Equal(2, slave.Jars.Count);
         Assert.Equal(1, master.LiquidStorage["蜜"]);
         Assert.Equal(0, master.LiquidStorage["酒"]);
         Assert.Equal(2, slave.LiquidStorage["酒"]);
