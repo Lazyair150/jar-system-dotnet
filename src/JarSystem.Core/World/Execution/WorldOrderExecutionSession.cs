@@ -308,7 +308,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         WorkshopRoster roster,
         WorldResourceReservationBook reservations,
         ResourceLedger? resourceLedger,
-        Func<int>? resourceLedgerTick)
+        Func<int>? resourceLedgerTick,
+        WorkshopRuntimeStateSnapshot? masterWorkshopSnapshot = null,
+        WorkshopRuntimeStateSnapshot? slaveWorkshopSnapshot = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (!admission.IsBoundTo(board, solveBook, roster))
@@ -408,19 +410,27 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
 
                     var slaveWorkshop = roster.Slave
                         ?? throw new InvalidOperationException("恢复 B 类 Transfer receipt 时缺少从台。");
+                    // WorldV2Context stages checkpoint restore before mutating its live Workshop
+                    // objects. In that phase, use the already-validated checkpoint Workshop
+                    // snapshots; after the staged graph is committed, direct restore callers may
+                    // use the live roster instances.
+                    var slaveJarStates = slaveWorkshopSnapshot?.Jars ?? slaveWorkshop.Jars;
                     var transferredJars = new Dictionary<int, Jar>();
                     foreach (var jarId in snapshot.Manifest.TransferJarIds)
                     {
-                        var matches = slaveWorkshop.Jars.Where(jar => jar.Id == jarId).ToArray();
+                        var matches = slaveJarStates.Where(jar => jar.Id == jarId).ToArray();
                         if (matches.Length != 1)
                             throw new InvalidOperationException(
                                 "恢复 B 类 Transfer receipt 时从台缺少精确 Jar：" + jarId);
                         transferredJars.Add(jarId, matches[0]);
                     }
 
+                    var transferMaster = masterWorkshopSnapshot == null
+                        ? roster.Master!
+                        : null;
                     var expectedTransferBatch = OrderTransferService.BuildTransferLedgerMutations(
                         snapshot.DemandId, snapshot.Manifest,
-                        roster.Master!, slaveWorkshop, transferredJars,
+                        transferMaster ?? roster.Master!, slaveWorkshop, transferredJars,
                         scopes.Value.Master, scopes.Value.Slave);
                     if (!resourceLedger.HasRecordedBatch(transferOperationId, expectedTransferBatch))
                         throw new InvalidOperationException(
