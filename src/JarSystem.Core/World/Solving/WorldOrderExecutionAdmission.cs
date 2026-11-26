@@ -376,11 +376,27 @@ public sealed class WorldOrderExecutionAdmission
     /// referenced by active OrderLiquidScope instances. The snapshot is validated in full
     /// before either authoritative staging account is changed.
     /// </summary>
-    internal void RestoreTransferSnapshot(WorldOrderExecutionAdmissionSnapshot snapshot)
+    internal WorldOrderExecutionAdmissionSnapshot? CaptureTransferSnapshot()
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
         if (_shipLiquidInventory == null)
-            throw new InvalidOperationException("旧版兼容准入不能恢复 B 类订单暂存事务快照。");
+        {
+            if (_stagingByWorkshop.Count != 0)
+                throw new InvalidOperationException("旧版兼容准入意外持有新式订单暂存对象，不能捕获部分事务快照。");
+            return null;
+        }
+        return Capture();
+    }
+
+    internal void RestoreTransferSnapshot(WorldOrderExecutionAdmissionSnapshot? snapshot)
+    {
+        if (snapshot == null)
+        {
+            if (_shipLiquidInventory != null || _stagingByWorkshop.Count != 0)
+                throw new InvalidOperationException("新式订单暂存状态缺少 B 类补偿快照。");
+            return;
+        }
+        if (_shipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容准入不能恢复新式 B 类订单暂存事务快照。");
 
         var master = _roster.Master ?? throw new InvalidOperationException("B 类补偿时没有主工作台。");
         var slave = _roster.Slave ?? throw new InvalidOperationException("B 类补偿时没有从工作台。");
@@ -390,10 +406,10 @@ public sealed class WorldOrderExecutionAdmission
             required: snapshot.ActiveOrders.Any(item => item.UsesSlave));
 
         // Validate every snapshot independently before applying either one.
-        var validatedMaster = snapshot.MasterStaging == null
-            ? null : WorkshopLiquidStaging.Restore(snapshot.MasterStaging);
-        var validatedSlave = snapshot.SlaveStaging == null
-            ? null : WorkshopLiquidStaging.Restore(snapshot.SlaveStaging);
+        if (snapshot.MasterStaging != null)
+            _ = WorkshopLiquidStaging.Restore(snapshot.MasterStaging);
+        if (snapshot.SlaveStaging != null)
+            _ = WorkshopLiquidStaging.Restore(snapshot.SlaveStaging);
 
         var currentLeases = _reservations.Capture().Reservations;
         var currentIds = currentLeases.Select(item => item.DemandId).ToHashSet();
