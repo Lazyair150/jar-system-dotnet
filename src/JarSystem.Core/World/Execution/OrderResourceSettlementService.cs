@@ -13,6 +13,7 @@ internal interface IOrderSettlementFaultPort
     void AfterMasterDrain();
     void AfterSlaveDrain();
     void AfterShipReturnBeforeReceipt();
+    void BeforeCompensation();
     void AfterLedgerBatchRecorded();
     void AfterLedgerStageMarked();
     void BeforeReservationRelease();
@@ -25,9 +26,20 @@ internal sealed class NoopOrderSettlementFaultPort : IOrderSettlementFaultPort
     public void AfterMasterDrain() { }
     public void AfterSlaveDrain() { }
     public void AfterShipReturnBeforeReceipt() { }
+    public void BeforeCompensation() { }
     public void AfterLedgerBatchRecorded() { }
     public void AfterLedgerStageMarked() { }
     public void BeforeReservationRelease() { }
+}
+
+/// <summary>
+/// Settlement failed after physical ownership became uncertain or after a durable receipt/ledger stage.
+/// The owning Session must retain its lease and the Runtime must freeze for explicit reconciliation.
+/// </summary>
+internal sealed class OrderSettlementTransactionException : InvalidOperationException
+{
+    public OrderSettlementTransactionException(string message, Exception innerException)
+        : base(message, innerException) { }
 }
 
 /// <summary>
@@ -124,6 +136,7 @@ public sealed class OrderResourceSettlementService
             {
                 try
                 {
+                    _faults.BeforeCompensation();
                     admission.ShipLiquidInventory.RestoreFrom(shipBefore);
                     scopes.Value.Master.Staging.RestoreOrderAccount(demandId, masterBefore);
                     if (scopes.Value.Slave != null)
@@ -131,33 +144,42 @@ public sealed class OrderResourceSettlementService
                 }
                 catch (Exception rollbackError)
                 {
-                    throw new AggregateException(
+                    throw new OrderSettlementTransactionException(
                         "订单液体结算在收据提交前失败，且自机/主从暂存账户补偿回滚失败；必须停止世界推进并保留故障现场。",
-                        settlementError, rollbackError);
+                        new AggregateException(settlementError, rollbackError));
                 }
                 throw;
             }
         }
 
-        if (receipt != null && lease!.SettlementStage == OrderResourceSettlementStage.ResourcesReturned &&
-            ledger != null)
+        try
         {
-            var tick = settlementTick ?? 0;
-            var mutations = BuildSettlementLedgerMutations(receipt).ToArray();
-            // Zero accepted and zero discarded means no resource changed; do not publish an
-            // empty ledger operation, but still advance the settlement lease stage below.
-            if (mutations.Length > 0)
-                ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations);
-            _faults.AfterLedgerBatchRecorded();
-            lease.MarkSettlementLedgerRecorded();
-            _faults.AfterLedgerStageMarked();
+            if (receipt != null && lease!.SettlementStage == OrderResourceSettlementStage.ResourcesReturned &&
+                ledger != null)
+            {
+                var tick = settlementTick ?? 0;
+                var mutations = BuildSettlementLedgerMutations(receipt).ToArray();
+                // Zero accepted and zero discarded means no resource changed; do not publish an
+                // empty ledger operation, but still advance the settlement lease stage below.
+                if (mutations.Length > 0)
+                    ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations);
+                _faults.AfterLedgerBatchRecorded();
+                lease.MarkSettlementLedgerRecorded();
+                _faults.AfterLedgerStageMarked();
+            }
+
+            _faults.BeforeReservationRelease();
+            if (!admission.ReleaseReservationOnly(demandId))
+                throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
+
+            return receipt;
         }
-
-        _faults.BeforeReservationRelease();
-        if (!admission.ReleaseReservationOnly(demandId))
-            throw new InvalidOperationException("执行会话结束时找不到对应的资源预留");
-
-        return receipt;
+        catch (Exception settlementCommitError) when (receipt != null)
+        {
+            throw new OrderSettlementTransactionException(
+                "订单液体已从主/从订单暂存账户退回自机或丢弃，但账本/租约释放阶段未能确认完成；必须冻结世界并保留收据与资源租约。",
+                settlementCommitError);
+        }
     }
 
     private static IReadOnlyList<LiquidBatchSourceAllocation> BuildSourceAllocations(
