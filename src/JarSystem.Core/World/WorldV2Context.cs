@@ -391,7 +391,8 @@ public sealed class WorldV2Context : IDisposable
                 session, checkpoint.MasterWorkshop, checkpoint.SlaveWorkshop);
             WorldOrderExecutionSession.RestoreProgress(
                 session, stagedBoard, stagedSolveBook, stagedAdmission, Roster,
-                stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick);
+                stagedReservations, stagedLedger, () => checkpoint.RuntimeLedgerTick,
+                slaveWorkshopSnapshot: checkpoint.SlaveWorkshop);
         }
         stagedSolveBook.Dispose();
 
