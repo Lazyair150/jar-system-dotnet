@@ -44,3 +44,4 @@ architecture/core-liquid-identity-consolidation
 - [2026-11-26 外部 Jar 导入精确回执（Core）](2026-11-26-produced-jar-import-receipts.md)
 - [2026-11-26 外部 Jar 导入回执测试契约修正](2026-11-26-produced-jar-import-receipt-test-contract-fix.md)
 - [2026-11-26 Board Slot 层级区域契约修复](2026-11-26-board-slot-hierarchy-contract-fix.md)
+- [2026-11-26 Board Assignment 测试夹具排序遗漏修复](2026-11-26-board-assignment-fixture-ordering-fix.md)
