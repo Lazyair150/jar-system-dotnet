@@ -196,10 +196,49 @@ public class ResourceProvenanceTests
 
         var flowed = sys.ResourceLedger.For(ResourceCauses.Flow);
         Assert.Contains(flowed, e => e.Kind == ResourceKinds.Liquid && e.Name == "蜜" && e.Amount == 2);
-        Assert.Contains(flowed, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐");
+        var flowedJar = Assert.Single(flowed, e => e.Kind == ResourceKinds.Jar && e.Name == "圆罐");
         Assert.All(flowed, e => Assert.Equal("主台", e.To));
+        // The historical default Workshop has no explicit instance identity, so both ends
+        // remain honestly unknown instead of inventing an owner from its display name.
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, flowedJar.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, flowedJar.ToEndpoint.Kind);
         // 流入不是产出：这局没有任何产线在跑，因此不该有 production 事实来"顶账"。
         Assert.Empty(sys.ResourceLedger.For(ResourceCauses.Production));
+    }
+
+    [Fact]
+    public void ProductionFlowUsesExactLegacyOwnedInstanceIdWhenWorldOwnerMapIsAbsent()
+    {
+        var world = QuietWorld();
+        world.Flow = new FlowOptions
+        {
+            JarCount = 1,
+            LiquidAmount = 0,
+            LiquidRate = world.Liquids.ToDictionary(liquid => liquid, _ => 0.0)
+        };
+        var system = new JarSystem.Core.JarSystem(randomSeed: 131, world: world);
+        system.ClearWorkshops();
+        var workshop = new Workshop(
+            "显示名称可变",
+            new List<string> { "圆罐" },
+            maxJars: 4,
+            maxLiquids: 4,
+            vocabulary: Vocabulary.Default,
+            ownedInstanceId: "workshop-local-flow-owner");
+        system.AddWorkshop(workshop);
+        system.SetMasterIndex(0);
+        system.ProducerModule.Warehouse.StoreJars(
+            new[] { new Jar("圆罐", id: 9131, vocabulary: Vocabulary.Default) });
+
+        system.Tick();
+
+        var flowedJar = Assert.Single(system.ResourceLedger.For(ResourceCauses.Flow),
+            item => item.Kind == ResourceKinds.Jar && item.ResourceIdentity == "9131");
+        Assert.Equal(ResourceEndpointKind.LegacyUnknown, flowedJar.FromEndpoint.Kind);
+        Assert.Equal(ResourceEndpointKind.Account, flowedJar.ToEndpoint.Kind);
+        Assert.Equal(
+            new RuleResourceAccount("workshop.jar-storage", "workshop-local-flow-owner").AccountId,
+            flowedJar.ToEndpoint.AccountId);
     }
 
     [Fact]
