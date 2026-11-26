@@ -401,14 +401,38 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     "恢复会话报告主从交接已提交，但资源账本缺少对应的 Transfer operation receipt。");
         }
 
-        // A restored lease may already have crossed the settlement ledger boundary even
-        // while its reservation is still present in a checkpoint. Never trust the stage
-        // bit alone: the idempotency receipt must exist in the same restored ledger.
-        if (lease.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
-            (resourceLedger == null ||
-             !resourceLedger.HasRecordedOperation(lease.SettlementOperationId)))
+        // A restored lease may have a receipt before or after the ledger publication point.
+        // Verify the exact normalized batch payload whenever an OperationId is present;
+        // presence alone is insufficient because a valid receipt can otherwise be paired
+        // with another batch that reused the same deterministic OperationId.
+        var settlementReceipt = lease.SettlementReceipt;
+        var settlementHasLedgerFacts = settlementReceipt != null &&
+            (settlementReceipt.Accepted.Values.Any(value => value > 0) ||
+             settlementReceipt.Discarded.Values.Any(value => value > 0));
+        var hasSettlementOperation = resourceLedger?.HasRecordedOperation(
+            lease.SettlementOperationId) == true;
+        if (lease.SettlementStage == OrderResourceSettlementStage.NotStarted &&
+            (settlementReceipt != null || hasSettlementOperation))
             throw new InvalidOperationException(
-                "恢复会话报告结算账本已提交，但缺少对应的 ResourceLedger 或 Settlement operation receipt。");
+                "恢复会话的未开始结算租约不能已有 Settlement receipt 或 ResourceLedger operation。");
+        if (settlementReceipt == null &&
+            lease.SettlementStage != OrderResourceSettlementStage.NotStarted)
+            throw new InvalidOperationException(
+                "恢复会话的已推进结算租约缺少 Settlement receipt。");
+        if (settlementHasLedgerFacts && hasSettlementOperation &&
+            !resourceLedger!.HasRecordedBatch(
+                lease.SettlementOperationId,
+                OrderResourceSettlementService.BuildSettlementLedgerMutations(settlementReceipt!)))
+            throw new InvalidOperationException(
+                "恢复会话的 Settlement receipt 与 ResourceLedger operation 批次内容不一致。");
+        if (settlementHasLedgerFacts &&
+            lease.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
+            !hasSettlementOperation)
+            throw new InvalidOperationException(
+                "恢复会话报告结算账本已提交，但缺少对应的 ResourceLedger Settlement operation receipt。");
+        if (!settlementHasLedgerFacts && hasSettlementOperation)
+            throw new InvalidOperationException(
+                "恢复会话的零资源结算不能包含 ResourceLedger Settlement operation。");
 
         var restored = new WorldOrderExecutionSession(
             snapshot.DemandId, board, solveBook, admission, roster,
