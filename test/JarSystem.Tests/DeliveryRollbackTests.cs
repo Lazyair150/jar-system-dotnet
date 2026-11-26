@@ -129,7 +129,7 @@ public class DeliveryRollbackTests
             operationId: operationId);
 
         Assert.Empty(slave.Jars);
-        Assert.Empty(slave.LiquidStorage.Where(item => item.Value > 0));
+        Assert.DoesNotContain(slave.LiquidStorage, item => item.Value > 0);
         Assert.Equal(new[] { 31, 32 }, master.Jars.Select(item => item.Id!.Value).OrderBy(id => id));
         Assert.Equal(2, master.LiquidStorage["蜜"]);
         Assert.Equal(1, discardedJarCount);
