@@ -784,29 +784,33 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
             deliveryJars.Add(matches[0]);
         }
 
-        // 交付罐也属于本订单锁定的参与资源。先通过工作台领域入口清除标记，
-        // 再将罐子移出工作台；否则后续 ClearParticipantMarks 已经找不到它，
-        // 会把 IsMarked 状态带到交付边界之外。
-        foreach (var jar in deliveryJars)
+        if (!_manifest.IsPartitioned)
         {
-            var clear = deliveryWorkshop.ClearMark(jar);
-            if (!clear.Success)
-                throw new InvalidOperationException(
-                    clear.Reason ?? $"无法清理交付罐 #{jar.Id} 的操作标记");
-        }
+            // A 类交付仍由主台直接移出；没有从台多账户回落事务参与。
+            foreach (var jar in deliveryJars)
+            {
+                var clear = deliveryWorkshop.ClearMark(jar);
+                if (!clear.Success)
+                    throw new InvalidOperationException(
+                        clear.Reason ?? $"无法清理交付罐 #{jar.Id} 的操作标记");
+            }
 
-        foreach (var jar in deliveryJars)
-        {
-            if (deliveryWorkshop.RemoveJar(jar) == null)
-                throw new InvalidOperationException($"订单交付罐 #{jar.Id} 无法从工作台移除");
+            foreach (var jar in deliveryJars)
+            {
+                if (deliveryWorkshop.RemoveJar(jar) == null)
+                    throw new InvalidOperationException($"订单交付罐 #{jar.Id} 无法从工作台移除");
+            }
         }
 
         var completedDemand = _board.Find(DemandId)
             ?? throw new InvalidOperationException("执行成功时订单已不在需求板中");
 
-        // 成功事件必须晚于所有资源结算与预留释放。这样下游只能观察到完整提交的周期，
-        // 不会因释放阶段失败而提前触发 Space Buff/效果。
-        CleanupTemporaryResources(settlementTick);
+        // B 类交付 Jar 由 SlaveRollback 在同一物理快照与 Ledger batch 内送入
+        // order.delivery sink；剩余 Jar/游离液体同时返回主台。只有该事务提交后
+        // 才释放订单租约并发布成功周期事件。
+        CleanupTemporaryResources(
+            settlementTick,
+            _manifest.IsPartitioned ? _deliveryJarIds : null);
         ReleaseReservation(settlementTick);
         if (_board.RecordSuccessfulFulfillment(DemandId) == DemandFulfillmentResult.NotFound)
             throw new InvalidOperationException("执行成功提交时订单已不在需求板中");
@@ -845,7 +849,9 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         }
     }
 
-    private void CleanupTemporaryResources(int? ledgerTickOverride = null)
+    private void CleanupTemporaryResources(
+        int? ledgerTickOverride = null,
+        IReadOnlyCollection<int>? deliveredJarIds = null)
     {
         // 只有本会话已经通过从台所需液体批次预检并取得从台资源所有权，才允许处理从台回滚。
         // 若转移前发现从台被外部占用，失败路径必须原样保留那些外部资源与标记。
@@ -872,7 +878,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     operationId: rollbackLedger == null
                         ? null
                         : _manifest.WorldVersion + ":order:" + DemandId + ":rollback",
-                    faults: _slaveRollbackFaultPort);
+                    faults: _slaveRollbackFaultPort,
+                    deliveredJarIds: deliveredJarIds);
             }
             _slaveTransferCommitted = false;
         }
