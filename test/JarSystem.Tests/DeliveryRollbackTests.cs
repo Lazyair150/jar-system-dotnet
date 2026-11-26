@@ -241,10 +241,16 @@ public class DeliveryRollbackTests
             Constants.OrderType.B,
             vocabulary: Vocabulary.Default);
         var ledger = new ResourceLedger();
+        var discardStatCalls = 0;
+        var rollbackOperationId = "legacy-order:" + order.Id + ":slave-rollback";
         var orderEvent = new OrderEvent(
             order, master, slave,
-            countDiscardedJars: _ => throw new InvalidOperationException(
-                "Injected legacy discard-stat projection failure"),
+            countDiscardedJars: _ =>
+            {
+                discardStatCalls++;
+                throw new InvalidOperationException(
+                    "Injected legacy discard-stat projection failure");
+            },
             ledger: ledger,
             tickOf: () => 73);
         Assert.True(orderEvent.Start());
@@ -253,6 +259,8 @@ public class DeliveryRollbackTests
         var error = Assert.Throws<SlaveRollbackTransactionException>(() => orderEvent.Deliver());
 
         Assert.Contains("投影发布失败", error.Message);
+        Assert.Equal(1, discardStatCalls);
+        Assert.Single(orderEvent.ExecutionLog);
         Assert.True(orderEvent.IsTransactionFaulted);
         Assert.Contains("投影发布失败", orderEvent.TransactionFaultReason);
         Assert.Equal(Constants.OrderStatus.EXECUTING, order.Status);
@@ -260,8 +268,7 @@ public class DeliveryRollbackTests
         Assert.Equal(new[] { 40 }, master.Jars.Select(jar => jar.Id!.Value));
         var committed = ledger.Entries;
         Assert.Equal(2, committed.Count);
-        Assert.True(ledger.HasRecordedOperation(
-            "legacy-order:" + order.Id + ":slave-rollback"));
+        Assert.True(ledger.HasRecordedOperation(rollbackOperationId));
         Assert.Equal("order.delivery", Assert.Single(committed,
             item => item.ResourceIdentity == "41").ToEndpoint.ExternalIdentity);
         Assert.Equal(ResourceCauses.Discard,
@@ -273,6 +280,21 @@ public class DeliveryRollbackTests
         Assert.Contains("日志/统计投影发布失败", retry.Reason);
         Assert.False(orderEvent.Fail("retry must not convert uncertain delivery into failure").Success);
         Assert.Throws<InvalidOperationException>(() => orderEvent.RollbackSlaveToMaster());
+
+        // Replay the same durable rollback operation at the service boundary. The Slave
+        // is empty, so the committed OperationId must return as a no-op before any
+        // presentation/stat callbacks are invoked a second time.
+        var replayLogCalls = 0;
+        new SlaveRollback().Execute(
+            master, slave,
+            _ => replayLogCalls++,
+            _ => discardStatCalls++,
+            ledger: ledger,
+            tickOf: () => 73,
+            operationId: rollbackOperationId);
+        Assert.Equal(0, replayLogCalls);
+        Assert.Equal(1, discardStatCalls);
+        Assert.Single(orderEvent.ExecutionLog);
 
         // The legacy Executor is public. Its direct entrypoint must still honor the
         // OrderEvent fail-stop guard, even if a caller bypasses ExecuteCommand and
