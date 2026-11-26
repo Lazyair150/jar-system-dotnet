@@ -171,6 +171,7 @@ public sealed class WorldV2BoardRuleProfileOptionsTests
                 new() { SlotId = "parser", ComponentKind = "ore_parser", OwnedInstanceId = "p", DefinitionId = "p", DefinitionVersion = 1, SourceRevision = 1 }
             }
         };
+        assignment.Assignments.Sort((left, right) => string.CompareOrdinal(left.SlotId, right.SlotId));
         assignment.AssignmentFingerprint = assignment.ComputeCanonicalFingerprint();
         return assignment;
     }
