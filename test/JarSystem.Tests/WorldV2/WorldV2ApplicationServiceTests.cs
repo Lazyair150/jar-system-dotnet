@@ -743,8 +743,10 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(first.DiscardedJarCount, duplicate.DiscardedJarCount);
         Assert.Equal(first.StoredJarCountsByShape, duplicate.StoredJarCountsByShape);
         Assert.Equal(first.DiscardedJarCountsByShape, duplicate.DiscardedJarCountsByShape);
-        Assert.Single(app.GetResourceLedger().ProducedJarImportReceipts);
-        var restoredLedger = ResourceLedger.Restore(app.GetResourceLedger());
+        // Durable import receipts belong to the checkpointed ledger snapshot, not the public event projection.
+        var ledgerSnapshot = app.CaptureExecutionResourceCheckpoint().ResourceLedger;
+        Assert.Single(ledgerSnapshot.ProducedJarImportReceipts);
+        var restoredLedger = ResourceLedger.Restore(ledgerSnapshot);
         Assert.Single(restoredLedger.Capture().ProducedJarImportReceipts);
         Assert.Equal(3, app.GetWorldSnapshot().ResourceJars.Count);
 
@@ -873,7 +875,8 @@ public sealed class WorldV2ApplicationServiceTests
         Assert.Equal(0, duplicate.DiscardedJarCount);
         Assert.Equal(2, duplicate.StoredJarCountsByShape!["方罐"]);
         Assert.Empty(duplicate.DiscardedJarCountsByShape!);
-        Assert.Single(restoredApp.GetResourceLedger().ProducedJarImportReceipts);
+        var restoredLedgerSnapshot = restoredApp.CaptureExecutionResourceCheckpoint().ResourceLedger;
+        Assert.Single(restoredLedgerSnapshot.ProducedJarImportReceipts);
         Assert.Equal(2, restoredApp.GetWorldSnapshot().ResourceJars.Count);
     }
 
