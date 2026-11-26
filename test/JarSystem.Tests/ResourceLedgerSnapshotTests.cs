@@ -985,4 +985,143 @@ public sealed class ResourceLedgerSnapshotTests
     }
 
 
+
+    [Fact]
+    public void CompositeTransferBatchPublishesParentLegReceiptsAndEventsAtomically()
+    {
+        var ledger = new ResourceLedger(capacity: 8);
+        var sourceA = new RuleResourceAccount("workshop.free-liquid-staging", "source-a");
+        var targetA = new RuleResourceAccount("workshop.free-liquid-staging", "target-a");
+        var sourceB = new RuleResourceAccount("warehouse.liquid-storage", "source-b");
+        var targetB = new RuleResourceAccount("workshop.free-liquid-staging", "target-b");
+
+        var first = new ResourceTransferReceipt(
+            "batch.operation.leg-a", "connection.a", "port.a.out", "port.a.in",
+            RuleResourceKind.Liquid, "liquid.alpha", sourceA, targetA,
+            2, 2, 0, 0, ResourceTransferOutcome.Transferred,
+            "a-source-before", "a-source-after", "a-target-before", "a-target-after", "allowed");
+        var second = new ResourceTransferReceipt(
+            "batch.operation.leg-b", "connection.b", "port.b.out", "port.b.in",
+            RuleResourceKind.Liquid, "liquid.beta", sourceB, targetB,
+            3, 3, 0, 0, ResourceTransferOutcome.Transferred,
+            "b-source-before", "b-source-after", "b-target-before", "b-target-after", "allowed");
+        var firstMutations = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "Alpha", 2, From: sourceA.OwnerId, To: targetA.OwnerId,
+                ResourceIdentity: "liquid.alpha", DisplayName: "Alpha")
+        };
+        var secondMutations = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "Beta", 3, From: sourceB.OwnerId, To: targetB.OwnerId,
+                ResourceIdentity: "liquid.beta", DisplayName: "Beta")
+        };
+        var receipt = new ResourceLedgerTransferBatchReceipt(
+            "batch.operation.root", new[] { first, second });
+        var legs = new[]
+        {
+            new ResourceLedgerTransferBatchLeg(first, firstMutations),
+            new ResourceLedgerTransferBatchLeg(second, secondMutations)
+        };
+
+        Assert.True(ledger.RecordTransferBatchOnce(receipt.OperationId, 50, legs, receipt));
+        Assert.False(ledger.RecordTransferBatchOnce(receipt.OperationId, 51, legs, receipt));
+        Assert.Equal(2, ledger.LastSeq);
+        Assert.Equal(2, ledger.Retained);
+        Assert.True(ledger.HasRecordedOperation(receipt.OperationId));
+        Assert.True(ledger.HasRecordedOperation(first.OperationId));
+        Assert.True(ledger.HasRecordedOperation(second.OperationId));
+        Assert.True(ledger.TryGetTransferBatchReceipt(receipt.OperationId, out var storedBatch));
+        Assert.NotNull(storedBatch);
+        Assert.True(receipt.HasSamePayload(storedBatch!));
+        Assert.True(ledger.TryGetTransferReceipt(first.OperationId, out var storedFirst));
+        Assert.Equal(first, storedFirst);
+        Assert.True(ledger.TryGetTransferReceipt(second.OperationId, out var storedSecond));
+        Assert.Equal(second, storedSecond);
+
+        var events = ledger.Entries;
+        Assert.Equal(new[] { first.OperationId, second.OperationId }, events.Select(item => item.OperationId));
+        Assert.All(events, item => Assert.Equal(receipt.OperationId, item.BatchOperationId));
+        Assert.Equal(new[] { "liquid.alpha", "liquid.beta" }, events.Select(item => item.ResourceIdentity));
+    }
+
+    [Fact]
+    public void CompositeTransferBatchReceiptAndIndexesSurviveCheckpointWireRoundTrip()
+    {
+        var ledger = new ResourceLedger(capacity: 8);
+        var source = new RuleResourceAccount("workshop.free-liquid-staging", "source");
+        var target = new RuleResourceAccount("workshop.free-liquid-staging", "target");
+        var leg = new ResourceTransferReceipt(
+            "batch.roundtrip.leg", "connection.roundtrip", "source.out", "target.in",
+            RuleResourceKind.Liquid, "liquid.stable",
+            source, target, 4, 4, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+        var mutations = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "Stable liquid", 4, From: source.OwnerId, To: target.OwnerId,
+                ResourceIdentity: "liquid.stable", DisplayName: "Stable liquid")
+        };
+        var receipt = new ResourceLedgerTransferBatchReceipt(
+            "batch.roundtrip.root", new[] { leg });
+        var legs = new[] { new ResourceLedgerTransferBatchLeg(leg, mutations) };
+
+        Assert.True(ledger.RecordTransferBatchOnce(receipt.OperationId, 70, legs, receipt));
+        var restored = ResourceLedger.Restore(ledger.Capture());
+        Assert.True(restored.TryGetTransferBatchReceipt(receipt.OperationId, out var restoredBatch));
+        Assert.NotNull(restoredBatch);
+        Assert.True(receipt.HasSamePayload(restoredBatch!));
+
+        var wire = ResourceLedgerWireDto.FromSnapshot(restored.Capture());
+        wire.Validate();
+        var json = JsonSerializer.Serialize(wire);
+        var decoded = JsonSerializer.Deserialize<ResourceLedgerWireDto>(json)
+            ?? throw new System.InvalidOperationException("Composite resource ledger wire payload deserialized as null.");
+        decoded.Validate();
+        var roundTripped = ResourceLedger.Restore(decoded.ToSnapshot());
+
+        Assert.True(roundTripped.TryGetTransferBatchReceipt(receipt.OperationId, out var roundTrippedBatch));
+        Assert.NotNull(roundTrippedBatch);
+        Assert.True(receipt.HasSamePayload(roundTrippedBatch!));
+        Assert.True(roundTripped.TryGetTransferReceipt(leg.OperationId, out var roundTrippedLeg));
+        Assert.Equal(leg, roundTrippedLeg);
+        var fact = Assert.Single(roundTripped.Entries);
+        Assert.Equal(leg.OperationId, fact.OperationId);
+        Assert.Equal(receipt.OperationId, fact.BatchOperationId);
+        Assert.False(roundTripped.RecordTransferBatchOnce(receipt.OperationId, 71, legs, receipt));
+        Assert.Equal(1, roundTripped.LastSeq);
+    }
+
+    [Fact]
+    public void RestoreRejectsCompositeTransferBatchWithMissingLegReceipt()
+    {
+        var ledger = new ResourceLedger();
+        var source = new RuleResourceAccount("workshop.free-liquid-staging", "source");
+        var target = new RuleResourceAccount("workshop.free-liquid-staging", "target");
+        var leg = new ResourceTransferReceipt(
+            "batch.corrupt.leg", "connection.corrupt", "source.out", "target.in",
+            RuleResourceKind.Liquid, "liquid.corrupt",
+            source, target, 1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "source-before", "source-after", "target-before", "target-after", "allowed");
+        var mutations = new[]
+        {
+            new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                "Corrupt", 1, From: source.OwnerId, To: target.OwnerId,
+                ResourceIdentity: "liquid.corrupt", DisplayName: "Corrupt")
+        };
+        var receipt = new ResourceLedgerTransferBatchReceipt(
+            "batch.corrupt.root", new[] { leg });
+        Assert.True(ledger.RecordTransferBatchOnce(receipt.OperationId, 1,
+            new[] { new ResourceLedgerTransferBatchLeg(leg, mutations) }, receipt));
+
+        var snapshot = ledger.Capture();
+        var incomplete = new ResourceLedgerSnapshot(
+            snapshot.Capacity, snapshot.LastSeq, snapshot.Dropped, snapshot.Entries,
+            snapshot.OperationIds, Array.Empty<ResourceTransferReceipt>(),
+            snapshot.OperationFingerprints, snapshot.TransferBatchReceipts);
+
+        Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(incomplete));
+    }
+
 }
