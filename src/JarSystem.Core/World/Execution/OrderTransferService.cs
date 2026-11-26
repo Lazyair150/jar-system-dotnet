@@ -234,7 +234,7 @@ internal sealed class OrderTransferService
         // sub-account, prefill balance and capacity reservation. The ledger is published last.
         var masterBefore = master.CreateSnapshot();
         var slaveBefore = slave.CreateSnapshot();
-        var stagingBefore = admission.Capture();
+        var stagingBefore = admission.CaptureTransferSnapshot();
 
         try
         {
