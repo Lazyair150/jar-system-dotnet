@@ -196,9 +196,12 @@ public class OrderEvent : ICommandJournal
 
     public (bool Success, string? Reason) Fail(string? reason)
     {
+        // Rollback captures the pre-failure Jar/mark state. Clear marks only after the
+        // physical accounts and ledger batch commit; otherwise a failed rollback would
+        // restore an already-cleared snapshot and lose the original execution state.
+        RollbackSlaveToMaster();
         Master.ClearMarks();
         Slave.ClearMarks();
-        RollbackSlaveToMaster();
         Order.MarkFailed();
         return (false, reason);
     }
