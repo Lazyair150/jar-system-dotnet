@@ -182,3 +182,16 @@ Wire/Checkpoint 必须同步保存复合 Batch Receipt 与全部 Leg Receipt 的
 目前测试覆盖双 Leg 原子发布、父/子 OperationId 与事件绑定、相同批次重放、错误 Leg 不产生任何局部账本状态、快照和 JSON 往返、事件裁剪/清空后幂等凭证仍可恢复，以及旧检查点 schema 兼容。
 
 **仍未实现** Prepare-all、共享账户净余额与容量计划、物理 Commit-all、逆序 Compensate-all、补偿失败时 Runtime fail-stop，以及批次级外部投影 outbox。不能将当前账本原子发布称为整个多账户资源操作已经原子。
+
+
+## 8. 复合批次的容量域与物理状态绑定（ADR 0012）
+
+源码已证实批量规划不能只按 AccountId 聚合：Workshop 的 Order staging 子账户与 Prefill 是不同账户，但引用同一个 WorkshopLiquidStaging 对象并共享总容量和 Ban；其 OccupiedCapacity 按 Prefill 总量 + 每个订单 max(实际余额, 峰值预留) 计算。Ship 液库跨液种共享容量并考虑回滚预留；Workshop Free Liquid 按液种限额；Workshop/Warehouse Jar 按离散槽位；Warehouse Liquid 按液种限额。
+
+因此 AccountId、CapacityDomainId 和 Runtime Binding 必须分开。一个 Capacity Domain 可以跨多个账户；一个对象可以承载不同账户。批次必须按确定的 Leg 顺序模拟中间余额/容量/所有权，而不是只按最终净额；同一权威状态对象只捕获一次快照并按逆序补偿。
+
+完整规则、账户映射与强制测试见 docs/decisions/0012-resource-batch-capacity-domain-and-rollback.md。
+
+物理执行协议冻结为：Prepare-all → unique account/domain snapshot → ordered physical mutations（不发布单 Leg 账本）→ final per-leg versions and receipts → one RecordTransferBatchOnce → non-failing finalization；失败则 unique snapshot reverse compensation，补偿失败时 World fail-stop。
+
+这仍是已接受的架构约束，不代表 Batch Planner 或物理多参与者 Coordinator 已经实现。

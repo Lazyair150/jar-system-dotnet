@@ -555,3 +555,15 @@ No PR was merged, no Space code was changed, and no GUI acceptance is claimed in
 - Moved that assertion into `CompositeTransferBatchReceiptAndIndexesSurviveCheckpointWireRoundTrip`, where the parent OperationId and composite receipt exist. The single-leg compatibility test again tests only its existing single-leg snapshot/Wire behavior.
 - The new test expects Wire validation to reject a modified composite parent fingerprint before JSON serialization. No production behavior was loosened.
 - Exact follow-up head requires a fresh full verification run; `a28fc6e0` remains the previously green baseline, and `51cfcbc8` is not counted green because its PR xUnit run failed.
+
+
+## Capacity Domain audit and physical batch rollback design — 2026-11-26
+
+- Added ADR 0012 at docs/decisions/0012-resource-batch-capacity-domain-and-rollback.md, separating AccountId / CapacityDomainId / Runtime Binding.
+- Source facts: Order staging subaccounts and Workshop Prefill have different account identities but share one WorkshopLiquidStaging object and one total-capacity/Ban domain. OccupiedCapacity counts Prefill balances plus per-order max(actual balance, reserved peak quota); quota-bearing orders use max(0, quota - actual balance) as their available amount. This cannot be modeled as a flat sum of account net deltas.
+- Ship Liquid Inventory has cross-liquid total capacity and return-capacity reservations. Workshop Free Liquid has per-liquid capacity and its own Ban scope; Workshop Jar capacity, Warehouse Jar capacity and Warehouse liquid per-liquid capacity are separate domains.
+- Batch planning must group by stable AccountId and CapacityDomainId separately, verify both map to the same concrete runtime objects in one World, capture each unique mutable backing object once, simulate ordered intermediate states, and restore unique snapshots in reverse physical execution order.
+- B-class order handoff remains a domain transaction with Lease/Manifest/phase semantics; composite ledger receipts must not replace these rules.
+- Current ResourceLedger.RecordTransferBatchOnce is the implemented ledger publication primitive. Physical Prepare-all, shared capacity planning, ordered Commit-all without per-leg ledger publication, reverse Compensate-all and fail-stop integration remain unimplemented.
+- PR Run 45770399835 and push Run 45770385132 on 51cfcbc8 had Release/Godot Host builds successful, but xUnit reported 1027 / 1 failed / 0 skipped. The only failure was the parent-fingerprint tamper assertion being placed in the legacy single-leg receipt test. The assertion was moved into the composite-batch roundtrip test in the immediate follow-up; no production code was changed.
+- Head before the current documentation follow-up was 7fdb0a5d3c78abde3c617b965968730f475f3a44. Its exact-head run must be checked before treating the correction as verified.
