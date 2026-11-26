@@ -24,6 +24,7 @@ public sealed class WorldV2ContextTests
         public void AfterMasterDrain() { }
         public void AfterSlaveDrain() { }
         public void AfterShipReturnBeforeReceipt() { }
+        public void BeforeCompensation() { }
         public void AfterLedgerBatchRecorded() { }
         public void AfterLedgerStageMarked() =>
             throw new InvalidOperationException("injected failure after zero-resource settlement stage");
