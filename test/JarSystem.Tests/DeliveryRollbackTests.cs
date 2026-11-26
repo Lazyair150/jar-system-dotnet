@@ -199,7 +199,7 @@ public class DeliveryRollbackTests
         var result = orderEvent.Deliver();
 
         Assert.True(result.Success, result.Reason);
-        Assert.Equal(Constants.OrderStatus.SUCCEEDED, order.Status);
+        Assert.Equal(Constants.OrderStatus.SUCCESS, order.Status);
         Assert.Same(deliveredJar, Assert.Single(orderEvent.DeliveredJars));
         Assert.Empty(slave.Jars);
         Assert.Same(returningJar, Assert.Single(master.Jars));
