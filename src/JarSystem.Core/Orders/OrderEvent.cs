@@ -180,13 +180,24 @@ public class OrderEvent : ICommandJournal
         foreach (var idx in matched)
             if (idx >= 0) jarsToDeliver.Add(deliveryWorkshop.Jars[idx]);
 
-        foreach (var jar in jarsToDeliver)
-            deliveryWorkshop.RemoveJar(jar);
+        if (Order.Type == Constants.OrderType.B)
+        {
+            // Delivery Jar removal is part of the same snapshot/ledger transaction as
+            // returning the remaining Slave resources. A failed rollback must restore
+            // both the delivered Jar and every resource that would otherwise return.
+            RollbackSlaveToMaster(jarsToDeliver
+                .Select(jar => jar.Id ?? 0)
+                .ToArray());
+        }
+        else
+        {
+            foreach (var jar in jarsToDeliver)
+                if (deliveryWorkshop.RemoveJar(jar) == null)
+                    throw new InvalidOperationException($"订单交付罐 #{jar.Id} 无法从工作台移除");
+        }
+
         _deliveredJars.Clear();
         _deliveredJars.AddRange(jarsToDeliver);
-
-        if (Order.Type == Constants.OrderType.B)
-            RollbackSlaveToMaster();
 
         Master.ClearMarks();
         Slave.ClearMarks();
@@ -210,13 +221,14 @@ public class OrderEvent : ICommandJournal
     /// 把从台剩余罐子与液体全部退回主台（主台接不下的直接丢弃）。
     /// 语义细节全部移入 <see cref="SlaveRollback"/>（全集排空 / 禁令边界 / 容量丢弃三件事一处说清）。
     /// </summary>
-    public void RollbackSlaveToMaster() =>
+    public void RollbackSlaveToMaster(IReadOnlyCollection<int>? deliveredJarIds = null) =>
         _rollback.Execute(
             Master, Slave, AppendLog, _countDiscardedJars, _countDiscardedLiquids,
             _ledger, _tickOf,
             operationId: _ledger == null ? null :
                 "legacy-order:" + Order.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) +
-                ":slave-rollback");
+                ":slave-rollback",
+            deliveredJarIds: deliveredJarIds);
 
     public Dictionary<string, object?> GetReport()
     {
