@@ -16,6 +16,21 @@ internal interface IOrderJarTransferPort
 {
     bool Move(Workshop source, Workshop destination, Jar jar);
 }
+internal interface IOrderTransferFaultPort
+{
+    void AfterJarMoves();
+    void AfterLiquidTransfer();
+    void BeforeLedgerPublication();
+}
+
+internal sealed class NoopOrderTransferFaultPort : IOrderTransferFaultPort
+{
+    public static NoopOrderTransferFaultPort Instance { get; } = new();
+    private NoopOrderTransferFaultPort() { }
+    public void AfterJarMoves() { }
+    public void AfterLiquidTransfer() { }
+    public void BeforeLedgerPublication() { }
+}
 
 internal sealed class WorkshopJarTransferPort : IOrderJarTransferPort
 {
@@ -32,9 +47,15 @@ internal sealed class WorkshopJarTransferPort : IOrderJarTransferPort
 internal sealed class OrderTransferService
 {
     private readonly IOrderJarTransferPort _jarTransferPort;
+    private readonly IOrderTransferFaultPort _faults;
 
-    public OrderTransferService(IOrderJarTransferPort? jarTransferPort = null) =>
+    public OrderTransferService(
+        IOrderJarTransferPort? jarTransferPort = null,
+        IOrderTransferFaultPort? faults = null)
+    {
         _jarTransferPort = jarTransferPort ?? new WorkshopJarTransferPort();
+        _faults = faults ?? NoopOrderTransferFaultPort.Instance;
+    }
 
     public RuleTransition? CommittedTransition { get; private set; }
     /// <summary>True only after all physical postconditions and the optional ledger batch have committed.</summary>
@@ -49,11 +70,13 @@ internal sealed class OrderTransferService
         WorldOrderResourceManifest manifest,
         Workshop master,
         Workshop slave,
+        WorldOrderExecutionAdmission admission,
         OrderLiquidScope? masterScope,
         OrderLiquidScope? slaveScope,
         ResourceLedger? ledger,
         Func<int>? ledgerTickProvider,
-        Action commitStarted)
+        Action commitStarted,
+        Action commitRolledBack)
     {
         CommittedTransition = null;
         IsCommitted = false;
@@ -61,7 +84,9 @@ internal sealed class OrderTransferService
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(slave);
+        ArgumentNullException.ThrowIfNull(admission);
         ArgumentNullException.ThrowIfNull(commitStarted);
+        ArgumentNullException.ThrowIfNull(commitRolledBack);
         if (!manifest.IsPartitioned || manifest.DemandId != demandId ||
             lease.DemandId != demandId || !lease.UsesSlave ||
             lease.Stage != OrderResourceLeaseStage.TransferPending ||
@@ -204,10 +229,20 @@ internal sealed class OrderTransferService
         // only after exact ownership and RuleTransition postconditions have succeeded.
         var ledgerMutations = new List<ResourceLedgerMutation>();
 
-        // 从这里开始调用方拥有失败清理权限；之后出现异常不能伪装成普通预检拒绝。
-        commitStarted();
+        // Snapshot every authoritative participant before opening the physical commit boundary.
+        // Workshop snapshots retain original Jar references; staging snapshots retain every order
+        // sub-account, prefill balance and capacity reservation. The ledger is published last.
+        var masterBefore = master.CreateSnapshot();
+        var slaveBefore = slave.CreateSnapshot();
+        var stagingBefore = admission.Capture();
 
-        foreach (var id in manifest.TransferJarIds)
+        try
+        {
+            // From this point the session treats the handoff as in-flight. If compensation succeeds,
+            // commitRolledBack returns the session to its pre-transfer cleanup path.
+            commitStarted();
+
+            foreach (var id in manifest.TransferJarIds)
         {
             var jar = jars[id];
             try
@@ -241,6 +276,8 @@ internal sealed class OrderTransferService
                     ToEndpoint: WorkshopAccountEndpoint(slave, "workshop.jar-storage"),
                     DisplayName: jar.Shape));
         }
+
+        _faults.AfterJarMoves();
 
         if (masterScope == null)
         {
@@ -278,6 +315,8 @@ internal sealed class OrderTransferService
             masterScope.Staging.ReleaseOrderCapacity(demandId);
         }
 
+        _faults.AfterLiquidTransfer();
+
         // Verify exact physical ownership after commit, not merely aggregate counts.
         // Equal counts can conceal a wrong Jar being moved or an unexpected substitution.
         var requestedJarIds = manifest.TransferJarIds.ToHashSet();
@@ -299,17 +338,39 @@ internal sealed class OrderTransferService
                 throw new InvalidOperationException("主从交接提交后的真实账户状态与同一事务构造的 RuleTransition 不一致。");
         }
 
-        // The ledger is a projection of committed resource facts, not a sequence of
-        // intermediate writes. Publish the complete transfer once, after all checks.
-        if (ledger != null && ledgerMutations.Count > 0)
-        {
-            if (!ledger.RecordBatchOnce(ledgerOperationId, ledgerTick, ledgerMutations))
-                throw new InvalidOperationException("该订单交接账本操作已记录，拒绝重复提交资源转移事实。");
-        }
+        // Lease state is part of this physical transaction. Publish it before the ledger so
+        // the idempotent batch is the final durable write; compensation restores TransferPending.
+        _faults.BeforeLedgerPublication();
+        lease.MarkTransferCommitted();
+        lease.MarkSlaveExecuting();
+
+        if (ledger != null && ledgerMutations.Count > 0 &&
+            !ledger.RecordBatchOnce(ledgerOperationId, ledgerTick, ledgerMutations))
+            throw new InvalidOperationException("该订单交接账本操作已记录，拒绝重复提交资源转移事实。");
 
         CommittedTransition = transferTransition;
         IsCommitted = true;
         return null;
+        }
+        catch (Exception transferError)
+        {
+            try
+            {
+                master.RestoreFromSnapshot(masterBefore);
+                slave.RestoreFromSnapshot(slaveBefore);
+                admission.RestoreTransferSnapshot(stagingBefore);
+                lease.RestoreTransferPendingAfterCompensation();
+                commitRolledBack();
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "B 类主从交接失败，且工作台/订单暂存/租约状态全量补偿失败；必须冻结世界并保留故障现场。",
+                    transferError, rollbackError);
+            }
+
+            return "B 类主从交接失败，全部物理账户已补偿恢复：" + transferError.Message;
+        }
     }
 
     private static string? WorkshopAccountId(Workshop workshop, string accountKind)
