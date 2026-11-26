@@ -39,8 +39,8 @@ This keeps the test focused on its stated contract: non-default liquid identity 
 ## Validation
 
 - Failure reproduced from the archived CI log with exact expected/actual IDs.
-- New-head workflow result: not yet available at the time of this record.
-- No claim is made that the full Core suite or Space integration has passed on the corrected head.
+- New-head workflow: Run `45867857842`, verify job completed `SUCCESS` on `f4f2151db445afc794d34d8d7d1932dd0d3b40dd`.
+- This closes the Core verification item for the corrected head. It does not establish Space integration or desktop GUI acceptance.
 
 ## Remaining
 
