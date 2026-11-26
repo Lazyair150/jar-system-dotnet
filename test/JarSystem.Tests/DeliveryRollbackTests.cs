@@ -177,6 +177,47 @@ public class DeliveryRollbackTests
     }
 
     [Fact]
+    public void LegacyOrderEventDeliversSelectedJarInsideSlaveRollbackLedgerBatch()
+    {
+        var master = Bench("主台");
+        var slave = Bench("从台");
+        var deliveredJar = MakeJar(41, "圆罐", "酒");
+        var returningJar = MakeJar(42, "方罐");
+        Assert.True(slave.AddJar(deliveredJar));
+        Assert.True(slave.AddJar(returningJar));
+        Assert.True(slave.MarkJar(deliveredJar).Success);
+
+        var order = new Order(
+            new List<Requirement> { new() { Shape = "圆罐", Liquid = "酒" } },
+            Constants.OrderType.B,
+            vocabulary: Vocabulary.Default);
+        var ledger = new ResourceLedger();
+        var orderEvent = new OrderEvent(order, master, slave, ledger: ledger, tickOf: () => 61);
+        Assert.True(orderEvent.Start());
+        Assert.True(orderEvent.AdvanceToSlavePhase().Success);
+
+        var result = orderEvent.Deliver();
+
+        Assert.True(result.Success, result.Reason);
+        Assert.Equal(Constants.OrderStatus.SUCCEEDED, order.Status);
+        Assert.Same(deliveredJar, Assert.Single(orderEvent.DeliveredJars));
+        Assert.Empty(slave.Jars);
+        Assert.Same(returningJar, Assert.Single(master.Jars));
+
+        var delivered = Assert.Single(ledger.For(ResourceCauses.Transfer),
+            item => item.Kind == ResourceKinds.Jar &&
+                item.ToEndpoint.Kind == ResourceEndpointKind.ExternalSink &&
+                item.ToEndpoint.ExternalIdentity == "order.delivery");
+        Assert.Equal("41", delivered.ResourceIdentity);
+        Assert.Equal("订单交付", delivered.To);
+        var returned = Assert.Single(ledger.For(ResourceCauses.Return),
+            item => item.Kind == ResourceKinds.Jar);
+        Assert.Equal("42", returned.ResourceIdentity);
+        Assert.Equal(61, delivered.Tick);
+        Assert.Equal(61, returned.Tick);
+    }
+
+    [Fact]
     public void TransferredJarsGoBackToTheMaster()
     {
         var master = Bench("主台");
