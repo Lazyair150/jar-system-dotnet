@@ -603,6 +603,7 @@ public sealed class ResourceLedgerWireDto
     public List<ResourceEventWireDto> Events { get; set; } = new();
     public List<string> OperationIds { get; set; } = new();
     public List<ResourceTransferReceipt> TransferReceipts { get; set; } = new();
+    public List<ResourceLedgerTransferBatchReceipt> TransferBatchReceipts { get; set; } = new();
     public Dictionary<string, string> OperationFingerprints { get; set; } = new(StringComparer.Ordinal);
 
     public static ResourceLedgerWireDto FromSnapshot(ResourceLedgerSnapshot value) => new()
@@ -611,13 +612,14 @@ public sealed class ResourceLedgerWireDto
         Events = value.Entries.Select(ResourceEventWireDto.FromEvent).ToList(),
         OperationIds = value.OperationIds.ToList(),
         TransferReceipts = value.TransferReceipts.Select(item => item with { }).ToList(),
+        TransferBatchReceipts = value.TransferBatchReceipts.Select(item => item.DeepCopy()).ToList(),
         OperationFingerprints = value.OperationFingerprints.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)
     };
 
     public void Validate()
     {
         if (Capacity < 1 || LastSeq < 0 || Dropped < 0 || Events == null || OperationIds == null ||
-            TransferReceipts == null || OperationFingerprints == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
+            TransferReceipts == null || TransferBatchReceipts == null || OperationFingerprints == null || Events.Count > Capacity || OperationIds.Any(string.IsNullOrWhiteSpace) ||
             OperationIds.Distinct(StringComparer.Ordinal).Count() != OperationIds.Count ||
             TransferReceipts.Any(item => item == null || !OperationIds.Contains(item.OperationId, StringComparer.Ordinal) ||
                 !OperationFingerprints.ContainsKey(item.OperationId)) ||
@@ -645,13 +647,46 @@ public sealed class ResourceLedgerWireDto
             if (receipt.Outcome is not (ResourceTransferOutcome.Transferred or ResourceTransferOutcome.PartiallyTransferred))
                 throw new InvalidOperationException("资源账本 Wire DTO 只能包含已提交的转移回执。");
         }
+
+        var transferReceiptsById = TransferReceipts.ToDictionary(item => item.OperationId, StringComparer.Ordinal);
+        var batchIds = new HashSet<string>(StringComparer.Ordinal);
+        var legIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var batchReceipt in TransferBatchReceipts)
+        {
+            if (batchReceipt == null) throw new InvalidOperationException("资源账本 Wire DTO 包含空复合回执。");
+            batchReceipt.Validate();
+            if (!batchIds.Add(batchReceipt.OperationId) ||
+                !OperationIds.Contains(batchReceipt.OperationId, StringComparer.Ordinal) ||
+                !OperationFingerprints.ContainsKey(batchReceipt.OperationId))
+                throw new InvalidOperationException("资源账本复合回执缺少批次 OperationId 或指纹。");
+
+            foreach (var leg in batchReceipt.LegReceipts)
+            {
+                if (!legIds.Add(leg.OperationId) ||
+                    !OperationIds.Contains(leg.OperationId, StringComparer.Ordinal) ||
+                    !OperationFingerprints.ContainsKey(leg.OperationId) ||
+                    !transferReceiptsById.TryGetValue(leg.OperationId, out var stored) ||
+                    stored != leg)
+                    throw new InvalidOperationException("资源账本复合回执缺少精确的 Leg OperationId / Receipt。");
+            }
+        }
+
+        foreach (var item in Events.Where(item => item.BatchOperationId != null))
+        {
+            if (!batchIds.Contains(item.BatchOperationId!) ||
+                !legIds.Contains(item.OperationId ?? "") ||
+                !TransferBatchReceipts.Any(batch =>
+                    batch.OperationId == item.BatchOperationId &&
+                    batch.LegReceipts.Any(leg => leg.OperationId == item.OperationId)))
+                throw new InvalidOperationException("资源账本事件引用了不存在或不匹配的复合转移批次。");
+        }
     }
 
     public ResourceLedgerSnapshot ToSnapshot()
     {
         Validate();
         return new ResourceLedgerSnapshot(Capacity, LastSeq, Dropped,
-            Events.Select(item => item.ToEvent()), OperationIds, TransferReceipts, OperationFingerprints);
+            Events.Select(item => item.ToEvent()), OperationIds, TransferReceipts, OperationFingerprints, TransferBatchReceipts);
     }
 }
 
@@ -665,6 +700,7 @@ public sealed class ResourceEventWireDto
     public string? DisplayName { get; set; }
     public string? ResourceIdentity { get; set; }
     public string? OperationId { get; set; }
+    public string? BatchOperationId { get; set; }
     public int Amount { get; set; }
     public string? From { get; set; }
     public string? To { get; set; }
@@ -680,6 +716,7 @@ public sealed class ResourceEventWireDto
         Name = value.DisplayName ?? value.Name,
         DisplayName = value.DisplayName ?? value.Name,
         ResourceIdentity = value.ResourceIdentity, OperationId = value.OperationId,
+        BatchOperationId = value.BatchOperationId,
         Amount = value.Amount, From = value.From, To = value.To,
         FromAccountId = value.FromAccountId, ToAccountId = value.ToAccountId,
         FromEndpoint = ResourceEndpointWireDto.FromEndpoint(value.FromEndpoint),
@@ -704,6 +741,7 @@ public sealed class ResourceEventWireDto
             (ToEndpoint != null && ToAccountId != null &&
                 (ToEndpoint.Kind != ResourceEndpointKind.Account || ToEndpoint.AccountId != ToAccountId)) ||
             (OperationId != null && (string.IsNullOrWhiteSpace(OperationId) || string.IsNullOrWhiteSpace(ResourceIdentity))) ||
+            (BatchOperationId != null && (string.IsNullOrWhiteSpace(BatchOperationId) || string.IsNullOrWhiteSpace(OperationId))) ||
             (OperationId != null && Kind == ResourceKinds.Jar && !IsCanonicalJarId(ResourceIdentity)))
             throw new InvalidOperationException("资源账本事件 Wire DTO 无效。");
     }
@@ -721,6 +759,7 @@ public sealed class ResourceEventWireDto
             Seq = Seq, Tick = Tick, Cause = Cause, Kind = Kind,
             Name = DisplayName ?? Name, DisplayName = DisplayName ?? Name,
             ResourceIdentity = ResourceIdentity, OperationId = OperationId,
+            BatchOperationId = BatchOperationId,
             Amount = Amount, From = From, To = To,
             FromAccountId = FromAccountId, ToAccountId = ToAccountId,
             FromEndpoint = FromEndpoint?.ToEndpoint() ??
