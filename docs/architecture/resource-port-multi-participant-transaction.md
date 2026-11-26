@@ -195,3 +195,45 @@ Wire/Checkpoint 必须同步保存复合 Batch Receipt 与全部 Leg Receipt 的
 物理执行协议冻结为：Prepare-all → unique account/domain snapshot → ordered physical mutations（不发布单 Leg 账本）→ final per-leg versions and receipts → one RecordTransferBatchOnce → non-failing finalization；失败则 unique snapshot reverse compensation，补偿失败时 World fail-stop。
 
 这仍是已接受的架构约束，不代表 Batch Planner 或物理多参与者 Coordinator 已经实现。
+
+
+## 9. 本阶段架构收口：身份、容量域与当前边界
+
+### 9.1 已落地代码
+
+- `ResourceCapacityDomainId` 是 World-scoped、版本化、长度前缀身份，与 AccountId 独立。
+- 七种 typed adapters（Workshop Free Liquid、Order Staging、Ship Inventory、Workshop Prefill、Workshop Jar、Warehouse Jar、Warehouse Liquid）在具备 OwnerIdentity 的构造入口中提供内部账户/容量域运行时绑定。
+- `ResourceBatchBindingSet` 在批次入口验证并去重权威账户和容量域；同 ID 不同对象拒绝，legacy v1 身份不得混入 World v2 批次。
+- Order Staging 与 Prefill 保持独立账户、共享容量域和同一 staging 对象；Workshop Free Liquid 与 Jar 保持独立容量域，即便二者使用同一个 Workshop 组合对象。
+
+CapacityDomainId 的 LocalDomainId 是稳定领域键，而非端口 AreaId。Port AreaId 仅校验结构归属，不能改变资源实际共享的容量约束。
+
+### 9.2 游戏层必须沿用的结构
+
+- **Individual** 是拥有身份和生命周期的个体；Workshop 可以独立存在，也可以被安装到自机 Board Slot。
+- **Area** 持有资源并定义容量/策略；**Port** 规定输入/输出资格；**Connection** 才允许两个 Port 形成资源通路。
+- **Account** 是权威资源所有权边界；**CapacityDomain** 是一个或多个账户共同受约束的容量/预留边界。
+- Jar 是一个个带稳定身份的离散资源个体；Jar 内部液体属于 Jar，不自动变成 Workshop Free Liquid。
+- 订单区是目标与验收边界，不是任意可存取的普通仓库。
+- Circuit Image 冻结 Board Definition、Slot Assignment、Individual Instance、Area/Port/Connection、规则和成长快照；订单变化可重新求解，不应改写结构图。
+- 规则定义合法性，Solver 只寻找符合规则的路径；搜索顺序/预算不能变成玩法规则；Runtime 执行已批准的路径，Settlement 负责最终资源事实。
+
+### 9.3 明确停止扩展的事务基础设施范围
+
+当前已完成 Resource Ledger composite receipt 的单次发布、快照/Wire 持久化和重放校验，并完成 ResourceCapacityDomainId 与 Adapter runtime binding registry。
+
+跨多个 Port 的 Prepare-all、共享 Domain 中间状态投影、唯一物理快照、无单 Leg Ledger 发布的批量物理提交、逆序补偿和 fail-stop 联动尚未实现。它们不作为当前游戏机制继续推进的前置条件；只有在具体机制需要跨多个 Port 一次性原子执行时，才按实际参与的账户与领域快照原语实施，禁止先做无业务需求的通用大框架。
+
+## 10. 交回游戏机制设计
+
+从本次架构收口起，下一轮工作应以可玩循环和玩家决策为主，Core 只补齐游戏机制暴露出来的必要契约：
+
+1. 明确生产区（含原石分解子区）、工作台区、订单区的职责和资源流入口/出口。
+2. 明确工作台个体的可成长属性：形状/容量、规则贡献、效率或槽位等；不把主/从岗位写进个体本体，岗位由玩家安装/布置决定。
+3. 固定 Jar 的生命周期与状态：空 Jar、装液 Jar、被加工/消耗/订单验收；任何状态变化都以 JarId 为身份。
+4. 固定液体极性作为 World Vocabulary 数据映射，游戏内容层决定燃料/冷却液分别映射何种极性；Core 不识别游戏名称。
+5. 订单以最终 Jar 形状、内部液体/标记和数量等目标声明；求解器返回满足目标的通路，结算按实际资源账户逐项记账。
+6. 原石解析器的产出与成长曲线作为生产区子机制，独立定义输入原石、解析成本、产出资源和成长阶段。
+7. 把默认 Board 配置与 UI 操作做成真实可试玩的最小闭环，而不是继续增加架构抽象。
+
+本节是研发重心转移记录，不代表上述游戏机制均已实现。

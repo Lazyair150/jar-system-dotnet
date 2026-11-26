@@ -122,8 +122,8 @@ public sealed class ResourcePortAdapterTests
         var owner = new OwnerIdentity(new WorldInstanceId("world.capacity.shared"),
             ResourceOwnerKind.Workshop, "workshop.capacity.01");
         var staging = new WorkshopLiquidStaging(8, new[] { "蜜" });
-        var order = new WorkshopOrderLiquidPortAdapter(staging, owner, "area.staging", 101);
-        var prefill = new WorkshopPrefillLiquidPortAdapter(staging, owner, "area.staging");
+        var order = new WorkshopOrderLiquidPortAdapter(staging, owner, "area.order-staging", 101);
+        var prefill = new WorkshopPrefillLiquidPortAdapter(staging, owner, "area.prefill-staging");
 
         var orderBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(order).CapacityDomainBinding;
         var prefillBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(prefill).CapacityDomainBinding;
@@ -135,6 +135,25 @@ public sealed class ResourcePortAdapterTests
         Assert.True(orderBinding.IsSameRuntimeDomain(prefillBinding));
         Assert.Same(staging, orderBinding.RuntimeStateReference);
         Assert.Same(staging, prefillBinding.RuntimeStateReference);
+    }
+
+    [Fact]
+    public void CapacityDomainIdentityDoesNotChangeWhenPortAreaIdChanges()
+    {
+        var owner = new OwnerIdentity(new WorldInstanceId("world.capacity.area-id"),
+            ResourceOwnerKind.Workshop, "workshop.capacity.area-id");
+        var workshop = new Workshop("master",
+            ownedInstanceId: owner.LocalOwnerId, ownerIdentity: owner);
+        var first = new WorkshopFreeLiquidPortAdapter(workshop, "area.workshop.primary", owner);
+        var second = new WorkshopFreeLiquidPortAdapter(workshop, "area.workshop.secondary", owner);
+        var firstBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(first).CapacityDomainBinding;
+        var secondBinding = Assert.IsAssignableFrom<IResourceCapacityDomainBoundAdapter>(second).CapacityDomainBinding;
+
+        Assert.Equal(first.Account.AccountId, second.Account.AccountId);
+        Assert.NotNull(firstBinding);
+        Assert.NotNull(secondBinding);
+        Assert.Equal(firstBinding!.Id, secondBinding!.Id);
+        Assert.True(firstBinding.IsSameRuntimeDomain(secondBinding!));
     }
 
     [Fact]

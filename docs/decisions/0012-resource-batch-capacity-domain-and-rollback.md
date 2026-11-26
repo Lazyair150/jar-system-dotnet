@@ -1,6 +1,6 @@
 # ADR 0012：复合资源批次的 Capacity Domain 与物理补偿边界
 
-- 状态：Accepted（领域约束）；Batch Planner 与多账户物理协调器待实现
+- 状态：Accepted；Account/CapacityDomain/Runtime Binding 契约已落地；Batch Planner 与多账户物理协调器延后到 Circuit 多边执行阶段
 - 日期：2026-11-26
 - 范围：Jar Core Resource Port、Workshop/Ship/Warehouse 账户、Resource Ledger、World V2 执行事务
 
@@ -117,3 +117,36 @@ B 类交接还包含 Order Lease、Manifest、阶段标记、Jar 所有权顺序
 ## 后果
 
 Account、CapacityDomain、Runtime Binding、Resource Fact、Transfer Leg 是不同概念。该决策防止错误拆分共享容量或错误合并不同账户。每种资源账户必须显式声明容量域与快照边界；无法表达的组合返回 Undetermined。
+
+
+## 当前实现边界（2026-11-26 补充）
+
+已落地的最小运行时契约：
+
+- 新增 World-scoped `ResourceCapacityDomainId`，独立于 `AccountIdentity`，使用长度前缀规范编码。
+- 七种 typed Resource Port Adapter 暴露内部 Capacity Domain binding 与 Account runtime binding；公开 API 不暴露运行时对象引用。
+- `ResourceBatchBindingSet` 按稳定 AccountId 去重账户引用、按 CapacityDomainId 去重容量域引用；同一身份映射到不同运行时对象时拒绝；legacy `account:v1` Adapter 不可加入 World-scoped 批次。
+- Workshop Order Staging 与 Prefill 是不同 AccountId，但共享同一个 `workshop.liquid-staging` CapacityDomain 和 `WorkshopLiquidStaging` 对象。
+- Workshop Free Liquid 与 Jar Storage 是不同 CapacityDomain；两者即使引用同一个 Workshop 组合对象，也不合并账户或容量策略。
+
+**CapacityDomainId.LocalDomainId 表示物理领域约束域，不是 Port 的 AreaId。** AreaId 只负责验证端口属于哪个板上区域；同一权威资源域即使被不同 Area 端口引用，也必须保持一个容量域身份。当前稳定域键为：
+
+- Workshop：`free-liquid`、`liquid-staging`、`jar-storage`
+- Ship：`liquid-inventory`
+- Warehouse：`liquid-storage`、`jar-storage`
+
+### 本阶段关闭条件与延后项
+
+本次架构收口以“身份/所有权/账户/容量约束/事务保证边界可表达、可审查、可测试”为完成标准，不要求为了证明抽象而实现一个泛化的跨所有者工作流引擎。
+
+仍然延后的能力：
+
+- 有序多 Leg 的容量投影与完整 Batch Planner；
+- 绑定到领域原语的唯一物理快照提供者；
+- 多参与者不发布单 Leg Receipt 的物理 Commit/逆序 Compensate；
+- 补偿失败与 World fail-stop 的通用联动；
+- 将 Circuit 多边执行正式切换到该批次协调器。
+
+延后原因：目前已有的单连接转移和 B 类订单交接事务有各自领域语义；通用多边执行尚未成为游戏机制当前必须提供的玩家能力。提前泛化会让协调器替领域对象重新实现 Workshop 订单峰值预留、Ship return reservation、Jar 所有权和 Order Lease/Manifest，产生第二套易漂移的规则。等游戏机制明确需要一次跨多个 Port 的原子执行时，再以具体玩法切片实现并故障注入验证。
+
+**不得把已实现的账本复合发布称为整个多账户物理事务原子性。** 以上延后项继续保持显式未实现。

@@ -287,7 +287,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter, IResou
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
         Account = new RuleResourceAccount(workshopOwner, "workshop.free-liquid-staging");
         Account.Validate();
-        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.free-liquid", _areaId, workshop);
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.free-liquid", "free-liquid", workshop);
     }
 
 
@@ -360,7 +360,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter, IReso
         var stagingOwner = ResourceOwnerIdentityGuard.ForOrderStaging(workshopOwner, orderId);
         Account = new RuleResourceAccount(stagingOwner, "workshop.order-liquid-staging");
         Account.Validate();
-        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.liquid-staging", _areaId, _staging);
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.liquid-staging", "liquid-staging", _staging);
     }
 
 
@@ -428,7 +428,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter, IReso
         ResourceOwnerIdentityGuard.Require(shipOwner, ResourceOwnerKind.Ship);
         Account = new RuleResourceAccount(shipOwner, "ship.liquid-inventory");
         Account.Validate();
-        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(shipOwner, "ship.liquid-inventory", _areaId, _inventory);
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(shipOwner, "ship.liquid-inventory", "liquid-inventory", _inventory);
     }
 
 
@@ -501,7 +501,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter, IRe
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop);
         Account = new RuleResourceAccount(workshopOwner, "workshop.prefill-liquid-staging");
         Account.Validate();
-        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.liquid-staging", _areaId, _staging);
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.liquid-staging", "liquid-staging", _staging);
     }
 
 
@@ -574,7 +574,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter, IResou
         ResourceOwnerIdentityGuard.Require(workshopOwner, ResourceOwnerKind.Workshop, workshop.OwnedInstanceId);
         Account = new RuleResourceAccount(workshopOwner, "workshop.jar-storage");
         Account.Validate();
-        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.jar-storage", _areaId, _workshop);
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(workshopOwner, "workshop.jar-storage", "jar-storage", _workshop);
     }
 
 
@@ -671,7 +671,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter, IReso
         ResourceOwnerIdentityGuard.Require(warehouseOwner, ResourceOwnerKind.Warehouse);
         Account = new RuleResourceAccount(warehouseOwner, "production.warehouse.jar-storage");
         Account.Validate();
-        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(warehouseOwner, "production.warehouse.jar-storage", _areaId, _warehouse);
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(warehouseOwner, "production.warehouse.jar-storage", "jar-storage", _warehouse);
     }
 
 
@@ -769,7 +769,7 @@ public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter, IR
         ResourceOwnerIdentityGuard.Require(warehouseOwner, ResourceOwnerKind.Warehouse);
         Account = new RuleResourceAccount(warehouseOwner, "production.warehouse.liquid-storage");
         Account.Validate();
-        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(warehouseOwner, "production.warehouse.liquid-storage", _areaId, _warehouse);
+        CapacityDomainBinding = ResourceCapacityDomainBinding.Create(warehouseOwner, "production.warehouse.liquid-storage", "liquid-storage", _warehouse);
     }
 
 

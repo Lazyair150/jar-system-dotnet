@@ -582,3 +582,36 @@ No PR was merged, no Space code was changed, and no GUI acceptance is claimed in
 - Run `45771646621` for head `6246d62d` compiled past the capacity-domain interface, then failed because `IResourceAccountRuntimeBoundAdapter.AccountRuntimeStateReference` had the same implicit-interface visibility issue. The seven expression-bodied properties were private by default.
 - Added explicit interface implementations for the runtime account object reference, mirroring the already explicit capacity-domain binding. Concrete internal property remains private to each public Adapter; no internal runtime object reference is added to public API.
 - The new exact head must pass its own complete CI before this adapter-binding stage is considered validated.
+
+
+## Architecture closure and return to gameplay design — 2026-11-26
+
+### Verified code baseline
+
+Exact Core head `eb7e548d38481973f12db6f1427bfcdac4368af5` passed both push Run `45771860862` and PR Run `45771867183`:
+
+- Release build succeeded.
+- xUnit `1035 passed / 0 failed / 0 skipped`.
+- Resource samples: `2000` random + `3000` capacity + `32` deterministic, zero errors.
+- Solver differential `4004 / 4004`.
+- Modifier differential `400 scenarios / 1600 checks`.
+- Protocol `27 commands / 13 messages`; scenario `3 events / 1 initial modifier / 0 warnings`.
+- Session replay `33 commands`.
+- Dependency scan `6 projects / 0 vulnerable`; secret scan `625 files / 8 patterns`.
+- `QUALITY-OK` and `VERDICT=OK`.
+
+### Design closure
+
+- Added World-scoped `ResourceCapacityDomainId` and internal runtime bindings to the seven typed adapters.
+- `ResourceBatchBindingSet` rejects legacy v1 batch participants, rejects one AccountId mapped to different runtime objects, rejects one CapacityDomainId mapped to different runtime objects, and deduplicates shared domains.
+- Order staging and Prefill remain different accounts sharing the same staging object and CapacityDomain; Workshop Free Liquid and Jar remain distinct CapacityDomains on a composite Workshop object.
+- A final design correction ensures CapacityDomainId.LocalDomainId identifies the stable physical resource domain, not the current board Port AreaId. Port AreaId remains only a topology membership check.
+- ADR 0012 and resource-port architecture documentation now define the full boundary and explicitly defer the generic multi-port physical coordinator. Ledger atomic publication is complete; multi-participant physical atomicity is **not** claimed.
+
+### Why the transaction framework stops here
+
+A generic batch engine is not a current player-facing mechanic. Existing Workshop staging has per-order peak reservations, Ship inventory has return-capacity reservations, Jar storage has discrete ownership, and B-class settlement has Lease/Manifest/phase semantics. A generic coordinator that duplicates those policies would create a second rules engine and increase divergence risk. The next implementation should be a concrete gameplay slice; add only the batch mechanics actually required by that slice.
+
+### Next gameplay focus
+
+The architecture contract is frozen for the current implementation phase. Return to the playable Board loop: Production (with Decomposition as a sub-area), Workshop Individuals and their Areas/Ports, Order Area target/settlement, Jar lifecycle, liquid polarity data mapping, and Energy Stone Processor production/growth. Main/Slave remain player-selected installation roles, not intrinsic Workshop types. Core vocabulary stays content-agnostic.
