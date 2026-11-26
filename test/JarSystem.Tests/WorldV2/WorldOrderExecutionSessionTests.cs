@@ -110,6 +110,23 @@ public sealed class WorldOrderExecutionSessionTests
         }
     }
 
+    private sealed class ThrowAtSlaveRollbackBoundary : ISlaveRollbackFaultPort
+    {
+        private readonly bool _failCompensation;
+        public ThrowAtSlaveRollbackBoundary(bool failCompensation = false) =>
+            _failCompensation = failCompensation;
+        public void AfterJarMoves() { }
+        public void AfterLiquidMoves() =>
+            throw new InvalidOperationException("Injected SlaveRollback failure after liquid movement");
+        public void BeforeLedgerPublication() { }
+        public void BeforeCompensation()
+        {
+            if (_failCompensation)
+                throw new InvalidOperationException("Injected SlaveRollback compensation failure");
+        }
+        public void AfterLedgerPublication() { }
+    }
+
     private sealed class ThrowAtSettlementBoundary : IOrderSettlementFaultPort
     {
         private readonly string _boundary;
@@ -1181,6 +1198,77 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.False(externalJar.IsMarked);
         Assert.Contains(master.Jars, item => item.Id == plannedJar.Id);
         Assert.Equal(0, setup.Reservations.Count);
+    }
+
+    [Fact]
+    public void FailedSlaveRollbackFreezesRuntimeAndPreservesSessionAndLease()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var firstJar = new Jar("圆罐", vocabulary: Words);
+        var secondJar = new Jar("圆罐", vocabulary: Words);
+        Assert.True(master.AddJar(firstJar));
+        Assert.True(master.AddJar(secondJar));
+        master.AddLiquid("酒", 2);
+
+        var demand = new OrderDemand(new JarOrderSpecification(
+            new[]
+            {
+                new Requirement { Shape = "圆罐", Liquid = "酒" },
+                new Requirement { Shape = "圆罐", Liquid = "酒" }
+            },
+            Constants.OrderType.B, Words), 0, new SequentialIdGenerator());
+        var setup = Prepare(master, slave, demand);
+        var ledger = new ResourceLedger();
+        var runtime = CreateRuntime(setup.Board, setup.Roster, ledger, () => 53);
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster,
+            1_000, ledger, () => 53,
+            jarTransferPort: null,
+            transferFaultPort: null,
+            slaveRollbackFaultPort: new ThrowAtSlaveRollbackBoundary(failCompensation: true));
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+        Assert.True(runtime.RegisterExecutionSession(session));
+        var lease = setup.Reservations.FindLease(demand.Id)!;
+
+        for (var i = 0; i < 8 && !slave.HasResources && !session.IsTerminal; i++)
+            runtime.AdvanceWorldTime(1_000);
+        Assert.True(slave.HasResources, "订单必须完成 B 类交接后才允许测试从台回落");
+        runtime.AdvanceWorldTime(1_000);
+        Assert.Equal(1, slave.Jars.Count(item => item.Liquid == "酒"));
+
+        using var suppressSecondPourIn = slave.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：第二次灌注被抑制"
+        });
+
+        var error = Assert.ThrowsAny<SlaveRollbackTransactionException>(
+            () => runtime.AdvanceWorldTime(1_000));
+
+        Assert.Contains("全量补偿失败", error.Message);
+        Assert.True(runtime.IsFaulted);
+        Assert.Contains("SlaveRollback compensation failure", runtime.FaultReason);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Same(lease, setup.Reservations.FindLease(demand.Id));
+        Assert.Equal(1, setup.Reservations.Count);
+        Assert.Equal(OrderResourceLeaseStage.SlaveExecuting, lease.Stage);
+        Assert.Equal(WorldOrderExecutionStage.SlaveSteps, session.Stage);
+        Assert.Empty(slave.Jars);
+        Assert.Equal(0, slave.LiquidStorage["酒"]);
+        Assert.Contains(master.Jars, item => item.Liquid == "酒");
+        Assert.Empty(ledger.For(ResourceCauses.Return));
+        Assert.Empty(ledger.For(ResourceCauses.Discard));
+
+        var frozenTime = runtime.Clock.WorldTimeMilli;
+        Assert.Throws<InvalidOperationException>(() => runtime.AdvanceWorldTime(1_000));
+        Assert.Equal(frozenTime, runtime.Clock.WorldTimeMilli);
+        Assert.Single(runtime.ActiveExecutionSessions);
+        Assert.Same(lease, setup.Reservations.FindLease(demand.Id));
     }
 
     [Fact]
