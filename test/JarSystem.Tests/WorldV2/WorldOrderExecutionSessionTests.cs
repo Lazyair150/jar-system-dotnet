@@ -86,6 +86,19 @@ public sealed class WorldOrderExecutionSessionTests
             return destination.TransferIn(jar);
         }
     }
+    private sealed class ThrowAtOrderTransferBoundary : IOrderTransferFaultPort
+    {
+        private readonly string _boundary;
+        public ThrowAtOrderTransferBoundary(string boundary) => _boundary = boundary;
+        private void Hit(string boundary)
+        {
+            if (_boundary == boundary)
+                throw new InvalidOperationException("Injected B-class transfer failure: " + boundary);
+        }
+        public void AfterJarMoves() => Hit("jar-moves");
+        public void AfterLiquidTransfer() => Hit("liquid-transfer");
+        public void BeforeLedgerPublication() => Hit("ledger-publication");
+    }
 
     private sealed class ThrowAtSettlementBoundary : IOrderSettlementFaultPort
     {
@@ -659,8 +672,8 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.True(started.Success, started.Reason);
         var session = started.Session!;
         Assert.Equal(WorldOrderExecutionStage.Transfer, session.Stage);
-        var error = Assert.Throws<InvalidOperationException>(() => session.AdvanceLogicalTime(1_000));
-        Assert.Contains("Injected failure", error.Message);
+        session.AdvanceLogicalTime(1_000);
+        Assert.Contains("Injected failure", session.Reason);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
         Assert.Same(jar, Assert.Single(master.Jars));
@@ -694,8 +707,8 @@ public sealed class WorldOrderExecutionSessionTests
         var session = started.Session!;
         Assert.Equal(WorldOrderExecutionStage.Transfer, session.Stage);
         Assert.Equal(0, session.CompletedMasterSteps);
-        var error = Assert.Throws<InvalidOperationException>(() => session.AdvanceLogicalTime(1_000));
-        Assert.Contains("second Jar move", error.Message);
+        session.AdvanceLogicalTime(1_000);
+        Assert.Contains("second Jar move", session.Reason);
 
         Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
         Assert.Contains(master.Jars, item => ReferenceEquals(item, firstJar));
@@ -706,6 +719,94 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Empty(ledger.For(ResourceCauses.Transfer));
         Assert.Empty(ledger.For(ResourceCauses.Return)); // No Return may be published for a handoff whose Transfer batch never committed.
+    }
+
+    [Fact]
+    public void BTransferRestoresWorkshopAndOrderStagingAccountsWhenLiquidPumpFailsBeforeLedger()
+    {
+        var worldId = new WorldInstanceId("b-transfer-liquid-compensation-world");
+        var masterOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "b-master");
+        var slaveOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Workshop, "b-slave");
+        var shipOwner = new OwnerIdentity(worldId, ResourceOwnerKind.Ship, "b-ship");
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "b-master", ownerIdentity: masterOwner);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words,
+            ownedInstanceId: "b-slave", ownerIdentity: slaveOwner);
+        var jar = new Jar("圆罐", vocabulary: Words);
+        Assert.True(master.AddJar(jar));
+        using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：要求从台接收订单液体"
+        });
+
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var board = new OrderDemandBoard(
+            DemandAreaFulfillmentPolicy.OneShot, DemandAreaFulfillmentPolicy.OneShot);
+        board.AddDemand(demand, DemandAreaKind.Active);
+        var roster = new WorkshopRoster(new[] { master, slave }, master, slave);
+        var book = new WorldOrderSolveBook(board);
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 }, shipOwner);
+        ReevaluateWithShip(book, roster, ship, demand.Id);
+        var reservations = new WorldResourceReservationBook();
+        var admission = new WorldOrderExecutionAdmission(board, book, roster, reservations, ship);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, board, book, admission, roster, 1_000,
+            ledger, () => 41, null,
+            new ThrowAtOrderTransferBoundary("liquid-transfer"));
+
+        Assert.True(started.Success, started.Reason);
+        var scopesBefore = admission.GetLiquidScopes(demand.Id)!.Value;
+        Assert.Equal(1, scopesBefore.Master.GetAmount("酒"));
+        Assert.Equal(0, scopesBefore.Slave!.GetAmount("酒"));
+        var session = started.Session!;
+        session.AdvanceLogicalTime(1_000);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.Contains("liquid-transfer", session.Reason);
+        Assert.Same(jar, Assert.Single(master.Jars));
+        Assert.Empty(slave.Jars);
+        Assert.Equal(1, scopesBefore.Master.GetAmount("酒"));
+        Assert.Equal(0, scopesBefore.Slave!.GetAmount("酒"));
+        Assert.Equal(1, ship.GetAmount("酒"), "Failure cleanup refunds the restored source account exactly once.");
+        Assert.Equal(0, reservations.Count);
+        Assert.Empty(ledger.For(ResourceCauses.Transfer));
+        Assert.Single(ledger.For(ResourceCauses.Return));
+    }
+
+    [Fact]
+    public void BTransferRestoresLeaseStageWhenLedgerPublicationFailsAfterPhysicalCommit()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words);
+        var jar = new Jar("圆罐", "酒", id: 9885, vocabulary: Words);
+        Assert.True(master.AddJar(jar));
+        var demand = Demand(Constants.OrderType.B, "圆罐", "酒");
+        var setup = Prepare(master, slave, demand);
+        var ledger = new ResourceLedger();
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, setup.Board, setup.Book, setup.Admission, setup.Roster,
+            1_000, ledger, () => 43, null,
+            new ThrowAtOrderTransferBoundary("ledger-publication"));
+
+        Assert.True(started.Success, started.Reason);
+        var session = started.Session!;
+        session.AdvanceLogicalTime(1_000);
+
+        Assert.Equal(WorldOrderExecutionStage.Failed, session.Stage);
+        Assert.Contains("ledger-publication", session.Reason);
+        Assert.Same(jar, Assert.Single(master.Jars));
+        Assert.Empty(slave.Jars);
+        Assert.Equal(OrderResourceLeaseStage.Settled,
+            setup.Reservations.FindLease(demand.Id)?.Stage);
+        Assert.Equal(0, setup.Reservations.Count);
+        Assert.Empty(ledger.For(ResourceCauses.Transfer));
     }
 
     [Fact]
