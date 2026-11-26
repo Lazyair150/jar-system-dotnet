@@ -56,9 +56,10 @@ public sealed class PreparedOrderLiquidPortTransfer
     public bool IsCommitted => _receipt?.Outcome == ResourceTransferOutcome.Transferred;
 
     /// <summary>
-    /// Commit is idempotent for this prepared instance. When a ResourceLedger is supplied,
-    /// its persisted OperationIds also prevent cross-instance/process replay; without it,
-    /// the caller must provide a durable operation journal.
+    /// Commit is idempotent for this prepared instance. Supplying a ResourceLedger also
+    /// enables cross-instance replay checks against its persisted OperationIds and receipts.
+    /// Without a ledger, this participant provides no durable cross-instance/process deduplication;
+    /// any outer journal/transaction boundary must implement that guarantee itself.
     /// </summary>
     public ResourceTransferReceipt Commit()
     {
