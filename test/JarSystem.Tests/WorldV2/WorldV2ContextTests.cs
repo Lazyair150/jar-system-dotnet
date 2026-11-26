@@ -32,6 +32,16 @@ public sealed class WorldV2ContextTests
     }
 
 
+    private sealed class ThrowAfterJarMoveAndCompensationFailure : IOrderTransferFaultPort
+    {
+        public void AfterJarMoves() =>
+            throw new InvalidOperationException("injected failure after B-class Jar ownership movement");
+        public void AfterLiquidTransfer() { }
+        public void BeforeLedgerPublication() { }
+        public void BeforeCompensation() =>
+            throw new InvalidOperationException("injected B-class physical compensation failure");
+    }
+
     private static WorldOrderSolverRegistry CreateSolverRegistry() =>
         new(new IWorldOrderSpecificationSolver[]
         {
@@ -90,6 +100,60 @@ public sealed class WorldV2ContextTests
         Assert.Contains(demand.Id, result.StartedDemandIds);
         Assert.Null(world.DemandBoard.Find(demand.Id));
         Assert.Equal(0, world.Reservations.Count);
+    }
+
+    [Fact]
+    public void FaultedContextCannotCaptureAnUnresolvedBClassTransferCheckpoint()
+    {
+        var master = new Workshop("主台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        var slave = new Workshop("从台", new List<string> { "圆罐" },
+            maxJars: 4, maxLiquids: 4, vocabulary: Words, liquidStagingCapacity: 4);
+        Assert.True(master.AddJar(new Jar("圆罐", id: 170201, vocabulary: Words)));
+        var ship = new ShipLiquidInventory(4, new Dictionary<string, int> { ["酒"] = 1 });
+        using var suppressMasterPourIn = master.Rules.Stack.Push(new SuppressModifier
+        {
+            Operation = "POUR_IN",
+            Liquid = "酒",
+            Reason = "测试：确保 B 类订单需要进入从台阶段"
+        });
+        using var world = WorldV2Context.Create(
+            CreateResources(), new[] { master, slave }, master, slave,
+            CreateSolverRegistry(), logicalTimePerUnit: 1_000,
+            passiveFulfillmentPolicy: DemandAreaFulfillmentPolicy.OneShot,
+            activeFulfillmentPolicy: DemandAreaFulfillmentPolicy.Continuous,
+            shipLiquidInventory: ship);
+
+        var demand = new OrderDemand(
+            new JarOrderSpecification(
+                new[] { new Requirement { Shape = "圆罐", Liquid = "酒" } },
+                Constants.OrderType.B, Words),
+            0, new SequentialIdGenerator());
+        world.DemandBoard.AddDemand(demand, DemandAreaKind.Active);
+        world.Scheduler.RunSchedulingPass();
+        Assert.Equal(WorldOrderSolveState.Current, world.SolveBook.Find(demand.Id)!.State);
+
+        var started = WorldOrderExecutionSession.TryStart(
+            demand.Id, world.DemandBoard, world.SolveBook, world.Admission, world.Roster,
+            1_000, world.ResourceLedger, () => world.Runtime.LedgerTick,
+            jarTransferPort: null,
+            transferFaultPort: new ThrowAfterJarMoveAndCompensationFailure());
+        Assert.True(started.Success, started.Reason);
+        Assert.True(world.Runtime.RegisterExecutionSession(started.Session!));
+        var lease = world.Reservations.FindLease(demand.Id)!;
+
+        var error = Assert.ThrowsAny<AggregateException>(
+            () => world.Runtime.AdvanceWorldTime(1_000));
+
+        Assert.Contains("全量补偿失败", error.Message);
+        Assert.True(world.Runtime.IsFaulted);
+        Assert.Single(world.Runtime.ActiveExecutionSessions);
+        Assert.Same(lease, world.Reservations.FindLease(demand.Id));
+        Assert.Equal(1, world.Reservations.Count);
+        Assert.Throws<InvalidOperationException>(
+            () => world.CaptureExecutionResourceCheckpoint());
+        Assert.Single(world.Runtime.ActiveExecutionSessions);
+        Assert.Same(lease, world.Reservations.FindLease(demand.Id));
     }
 
     [Fact]
