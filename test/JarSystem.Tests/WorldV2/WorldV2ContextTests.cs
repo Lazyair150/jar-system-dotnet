@@ -339,7 +339,7 @@ public sealed class WorldV2ContextTests
         Assert.Throws<InvalidOperationException>(
             () => secondWorld.RestoreExecutionResourceCheckpoint(mismatchedCheckpoint));
 
-        secondWorld.RestoreExecutionResourceCheckpoint(checkpoint);
+        secondWorld.RestoreExecutionResourceCheckpoint(decodedCheckpoint);
 
         var restoredLease = Assert.Single(secondWorld.Reservations.Capture().Reservations);
         Assert.Equal(OrderResourceLeaseStage.MasterExecuting, restoredLease.Stage);
@@ -409,16 +409,22 @@ public sealed class WorldV2ContextTests
         Assert.True(firstSlave.HasResources);
 
         var checkpoint = firstWorld.CaptureExecutionResourceCheckpoint();
-        var activeScope = Assert.Single(checkpoint.Admission.ActiveOrders);
+        var transferOperationId = capturedLease.WorldVersion + ":order:" +
+            firstDemand.Id + ":transfer";
+        Assert.True(firstWorld.ResourceLedger.HasRecordedOperation(transferOperationId));
+        var checkpointJson = WorldV2CheckpointJsonCodec.EncodeExecutionResourceCheckpoint(checkpoint);
+        var decodedCheckpoint = WorldV2CheckpointJsonCodec.DecodeExecutionResourceCheckpoint(checkpointJson);
+        Assert.Equal(checkpoint.ResourceLedger.LastSeq, decodedCheckpoint.ResourceLedger.LastSeq);
+        var activeScope = Assert.Single(decodedCheckpoint.Admission.ActiveOrders);
         Assert.True(activeScope.UsesSlave);
         Assert.False(activeScope.MasterCapacityReserved);
         Assert.True(activeScope.SlaveCapacityReserved);
-        Assert.Empty(checkpoint.Admission.MasterStaging!.ReservedCapacityByOrder);
-        Assert.Contains(firstDemand.Id, checkpoint.Admission.SlaveStaging!.ReservedCapacityByOrder.Keys);
-        Assert.Equal(1, checkpoint.Admission.SlaveStaging.Accounts[firstDemand.Id]["酒"]);
-        Assert.Equal(1, checkpoint.ShipLiquidInventory.Balances["酒"]);
-        Assert.Single(checkpoint.ResourceLedger.Entries, item => item.Cause == ResourceCauses.Flow);
-        Assert.Single(checkpoint.ResourceLedger.Entries, item =>
+        Assert.Empty(decodedCheckpoint.Admission.MasterStaging!.ReservedCapacityByOrder);
+        Assert.Contains(firstDemand.Id, decodedCheckpoint.Admission.SlaveStaging!.ReservedCapacityByOrder.Keys);
+        Assert.Equal(1, decodedCheckpoint.Admission.SlaveStaging.Accounts[firstDemand.Id]["酒"]);
+        Assert.Equal(1, decodedCheckpoint.ShipLiquidInventory.Balances["酒"]);
+        Assert.Single(decodedCheckpoint.ResourceLedger.Entries, item => item.Cause == ResourceCauses.Flow);
+        Assert.Single(decodedCheckpoint.ResourceLedger.Entries, item =>
             item.Cause == ResourceCauses.Transfer && item.Kind == ResourceKinds.Liquid);
 
         var secondMaster = new Workshop("主台", new List<string> { "圆罐" },
@@ -451,6 +457,8 @@ public sealed class WorldV2ContextTests
         Assert.Equal(OrderResourceLeaseStage.SlaveExecuting,
             secondWorld.Reservations.FindLease(restoredDemand.Id)!.Stage);
         Assert.True(restoredSession.CaptureProgress().SlaveTransferCommitted);
+        Assert.True(secondWorld.ResourceLedger.HasRecordedOperation(transferOperationId));
+        Assert.Equal(checkpoint.ResourceLedger.LastSeq, secondWorld.ResourceLedger.LastSeq);
 
         for (var i = 0; i < 8 && secondWorld.Runtime.ActiveExecutionSessions.Count > 0; i++)
             secondWorld.Runtime.AdvanceWorldTime(1_000);
