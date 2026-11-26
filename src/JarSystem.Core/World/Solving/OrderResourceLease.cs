@@ -167,6 +167,21 @@ public sealed class OrderResourceLease
         Stage = OrderResourceLeaseStage.SlaveExecuting; _reservationProjection = null;
     }
 
+    /// <summary>
+    /// Restore the pre-handoff lease stage after the complete physical handoff was compensated.
+    /// This is not a general rewind API; only the TransferPending boundary may be restored.
+    /// </summary>
+    internal void RestoreTransferPendingAfterCompensation()
+    {
+        if (!UsesSlave)
+            throw new InvalidOperationException("只有 B 类资源租约才能回滚主从交接阶段。");
+        if (Stage == OrderResourceLeaseStage.TransferPending) return;
+        if (Stage is not (OrderResourceLeaseStage.TransferCommitted or OrderResourceLeaseStage.SlaveExecuting))
+            throw new InvalidOperationException("资源租约不处于可补偿的主从交接提交阶段。");
+        Stage = OrderResourceLeaseStage.TransferPending;
+        _reservationProjection = null;
+    }
+
     internal void RestoreExecutionStage(OrderResourceLeaseStage stage)
     {
         if (Stage != OrderResourceLeaseStage.Admitted)
