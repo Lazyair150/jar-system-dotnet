@@ -371,6 +371,113 @@ public sealed class WorldOrderExecutionAdmission
         }
     }
 
+    /// <summary>
+    /// Compensate a failed B-class handoff without replacing the staging objects already
+    /// referenced by active OrderLiquidScope instances. The snapshot is validated in full
+    /// before either authoritative staging account is changed.
+    /// </summary>
+    internal void RestoreTransferSnapshot(WorldOrderExecutionAdmissionSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (_shipLiquidInventory == null)
+            throw new InvalidOperationException("旧版兼容准入不能恢复 B 类订单暂存事务快照。");
+
+        var master = _roster.Master ?? throw new InvalidOperationException("B 类补偿时没有主工作台。");
+        var slave = _roster.Slave ?? throw new InvalidOperationException("B 类补偿时没有从工作台。");
+        ValidateStagingForWorkshop(snapshot.MasterStaging, master, "主台",
+            required: snapshot.ActiveOrders.Count > 0);
+        ValidateStagingForWorkshop(snapshot.SlaveStaging, slave, "从台",
+            required: snapshot.ActiveOrders.Any(item => item.UsesSlave));
+
+        // Validate every snapshot independently before applying either one.
+        var validatedMaster = snapshot.MasterStaging == null
+            ? null : WorkshopLiquidStaging.Restore(snapshot.MasterStaging);
+        var validatedSlave = snapshot.SlaveStaging == null
+            ? null : WorkshopLiquidStaging.Restore(snapshot.SlaveStaging);
+
+        var currentLeases = _reservations.Capture().Reservations;
+        var currentIds = currentLeases.Select(item => item.DemandId).ToHashSet();
+        var snapshotIds = snapshot.ActiveOrders.Select(item => item.DemandId).ToHashSet();
+        if (snapshot.ActiveOrders.Any(item => item.DemandId <= 0) ||
+            snapshotIds.Count != snapshot.ActiveOrders.Count ||
+            !currentIds.SetEquals(snapshotIds))
+            throw new InvalidOperationException("B 类补偿暂存快照与当前活动订单资源租约集合不一致。");
+
+        foreach (var active in snapshot.ActiveOrders)
+        {
+            var lease = _reservations.FindLease(active.DemandId)
+                ?? throw new InvalidOperationException("B 类补偿缺少活动订单资源租约：" + active.DemandId);
+            if (lease.UsesSlave != active.UsesSlave)
+                throw new InvalidOperationException("B 类补偿订单从台归属与资源租约不一致：" + active.DemandId);
+            if (active.MasterCapacityReserved !=
+                (snapshot.MasterStaging?.ReservedCapacityByOrder.ContainsKey(active.DemandId) ?? false) ||
+                active.SlaveCapacityReserved !=
+                (snapshot.SlaveStaging?.ReservedCapacityByOrder.ContainsKey(active.DemandId) ?? false) ||
+                active.SlaveCapacityReserved != active.UsesSlave)
+                throw new InvalidOperationException("B 类补偿订单容量预留与租约结构不一致：" + active.DemandId);
+
+            var scopes = lease.LiquidScopes;
+            if (!scopes.HasValue)
+                throw new InvalidOperationException("B 类补偿活动订单缺少原有 OrderLiquidScope：" + active.DemandId);
+            if (scopes.Value.Master.OrderId != active.DemandId ||
+                !ReferenceEquals(scopes.Value.Master.Staging,
+                    _stagingByWorkshop.GetValueOrDefault(master)) ||
+                scopes.Value.Master.WorkshopInstanceId != master.OwnedInstanceId ||
+                scopes.Value.Master.WorkshopOwnerIdentity != master.OwnerIdentity)
+                throw new InvalidOperationException("B 类补偿主台暂存范围未绑定当前权威暂存对象：" + active.DemandId);
+
+            if (active.UsesSlave)
+            {
+                if (scopes.Value.Slave == null ||
+                    scopes.Value.Slave.OrderId != active.DemandId ||
+                    !ReferenceEquals(scopes.Value.Slave.Staging,
+                        _stagingByWorkshop.GetValueOrDefault(slave)) ||
+                    scopes.Value.Slave.WorkshopInstanceId != slave.OwnedInstanceId ||
+                    scopes.Value.Slave.WorkshopOwnerIdentity != slave.OwnerIdentity)
+                    throw new InvalidOperationException("B 类补偿从台暂存范围未绑定当前权威暂存对象：" + active.DemandId);
+            }
+            else if (scopes.Value.Slave != null)
+                throw new InvalidOperationException("A 类订单补偿快照意外包含从台暂存范围：" + active.DemandId);
+        }
+
+        var expectedMasterReservations = snapshot.ActiveOrders
+            .Where(item => item.MasterCapacityReserved).Select(item => item.DemandId).ToHashSet();
+        var actualMasterReservations = snapshot.MasterStaging?.ReservedCapacityByOrder.Keys.ToHashSet()
+            ?? new HashSet<int>();
+        var expectedSlaveReservations = snapshot.ActiveOrders
+            .Where(item => item.SlaveCapacityReserved).Select(item => item.DemandId).ToHashSet();
+        var actualSlaveReservations = snapshot.SlaveStaging?.ReservedCapacityByOrder.Keys.ToHashSet()
+            ?? new HashSet<int>();
+        if (!expectedMasterReservations.SetEquals(actualMasterReservations) ||
+            !expectedSlaveReservations.SetEquals(actualSlaveReservations))
+            throw new InvalidOperationException("B 类补偿暂存容量预留集合与活动租约不一致。");
+
+        var activeIds = snapshotIds;
+        if ((snapshot.MasterStaging?.Accounts.Keys.Any(id => !activeIds.Contains(id)) ?? false) ||
+            (snapshot.SlaveStaging?.Accounts.Keys.Any(id => !activeIds.Contains(id)) ?? false) ||
+            (snapshot.SlaveStaging?.Accounts.Keys.Any(id =>
+                !snapshot.ActiveOrders.Any(active => active.DemandId == id && active.UsesSlave)) ?? false))
+            throw new InvalidOperationException("B 类补偿暂存快照包含不属于当前活动会话的订单子账。");
+
+        if (snapshot.MasterStaging != null)
+        {
+            if (!_stagingByWorkshop.TryGetValue(master, out var masterStaging))
+                throw new InvalidOperationException("B 类补偿无法定位原主台暂存对象。");
+            masterStaging.RestoreFrom(snapshot.MasterStaging);
+        }
+        else
+            _stagingByWorkshop.Remove(master);
+
+        if (snapshot.SlaveStaging != null)
+        {
+            if (!_stagingByWorkshop.TryGetValue(slave, out var slaveStaging))
+                throw new InvalidOperationException("B 类补偿无法定位原从台暂存对象。");
+            slaveStaging.RestoreFrom(snapshot.SlaveStaging);
+        }
+        else
+            _stagingByWorkshop.Remove(slave);
+    }
+
     private static void ValidateStagingForWorkshop(
         WorkshopLiquidStagingSnapshot? snapshot, Workshop? workshop, string role, bool required)
     {
