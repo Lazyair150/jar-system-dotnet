@@ -315,10 +315,6 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.True(restored.TryGetTransferReceipt(receipt.OperationId, out var restoredReceipt));
         Assert.Equal(receipt, restoredReceipt);
 
-        var tamperedWire = ResourceLedgerWireDto.FromSnapshot(restored.Capture());
-        tamperedWire.OperationFingerprints[receipt.OperationId] = new string('0', 64);
-        Assert.Throws<InvalidOperationException>(() => tamperedWire.Validate());
-
         var wire = ResourceLedgerWireDto.FromSnapshot(restored.Capture());
         wire.Validate();
         var json = JsonSerializer.Serialize(wire);
@@ -1076,6 +1072,10 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.True(restored.TryGetTransferBatchReceipt(receipt.OperationId, out var restoredBatch));
         Assert.NotNull(restoredBatch);
         Assert.True(receipt.HasSamePayload(restoredBatch!));
+
+        var tamperedWire = ResourceLedgerWireDto.FromSnapshot(restored.Capture());
+        tamperedWire.OperationFingerprints[receipt.OperationId] = new string('0', 64);
+        Assert.Throws<InvalidOperationException>(() => tamperedWire.Validate());
 
         var wire = ResourceLedgerWireDto.FromSnapshot(restored.Capture());
         wire.Validate();
