@@ -1124,4 +1124,50 @@ public sealed class ResourceLedgerSnapshotTests
         Assert.Throws<DomainValidationException>(() => ResourceLedger.Restore(incomplete));
     }
 
+
+    [Fact]
+    public void InvalidCompositeLegPublishesNoParentOrEarlierLegState()
+    {
+        var ledger = new ResourceLedger();
+        var firstSource = new RuleResourceAccount("workshop.free-liquid-staging", "first-source");
+        var firstTarget = new RuleResourceAccount("workshop.free-liquid-staging", "first-target");
+        var secondSource = new RuleResourceAccount("workshop.free-liquid-staging", "second-source");
+        var secondTarget = new RuleResourceAccount("workshop.free-liquid-staging", "second-target");
+        var first = new ResourceTransferReceipt(
+            "batch.atomic.leg-one", "connection.one", "one.out", "one.in",
+            RuleResourceKind.Liquid, "liquid.one", firstSource, firstTarget,
+            1, 1, 0, 0, ResourceTransferOutcome.Transferred,
+            "one-source-before", "one-source-after", "one-target-before", "one-target-after", "allowed");
+        var second = new ResourceTransferReceipt(
+            "batch.atomic.leg-two", "connection.two", "two.out", "two.in",
+            RuleResourceKind.Liquid, "liquid.two", secondSource, secondTarget,
+            2, 2, 0, 0, ResourceTransferOutcome.Transferred,
+            "two-source-before", "two-source-after", "two-target-before", "two-target-after", "allowed");
+        var receipt = new ResourceLedgerTransferBatchReceipt(
+            "batch.atomic.root", new[] { first, second });
+        var legs = new[]
+        {
+            new ResourceLedgerTransferBatchLeg(first, new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "One", 1, From: firstSource.OwnerId, To: firstTarget.OwnerId, ResourceIdentity: "liquid.one")
+            }),
+            new ResourceLedgerTransferBatchLeg(second, new[]
+            {
+                new ResourceLedgerMutation(ResourceCauses.Transfer, ResourceKinds.Liquid,
+                    "Two", 1, From: secondSource.OwnerId, To: secondTarget.OwnerId, ResourceIdentity: "liquid.two")
+            })
+        };
+
+        Assert.Throws<DomainValidationException>(() =>
+            ledger.RecordTransferBatchOnce(receipt.OperationId, 1, legs, receipt));
+
+        Assert.Equal(0, ledger.LastSeq);
+        Assert.Empty(ledger.Entries);
+        Assert.False(ledger.HasRecordedOperation(receipt.OperationId));
+        Assert.False(ledger.HasRecordedOperation(first.OperationId));
+        Assert.False(ledger.HasRecordedOperation(second.OperationId));
+        Assert.False(ledger.TryGetTransferBatchReceipt(receipt.OperationId, out _));
+    }
+
 }

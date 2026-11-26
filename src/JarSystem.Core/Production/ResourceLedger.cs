@@ -203,7 +203,7 @@ public sealed class ResourceLedger
             throw new DomainValidationException("资源账本快照包含重复或空的复合转移回执。");
 
         var batchIds = new HashSet<string>(StringComparer.Ordinal);
-        var batchLegIds = new HashSet<string>(StringComparer.Ordinal);
+        var batchLegOwners = new Dictionary<string, string>(StringComparer.Ordinal);
         var transferReceiptsById = snapshot.TransferReceipts.ToDictionary(item => item.OperationId, StringComparer.Ordinal);
         foreach (var batchReceipt in snapshot.TransferBatchReceipts)
         {
@@ -215,7 +215,7 @@ public sealed class ResourceLedger
 
             foreach (var legReceipt in batchReceipt.LegReceipts)
             {
-                if (!batchLegIds.Add(legReceipt.OperationId) ||
+                if (!batchLegOwners.TryAdd(legReceipt.OperationId, batchReceipt.OperationId) ||
                     !snapshot.OperationIds.Contains(legReceipt.OperationId, StringComparer.Ordinal) ||
                     !snapshot.OperationFingerprints.ContainsKey(legReceipt.OperationId) ||
                     !transferReceiptsById.TryGetValue(legReceipt.OperationId, out var storedLeg) ||
@@ -223,14 +223,16 @@ public sealed class ResourceLedger
                     throw new DomainValidationException("资源账本复合回执缺少精确的 Leg OperationId / Receipt 索引。");
             }
         }
-        foreach (var item in snapshot.Entries.Where(item => item.BatchOperationId != null))
+        if (batchLegOwners.Keys.Any(batchIds.Contains))
+            throw new DomainValidationException("资源账本的批次 OperationId 与其他批次 Leg OperationId 发生冲突。");
+        foreach (var item in snapshot.Entries)
         {
-            if (!batchIds.Contains(item.BatchOperationId!) ||
-                !batchLegIds.Contains(item.OperationId ?? "") ||
-                !snapshot.TransferBatchReceipts.Any(batch =>
-                    batch.OperationId == item.BatchOperationId &&
-                    batch.LegReceipts.Any(leg => leg.OperationId == item.OperationId)))
-                throw new DomainValidationException("资源账本事件引用了不存在或不匹配的复合转移批次。");
+            var isBatchLeg = item.OperationId != null &&
+                batchLegOwners.TryGetValue(item.OperationId, out var expectedBatchId);
+            if ((item.BatchOperationId != null &&
+                    (!isBatchLeg || !string.Equals(item.BatchOperationId, expectedBatchId, StringComparison.Ordinal))) ||
+                (item.BatchOperationId == null && isBatchLeg))
+                throw new DomainValidationException("资源账本事件引用了不存在、缺失或不匹配的复合转移批次。");
         }
 
         var ledger = new ResourceLedger(snapshot.Capacity)
@@ -678,8 +680,9 @@ public sealed class ResourceLedger
             throw new DomainValidationException("Transfer batch receipt OperationId does not match its ledger key.");
 
         var suppliedLegs = legs.ToArray();
-        if (suppliedLegs.Length != receipt.LegReceipts.Count ||
-            suppliedLegs.Any(item => item == null) ||
+        if (suppliedLegs.Length == 0 ||
+            suppliedLegs.Any(item => item == null || item.Receipt == null || item.Mutations == null) ||
+            suppliedLegs.Length != receipt.LegReceipts.Count ||
             !suppliedLegs.Select(item => item.Receipt).SequenceEqual(receipt.LegReceipts))
             throw new DomainValidationException("Transfer batch legs do not match the composite receipt order and identity.");
 
@@ -921,7 +924,7 @@ public sealed class ResourceLedgerTransferBatchReceipt
 
     public ResourceLedgerTransferBatchReceipt(
         string operationId,
-        IEnumerable<ResourceTransferReceipt> legReceipts,
+        IReadOnlyList<ResourceTransferReceipt> legReceipts,
         int schemaVersion = CurrentSchemaVersion)
     {
         OperationId = operationId;
@@ -979,7 +982,7 @@ public sealed class ResourceLedgerTransferBatchReceipt
     }
 
     public ResourceLedgerTransferBatchReceipt DeepCopy() =>
-        new(OperationId, LegReceipts.Select(item => item with { }), SchemaVersion);
+        new(OperationId, LegReceipts.Select(item => item with { }).ToArray(), SchemaVersion);
 
     public bool HasSamePayload(ResourceLedgerTransferBatchReceipt other) =>
         other != null &&

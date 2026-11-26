@@ -650,7 +650,7 @@ public sealed class ResourceLedgerWireDto
 
         var transferReceiptsById = TransferReceipts.ToDictionary(item => item.OperationId, StringComparer.Ordinal);
         var batchIds = new HashSet<string>(StringComparer.Ordinal);
-        var legIds = new HashSet<string>(StringComparer.Ordinal);
+        var legOwners = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var batchReceipt in TransferBatchReceipts)
         {
             if (batchReceipt == null) throw new InvalidOperationException("资源账本 Wire DTO 包含空复合回执。");
@@ -662,7 +662,7 @@ public sealed class ResourceLedgerWireDto
 
             foreach (var leg in batchReceipt.LegReceipts)
             {
-                if (!legIds.Add(leg.OperationId) ||
+                if (!legOwners.TryAdd(leg.OperationId, batchReceipt.OperationId) ||
                     !OperationIds.Contains(leg.OperationId, StringComparer.Ordinal) ||
                     !OperationFingerprints.ContainsKey(leg.OperationId) ||
                     !transferReceiptsById.TryGetValue(leg.OperationId, out var stored) ||
@@ -671,14 +671,16 @@ public sealed class ResourceLedgerWireDto
             }
         }
 
-        foreach (var item in Events.Where(item => item.BatchOperationId != null))
+        if (legOwners.Keys.Any(batchIds.Contains))
+            throw new InvalidOperationException("资源账本批次 ID 与 Leg OperationId 发生冲突。");
+        foreach (var item in Events)
         {
-            if (!batchIds.Contains(item.BatchOperationId!) ||
-                !legIds.Contains(item.OperationId ?? "") ||
-                !TransferBatchReceipts.Any(batch =>
-                    batch.OperationId == item.BatchOperationId &&
-                    batch.LegReceipts.Any(leg => leg.OperationId == item.OperationId)))
-                throw new InvalidOperationException("资源账本事件引用了不存在或不匹配的复合转移批次。");
+            var isBatchLeg = item.OperationId != null &&
+                legOwners.TryGetValue(item.OperationId, out var expectedBatchId);
+            if ((item.BatchOperationId != null &&
+                    (!isBatchLeg || !string.Equals(item.BatchOperationId, expectedBatchId, StringComparison.Ordinal))) ||
+                (item.BatchOperationId == null && isBatchLeg))
+                throw new InvalidOperationException("资源账本事件引用了不存在、缺失或不匹配的复合转移批次。");
         }
     }
 
