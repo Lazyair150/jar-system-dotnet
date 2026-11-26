@@ -154,3 +154,17 @@ Normal `WorldV2HostService.Replace(options)` and `Replace(options, worldInstance
 `WorldV2ApplicationService.CaptureWorldOptions()` and the Godot bridge equivalent expose that normalized snapshot. The ApplicationService retains a bounded recent mapping from WorldInstanceId to its normalized options so a checkpoint can restore the exact earlier world after a replacement. Across process restarts, callers must persist and supply the matching normalized options explicitly; identities must never be reconstructed from names, collection positions, or roles.
 
 The legacy `JarSystem` composition root now accepts the same explicit World/Owner identity map. If any legacy ProducerInstanceId, OwnedInstanceId, or WorldInstanceId is supplied without the complete map, construction fails closed. Existing definition-only legacy configurations remain readable and continue through the documented LegacyUnknown compatibility boundary.
+
+## 10. Legacy production endpoint compatibility correction — 2026-11-26
+
+The previous section's LegacyUnknown statement describes only the case where the legacy host supplies neither World-scoped OwnerIdentity nor an exact local instance ID. The current ProductionService.WorkshopEndpoint behavior is now:
+
+1. If Workshop.OwnerIdentity exists, emit its World-scoped Account v2 endpoint.
+2. Otherwise, if the Workshop has an explicit OwnedInstanceId, emit the corresponding local Account v1 endpoint. This preserves the exact persisted instance identity without inventing a WorldInstanceId.
+3. Only when both are absent emit LegacyUnknown.
+
+A regression test verifies that changing the Workshop display name does not participate in this fallback: the target AccountId is constructed exclusively from the exact OwnedInstanceId. The legacy default Workshop, which has neither identity field, remains LegacyUnknown.
+
+The legacy Warehouse remains a separate limitation: Warehouse currently has OwnerIdentity? but no independent local instance ID. Without a World Owner map its production/initial-stock endpoint therefore remains LegacyUnknown. This is not repaired by copying the Workshop ID or using the visible string '仓库'; Warehouse is a distinct resource-owning individual and needs its own stable identity.
+
+Normal WorldV2HostService.Replace(options) continues to create a complete World/Owner map at the Host boundary. Its generated opaque IDs are not inferred from names or positions. The direct no-map WorldV2Context.Create path remains a compatibility/standalone assembly escape hatch and must not be described as providing complete World-scoped provenance.
