@@ -88,7 +88,9 @@ public sealed class ResourceLedgerSnapshotTests
         var ledger = new ResourceLedger();
         Assert.True(ledger.RecordBatchOnce(operationId, 31, batch));
         var lastSeq = ledger.LastSeq;
-        var entries = ledger.Entries;
+        var entries = ledger.Entries.Select(item =>
+            (item.Seq, item.OperationId, item.Cause, item.Kind, item.ResourceIdentity, item.Amount))
+            .ToArray();
 
         Assert.True(ledger.HasRecordedBatch(operationId, batch));
         Assert.False(ledger.HasRecordedBatch(operationId, new[]
@@ -103,7 +105,8 @@ public sealed class ResourceLedgerSnapshotTests
         }));
         Assert.False(ledger.HasRecordedBatch("missing:settlement", batch));
         Assert.Equal(lastSeq, ledger.LastSeq);
-        Assert.Equal(entries, ledger.Entries);
+        Assert.Equal(entries, ledger.Entries.Select(item =>
+            (item.Seq, item.OperationId, item.Cause, item.Kind, item.ResourceIdentity, item.Amount)));
 
         var restored = ResourceLedger.Restore(ledger.Capture());
         Assert.True(restored.HasRecordedBatch(operationId, batch));
