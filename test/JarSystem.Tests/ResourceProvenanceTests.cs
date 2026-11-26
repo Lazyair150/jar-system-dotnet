@@ -380,7 +380,8 @@ public class ResourceProvenanceTests
 
         var log = new List<ExecutionLogEntry>();
         new SlaveRollback().Execute(master, slave, log.Add,
-            ledger: sys.ResourceLedger, tickOf: () => 0);
+            ledger: sys.ResourceLedger, tickOf: () => 0,
+            operationId: "test:legacy-slave-rollback:9102-9103");
 
         var returned = sys.ResourceLedger.For(ResourceCauses.Return);
         Assert.Contains(returned, e => e.Kind == ResourceKinds.Jar && e.Amount == 1
