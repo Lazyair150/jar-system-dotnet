@@ -1283,6 +1283,35 @@ public sealed class WorldOrderExecutionSessionTests
             WorldOrderExecutionSession.RestoreProgress(
                 progress, board, book, admission, roster, reservations, ledger, () => 17));
         Assert.Contains("Settlement operation receipt", ledgerError.Message);
+
+        // OperationId presence alone is insufficient: bind it to the exact immutable
+        // receipt payload before a checkpoint or retry is allowed to trust it.
+        var wrongBatch = new[]
+        {
+            new ResourceLedgerMutation(
+                ResourceCauses.Return, ResourceKinds.Liquid, "蜜", 1,
+                From: "订单暂存", To: "自机液库",
+                ResourceIdentity: "蜜", DisplayName: "蜜")
+        };
+        Assert.True(ledger.RecordBatchOnce(
+            lease.SettlementOperationId, 17, wrongBatch));
+        Assert.True(ledger.HasRecordedOperation(lease.SettlementOperationId));
+        Assert.False(ledger.HasRecordedBatch(
+            lease.SettlementOperationId,
+            OrderResourceSettlementService.BuildSettlementLedgerMutations(
+                lease.SettlementReceipt!)));
+
+        var servicePayloadError = Assert.Throws<InvalidOperationException>(() =>
+            new OrderResourceSettlementService().SettleAndRelease(
+                demand.Id, admission, ledger, settlementTick: 17));
+        Assert.Contains("批次内容与租约 Settlement receipt 不一致",
+            servicePayloadError.Message);
+
+        var checkpointPayloadError = Assert.Throws<InvalidOperationException>(() =>
+            WorldOrderExecutionSession.RestoreProgress(
+                progress, board, book, admission, roster, reservations, ledger, () => 17));
+        Assert.Contains("Settlement receipt 与 ResourceLedger operation 批次内容不一致",
+            checkpointPayloadError.Message);
     }
 
     [Fact]
