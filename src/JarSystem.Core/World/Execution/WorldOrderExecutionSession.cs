@@ -33,6 +33,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
     private readonly OrderLiquidScope? _slaveLiquidScope;
     private readonly long _unitDurationLogicalMilli;
     private readonly SlaveRollback _slaveRollback = new();
+    private readonly ISlaveRollbackFaultPort? _slaveRollbackFaultPort;
     private readonly ResourceLedger? _resourceLedger;
     private readonly Func<int>? _resourceLedgerTick;
     private readonly List<ExecutionLogEntry> _resourceSettlementLog = new();
@@ -86,7 +87,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         Func<int>? resourceLedgerTick,
         bool initializeExecution = true,
         IOrderJarTransferPort? jarTransferPort = null,
-        IOrderTransferFaultPort? transferFaultPort = null)
+        IOrderTransferFaultPort? transferFaultPort = null,
+        ISlaveRollbackFaultPort? slaveRollbackFaultPort = null)
     {
         DemandId = demandId;
         _board = board;
@@ -104,6 +106,7 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         _resourceLedgerTick = resourceLedgerTick;
         _applier = new WorldPlanStepApplier();
         _transferService = new OrderTransferService(jarTransferPort, transferFaultPort);
+        _slaveRollbackFaultPort = slaveRollbackFaultPort;
         var liquidScopes = admission.GetLiquidScopes(demandId);
         _masterLiquidScope = liquidScopes?.Master;
         _slaveLiquidScope = liquidScopes?.Slave;
@@ -456,7 +459,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
         ResourceLedger? resourceLedger,
         Func<int>? resourceLedgerTick,
         IOrderJarTransferPort? jarTransferPort,
-        IOrderTransferFaultPort? transferFaultPort = null)
+        IOrderTransferFaultPort? transferFaultPort = null,
+        ISlaveRollbackFaultPort? slaveRollbackFaultPort = null)
     {
         if (board == null) throw new ArgumentNullException(nameof(board));
         if (solveBook == null) throw new ArgumentNullException(nameof(solveBook));
@@ -494,7 +498,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                 admitted.Manifest, result.Plan, logicalTimePerUnit,
                 resourceLedger, resourceLedgerTick,
                 jarTransferPort: jarTransferPort,
-                transferFaultPort: transferFaultPort);
+                transferFaultPort: transferFaultPort,
+                slaveRollbackFaultPort: slaveRollbackFaultPort);
 
             // 只有新自机液库路径才记录这笔实际扣款；旧兼容准入不伪造新的资源流向。
             if (resourceLedger != null && admission.ShipLiquidInventory != null)
@@ -866,7 +871,8 @@ public sealed class WorldOrderExecutionSession : IOrderInterruptionPort
                     ledgerTickOverride: rollbackLedger == null ? null : ledgerTickOverride,
                     operationId: rollbackLedger == null
                         ? null
-                        : _manifest.WorldVersion + ":order:" + DemandId + ":rollback");
+                        : _manifest.WorldVersion + ":order:" + DemandId + ":rollback",
+                    faults: _slaveRollbackFaultPort);
             }
             _slaveTransferCommitted = false;
         }
