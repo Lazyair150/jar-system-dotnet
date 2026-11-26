@@ -79,12 +79,34 @@ public sealed class OrderResourceSettlementService
         var settlementHasLedgerFacts = receipt != null &&
             (receipt.Accepted.Values.Any(value => value > 0) ||
              receipt.Discarded.Values.Any(value => value > 0));
-        if (lease?.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
-            (receipt == null ||
-             (settlementHasLedgerFacts &&
-                (ledger == null || !ledger.HasRecordedOperation(lease.SettlementOperationId)))))
-            throw new InvalidOperationException(
-                "订单结算阶段报告账本已提交，但当前缺少结算收据或对应的 ResourceLedger Settlement operation receipt。");
+        if (lease != null)
+        {
+            var hasLedgerOperation = ledger?.HasRecordedOperation(lease.SettlementOperationId) == true;
+            if (lease.SettlementStage == OrderResourceSettlementStage.NotStarted)
+            {
+                if (receipt != null || hasLedgerOperation)
+                    throw new InvalidOperationException(
+                        "未开始结算的租约不能已有 Settlement receipt 或 ResourceLedger operation。");
+            }
+            else
+            {
+                if (receipt == null)
+                    throw new InvalidOperationException("已推进的订单结算阶段缺少 Settlement receipt。");
+                if (settlementHasLedgerFacts && hasLedgerOperation &&
+                    !ledger!.HasRecordedBatch(
+                        lease.SettlementOperationId, BuildSettlementLedgerMutations(receipt)))
+                    throw new InvalidOperationException(
+                        "ResourceLedger Settlement OperationId 已存在，但批次内容与租约 Settlement receipt 不一致。");
+                if (settlementHasLedgerFacts &&
+                    lease.SettlementStage == OrderResourceSettlementStage.LedgerRecorded &&
+                    !hasLedgerOperation)
+                    throw new InvalidOperationException(
+                        "订单结算阶段报告账本已提交，但当前缺少对应的 ResourceLedger Settlement operation receipt。");
+                if (!settlementHasLedgerFacts && hasLedgerOperation)
+                    throw new InvalidOperationException(
+                        "零资源结算不应创建 ResourceLedger Settlement operation；检测到虚假的幂等收据。");
+            }
+        }
 
         if (receipt == null && scopes.HasValue && admission.ShipLiquidInventory != null)
         {
@@ -162,7 +184,20 @@ public sealed class OrderResourceSettlementService
                 // Zero accepted and zero discarded means no resource changed; do not publish an
                 // empty ledger operation, but still advance the settlement lease stage below.
                 if (mutations.Length > 0)
-                    ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations);
+                {
+                    if (ledger.HasRecordedOperation(lease.SettlementOperationId))
+                    {
+                        if (!ledger.HasRecordedBatch(lease.SettlementOperationId, mutations))
+                            throw new InvalidOperationException(
+                                "ResourceLedger Settlement OperationId 已绑定到不同的批次内容。");
+                    }
+                    else if (!ledger.RecordBatchOnce(lease.SettlementOperationId, tick, mutations) &&
+                             !ledger.HasRecordedBatch(lease.SettlementOperationId, mutations))
+                    {
+                        throw new InvalidOperationException(
+                            "Settlement OperationId 未能提交或匹配预期账本批次。");
+                    }
+                }
                 _faults.AfterLedgerBatchRecorded();
                 lease.MarkSettlementLedgerRecorded();
                 _faults.AfterLedgerStageMarked();
@@ -253,7 +288,7 @@ public sealed class OrderResourceSettlementService
             new RuleResourceAccount("workshop.order-liquid-staging", localOwnerId).AccountId);
     }
 
-    private static IEnumerable<ResourceLedgerMutation> BuildSettlementLedgerMutations(
+    internal static IEnumerable<ResourceLedgerMutation> BuildSettlementLedgerMutations(
         LiquidBatchReceipt receipt)
     {
         if (receipt.SourceAllocations.Count == 0)
