@@ -46,6 +46,101 @@ internal interface IResourceCapacityDomainBoundAdapter
     ResourceCapacityDomainBinding? CapacityDomainBinding { get; }
 }
 
+internal interface IResourceAccountRuntimeBoundAdapter
+{
+    object AccountRuntimeStateReference { get; }
+}
+
+internal sealed record ResourceBatchAccountRuntimeBinding(
+    string AccountId,
+    object RuntimeStateReference);
+
+internal sealed class ResourceBatchBindingSet
+{
+    public IReadOnlyList<ResourceBatchAccountRuntimeBinding> Accounts { get; }
+    public IReadOnlyList<ResourceCapacityDomainBinding> CapacityDomains { get; }
+
+    private ResourceBatchBindingSet(
+        IReadOnlyList<ResourceBatchAccountRuntimeBinding> accounts,
+        IReadOnlyList<ResourceCapacityDomainBinding> capacityDomains)
+    {
+        Accounts = accounts;
+        CapacityDomains = capacityDomains;
+    }
+
+    public static ResourceBatchBindingSet Create(IEnumerable<IResourcePortAdapter> adapters)
+    {
+        ArgumentNullException.ThrowIfNull(adapters);
+        var accountBindings = new SortedDictionary<string, object>(StringComparer.Ordinal);
+        var domainBindings = new SortedDictionary<string, ResourceCapacityDomainBinding>(StringComparer.Ordinal);
+        var count = 0;
+
+        foreach (var adapter in adapters)
+        {
+            count++;
+            if (adapter == null ||
+                adapter is not IResourceCapacityDomainBoundAdapter capacityBound ||
+                adapter is not IResourceAccountRuntimeBoundAdapter accountBound ||
+                capacityBound.CapacityDomainBinding is not { } capacityBinding)
+                throw new DomainValidationException(
+                    "复合资源批次只接受具有 World-scoped Account 与 CapacityDomain 绑定的 Adapter。");
+
+            if (string.IsNullOrWhiteSpace(adapter.Account.AccountId) ||
+                !adapter.Account.AccountId.StartsWith("account:v2:", StringComparison.Ordinal))
+                throw new DomainValidationException(
+                    "复合资源批次不能使用 legacy account:v1 或未知账户身份。");
+
+            AccountIdentity accountIdentity;
+            try
+            {
+                accountIdentity = AccountIdentity.ParseV2(adapter.Account.AccountId);
+            }
+            catch (FormatException exception)
+            {
+                throw new DomainValidationException(
+                    "复合资源批次包含非规范 AccountId v2：" + exception.Message);
+            }
+
+            if (!accountIdentity.IsValid ||
+                accountIdentity.Owner.WorldInstanceId != capacityBinding.Id.Owner.WorldInstanceId ||
+                accountIdentity.Owner.OwnerKind != capacityBinding.Id.Owner.OwnerKind)
+                throw new DomainValidationException(
+                    "资源账户与容量域不属于同一个 World/OwnerKind 作用域。");
+
+            if (accountBindings.TryGetValue(adapter.Account.AccountId, out var existingAccount))
+            {
+                if (!ReferenceEquals(existingAccount, accountBound.AccountRuntimeStateReference))
+                    throw new DomainValidationException(
+                        "同一 AccountId 在一个批次中绑定到了不同的权威运行时对象。");
+            }
+            else
+            {
+                accountBindings.Add(adapter.Account.AccountId, accountBound.AccountRuntimeStateReference);
+            }
+
+            var canonicalDomainId = capacityBinding.Id.ToCanonicalString();
+            if (domainBindings.TryGetValue(canonicalDomainId, out var existingDomain))
+            {
+                if (!existingDomain.IsSameRuntimeDomain(capacityBinding))
+                    throw new DomainValidationException(
+                        "同一 CapacityDomainId 在一个批次中绑定到了不同的权威容量域对象。");
+            }
+            else
+            {
+                domainBindings.Add(canonicalDomainId, capacityBinding);
+            }
+        }
+
+        if (count == 0)
+            throw new DomainValidationException("复合资源批次至少需要一个已绑定的资源账户。");
+
+        return new ResourceBatchBindingSet(
+            Array.AsReadOnly(accountBindings.Select(item =>
+                new ResourceBatchAccountRuntimeBinding(item.Key, item.Value)).ToArray()),
+            Array.AsReadOnly(domainBindings.Values.ToArray()));
+    }
+}
+
 internal static class ResourceOwnerIdentityGuard
 {
     public static void Require(
@@ -158,7 +253,7 @@ internal static class ResourcePortPreflightFactory
 }
 
 /// <summary>Preflight adapter for a Workshop's legacy free-liquid pool; Jar-internal liquid is deliberately outside this account.</summary>
-public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
+public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter, IResourceAccountRuntimeBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.free-liquid-staging";
     public const int SupportedPolicyVersion = 1;
@@ -167,6 +262,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter, IResou
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
+    object AccountRuntimeStateReference => _workshop;
     internal bool IsBoundTo(Workshop workshop) => ReferenceEquals(_workshop, workshop);
 
     public WorkshopFreeLiquidPortAdapter(Workshop workshop, string areaId)
@@ -221,7 +317,7 @@ public sealed class WorkshopFreeLiquidPortAdapter : IResourcePortAdapter, IResou
 }
 
 /// <summary>Preflight adapter for one exact order sub-account in a Workshop's shared liquid staging area.</summary>
-public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
+public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter, IResourceAccountRuntimeBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.order-liquid-staging";
     public const int SupportedPolicyVersion = 1;
@@ -231,6 +327,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter, IReso
     private readonly int _orderId;
     public RuleResourceAccount Account { get; }
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
+    object AccountRuntimeStateReference => _staging;
     public int OrderId => _orderId;
     internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
@@ -295,7 +392,7 @@ public sealed class WorkshopOrderLiquidPortAdapter : IResourcePortAdapter, IReso
 }
 
 /// <summary>Preflight adapter for the self-ship liquid inventory; all liquids share one aggregate capacity.</summary>
-public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
+public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter, IResourceAccountRuntimeBoundAdapter
 {
     public const string SupportedPolicyId = "ship.liquid-inventory";
     public const int SupportedPolicyVersion = 1;
@@ -304,6 +401,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter, IReso
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
+    object AccountRuntimeStateReference => _inventory;
     internal bool IsBoundTo(ShipLiquidInventory inventory) => ReferenceEquals(_inventory, inventory);
 
     public ShipLiquidInventoryPortAdapter(ShipLiquidInventory inventory, string shipIndividualId, string areaId)
@@ -364,7 +462,7 @@ public sealed class ShipLiquidInventoryPortAdapter : IResourcePortAdapter, IReso
 
 
 /// <summary>Preflight adapter for one Workshop's independent prefill account, never merged with order sub-accounts.</summary>
-public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
+public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter, IResourceAccountRuntimeBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.prefill-liquid-staging";
     public const int SupportedPolicyVersion = 1;
@@ -373,6 +471,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter, IRe
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
+    object AccountRuntimeStateReference => _staging;
     internal bool IsBoundTo(WorkshopLiquidStaging staging) => ReferenceEquals(_staging, staging);
 
     public WorkshopPrefillLiquidPortAdapter(
@@ -433,7 +532,7 @@ public sealed class WorkshopPrefillLiquidPortAdapter : IResourcePortAdapter, IRe
 }
 
 /// <summary>Preflight adapter for the Workshop's discrete Jar storage; Jar-internal liquid is not checked against Workshop Ban.</summary>
-public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
+public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter, IResourceAccountRuntimeBoundAdapter
 {
     public const string SupportedPolicyId = "workshop.jar-storage";
     public const int SupportedPolicyVersion = 1;
@@ -442,6 +541,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter, IResou
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
+    object AccountRuntimeStateReference => _workshop;
     internal bool IsBoundTo(Workshop workshop) => ReferenceEquals(_workshop, workshop);
 
     public WorkshopJarStoragePortAdapter(Workshop workshop, string areaId)
@@ -529,7 +629,7 @@ public sealed class WorkshopJarStoragePortAdapter : IResourcePortAdapter, IResou
 
 
 /// <summary>Preflight adapter for the Production Area's central discrete Jar warehouse.</summary>
-public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
+public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter, IResourceAccountRuntimeBoundAdapter
 {
     public const string SupportedPolicyId = "production.warehouse.jar-storage";
     public const int SupportedPolicyVersion = 1;
@@ -538,6 +638,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter, IReso
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
+    object AccountRuntimeStateReference => _warehouse;
     internal bool IsBoundTo(Warehouse warehouse) => ReferenceEquals(_warehouse, warehouse);
 
     public WarehouseJarStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)
@@ -624,7 +725,7 @@ public sealed class WarehouseJarStoragePortAdapter : IResourcePortAdapter, IReso
 }
 
 /// <summary>Preflight adapter for the legacy Production Area warehouse liquid account; it has no Workshop Ban.</summary>
-public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter
+public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter, IResourceCapacityDomainBoundAdapter, IResourceAccountRuntimeBoundAdapter
 {
     public const string SupportedPolicyId = "production.warehouse.liquid-storage";
     public const int SupportedPolicyVersion = 1;
@@ -633,6 +734,7 @@ public sealed class WarehouseLiquidStoragePortAdapter : IResourcePortAdapter, IR
     private readonly string _areaId;
     public RuleResourceAccount Account { get; }
     internal ResourceCapacityDomainBinding? CapacityDomainBinding { get; private set; }
+    object AccountRuntimeStateReference => _warehouse;
     internal bool IsBoundTo(Warehouse warehouse) => ReferenceEquals(_warehouse, warehouse);
 
     public WarehouseLiquidStoragePortAdapter(Warehouse warehouse, string productionIndividualId, string areaId)

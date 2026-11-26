@@ -168,6 +168,62 @@ public sealed class ResourcePortAdapterTests
     }
 
     [Fact]
+    public void BatchBindingRegistryDeduplicatesAccountsAndSharedCapacityDomains()
+    {
+        var owner = new OwnerIdentity(new WorldInstanceId("world.batch.binding"),
+            ResourceOwnerKind.Workshop, "workshop.batch.binding");
+        var staging = new WorkshopLiquidStaging(8);
+        var order = new WorkshopOrderLiquidPortAdapter(staging, owner, "area.staging", 101);
+        var prefill = new WorkshopPrefillLiquidPortAdapter(staging, owner, "area.staging");
+
+        var bindings = ResourceBatchBindingSet.Create(new IResourcePortAdapter[] { order, prefill });
+
+        Assert.Equal(2, bindings.Accounts.Count);
+        Assert.Single(bindings.CapacityDomains);
+        Assert.All(bindings.Accounts, item => Assert.Same(staging, item.RuntimeStateReference));
+        Assert.Same(staging, Assert.Single(bindings.CapacityDomains).RuntimeStateReference);
+    }
+
+    [Fact]
+    public void BatchBindingRegistryRejectsSameAccountIdentityOnDifferentRuntimeObjects()
+    {
+        var owner = new OwnerIdentity(new WorldInstanceId("world.batch.account-alias"),
+            ResourceOwnerKind.Workshop, "workshop.batch.alias");
+        var firstWorkshop = new Workshop("master", ownedInstanceId: owner.LocalOwnerId, ownerIdentity: owner);
+        var secondWorkshop = new Workshop("master", ownedInstanceId: owner.LocalOwnerId, ownerIdentity: owner);
+        var first = new WorkshopFreeLiquidPortAdapter(firstWorkshop, "area.workshop", owner);
+        var second = new WorkshopFreeLiquidPortAdapter(secondWorkshop, "area.workshop", owner);
+
+        Assert.Equal(first.Account.AccountId, second.Account.AccountId);
+        Assert.Throws<DomainValidationException>(() =>
+            ResourceBatchBindingSet.Create(new IResourcePortAdapter[] { first, second }));
+    }
+
+    [Fact]
+    public void BatchBindingRegistryRejectsSameCapacityDomainIdOnDifferentStagingObjects()
+    {
+        var owner = new OwnerIdentity(new WorldInstanceId("world.batch.domain-alias"),
+            ResourceOwnerKind.Workshop, "workshop.batch.domain.alias");
+        var first = new WorkshopOrderLiquidPortAdapter(
+            new WorkshopLiquidStaging(8), owner, "area.staging", 101);
+        var second = new WorkshopPrefillLiquidPortAdapter(
+            new WorkshopLiquidStaging(8), owner, "area.staging");
+
+        Assert.Throws<DomainValidationException>(() =>
+            ResourceBatchBindingSet.Create(new IResourcePortAdapter[] { first, second }));
+    }
+
+    [Fact]
+    public void BatchBindingRegistryRejectsLegacyAccountV1Adapters()
+    {
+        var legacy = new WorkshopFreeLiquidPortAdapter(
+            new Workshop("master", ownedInstanceId: "workshop.batch.legacy"), "area.workshop");
+
+        Assert.Throws<DomainValidationException>(() =>
+            ResourceBatchBindingSet.Create(new[] { legacy }));
+    }
+
+    [Fact]
     public void PortIdentityLimitAndUnsupportedThroughputFailClosed()
     {
         var workshop = new Workshop("master", ownedInstanceId: "workshop.03");
