@@ -796,6 +796,7 @@ public sealed class WorldOrderExecutionSessionTests
             new ThrowAtOrderTransferBoundary("ledger-publication"));
 
         Assert.True(started.Success, started.Reason);
+        var lease = setup.Reservations.FindLease(demand.Id)!;
         var session = started.Session!;
         session.AdvanceLogicalTime(1_000);
 
@@ -803,8 +804,7 @@ public sealed class WorldOrderExecutionSessionTests
         Assert.Contains("ledger-publication", session.Reason);
         Assert.Same(jar, Assert.Single(master.Jars));
         Assert.Empty(slave.Jars);
-        Assert.Equal(OrderResourceLeaseStage.Settled,
-            setup.Reservations.FindLease(demand.Id)?.Stage);
+        Assert.Equal(OrderResourceLeaseStage.Settled, lease.Stage);
         Assert.Equal(0, setup.Reservations.Count);
         Assert.Empty(ledger.For(ResourceCauses.Transfer));
     }
